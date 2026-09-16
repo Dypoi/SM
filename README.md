@@ -116,6 +116,25 @@ git pull origin arena/01a0a87a-sm
 > ada di komputer server, halaman Pembaruan tetap menampilkan langkah manualnya.
 > Untuk mematikan fitur ini: set `SM_GIT_UPDATE=0`.
 
+### Mode otomatis (bawaan)
+
+Sejak fitur pembaruan, aplikasi memeriksa GitHub **setiap 6 jam** dan — bila ada versi
+baru, tidak ada perubahan kode lokal, dan kode barunya lolos pemeriksaan — langsung
+menariknya lalu memuat ulang server sendiri. Seluruh proses itu disetel di halaman
+**Pembaruan → Pengaturan Pembaruan**:
+
+| Opsi | Bawaan | Guna |
+| --- | --- | --- |
+| Periksa pembaruan otomatis | aktif | Menghubungi GitHub berkala; matikan bila server tanpa internet |
+| Tarik otomatis | aktif | `git pull` sendiri tanpa klik |
+| Muat ulang otomatis | aktif | Server memakai kode baru tanpa ditutup manual |
+
+**Pengaman sebelum kode baru dipakai:** berkas di-`fetch` + `pull --ff-only`, basis data
+dicadangkan ke `data/backup/`, lalu kode diperiksa (`compileall` seluruh modul dan uji
+impor `app.main`). Bila kode barunya rusak, perubahan **dikembalikan otomatis**
+(`git reset --hard` ke revisi sebelumnya) sehingga aplikasi tetap berjalan, dan
+kejadiannya tercatat di **Pengaturan → Audit** serta halaman Pembaruan.
+
 ### Tanya jawab pembaruan
 
 | Pertanyaan | Jawaban |
