@@ -154,5 +154,28 @@
   </section>
 </div>
 <script src="{{ static_url('js/app.js') if static_url is defined else '/static/js/app.js' }}" defer></script>
+<script>
+/* Ingat pilihan peran supaya siswa tidak perlu memilih tab setiap kali masuk. */
+(function () {
+  var tombol = document.querySelectorAll(".switch [data-tab]");
+  var bawaan = {% if form_mode is defined and form_mode %}"{{ form_mode }}"{% else %}null{% endif %};
+  function aktifkan(nama) {
+    tombol.forEach(function (t) {
+      t.classList.toggle("active", t.getAttribute("data-tab") === nama);
+    });
+    document.querySelectorAll(".tab-panel").forEach(function (panel) {
+      panel.classList.toggle("active", panel.getAttribute("data-panel") === nama);
+    });
+  }
+  var tersimpan = null;
+  try { tersimpan = window.localStorage.getItem("sm-peran-terakhir"); } catch (e) { tersimpan = null; }
+  if (!bawaan && tersimpan) aktifkan(tersimpan);
+  tombol.forEach(function (t) {
+    t.addEventListener("click", function () {
+      try { window.localStorage.setItem("sm-peran-terakhir", t.getAttribute("data-tab")); } catch (e) {}
+    });
+  });
+})();
+</script>
 </body>
 </html>

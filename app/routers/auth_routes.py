@@ -29,6 +29,8 @@ def halaman_login(request: Request):
         {
             "next": request.query_params.get("next", ""),
             "keluar": request.query_params.get("keluar") == "1",
+            # /login?mode=siswa membuka langsung tab siswa.
+            "form_mode": request.query_params.get("mode", ""),
             "pakai_tanggal_lahir": auth.student_requires_birthdate(),
         },
     )
@@ -113,9 +115,12 @@ def proses_login(
 @router.post("/logout", include_in_schema=False)
 def proses_logout(request: Request):
     user = auth.current_user(request)
+    siswa = bool(user and user.role == auth.ROLE_SISWA)
     if user:
         services.log_audit(user.username, user.role, "logout")
-    response = RedirectResponse("/login?keluar=1", status_code=303)
+    # Siswa dikembalikan ke tab siswa, petugas ke tab admin/guru.
+    tujuan = "/login?keluar=1&mode=siswa" if siswa else "/login?keluar=1"
+    response = RedirectResponse(tujuan, status_code=303)
     auth.end_session(response)
     return response
 
