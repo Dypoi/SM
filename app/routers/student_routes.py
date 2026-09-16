@@ -245,6 +245,20 @@ def halaman_statistik(request: Request, user: auth.SessionUser = Depends(auth.re
     )
 
 
+@router.post("/kualitas-data/rapikan-wali")
+def rapikan_data_wali(request: Request, user: auth.SessionUser = Depends(auth.require_staff)):
+    """Hapus data wali yang tidak sesuai aturan — diproses sistem, tanpa persetujuan."""
+    hasil = services.rapikan_wali_otomatis(aktor=user.username)
+    if not hasil["diperiksa"]:
+        pesan = "Tidak ada data wali yang perlu dibersihkan."
+    else:
+        pesan = (
+            f"Data wali dibersihkan otomatis: {hasil['dibersihkan']} siswa diubah "
+            f"dari {hasil['diperiksa']} yang diperiksa."
+        )
+    return RedirectResponse(f"/kualitas-data?level=ok&msg={quote_plus(pesan)}", status_code=303)
+
+
 @router.get("/kualitas-data")
 def halaman_kualitas(request: Request, user: auth.SessionUser = Depends(auth.require_staff)):
     return render(

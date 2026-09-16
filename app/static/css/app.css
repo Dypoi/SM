@@ -506,3 +506,9 @@ table.tabel-kecil th, table.tabel-kecil td { padding: .4rem .55rem; font-size: .
   color: #fff;
 }
 .wali-fields { margin-top: .2rem; }
+
+/* --- Tombol aksi sebaris dengan tautan (mis. Rapikan data wali) ---------- */
+.inline-form { display: inline-flex; margin: 0; }
+
+/* --- Tombol aksi sebaris dengan tautan (mis. Rapikan data wali) ---------- */
+.inline-form { display: inline-flex; margin: 0; }

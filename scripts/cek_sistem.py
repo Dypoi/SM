@@ -386,12 +386,13 @@ def cek_pengajuan():
             f"3 jenis berkas; disetujui {stat['disetujui']} / ditolak {stat['ditolak']}")
 
 
-@cek("15. Dropdown pekerjaan/penghasilan & aturan data keluarga")
+@cek("15. Dropdown pekerjaan/penghasilan/pendidikan & aturan ayah-ibu-wali")
 def cek_keluarga():
-    """Pilihan pekerjaan/penghasilan serta aturan ayah/ibu/wali pada formulir."""
-    from app import services
+    """Pilihan pekerjaan/penghasilan/pendidikan serta aturan ayah-ibu-wali."""
+    from app import db, services
     from app.dapodik import (FIELD_BY_KEY, FIELD_PEKERJAAN, FIELD_PENGHASILAN,
-                             PEKERJAAN_OPTIONS, PENGHASILAN_OPTIONS)
+                             FIELD_PENDIDIKAN, FIELD_WALI, PEKERJAAN_OPTIONS,
+                             PENGHASILAN_OPTIONS, PENDIDIKAN_OPTIONS)
 
     # --- dropdown ---
     assert len(PEKERJAAN_OPTIONS) == 17, f"pilihan pekerjaan: {len(PEKERJAAN_OPTIONS)}"
@@ -403,6 +404,10 @@ def cek_keluarga():
         assert FIELD_BY_KEY[key].choices == PENGHASILAN_OPTIONS, f"{key} belum memakai daftar penghasilan"
     assert "Tidak Berpenghasilan" in PENGHASILAN_OPTIONS
     assert "Sudah Meninggal" in PEKERJAAN_OPTIONS
+    assert len(PENDIDIKAN_OPTIONS) == 17, f"pilihan pendidikan: {len(PENDIDIKAN_OPTIONS)}"
+    for key in FIELD_PENDIDIKAN:
+        assert FIELD_BY_KEY[key].choices == PENDIDIKAN_OPTIONS, f"{key} belum memakai daftar pendidikan"
+    assert {"D1", "S1", "Paud", "Paket A", "Paket C", "Tidak Sekolah"} <= set(PENDIDIKAN_OPTIONS)
 
     # --- aturan: nama ayah harus berbeda dengan nama ibu ---
     sid = services.create_student(
@@ -417,48 +422,83 @@ def cek_keluarga():
     except ValueError as exc:
         assert "ayah" in str(exc).lower()
 
-    # --- aturan: wali tidak boleh memakai data ayah/ibu ---
+    # --- wali: data yang melanggar aturan tidak disimpan (sistem yang menghapus) ---
+    sid_wali = services.create_student(
+        {"nama": "UJI WALI AUTO", "nisn": "3999000021", "jk": "L", "ayah_nama": "RIYANTO",
+         "ibu_nama": "SITI", "wali_nama": "riyanto"}, actor="cek")
+    assert not (services.get_student(sid_wali).get("wali_nama") or ""), \
+        "wali yang memakai nama ayah seharusnya tidak disimpan"
+
+    sid_sah = services.create_student(
+        {"nama": "UJI WALI SAH", "nisn": "3999000022", "jk": "P", "ibu_nama": "RATNA",
+         "wali_nama": "SUPARMAN"}, actor="cek")
+    assert (services.get_student(sid_sah).get("wali_nama") or "") == "SUPARMAN", "wali sah hilang"
+
+    # mengisi nama ayah -> data wali dihapus otomatis oleh sistem
+    services.update_student(sid_sah, {"ayah_nama": "BUDI"}, actor="cek")
+    assert not (services.get_student(sid_sah).get("wali_nama") or ""), \
+        "data wali belum dihapus otomatis saat nama ayah diisi"
+    assert int(db.query_value(
+        "SELECT COUNT(*) FROM audit_log WHERE aksi = 'hapus_wali_otomatis'") or 0) >= 1, \
+        "penghapusan wali otomatis tidak tercatat di audit"
+
+    # penghapusan wali oleh siswa: langsung diproses sistem, tanpa berkas & tanpa antrean
+    sid_hapus = services.create_student(
+        {"nama": "UJI HAPUS WALI", "nisn": "3999000023", "jk": "L", "ibu_nama": "DEWI",
+         "wali_nama": "HENDRA", "wali_pekerjaan": "Nelayan"}, actor="cek")
+    pengajuan_hapus = services.ajukan_perubahan(
+        sid_hapus, {"wali_nama": "", "wali_pekerjaan": ""}, aktor="cek")
+    assert pengajuan_hapus["status"] == "disetujui", "penghapusan wali tidak auto-disetujui"
+    assert pengajuan_hapus["diputuskan_oleh"] == "sistem", "bukan diputuskan sistem"
+    assert not (services.get_student(sid_hapus).get("wali_nama") or ""), "data wali belum terhapus"
+    assert all(int(item["id"]) != int(pengajuan_hapus["id"])
+               for item in services.daftar_pengajuan(status="menunggu", limit=50)), \
+        "penghapusan wali masih masuk antrean admin"
+
+    # mengisi wali padahal ayah sudah ada -> ditolak sistem dengan pesan jelas
+    sid_ayah = services.create_student(
+        {"nama": "UJI AYAH ADA", "nisn": "3999000024", "jk": "L", "ayah_nama": "JOKO"}, actor="cek")
     try:
-        services.validasi_keluarga({"wali_nama": "siti aminah"}, services.get_student(sid))
-        raise AssertionError("nama wali = nama ibu seharusnya ditolak")
+        services.ajukan_perubahan(sid_ayah, {"wali_nama": "SUPARMAN"}, aktor="cek")
+        raise AssertionError("pengisian wali saat ayah ada seharusnya ditolak")
     except ValueError as exc:
         assert "wali" in str(exc).lower()
 
-    # --- aturan: data wali hanya boleh dihapus bila namanya berbeda ---
-    services.validasi_keluarga({"wali_nama": ""}, services.get_student(sid))  # berbeda -> boleh
-    sid2 = services.create_student(
-        {"nama": "UJI WALI SAMA", "nisn": "3999000012", "jk": "L", "ayah_nama": "AHMAD",
-         "wali_nama": "Ahmad"}, actor="cek")
-    try:
-        services.validasi_keluarga({"wali_nama": ""}, services.get_student(sid2))
-        raise AssertionError("menghapus wali yang namanya sama dengan ayah seharusnya ditolak")
-    except ValueError as exc:
-        assert "tidak bisa dihapus" in str(exc)
+    # pembersihan data lama (mis. hasil impor) berjalan satu perintah
+    db.execute("UPDATE students SET wali_nama = ?, wali_pendidikan = ? WHERE id = ?",
+               ("Pak Joko", "S1", sid_ayah))
+    perlu = services.siswa_perlu_bersih_wali()
+    assert any(item["id"] == sid_ayah for item in perlu), "siswa dengan wali lama tidak terdeteksi"
+    hasil_rapikan = services.rapikan_wali_otomatis(aktor="cek")
+    assert hasil_rapikan["dibersihkan"] >= 1, f"pembersihan tidak berjalan: {hasil_rapikan}"
+    assert not (services.get_student(sid_ayah).get("wali_nama") or ""), "data wali belum dibersihkan"
 
-    # --- pengajuan siswa lewat layanan: penghapusan wali ikut tercatat ---
-    siswa = services.get_student(sid)
-    pengajuan = services.ajukan_perubahan(
-        sid, {"wali_nama": ""}, aktor="cek",
+    # --- pengisian wali yang sah (ayah kosong) tetap lewat persetujuan admin ---
+    sid_wali_baru = services.create_student(
+        {"nama": "UJI WALI BARU", "nisn": "3999000025", "jk": "P", "ibu_nama": "SRI"}, actor="cek")
+    pengajuan_wali = services.ajukan_perubahan(
+        sid_wali_baru, {"wali_nama": "SUGENG", "wali_pendidikan": "S1"}, aktor="cek",
         dokumen={
             "akta_lahir": ("akta.png", b"\x89PNG\r\n\x1a\n" + b"uji" * 8),
             "kk": ("kk.png", b"\x89PNG\r\n\x1a\n" + b"uji" * 8),
             "ijazah": ("ijazah.pdf", b"%PDF-1.4 uji"),
         },
     )
-    assert any(item["field"] == "wali_nama" for item in pengajuan["items"]), "hapus wali tidak diajukan"
-    services.putuskan_pengajuan(int(pengajuan["id"]), True, aktor="cek")
-    assert not (services.get_student(sid).get("wali_nama") or ""), "data wali belum terhapus"
+    assert pengajuan_wali["status"] == "menunggu", "pengisian wali sah tidak perlu auto-disetujui"
+    services.putuskan_pengajuan(int(pengajuan_wali["id"]), True, aktor="cek")
+    assert (services.get_student(sid_wali_baru).get("wali_nama") or "") == "SUGENG", "wali sah tidak tersimpan"
 
     # --- temuan kualitas data ikut memeriksa nama kembar ---
-    services.create_student({"nama": "UJI KEMBAR", "nisn": "3999000013", "jk": "P",
+    services.create_student({"nama": "UJI KEMBAR", "nisn": "3999000026", "jk": "P",
                              "ayah_nama": "NAMA SAMA", "ibu_nama": "nama sama"}, actor="cek")
     kode = {item["kode"]: item["jumlah"] for item in services.data_quality()["temuan"]}
-    for kunci in ("AYAH_IBU_SAMA", "WALI_SAMA_AYAH_IBU", "PEKERJAAN_LUAR_DAFTAR",
-                  "PENGHASILAN_LUAR_DAFTAR"):
+    for kunci in ("AYAH_IBU_SAMA", "WALI_SAMA_AYAH_IBU", "WALI_PERLU_DIBERSIHKAN",
+                  "PEKERJAAN_LUAR_DAFTAR", "PENGHASILAN_LUAR_DAFTAR", "PENDIDIKAN_LUAR_DAFTAR"):
         assert kunci in kode, f"temuan {kunci} tidak ada"
     assert kode["AYAH_IBU_SAMA"] >= 1, "temuan ayah = ibu tidak terhitung"
-    return (f"{len(PEKERJAAN_OPTIONS)} pilihan pekerjaan & {len(PENGHASILAN_OPTIONS)} pilihan penghasilan; "
-            f"ayah/ibu/wali diperiksa; wali {siswa.get('wali_nama')} terhapus lewat pengajuan")
+    return (f"{len(PEKERJAAN_OPTIONS)} pekerjaan, {len(PENGHASILAN_OPTIONS)} penghasilan, "
+            f"{len(PENDIDIKAN_OPTIONS)} pendidikan; {len(FIELD_WALI)} kolom wali; "
+            f"hapus wali otomatis (tanpa persetujuan) & {hasil_rapikan['dibersihkan']} data lama dibersihkan")
 
 
 @cek("16. Halaman pengajuan & portal siswa (izin akses)")

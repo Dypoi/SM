@@ -18,8 +18,22 @@
     <div>
       <h3>Temuan yang perlu ditindaklanjuti</h3>
       <p>Pemeriksaan ini meniru validasi Dapodik sehingga data lebih siap saat disinkronkan.</p>
+      {% if kualitas.wali_dibersihkan %}
+      <p class="muted" style="font-size:.82rem;margin-top:.3rem">
+        Data wali di bawah ini akan dihapus <strong>otomatis oleh sistem</strong>
+        (tanpa persetujuan) — baik saat datanya disimpan ulang maupun lewat tombol rapikan.
+      </p>
+      {% endif %}
     </div>
     <a class="btn btn-outline btn-sm" href="/data-siswa?lengkap=0">{{ icon('search') }} Buka daftar siswa bermasalah</a>
+    {% if kualitas.wali_dibersihkan %}
+    <form method="post" action="/kualitas-data/rapikan-wali" class="inline-form">
+      <button class="btn btn-warning btn-sm" type="submit"
+              onclick="return confirm('Hapus data wali otomatis untuk {{ kualitas.wali_dibersihkan | length }} siswa? Data wali akan dikosongkan.')">
+        {{ icon('warning') }} Rapikan data wali ({{ kualitas.wali_dibersihkan | length }})
+      </button>
+    </form>
+    {% endif %}
   </div>
   <div class="card-body p-0 table-wrap">
     <table class="data">
@@ -49,6 +63,38 @@
     </table>
   </div>
 </div>
+
+{% if kualitas.wali_dibersihkan %}
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Data Wali yang Dihapus Otomatis ({{ kualitas.wali_dibersihkan | length }})</h3>
+      <p>Sistem tidak menyimpan data wali pada kondisi di bawah ini.</p>
+    </div>
+  </div>
+  <div class="card-body p-0 table-wrap">
+    <table class="data tabel-kecil">
+      <thead>
+        <tr><th>Nama siswa</th><th>NISN</th><th>Rombel</th><th>Wali tersimpan</th><th>Alasan</th></tr>
+      </thead>
+      <tbody>
+        {% for item in kualitas.wali_dibersihkan[:50] %}
+        <tr>
+          <td><a href="/data-siswa/{{ item.id }}">{{ item.nama }}</a></td>
+          <td class="mono">{{ item.nisn or '—' }}</td>
+          <td>{{ item.rombel or '—' }}</td>
+          <td>{{ item.wali_nama or '—' }}</td>
+          <td class="muted">{{ item.alasan }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if kualitas.wali_dibersihkan | length > 50 %}
+    <div class="card-body"><p class="muted mb-0">Menampilkan 50 siswa pertama.</p></div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
 
 <div class="split mt-2">
   <div class="card">

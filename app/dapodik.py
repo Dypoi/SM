@@ -75,9 +75,33 @@ PENGHASILAN_OPTIONS: tuple[str, ...] = (
     "Tidak Berpenghasilan",
 )
 
-#: Kolom yang memakai daftar pilihan pekerjaan / penghasilan.
+#: Pilihan jenjang pendidikan ayah/ibu/wali (daftar Dapodik). D4, S2, dan S3
+#: disertakan karena memang dipakai pada berkas sekolah dan ada di Dapodik.
+PENDIDIKAN_OPTIONS: tuple[str, ...] = (
+    "Tidak Sekolah",
+    "Putus SD",
+    "SD / sederajat",
+    "SMP / sederajat",
+    "SMA / sederajat",
+    "Paket A",
+    "Paket B",
+    "Paket C",
+    "TK / sederajat",
+    "Paud",
+    "D1",
+    "D2",
+    "D3",
+    "D4",
+    "S1",
+    "S2",
+    "S3",
+)
+
+#: Kolom yang memakai daftar pilihan pekerjaan / penghasilan / pendidikan.
 FIELD_PEKERJAAN: tuple[str, ...] = ("ayah_pekerjaan", "ibu_pekerjaan", "wali_pekerjaan")
 FIELD_PENGHASILAN: tuple[str, ...] = ("ayah_penghasilan", "ibu_penghasilan", "wali_penghasilan")
+FIELD_PENDIDIKAN: tuple[str, ...] = ("ayah_pendidikan", "ibu_pendidikan", "wali_pendidikan")
+
 
 
 STUDENT_FIELDS: tuple[FieldSpec, ...] = (
@@ -108,7 +132,7 @@ STUDENT_FIELDS: tuple[FieldSpec, ...] = (
     # ---- Data Ayah ----
     FieldSpec("ayah_nama", "Ayah - Nama", ("nama", "nama ayah", "ayah", "nama bapak", "bapak", "nama papa"), "ayah"),
     FieldSpec("ayah_tahun_lahir", "Ayah - Tahun Lahir", ("tahun lahir",), "ayah", kind="int"),
-    FieldSpec("ayah_pendidikan", "Ayah - Jenjang Pendidikan", ("jenjang pendidikan",), "ayah"),
+    FieldSpec("ayah_pendidikan", "Ayah - Jenjang Pendidikan", ("jenjang pendidikan",), "ayah", choices=PENDIDIKAN_OPTIONS),
     FieldSpec("ayah_pekerjaan", "Ayah - Pekerjaan", ("pekerjaan",), "ayah", choices=PEKERJAAN_OPTIONS),
     FieldSpec("ayah_penghasilan", "Ayah - Penghasilan", ("penghasilan",), "ayah", choices=PENGHASILAN_OPTIONS),
     FieldSpec("ayah_nik", "Ayah - NIK", ("nik",), "ayah"),
@@ -116,7 +140,7 @@ STUDENT_FIELDS: tuple[FieldSpec, ...] = (
     # ---- Data Ibu ----
     FieldSpec("ibu_nama", "Ibu - Nama", ("nama", "nama ibu", "ibu", "nama mama", "nama emak", "nama bunda"), "ibu"),
     FieldSpec("ibu_tahun_lahir", "Ibu - Tahun Lahir", ("tahun lahir",), "ibu", kind="int"),
-    FieldSpec("ibu_pendidikan", "Ibu - Jenjang Pendidikan", ("jenjang pendidikan",), "ibu"),
+    FieldSpec("ibu_pendidikan", "Ibu - Jenjang Pendidikan", ("jenjang pendidikan",), "ibu", choices=PENDIDIKAN_OPTIONS),
     FieldSpec("ibu_pekerjaan", "Ibu - Pekerjaan", ("pekerjaan",), "ibu", choices=PEKERJAAN_OPTIONS),
     FieldSpec("ibu_penghasilan", "Ibu - Penghasilan", ("penghasilan",), "ibu", choices=PENGHASILAN_OPTIONS),
     FieldSpec("ibu_nik", "Ibu - NIK", ("nik",), "ibu"),
@@ -124,7 +148,7 @@ STUDENT_FIELDS: tuple[FieldSpec, ...] = (
     # ---- Data Wali ----
     FieldSpec("wali_nama", "Wali - Nama", ("nama", "nama wali", "wali"), "wali"),
     FieldSpec("wali_tahun_lahir", "Wali - Tahun Lahir", ("tahun lahir",), "wali", kind="int"),
-    FieldSpec("wali_pendidikan", "Wali - Jenjang Pendidikan", ("jenjang pendidikan",), "wali"),
+    FieldSpec("wali_pendidikan", "Wali - Jenjang Pendidikan", ("jenjang pendidikan",), "wali", choices=PENDIDIKAN_OPTIONS),
     FieldSpec("wali_pekerjaan", "Wali - Pekerjaan", ("pekerjaan",), "wali", choices=PEKERJAAN_OPTIONS),
     FieldSpec("wali_penghasilan", "Wali - Penghasilan", ("penghasilan",), "wali", choices=PENGHASILAN_OPTIONS),
     FieldSpec("wali_nik", "Wali - NIK", ("nik",), "wali"),
@@ -153,6 +177,11 @@ STUDENT_FIELDS: tuple[FieldSpec, ...] = (
 )
 
 FIELD_BY_KEY: dict[str, FieldSpec] = {spec.key: spec for spec in STUDENT_FIELDS}
+
+#: Seluruh kolom data wali (dipakai aturan hapus otomatis data wali).
+FIELD_WALI: tuple[str, ...] = tuple(
+    spec.key for spec in STUDENT_FIELDS if spec.group == "wali"
+)
 
 #: Field Dapodik yang tidak dipakai lagi di SM (dihapus atas permintaan sekolah).
 #: Kolomnya tetap ada pada berkas Excel Dapodik, jadi saat impor hanya diabaikan.

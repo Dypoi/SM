@@ -263,23 +263,31 @@ akta lahir, kesehatan, sampai koordinat rumah.
   Rp. 500,000 · Rp. 500,000 - Rp. 999,999 · Rp. 1,000,000 - Rp. 1,999,999 ·
   Rp. 2,000,000 - Rp. 4,999,999 · Rp. 5,000,000 - Rp. 20,000,000 ·
   Lebih dari Rp. 20,000,000 · Tidak Berpenghasilan.
+- **Jenjang pendidikan** (ayah, ibu, wali) dipilih dari daftar: Tidak Sekolah ·
+  Putus SD · SD / sederajat · SMP / sederajat · SMA / sederajat · Paket A ·
+  Paket B · Paket C · TK / sederajat · Paud · D1 · D2 · D3 · D4 · S1 · S2 · S3.
 - Nilai lama dari berkas impor yang tidak ada di daftar tetap ditampilkan
   (ditandai *data lama*) supaya tidak ada data yang berubah tanpa disengaja;
   nilai yang hanya berbeda huruf besar/kecil otomatis memakai pilihan baku.
-- **Data wali hanya ditampilkan bila nama ayah kosong.** Bila nama ayah sudah
-  diisi, sistem menganggap siswa tidak memiliki wali dan isian wali tidak ikut
-  disimpan.
-- Di blok wali ada pertanyaan **"Apakah siswa mempunyai wali?"** (Ya / Tidak)
-  dan tombol **Hapus data wali** untuk mengosongkan data wali.
-- Aturan yang dijaga sistem:
-  1. **nama ayah tidak boleh sama dengan nama ibu**;
-  2. **nama wali tidak boleh sama dengan nama ayah/ibu** (dulu sering terisi
-     data ayah);
-  3. **data wali hanya boleh dihapus bila namanya berbeda dari nama ayah/ibu** —
-     bila sama, sistem menolak dan meminta nama wali dibetulkan lebih dahulu.
-- Data yang sudah ada (basis data / berkas impor) tidak diubah otomatis — impor
-  tetap menampilkan isi berkas apa adanya. Pelanggaran aturan di atas dilaporkan
-  pada halaman **Kualitas Data**.
+- **Data wali hanya ditampilkan bila nama ayah kosong.** Di blok wali ada
+  pertanyaan **"Apakah siswa mempunyai wali?"** (Ya / Tidak) serta tombol
+  **Hapus data wali**.
+- **Data wali dihapus otomatis oleh sistem — tanpa persetujuan siapa pun.**
+  Sistem menganggap siswa tidak memiliki wali (dan mengosongkan seluruh kolom
+  wali) bila salah satu kondisi ini terpenuhi:
+  1. **nama ayah sudah diisi** → siswa dianggap tidak punya wali;
+  2. **nama wali sama dengan nama ayah/ibu** → itu sebenarnya data ayah/ibu;
+  3. **kolom wali terisi tetapi nama wali kosong**.
+  Penghapusan ini berlaku di formulir petugas, di pengajuan siswa (langsung
+  selesai tanpa masuk antrean admin dan tanpa perlu unggah berkas), maupun
+  lewat API bot; setiap penghapusan tercatat di riwayat data & audit.
+- Satu-satunya aturan yang **menolak** penyimpanan: **nama ayah tidak boleh
+  sama dengan nama ibu** — pesannya meminta kedua nama diperiksa.
+- **Rapikan data lama**: bila masih ada data wali dari berkas impor yang tidak
+  sesuai aturan, halaman **Kualitas Data** menampilkan daftar siswanya beserta
+  alasan dan tombol **"Rapikan data wali"** untuk membersihkannya sekaligus.
+  Impor berkas sendiri tetap menampilkan isi berkas apa adanya (tidak dipangkas
+  saat diunggah).
 
 ### Persetujuan data siswa (khusus admin)
 - Menu **Persetujuan Data** menampilkan antrean pengajuan siswa (yang menunggu di atas)
@@ -294,10 +302,11 @@ akta lahir, kesehatan, sampai koordinat rumah.
 
 ### Statistik & kualitas data
 - Rekap per tingkat, rombel, agama, kecamatan, kebutuhan khusus, program bantuan.
-- **Kualitas Data**: kelengkapan setiap kolom, 12 temuan bergaya validasi Dapodik
+- **Kualitas Data**: kelengkapan setiap kolom, 14 temuan bergaya validasi Dapodik
   (NISN bukan 10 digit, NIK bukan 16 digit, NISN ganda, **nama ayah sama dengan
-  nama ibu**, **nama wali sama dengan nama ayah/ibu**, **pekerjaan atau penghasilan
-  di luar daftar pilihan**, dan lainnya), serta panel kesiapan sinkronisasi.
+  nama ibu**, **nama wali sama dengan nama ayah/ibu**, **data wali yang akan
+  dibersihkan otomatis**, **pendidikan/pekerjaan/penghasilan di luar daftar
+  pilihan**, dan lainnya), serta panel kesiapan sinkronisasi.
 
 ### Pengaturan (khusus admin)
 - Identitas sekolah (nama, NPSN, alamat, kepala sekolah, kontak).
@@ -440,7 +449,8 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 - [x] Fitur pembaruan aplikasi dari dalam web (git pull, cadangan, muat ulang)
 - [x] Pengajuan perubahan data oleh siswa + persetujuan admin + berkas bukti
 - [x] Perampingan kolom: 13 kolom Dapodik yang tidak dipakai dihapus
-- [x] Dropdown pekerjaan & penghasilan serta aturan data ayah/ibu/wali
+- [x] Dropdown pekerjaan, penghasilan, & pendidikan serta aturan data ayah/ibu/wali
+      (data wali dihapus otomatis oleh sistem)
 - [ ] **Bot Dapodik**: pembaca berkas Dapodik, pembanding data, dan pengirim koreksi otomatis
 - [ ] Riwayat kenaikan kelas & mutasi siswa antar tahun ajaran
 - [ ] Presensi harian dan rekap per kelas

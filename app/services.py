@@ -19,8 +19,10 @@ from typing import Any
 from . import config, db
 from .dapodik import (
     FIELD_BY_KEY,
+    FIELD_WALI,
     PEKERJAAN_OPTIONS,
     PENGHASILAN_OPTIONS,
+    PENDIDIKAN_OPTIONS,
     STUDENT_FIELDS,
     ParsedSpreadsheet,
     parse_sheet,
@@ -531,6 +533,15 @@ def create_student(data: dict[str, Any], actor: str | None = None) -> int:
     values = {key: value for key, value in data.items() if key in STUDENT_WRITABLE}
     if not values.get("nama"):
         raise ValueError("Nama siswa wajib diisi.")
+    # Data wali yang tidak sesuai aturan tidak disimpan (sistem yang menghapus).
+    kosong = normalisasi_wali(values)
+    if kosong:
+        alasan = kosong.pop("__alasan__")
+        values.update({key: None for key in kosong})
+        log.info("Data wali tidak disimpan untuk %s: %s", values.get("nama"), alasan)
+        data_wali_kosong = True
+    else:
+        data_wali_kosong = False
     if not values.get("tingkat") and values.get("rombel"):
         from .dapodik import derive_tingkat
 
@@ -547,15 +558,29 @@ def create_student(data: dict[str, Any], actor: str | None = None) -> int:
             (student_id, values.get("nisn"), key, _text(value), "manual", actor),
         )
     log_audit(actor, None, "tambah_siswa", "students", student_id, values.get("nama"))
+    if data_wali_kosong:
+        log_audit(actor, None, "hapus_wali_otomatis", "students", student_id,
+                  f"{values.get('nama')} — data wali tidak disimpan sesuai aturan")
     return student_id
 
 
 def update_student(student_id: int, data: dict[str, Any],
                    actor: str | None = None, source: str = "manual") -> list[tuple[str, Any, Any]]:
-    """Perbarui siswa dan catat setiap perubahan field (untuk audit & bot Dapodik)."""
+    """Perbarui siswa dan catat setiap perubahan field (untuk audit & bot Dapodik).
+
+    Data wali yang tidak sesuai aturan (nama ayah terisi, nama wali sama dengan
+    ayah/ibu, atau kolom wali tanpa nama) dihapus otomatis oleh sistem.
+    """
     current = get_student(student_id)
     if current is None:
         raise ValueError("Siswa tidak ditemukan.")
+
+    kosong = normalisasi_wali(data, current)
+    if kosong:
+        alasan_wali = kosong.pop("__alasan__")
+        data = {**data, **kosong}
+        log_audit(actor, None, "hapus_wali_otomatis", "students", student_id,
+                  f"{current.get('nama')} — {alasan_wali}")
 
     updates: dict[str, Any] = {}
     changes: list[tuple[str, Any, Any]] = []
@@ -718,8 +743,10 @@ def data_quality() -> dict[str, Any]:
     belum_lengkap = int(db.query_value(f"SELECT COUNT(*) FROM students s WHERE {checks}") or 0)
 
     # Temuan spesifik ala Dapodik
+    tanda_pendidikan = ", ".join("?" for _ in PENDIDIKAN_OPTIONS)
     tanda_pekerjaan = ", ".join("?" for _ in PEKERJAAN_OPTIONS)
     tanda_penghasilan = ", ".join("?" for _ in PENGHASILAN_OPTIONS)
+    baku_pendidikan = [opsi.lower() for opsi in PENDIDIKAN_OPTIONS]
     baku_pekerjaan = [opsi.lower() for opsi in PEKERJAAN_OPTIONS]
     baku_penghasilan = [opsi.lower() for opsi in PENGHASILAN_OPTIONS]
     temuan = [
@@ -800,6 +827,26 @@ def data_quality() -> dict[str, Any]:
             "field": "wali_nama",
         },
         {
+            "kode": "WALI_PERLU_DIBERSIHKAN",
+            "label": "Data wali akan dihapus otomatis oleh sistem",
+            "jumlah": len(siswa_perlu_bersih_wali()),
+            "field": "wali_nama",
+        },
+        {
+            "kode": "PENDIDIKAN_LUAR_DAFTAR",
+            "label": "Pendidikan ayah/ibu/wali di luar daftar pilihan",
+            "jumlah": int(db.query_value(
+                f"""
+                SELECT COUNT(*) FROM students
+                 WHERE (COALESCE(ayah_pendidikan, '') <> '' AND LOWER(TRIM(ayah_pendidikan)) NOT IN ({tanda_pendidikan}))
+                    OR (COALESCE(ibu_pendidikan, '') <> '' AND LOWER(TRIM(ibu_pendidikan)) NOT IN ({tanda_pendidikan}))
+                    OR (COALESCE(wali_pendidikan, '') <> '' AND LOWER(TRIM(wali_pendidikan)) NOT IN ({tanda_pendidikan}))
+                """,
+                (*baku_pendidikan, *baku_pendidikan, *baku_pendidikan),
+            ) or 0),
+            "field": "ayah_pendidikan",
+        },
+        {
             "kode": "PEKERJAAN_LUAR_DAFTAR",
             "label": "Pekerjaan ayah/ibu/wali di luar daftar pilihan",
             "jumlah": int(db.query_value(
@@ -837,6 +884,7 @@ def data_quality() -> dict[str, Any]:
     return {
         "total": total,
         "fields": items,
+        "wali_dibersihkan": siswa_perlu_bersih_wali(),
         "belum_lengkap": belum_lengkap,
         "siap_sinkron": max(0, total - belum_lengkap),
         "temuan": temuan,
@@ -1181,63 +1229,109 @@ def auto_seed_sample(nisn_example: dict[str, str] | None = None) -> dict[str, An
 # =========================================================================== #
 # ATURAN DATA KELUARGA (ayah, ibu, wali)
 # =========================================================================== #
+# ATURAN DATA KELUARGA (ayah, ibu, wali)
+# =========================================================================== #
 def _nama_normal(nilai: Any) -> str:
     """Rapikan nama untuk pembandingan: huruf kecil, spasi ganda disatukan."""
     return " ".join(str(nilai or "").split()).casefold()
 
 
+def alasan_wali_dihapus(data: dict[str, Any]) -> str:
+    """Kembalikan alasan data wali harus dihapus otomatis ('' bila tidak perlu).
+
+    Aturan sistem (tanpa perlu persetujuan siapa pun):
+
+    * nama ayah sudah diisi -> siswa dianggap tidak memiliki wali;
+    * nama wali sama dengan nama ayah/ibu -> itu sebenarnya data ayah/ibu;
+    * kolom wali terisi tetapi nama wali kosong.
+    """
+    ayah = _nama_normal(data.get("ayah_nama"))
+    ibu = _nama_normal(data.get("ibu_nama"))
+    wali = _nama_normal(data.get("wali_nama"))
+    ada_isi_lain = any(
+        str(data.get(key) or "").strip() for key in FIELD_WALI if key != "wali_nama"
+    )
+
+    if not wali and not ada_isi_lain:
+        return ""
+    if wali and wali in {ayah, ibu} - {""}:
+        return "nama wali sama dengan nama ayah/ibu"
+    if ayah:
+        return "nama ayah sudah diisi sehingga siswa dianggap tidak memiliki wali"
+    if not wali and ada_isi_lain:
+        return "kolom wali terisi tetapi nama wali kosong"
+    return ""
+
+
+def normalisasi_wali(data: dict[str, Any], siswa: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Hapus otomatis data wali pada ``data`` bila tidak sesuai aturan.
+
+    Mengembalikan dict berisi kolom wali yang dikosongkan (siap dipakai sebagai
+    nilai baru) beserta alasannya pada kunci ``__alasan__``.
+    """
+    gabungan = {**(siswa or {}), **{k: v for k, v in data.items() if k in FIELD_BY_KEY}}
+    alasan = alasan_wali_dihapus(gabungan)
+    if not alasan:
+        return {}
+    kosong = {key: None for key in FIELD_WALI}
+    kosong["__alasan__"] = alasan
+    return kosong
+
+
 def validasi_keluarga(nilai: dict[str, Any], siswa: dict[str, Any] | None = None) -> None:
-    """Periksa aturan pengisian data ayah/ibu/wali (form petugas & pengajuan siswa).
+    """Aturan yang tidak boleh dilanggar saat menyimpan data siswa.
 
-    * nama ayah tidak boleh sama dengan nama ibu;
-    * nama wali tidak boleh sama dengan nama ayah/ibu;
-    * data wali hanya boleh dihapus bila namanya memang berbeda dari ayah/ibu,
-      supaya data ayah/ibu tidak ikut terhapus karena salah isi.
-
-    ``nilai`` = nilai yang hendak disimpan, ``siswa`` = data yang tersimpan
-    (None saat menambah siswa baru).
+    Hanya satu yang dihentikan: **nama ayah tidak boleh sama dengan nama ibu**.
+    Untuk data wali, sistem membersihkannya otomatis (lihat ``normalisasi_wali``),
+    jadi tidak perlu persetujuan atau penolakan.
     """
     lama = siswa or {}
-    berubah = {
-        kunci: baru
-        for kunci, baru in nilai.items()
-        if kunci in FIELD_BY_KEY and not _same_value(lama.get(kunci), baru)
-    }
-    if not berubah:
-        return
-
-    ayah = _nama_normal(berubah.get("ayah_nama", lama.get("ayah_nama")))
-    ibu = _nama_normal(berubah.get("ibu_nama", lama.get("ibu_nama")))
-    wali = _nama_normal(berubah.get("wali_nama", lama.get("wali_nama")))
-
-    # 1) Nama ayah harus berbeda dengan nama ibu.
-    if {"ayah_nama", "ibu_nama"} & set(berubah) and ayah and ibu and ayah == ibu:
+    ayah = _nama_normal(nilai.get("ayah_nama", lama.get("ayah_nama")))
+    ibu = _nama_normal(nilai.get("ibu_nama", lama.get("ibu_nama")))
+    menyentuh_nama = {"ayah_nama", "ibu_nama"} & set(nilai)
+    if menyentuh_nama and ayah and ibu and ayah == ibu:
         raise ValueError(
             "Nama ayah dan nama ibu tidak boleh sama. Mohon periksa kembali penulisan "
             "kedua nama tersebut."
         )
 
-    if "wali_nama" in berubah:
-        wali_lama = _nama_normal(lama.get("wali_nama"))
-        ayah_lama = _nama_normal(lama.get("ayah_nama"))
-        ibu_lama = _nama_normal(lama.get("ibu_nama"))
 
-        # 2) Wali tidak boleh memakai data ayah/ibu.
-        if wali and wali in {ayah, ibu} - {""}:
-            raise ValueError(
-                "Nama wali tidak boleh sama dengan nama ayah/ibu. Bila wali sebenarnya "
-                "adalah ayah atau ibu, biarkan kolom wali kosong dan isi kolom ayah/ibu saja."
-            )
+def bersihkan_wali_siswa(student_id: int, aktor: str, sumber: str = "sistem") -> list[tuple[str, Any, Any]]:
+    """Hapus data wali seorang siswa bila tidak sesuai aturan (dipakai pembersihan)."""
+    siswa = get_student(student_id)
+    if siswa is None:
+        return []
+    kosong = normalisasi_wali({}, siswa)
+    if not kosong:
+        return []
+    alasan = kosong.pop("__alasan__")
+    perubahan = update_student(student_id, kosong, actor=aktor, source=sumber)
+    if perubahan:
+        log_audit(aktor, "admin", "hapus_wali_otomatis", "students", student_id,
+                  f"{siswa.get('nama')} — {alasan}")
+    return perubahan
 
-        # 3) Data wali hanya boleh dihapus bila namanya berbeda dari ayah/ibu.
-        if not wali and wali_lama and wali_lama in {ayah_lama, ibu_lama} - {""}:
-            raise ValueError(
-                f"Data wali \"{lama.get('wali_nama')}\" namanya sama dengan nama ayah/ibu, "
-                "jadi kemungkinan itu data ayah/ibu dan tidak bisa dihapus dari sini. "
-                "Perbaiki dulu nama wali atau nama ayah/ibu, lalu simpan kembali."
-            )
-        if not wali and wali_lama:
-            log.info("Data wali dikosongkan (dihapus) atas permintaan pengguna.")
+
+def siswa_perlu_bersih_wali() -> list[dict[str, Any]]:
+    """Daftar siswa yang data walinya akan dihapus otomatis oleh sistem."""
+    hasil: list[dict[str, Any]] = []
+    for row in db.rows_to_dicts(db.query_all("SELECT * FROM students ORDER BY id")):
+        alasan = alasan_wali_dihapus(row)
+        if alasan:
+            hasil.append({"id": int(row["id"]), "nama": row.get("nama"),
+                          "nisn": row.get("nisn"), "rombel": row.get("rombel"),
+                          "wali_nama": row.get("wali_nama"), "alasan": alasan})
+    return hasil
+
+
+def rapikan_wali_otomatis(aktor: str) -> dict[str, Any]:
+    """Bersihkan data wali semua siswa yang tidak sesuai aturan (satu klik petugas)."""
+    daftar = siswa_perlu_bersih_wali()
+    berubah = 0
+    for item in daftar:
+        if bersihkan_wali_siswa(item["id"], aktor):
+            berubah += 1
+    return {"diperiksa": len(daftar), "dibersihkan": berubah}
 
 
 # =========================================================================== #
@@ -1429,6 +1523,21 @@ def ajukan_perubahan(student_id: int, nilai: dict[str, Any], *, catatan: str = "
     # Aturan pengisian data ayah/ibu/wali diperiksa sebelum pengajuan dibuat.
     validasi_keluarga(perubahan, siswa)
 
+    # Pengisian data wali yang melanggar aturan tidak ikut diajukan — sistem
+    # yang membersihkan, bukan admin yang menolak.
+    catatan_sistem = ""
+    if set(FIELD_WALI) & set(perubahan):
+        alasan = alasan_wali_dihapus({**siswa, **perubahan})
+        ada_pengisian = any(str(perubahan.get(key) or "").strip() for key in FIELD_WALI)
+        if alasan and ada_pengisian:
+            perubahan = {key: nilai for key, nilai in perubahan.items() if key not in FIELD_WALI}
+            catatan_sistem = f"Data wali tidak ikut disimpan karena {alasan}."
+            if not perubahan and not dokumen:
+                raise ValueError(
+                    f"Data wali tidak dapat disimpan karena {alasan}. "
+                    "Isi/ubah kolom ayah atau ibu, atau biarkan kolom wali kosong."
+                )
+
     if not perubahan and not dokumen:
         raise ValueError("Tidak ada data yang berubah, jadi belum ada yang diajukan.")
 
@@ -1437,9 +1546,16 @@ def ajukan_perubahan(student_id: int, nilai: dict[str, Any], *, catatan: str = "
     for jenis, (nama_asli, isi) in diunggah.items():
         validasi_dokumen(jenis, nama_asli, isi)
 
+    # Penghapusan data wali diproses sistem saat itu juga: tidak perlu
+    # persetujuan admin dan tidak perlu melampirkan berkas.
+    hanya_hapus_wali = bool(perubahan) and all(
+        key in FIELD_WALI and not str(nilai_baru or "").strip()
+        for key, nilai_baru in perubahan.items()
+    )
+
     # Tiga berkas wajib (akta kelahiran, KK, ijazah) harus ada — baru diunggah
     # sekarang atau sudah tersimpan dari pengajuan sebelumnya.
-    if pengajuan_dokumen_wajib():
+    if pengajuan_dokumen_wajib() and not hanya_hapus_wali:
         tersedia = set(dokumen_terbaru(student_id)) | set(diunggah)
         kurang = [label for key, label, _ in DOKUMEN_JENIS if key not in tersedia]
         if kurang:
@@ -1474,6 +1590,14 @@ def ajukan_perubahan(student_id: int, nilai: dict[str, Any], *, catatan: str = "
     for jenis, (nama_asli, isi) in (dokumen or {}).items():
         simpan_dokumen(student_id, jenis, nama_asli, isi, aktor=aktor, request_id=request_id)
 
+    if hanya_hapus_wali:
+        # Sistem langsung menerapkan penghapusan data wali (tanpa persetujuan).
+        putuskan_pengajuan(request_id, True, aktor="sistem",
+                           catatan="Data wali dihapus otomatis oleh sistem.")
+        hasil = ambil_pengajuan(request_id) or {}
+        hasil["catatan_sistem"] = "Data wali dihapus otomatis oleh sistem."
+        return hasil
+
     lengkap, kurang = dokumen_lengkap(student_id)
     db.execute(
         "UPDATE change_requests SET dokumen_lengkap = ? WHERE id = ?",
@@ -1481,7 +1605,9 @@ def ajukan_perubahan(student_id: int, nilai: dict[str, Any], *, catatan: str = "
     )
     log_audit(aktor, "siswa", "ajukan_perubahan", "change_requests", request_id,
               f"{len(perubahan)} kolom; dokumen {'lengkap' if lengkap else 'kurang: ' + ', '.join(kurang)}")
-    return ambil_pengajuan(request_id) or {}
+    hasil = ambil_pengajuan(request_id) or {}
+    hasil["catatan_sistem"] = catatan_sistem
+    return hasil
 
 
 def field_label_aman(key: str) -> str:

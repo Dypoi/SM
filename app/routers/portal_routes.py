@@ -193,11 +193,20 @@ async def kirim_pengajuan(request: Request, user: auth.SessionUser = Depends(aut
     except ValueError as exc:
         return _pesan(str(exc), level="err")
 
+    catatan = pengajuan.get("catatan_sistem") or ""
+    if pengajuan.get("status") == "disetujui":
+        return _pesan(
+            catatan or "Data wali dihapus otomatis oleh sistem.",
+            tujuan="/portal/profil",
+        )
     jumlah = pengajuan.get("jumlah_field", 0)
-    return _pesan(
+    pesan = (
         f"Pengajuan terkirim: {jumlah} kolom menunggu persetujuan admin. "
         "Anda akan melihat statusnya di halaman ini."
     )
+    if catatan:
+        pesan = f"{catatan} {pesan}"
+    return _pesan(pesan)
 
 
 @router.post("/portal/pengajuan/{request_id}/batalkan")

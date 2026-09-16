@@ -192,9 +192,10 @@
   <div class="section-title">Data Wali</div>
 
   <div class="note" data-wali-ayah-note {{ '' if ayah else 'hidden' }}>
-    Nama ayah sudah diisi, jadi sistem menganggap siswa <strong>tidak memiliki wali</strong>
-    dan isian di bawah tidak ikut disimpan.
-    {%- if wali %} Bila data wali ini memang bukan ayah/ibu, kosongkan dulu nama ayah,
+    Nama ayah sudah diisi, jadi sistem menganggap siswa <strong>tidak memiliki wali</strong>.
+    Data wali di bawah akan <strong>dihapus otomatis oleh sistem</strong> saat data disimpan —
+    tidak perlu persetujuan admin.
+    {%- if wali %} Bila wali ini memang berbeda dari ayah/ibu, kosongkan dulu nama ayah,
     isi nama wali, lalu simpan kembali.{% endif %}
   </div>
 
@@ -215,7 +216,8 @@
       <button type="button" class="btn btn-danger btn-sm" data-wali-hapus
               {{ 'disabled' if not wali }}>{{ icon('warning') }} Hapus data wali</button>
       <span class="hint" data-wali-hapus-note>
-        Data wali boleh dikosongkan, tetapi hanya bila nama wali berbeda dengan nama ayah/ibu.
+        Penghapusan data wali diproses <strong>otomatis oleh sistem</strong> (tidak perlu
+        persetujuan admin) — begitu disimpan, data wali langsung dikosongkan.
       </span>
     </div>
   </div>
