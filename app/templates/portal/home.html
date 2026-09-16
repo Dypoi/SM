@@ -83,6 +83,16 @@
     <a class="btn btn-outline btn-sm" href="/portal/ekstrakurikuler">Lihat semua pilihan</a>
   </div>
   <div class="card-body">
+    {% set menunggu_ekskul = (pendaftaran_ekskul | default([])) | selectattr('status', 'equalto', 'menunggu') | list %}
+    {% if menunggu_ekskul %}
+    <div class="alert alert-info mb-2" role="status">
+      <span class="alert-icon">{{ icon('clock') }}</span>
+      <div>
+        Menunggu persetujuan pembina/pelatih:
+        {% for item in menunggu_ekskul %}<strong>{{ item.nama }}</strong>{{ ', ' if not loop.last }}{% endfor %}.
+      </div>
+    </div>
+    {% endif %}
     {% if ekskul %}
       <div class="grid grid-3">
         {% for item in ekskul %}

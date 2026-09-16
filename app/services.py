@@ -1146,6 +1146,7 @@ def save_ekskul(data: dict[str, Any], ekskul_id: int | None = None, actor: str |
 
 def delete_ekskul(ekskul_id: int, actor: str | None = None) -> None:
     ekskul = get_ekskul(ekskul_id)
+    db.execute("DELETE FROM ekskul_pendaftaran WHERE ekskul_id = ?", (ekskul_id,))
     db.execute("DELETE FROM extracurriculars WHERE id = ?", (ekskul_id,))
     if ekskul:
         log_audit(actor, None, "hapus_ekskul", "extracurriculars", ekskul_id, ekskul.get("nama"))
@@ -1153,6 +1154,60 @@ def delete_ekskul(ekskul_id: int, actor: str | None = None) -> None:
 
 #: Pilihan nilai ekstrakurikuler (huruf) sesuai permintaan sekolah.
 EKSKUL_NILAI = ("A", "B", "C", "D")
+
+
+def _bersihkan_jam(nilai: str | None) -> str:
+    """Terima "7:30", "07.30", atau "0730" -> "07:30" (kosong bila tak sah)."""
+    teks = "".join(karakter for karakter in (nilai or "") if karakter.isdigit())
+    if len(teks) == 3:
+        teks = "0" + teks
+    if len(teks) != 4:
+        return ""
+    jam, menit = int(teks[:2]), int(teks[2:])
+    if jam > 23 or menit > 59:
+        return ""
+    return f"{jam:02d}:{menit:02d}"
+
+
+def validasi_jadwal(hari: str, jam_mulai: str, jam_selesai: str) -> tuple[bool, str, dict[str, str | None]]:
+    """Periksa & rapikan jadwal ekstrakurikuler (hari + jam mulai/selesai)."""
+    hari = (hari or "").strip()
+    if hari and hari not in HARI_OPTIONS:
+        return False, "Hari harus dipilih dari daftar (Senin-Minggu).", {}
+    mulai, selesai = _bersihkan_jam(jam_mulai), _bersihkan_jam(jam_selesai)
+    if (jam_mulai or "").strip() and not mulai:
+        return False, "Jam mulai tidak dikenali. Contoh yang benar: 07:30.", {}
+    if (jam_selesai or "").strip() and not selesai:
+        return False, "Jam selesai tidak dikenali. Contoh yang benar: 09:00.", {}
+    if selesai and not mulai:
+        return False, "Isi jam mulai lebih dulu, baru jam selesai.", {}
+    if mulai and selesai and selesai <= mulai:
+        return False, "Jam selesai harus lebih besar daripada jam mulai.", {}
+    return True, "", {"hari": hari or None, "jam_mulai": mulai or None, "jam_selesai": selesai or None}
+
+
+def simpan_jadwal_ekskul(ekskul_id: int, hari: str, jam_mulai: str, jam_selesai: str,
+                         actor: str | None = None) -> tuple[bool, str]:
+    """Simpan hari & jam ekskul. Dipakai pembina/pelatih maupun petugas sekolah."""
+    ekskul = get_ekskul(ekskul_id)
+    if ekskul is None:
+        return False, "Ekstrakurikuler tidak ditemukan."
+    sah, galat, nilai = validasi_jadwal(hari, jam_mulai, jam_selesai)
+    if not sah:
+        return False, galat
+    db.execute(
+        "UPDATE extracurriculars SET hari = ?, jam_mulai = ?, jam_selesai = ?, "
+        "updated_at = datetime('now','localtime') WHERE id = ?",
+        (nilai["hari"], nilai["jam_mulai"], nilai["jam_selesai"], ekskul_id),
+    )
+    ringkas = nilai["hari"] or "hari belum diisi"
+    if nilai["jam_mulai"]:
+        ringkas += f" {nilai['jam_mulai']}"
+        if nilai["jam_selesai"]:
+            ringkas += f"-{nilai['jam_selesai']}"
+    log_audit(actor, None, "ubah_jadwal_ekskul", "extracurriculars", ekskul_id,
+              f"{ekskul.get('nama')}: {ringkas}")
+    return True, f"Jadwal {ekskul.get('nama')} disimpan: {ringkas}."
 
 
 def cari_siswa_ekskul(teks: str) -> tuple[dict[str, Any] | None, str]:
@@ -1301,8 +1356,169 @@ def student_ekskul(student_id: int) -> list[dict[str, Any]]:
     )
 
 
+#: Keadaan permintaan siswa mengikuti ekskul.
+PENDAFTARAN_STATUS = ("menunggu", "disetujui", "ditolak")
+PENDAFTARAN_LABEL = {"menunggu": "Menunggu persetujuan", "disetujui": "Disetujui",
+                     "ditolak": "Ditolak"}
+
+
+def pendaftaran_siswa(student_id: int) -> list[dict[str, Any]]:
+    """Semua permintaan ekskul seorang siswa (untuk portal siswa)."""
+    return db.rows_to_dicts(
+        db.query_all(
+            """
+            SELECT p.id, p.ekskul_id, p.status, p.catatan_siswa, p.catatan_pembina,
+                   p.diputus_at, e.nama, e.hari, e.jam_mulai, e.jam_selesai,
+                   e.pembina, e.pelatih, e.aktif
+              FROM ekskul_pendaftaran p
+              JOIN extracurriculars e ON e.id = p.ekskul_id
+             WHERE p.student_id = ?
+             ORDER BY CASE p.status WHEN 'menunggu' THEN 0 WHEN 'disetujui' THEN 1 ELSE 2 END,
+                      e.nama COLLATE NOCASE
+            """,
+            (student_id,),
+        )
+    )
+
+
+def pendaftaran_ekskul(ekskul_id: int, status: str | None = None) -> list[dict[str, Any]]:
+    """Permintaan masuk untuk satu ekskul (dilihat pembina/pelatih)."""
+    sql = """
+        SELECT p.id, p.student_id, p.status, p.catatan_siswa, p.catatan_pembina,
+               p.diputus_at, p.diputus_oleh, p.created_at,
+               s.nama, s.nisn, s.rombel, s.jk
+          FROM ekskul_pendaftaran p
+          JOIN students s ON s.id = p.student_id
+         WHERE p.ekskul_id = ?
+    """
+    nilai: list[Any] = [ekskul_id]
+    if status:
+        sql += " AND p.status = ?"
+        nilai.append(status)
+    sql += (" ORDER BY CASE p.status WHEN 'menunggu' THEN 0 WHEN 'disetujui' THEN 1 ELSE 2 END,"
+            " s.nama COLLATE NOCASE")
+    return db.rows_to_dicts(db.query_all(sql, tuple(nilai)))
+
+
+def pendaftaran_menunggu_semua(limit: int = 50) -> list[dict[str, Any]]:
+    """Semua permintaan yang masih menunggu, dari seluruh ekskul (halaman petugas)."""
+    return db.rows_to_dicts(
+        db.query_all(
+            """
+            SELECT p.id, p.ekskul_id, p.catatan_siswa, p.created_at,
+                   s.nama, s.nisn, s.rombel, e.nama AS nama_ekskul
+              FROM ekskul_pendaftaran p
+              JOIN students s ON s.id = p.student_id
+              JOIN extracurriculars e ON e.id = p.ekskul_id
+             WHERE p.status = 'menunggu'
+             ORDER BY p.created_at, e.nama COLLATE NOCASE, s.nama COLLATE NOCASE
+             LIMIT ?
+            """,
+            (limit,),
+        )
+    )
+
+
+def hitung_pendaftaran_menunggu(ekskul_id: int | None = None) -> int:
+    if ekskul_id:
+        return int(db.query_value(
+            "SELECT COUNT(*) FROM ekskul_pendaftaran WHERE status = 'menunggu' AND ekskul_id = ?",
+            (ekskul_id,)) or 0)
+    return int(db.query_value(
+        "SELECT COUNT(*) FROM ekskul_pendaftaran WHERE status = 'menunggu'") or 0)
+
+
+def _anggota_ekskul_ada(ekskul_id: int, student_id: int) -> bool:
+    return bool(db.query_value(
+        "SELECT 1 FROM ekskul_members WHERE ekskul_id = ? AND student_id = ? LIMIT 1",
+        (ekskul_id, student_id)))
+
+
+def ajukan_pendaftaran_ekskul(student_id: int, ekskul_id: int, catatan: str = "",
+                              actor: str | None = None) -> tuple[bool, str]:
+    """Siswa mendaftar ke ekskul -> status menunggu persetujuan pembina/pelatih."""
+    ekskul = get_ekskul(ekskul_id)
+    if ekskul is None or not ekskul.get("aktif"):
+        return False, "Ekstrakurikuler tidak ditemukan atau sedang tidak aktif."
+    if _anggota_ekskul_ada(ekskul_id, student_id):
+        return False, f"Anda sudah menjadi anggota {ekskul['nama']}."
+    baris = db.query_one(
+        "SELECT id, status FROM ekskul_pendaftaran WHERE ekskul_id = ? AND student_id = ?",
+        (ekskul_id, student_id))
+    catatan = (catatan or "").strip()[:200] or None
+    if baris and baris["status"] == "menunggu":
+        return False, f"Pendaftaran {ekskul['nama']} Anda masih menunggu persetujuan pembina."
+    if baris:
+        db.execute(
+            "UPDATE ekskul_pendaftaran SET status = 'menunggu', catatan_siswa = ?, "
+            "catatan_pembina = NULL, diputus_oleh = NULL, diputus_at = NULL, "
+            "updated_at = datetime('now','localtime') WHERE id = ?",
+            (catatan, int(baris["id"])))
+        pendaftaran_id = int(baris["id"])
+    else:
+        pendaftaran_id = db.insert_returning_id(
+            "INSERT INTO ekskul_pendaftaran(ekskul_id, student_id, status, catatan_siswa) "
+            "VALUES(?,?,'menunggu',?)",
+            (ekskul_id, student_id, catatan))
+    log_audit(actor, "siswa", "daftar_ekskul", "ekskul_pendaftaran", pendaftaran_id,
+              f"ekskul={ekskul['nama']}")
+    return True, f"Pendaftaran {ekskul['nama']} dikirim. Menunggu persetujuan pembina/pelatih."
+
+
+def batalkan_pendaftaran_ekskul(pendaftaran_id: int, student_id: int,
+                                actor: str | None = None) -> tuple[bool, str]:
+    """Siswa membatalkan permintaannya sendiri yang masih menunggu."""
+    baris = db.query_one("SELECT * FROM ekskul_pendaftaran WHERE id = ?", (pendaftaran_id,))
+    if baris is None or int(baris["student_id"]) != int(student_id):
+        return False, "Pendaftaran tidak ditemukan."
+    if baris["status"] != "menunggu":
+        return False, "Pendaftaran ini sudah diputuskan dan tidak dapat dibatalkan."
+    db.execute("DELETE FROM ekskul_pendaftaran WHERE id = ?", (pendaftaran_id,))
+    log_audit(actor, "siswa", "batalkan_pendaftaran_ekskul", "ekskul_pendaftaran", pendaftaran_id)
+    return True, "Pendaftaran dibatalkan."
+
+
+def putuskan_pendaftaran_ekskul(pendaftaran_id: int, setujui: bool, catatan: str = "",
+                                actor: str | None = None) -> tuple[bool, str]:
+    """Pembina/pelatih menyetujui atau menolak permintaan siswa.
+
+    Persetujuan langsung menjadikan siswa anggota ekskul (jabatan "Anggota").
+    """
+    baris = db.query_one(
+        """
+        SELECT p.*, e.nama AS nama_ekskul, s.nama AS nama_siswa
+          FROM ekskul_pendaftaran p
+          JOIN extracurriculars e ON e.id = p.ekskul_id
+          JOIN students s ON s.id = p.student_id
+         WHERE p.id = ?
+        """,
+        (pendaftaran_id,))
+    if baris is None:
+        return False, "Pendaftaran tidak ditemukan."
+    if baris["status"] != "menunggu":
+        return False, f"Pendaftaran ini sudah diputuskan ({baris['status']})."
+    ekskul_id, student_id = int(baris["ekskul_id"]), int(baris["student_id"])
+    if setujui and not _anggota_ekskul_ada(ekskul_id, student_id):
+        add_ekskul_member(ekskul_id, student_id, jabatan="Anggota", actor=actor)
+    db.execute(
+        "UPDATE ekskul_pendaftaran SET status = ?, catatan_pembina = ?, diputus_oleh = ?, "
+        "diputus_at = datetime('now','localtime'), updated_at = datetime('now','localtime') "
+        "WHERE id = ?",
+        ("disetujui" if setujui else "ditolak", (catatan or "").strip()[:200] or None, actor,
+         pendaftaran_id),
+    )
+    log_audit(actor, "ekskul", "setujui_pendaftaran" if setujui else "tolak_pendaftaran",
+              "ekskul_pendaftaran", pendaftaran_id,
+              f"{baris['nama_siswa']} -> {baris['nama_ekskul']}")
+    if setujui:
+        return True, f"{baris['nama_siswa']} kini anggota {baris['nama_ekskul']}."
+    return True, f"Pendaftaran {baris['nama_siswa']} ke {baris['nama_ekskul']} ditolak."
+
+
 def ekskul_stats() -> dict[str, Any]:
     total = int(db.query_value("SELECT COUNT(*) FROM extracurriculars") or 0)
+    menunggu = int(db.query_value(
+        "SELECT COUNT(*) FROM ekskul_pendaftaran WHERE status = 'menunggu'") or 0)
     aktif = int(db.query_value("SELECT COUNT(*) FROM extracurriculars WHERE aktif = 1") or 0)
     anggota = int(db.query_value("SELECT COUNT(*) FROM ekskul_members WHERE status = 'aktif'") or 0)
     siswa_ikut = int(db.query_value("SELECT COUNT(DISTINCT student_id) FROM ekskul_members") or 0)
@@ -1311,7 +1527,7 @@ def ekskul_stats() -> dict[str, Any]:
         "AND COALESCE(pelatih,'') = ''"
     ) or 0)
     return {"total": total, "aktif": aktif, "anggota": anggota, "siswa_ikut": siswa_ikut,
-            "tanpa_pendamping": tanpa_pendamping}
+            "menunggu": menunggu, "tanpa_pendamping": tanpa_pendamping}
 
 
 def ekskul_ringkas(limit: int = 6) -> list[dict[str, Any]]:
@@ -1677,9 +1893,15 @@ def hapus_dokumen(doc_id: int, aktor: str | None = None) -> None:
 # =========================================================================== #
 # PENGAJUAN PERUBAHAN DATA (siswa mengusulkan, admin memutuskan)
 # =========================================================================== #
-#: Semua kolom Dapodik boleh diusulkan diubah siswa, kecuali NISN.
+#: Kolom yang tidak dapat diubah dari formulir aplikasi (termasuk pengajuan
+#: siswa): "rombel saat ini" dan "tingkat". Perubahannya hanya lewat **impor
+#: Excel** yang disiapkan sekolah — permintaan sekolah agar kolom ini tidak
+#: terubah tanpa sengaja (mis. salah pilih kelas saat membetulkan data lain).
+FIELD_TERKUNCI: tuple[str, ...] = ("rombel", "tingkat")
+
+#: Semua kolom Dapodik boleh diusulkan diubah siswa, kecuali NISN & kolom terkunci.
 FIELD_DAPAT_DIAJUKAN: tuple[str, ...] = tuple(
-    spec.key for spec in STUDENT_FIELDS if spec.key != "nisn"
+    spec.key for spec in STUDENT_FIELDS if spec.key != "nisn" and spec.key not in FIELD_TERKUNCI
 )
 #: Field yang hanya boleh diubah petugas (bukan lewat pengajuan siswa).
 FIELD_HANYA_PETUGAS: tuple[str, ...] = ("nisn", "status")
@@ -1733,7 +1955,7 @@ def ajukan_perubahan(student_id: int, nilai: dict[str, Any], *, catatan: str = "
 
     perubahan: dict[str, Any] = {}
     for key, baru in nilai.items():
-        if key in FIELD_HANYA_PETUGAS or not field_dapat_diajukan(key):
+        if key in FIELD_HANYA_PETUGAS or key in FIELD_TERKUNCI or not field_dapat_diajukan(key):
             continue
         teks_baru = "" if baru is None else str(baru).strip()
         teks_lama = "" if siswa.get(key) is None else str(siswa.get(key)).strip()
@@ -1921,7 +2143,8 @@ def putuskan_pengajuan(request_id: int, terima: bool, aktor: str, catatan: str =
     student_id = int(pengajuan["student_id"])
     jumlah = 0
     if terima:
-        nilai = {item["field"]: item["nilai_baru"] for item in pengajuan["items"]}
+        nilai = {item["field"]: item["nilai_baru"] for item in pengajuan["items"]
+                 if item["field"] not in FIELD_TERKUNCI}
         nilai = {key: (None if value in (None, "") else value) for key, value in nilai.items()}
         for sumber, flag in (("penerima_kps", "is_kps"), ("penerima_kip", "is_kip"),
                              ("layak_pip", "is_layak_pip")):

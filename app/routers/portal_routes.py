@@ -10,7 +10,7 @@ import mimetypes
 from pathlib import Path
 from urllib.parse import quote_plus
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import FileResponse, RedirectResponse
 
 from .. import auth, config, services
@@ -81,6 +81,7 @@ def beranda_siswa(request: Request, user: auth.SessionUser = Depends(auth.requir
             "siswa": siswa,
             "kelengkapan": _kelengkapan(siswa),
             "ekskul": services.student_ekskul(siswa["id"]),
+            "pendaftaran_ekskul": services.pendaftaran_siswa(siswa["id"]),
             "profil": services.school_profile(),
             "pengajuan": pengajuan,
             "menunggu": sum(1 for item in pengajuan if item["status"] == "menunggu"),
@@ -97,6 +98,7 @@ def ekskul_siswa(request: Request, user: auth.SessionUser = Depends(auth.require
     if siswa is None:
         return RedirectResponse("/portal", status_code=303)
 
+    pendaftaran = {item["ekskul_id"]: item for item in services.pendaftaran_siswa(siswa["id"])}
     return render(
         request,
         "portal/ekskul.html",
@@ -105,8 +107,48 @@ def ekskul_siswa(request: Request, user: auth.SessionUser = Depends(auth.require
             "siswa": siswa,
             "diikuti": services.student_ekskul(siswa["id"]),
             "tersedia": services.list_ekskul(aktif_only=True),
+            "pendaftaran": pendaftaran,
+            "status_label": services.PENDAFTARAN_LABEL,
         },
     )
+
+
+@router.post("/portal/ekstrakurikuler/{ekskul_id}/daftar")
+def daftar_ekskul(
+    request: Request,
+    ekskul_id: int,
+    catatan: str = Form(""),
+    user: auth.SessionUser = Depends(auth.require_user),
+):
+    """Siswa memilih ekskul yang ingin diikuti — menunggu persetujuan pembina/pelatih."""
+    if user.role != auth.ROLE_SISWA:
+        return RedirectResponse("/ekstrakurikuler", status_code=303)
+    siswa = _siswa_aktif(user)
+    if siswa is None:
+        return RedirectResponse("/portal", status_code=303)
+    berhasil, pesan = services.ajukan_pendaftaran_ekskul(
+        siswa["id"], ekskul_id, catatan=catatan, actor=user.username)
+    return RedirectResponse(
+        f"/portal/ekstrakurikuler?level={'ok' if berhasil else 'warn'}&msg={quote_plus(pesan)}",
+        status_code=303)
+
+
+@router.post("/portal/ekstrakurikuler/pendaftaran/{pendaftaran_id}/batalkan")
+def batal_daftar_ekskul(
+    request: Request,
+    pendaftaran_id: int,
+    user: auth.SessionUser = Depends(auth.require_user),
+):
+    if user.role != auth.ROLE_SISWA:
+        return RedirectResponse("/ekstrakurikuler", status_code=303)
+    siswa = _siswa_aktif(user)
+    if siswa is None:
+        return RedirectResponse("/portal", status_code=303)
+    berhasil, pesan = services.batalkan_pendaftaran_ekskul(
+        pendaftaran_id, siswa["id"], actor=user.username)
+    return RedirectResponse(
+        f"/portal/ekstrakurikuler?level={'ok' if berhasil else 'warn'}&msg={quote_plus(pesan)}",
+        status_code=303)
 
 
 @router.get("/portal/profil")

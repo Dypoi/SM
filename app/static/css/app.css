@@ -673,8 +673,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
   .stat-value { font-size: 1.35rem; }
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
   .form-actions.sticky-actions { margin: 1rem -.85rem -.85rem; padding: .7rem .85rem; }
-  .form-tambah-anggota, .form-cari-cepat { grid-template-columns: 1fr; }
-  .form-tambah-anggota .btn, .form-cari-cepat .btn { width: 100%; }
+  .form-tambah-anggota, .form-cari-cepat, .form-jadwal { grid-template-columns: 1fr; }
+  .form-tambah-anggota .btn, .form-cari-cepat .btn, .form-jadwal .btn { width: 100%; }
 }
 
 /* --- Mode cetak: rapi untuk daftar siswa & laporan -------------------- */
@@ -817,6 +817,13 @@ table.data.anggota td select[name="nilai"] { max-width: 96px; }
 table.data.anggota td select[name="jabatan"] { max-width: 148px; }
 table.data.anggota td select[name="status"] { max-width: 118px; }
 table.data.anggota td input[name="catatan"] { min-width: 190px; }
+
+/* --- Form jadwal ekskul (hari & jam oleh pembina/pelatih) --------------- */
+.form-jadwal {
+  display: grid; gap: .8rem; align-items: end;
+  grid-template-columns: 220px 160px 160px auto;
+}
+.form-jadwal .field { margin: 0; }
 
 /* --- Cari cepat siswa (halaman anggota ekskul) -------------------------- */
 .cari-cepat { border-bottom: 1px solid var(--border-soft); }

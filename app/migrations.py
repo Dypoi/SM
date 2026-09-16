@@ -280,6 +280,38 @@ def _migrasi_002(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrasi_006(conn: sqlite3.Connection) -> None:
+    """Pendaftaran ekstrakurikuler oleh siswa (menunggu persetujuan pembina).
+
+    Siswa memilih ekskul yang ingin diikuti dari portalnya; permintaan masuk
+    sebagai ``menunggu`` dan baru menjadi anggota setelah pembina/pelatih
+    menyetujui. Satu siswa satu baris per ekskul — pengajuan ulang setelah
+    ditolak cukup memperbarui baris yang sama.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS ekskul_pendaftaran (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            ekskul_id       INTEGER NOT NULL REFERENCES extracurriculars(id) ON DELETE CASCADE,
+            student_id      INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+            status          TEXT NOT NULL DEFAULT 'menunggu',
+            catatan_siswa   TEXT,
+            catatan_pembina TEXT,
+            diputus_oleh    TEXT,
+            diputus_at      TEXT,
+            created_at      TEXT DEFAULT (datetime('now','localtime')),
+            updated_at      TEXT DEFAULT (datetime('now','localtime'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_pendaftaran_unik
+            ON ekskul_pendaftaran(ekskul_id, student_id);
+        CREATE INDEX IF NOT EXISTS idx_pendaftaran_status
+            ON ekskul_pendaftaran(ekskul_id, status);
+        CREATE INDEX IF NOT EXISTS idx_pendaftaran_siswa
+            ON ekskul_pendaftaran(student_id, status);
+        """
+    )
+    log.info("Tabel ekskul_pendaftaran siap (pendaftaran ekskul oleh siswa).")
+
 #: Setiap entri: (id_migrasi, skrip SQL) atau (id_migrasi, fungsi(conn)).
 Migrasi: Callable[[sqlite3.Connection], None]
 
@@ -556,6 +588,10 @@ MIGRATIONS: list[tuple[str, str | Callable[[sqlite3.Connection], None]]] = [
     (
         "005_ekskul_sederhana",
         _migrasi_005,
+    ),
+    (
+        "006_pendaftaran_ekskul",
+        _migrasi_006,
     ),
 ]
 

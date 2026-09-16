@@ -48,6 +48,8 @@
           <div class="note">
             <strong>NISN {{ siswa.nisn or '-' }}</strong> — nomor induk siswa nasional tidak bisa
             diubah lewat pengajuan. Bila NISN salah, hubungi tata usaha untuk perbaikan di Dapodik.
+            Kolom <strong>Rombel Saat Ini</strong> dan <strong>Tingkat</strong> juga tidak dapat
+            diajukan; kelas ditetapkan sekolah.
           </div>
 
           {% for grup, daftar in grup_field.items() %}
@@ -65,7 +67,8 @@
                       <span class="hint">Tidak dapat diubah (lihat catatan di atas).</span>
                     </div>
                   {% else %}
-                    {{ input_medan(spec, siswa.get(spec.key), agama_options) }}
+                    {{ input_medan(spec, siswa.get(spec.key), agama_options,
+                        nonaktif=spec.key in FIELD_TERKUNCI) }}
                   {% endif %}
                 {% endfor %}
               </div>

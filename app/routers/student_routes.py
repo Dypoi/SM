@@ -176,6 +176,15 @@ async def perbarui_siswa(request: Request, student_id: int,
         return RedirectResponse("/data-siswa?level=err&msg=Siswa+tidak+ditemukan", status_code=303)
 
     values = await _form_to_values(request)
+    # Rombel & tingkat tidak diubah dari formulir (permintaan sekolah) — bila
+    # tetap terkirim (mis. lewat peramban lama), nilainya diabaikan dan pemakaian
+    # diberi tahu. Perubahan rombel/tingkat hanya lewat impor Excel.
+    terkunci = [key for key in services.FIELD_TERKUNCI if key in values]
+    for key in terkunci:
+        values.pop(key, None)
+    catatan_terkunci = (
+        " Rombel & tingkat tidak diubah dari halaman ini; pakai impor Excel."
+        if terkunci else "")
     if "nama" in values and values["nama"]:
         values["nama"] = values["nama"].upper()
     for source, flag in (("penerima_kps", "is_kps"), ("penerima_kip", "is_kip"), ("layak_pip", "is_layak_pip")):
@@ -193,7 +202,8 @@ async def perbarui_siswa(request: Request, student_id: int,
         return RedirectResponse(f"/data-siswa/{student_id}?level=err&msg={quote_plus(str(exc))}", status_code=303)
 
     changes = services.update_student(student_id, values, actor=user.username, source="manual")
-    pesan = f"{len(changes)} perubahan disimpan." if changes else "Tidak ada perubahan."
+    pesan = (f"{len(changes)} perubahan disimpan." if changes else "Tidak ada perubahan.")
+    pesan += catatan_terkunci
     dibersihkan = any(key in FIELD_WALI and not baru for key, _lama, baru in changes)
     if dibersihkan:
         level = "ok"

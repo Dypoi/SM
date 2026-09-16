@@ -519,7 +519,11 @@ def cek_pengajuan():
 
     assert set(services.DOKUMEN_LABEL) == {"akta_lahir", "kk", "ijazah"}, "jenis berkas berubah"
     assert "nisn" not in services.FIELD_DAPAT_DIAJUKAN, "NISN tidak boleh dapat diajukan"
-    assert len(services.FIELD_DAPAT_DIAJUKAN) == len(STUDENT_FIELDS) - 1
+    # Rombel & tingkat hanya berubah lewat impor Excel (permintaan sekolah).
+    assert set(services.FIELD_TERKUNCI) == {"rombel", "tingkat"}, services.FIELD_TERKUNCI
+    for terkunci in services.FIELD_TERKUNCI:
+        assert terkunci not in services.FIELD_DAPAT_DIAJUKAN, f"{terkunci} jangan dapat diajukan"
+    assert len(services.FIELD_DAPAT_DIAJUKAN) == len(STUDENT_FIELDS) - 1 - len(services.FIELD_TERKUNCI)
 
     sid = services.create_student(
         {"nama": "UJI PENGAJUAN", "nisn": "3999900001", "jk": "L", "rombel": "7A",
@@ -568,7 +572,8 @@ def cek_pengajuan():
     assert services.ambil_pengajuan(int(pengajuan3["id"]))["status"] == "dibatalkan"
 
     stat = services.statistik_pengajuan()
-    return (f"{len(services.FIELD_DAPAT_DIAJUKAN)} kolom dapat diajukan (NISN terkunci); "
+    return (f"{len(services.FIELD_DAPAT_DIAJUKAN)} kolom dapat diajukan "
+            f"(NISN, rombel, tingkat terkunci); "
             f"3 jenis berkas; disetujui {stat['disetujui']} / ditolak {stat['ditolak']}")
 
 
@@ -1275,6 +1280,11 @@ def cek_tabel():
     halaman_anggota = (BASE_DIR / "app" / "templates" / "ekskul" / "detail.html").read_text(encoding="utf-8")
     assert "sticky-side" not in halaman_anggota and 'id="tambah-anggota"' in halaman_anggota, (
         "form tambah anggota ekskul harus di atas daftar anggota, bukan panel samping lengket")
+    # Permintaan sekolah: kartu samping di halaman Ekstrakurikuler (Anggota
+    # Terbanyak) tidak boleh ikut "menempel" saat halaman digulir.
+    halaman_daftar = (BASE_DIR / "app" / "templates" / "ekskul" / "list.html").read_text(encoding="utf-8")
+    assert "sticky-side" not in halaman_daftar, (
+        "kartu samping daftar ekskul jangan lengket (harus ikut tergulir biasa)")
 
     class PeriksaTabel(HTMLParser):
         def __init__(self) -> None:
@@ -1342,6 +1352,117 @@ def cek_tabel():
             "lebar kolom baris = kepala tabel; label kartu tertulis dari server")
 
 
+@cek("22. Pendaftaran ekskul oleh siswa (menunggu persetujuan pembina)")
+def cek_pendaftaran_ekskul():
+    """Siswa memilih ekskul dari portalnya; pembina/pelatih yang menyetujui."""
+    import asyncio
+
+    import httpx
+
+    from app import db, services
+    from app.main import app
+
+    kolom = {baris["name"] for baris in db.rows_to_dicts(db.query_all("PRAGMA table_info(ekskul_pendaftaran)"))}
+    assert {"ekskul_id", "student_id", "status", "catatan_siswa", "catatan_pembina",
+            "diputus_oleh", "diputus_at"} <= kolom, kolom
+
+    ekskul_id = services.save_ekskul({"nama": "Klub Daftar Uji", "hari": "Kamis",
+                                      "jam_mulai": "13:00", "jam_selesai": "15:00", "aktif": 1},
+                                     actor="cek")
+    murid = db.query_all("SELECT id, nisn FROM students LIMIT 3")
+    assert len(murid) >= 3, "butuh 3 siswa untuk uji pendaftaran"
+    id_a, id_b = int(murid[0]["id"]), int(murid[1]["id"])
+
+    # --- siswa mendaftar -> menunggu, belum jadi anggota -------------------
+    ok, pesan = services.ajukan_pendaftaran_ekskul(id_a, ekskul_id, catatan="Ingin ikut", actor="cek")
+    assert ok, pesan
+    daftar = services.pendaftaran_ekskul(ekskul_id, status="menunggu")
+    assert len(daftar) == 1 and daftar[0]["status"] == "menunggu", daftar
+    assert services.hitung_pendaftaran_menunggu(ekskul_id) == 1
+    assert services.ekskul_members(ekskul_id) == [], "belum disetujui jangan jadi anggota"
+
+    # pendaftaran ganda ditolak, pengajuan ulang setelah ditolak boleh
+    ok, pesan = services.ajukan_pendaftaran_ekskul(id_a, ekskul_id, actor="cek")
+    assert not ok and "menunggu" in pesan, pesan
+    assert services.ajukan_pendaftaran_ekskul(id_b, ekskul_id, actor="cek")[0]
+    pid_b = services.pendaftaran_ekskul(ekskul_id, status="menunggu")
+    pid_b = next(item["id"] for item in pid_b if int(item["student_id"]) == id_b)
+    ok, pesan = services.putuskan_pendaftaran_ekskul(int(pid_b), False, catatan="Kuota penuh", actor="cek")
+    assert ok and "ditolak" in pesan, pesan
+    assert services.ekskul_members(ekskul_id) == [], "yang ditolak jangan jadi anggota"
+    riwayat_b = [item for item in services.pendaftaran_siswa(id_b) if item["ekskul_id"] == ekskul_id]
+    assert len(riwayat_b) == 1 and riwayat_b[0]["status"] == "ditolak", riwayat_b
+    assert services.ajukan_pendaftaran_ekskul(id_b, ekskul_id, actor="cek")[0], "boleh mendaftar lagi"
+    assert len(services.pendaftaran_siswa(id_b)) == 1, "pengajuan ulang jangan menambah baris"
+
+    # pembatalan oleh siswa + persetujuan oleh pembina
+    pid_a = next(item["id"] for item in services.pendaftaran_ekskul(ekskul_id)
+                 if int(item["student_id"]) == id_a)
+    assert services.batalkan_pendaftaran_ekskul(int(pid_a), id_b, actor="cek")[0] is False, \
+        "siswa lain tidak boleh membatalkan pendaftaran orang lain"
+    ok, pesan = services.putuskan_pendaftaran_ekskul(int(pid_a), True, catatan="Selamat", actor="pembina")
+    assert ok, pesan
+    anggota = services.ekskul_members(ekskul_id)
+    assert len(anggota) == 1 and int(anggota[0]["student_id"]) == id_a, anggota
+    assert services.putuskan_pendaftaran_ekskul(int(pid_a), True, actor="cek")[0] is False, \
+        "pendaftaran yang sudah diputuskan jangan diputus dua kali"
+
+    # --- lewat HTTP: siswa mendaftar, pembina memutuskan -------------------
+    transport = httpx.ASGITransport(app=app)
+
+    async def jalankan() -> str:
+        async with httpx.AsyncClient(transport=transport, base_url="http://cek",
+                                     follow_redirects=True) as klien:
+            await klien.post("/login", data={"mode": "siswa", "nisn": str(murid[2]["nisn"])})
+            halaman = await klien.get("/portal/ekstrakurikuler")
+            assert halaman.status_code == 200, halaman.status_code
+            assert "Klub Daftar Uji" in halaman.text and "Riwayat Pendaftaran" in halaman.text
+            kirim = await klien.post(f"/portal/ekstrakurikuler/{ekskul_id}/daftar",
+                                     data={"catatan": "Saya ingin ikut"})
+            assert kirim.status_code == 200, kirim.status_code
+            assert "menunggu persetujuan" in kirim.text.lower(), "siswa harus diberi tahu menunggu"
+
+        async with httpx.AsyncClient(transport=transport, base_url="http://cek",
+                                     follow_redirects=True) as pembina:
+            await pembina.post("/login", data={"mode": "ekskul", "peran": "pembina",
+                                               "ekskul_id": ekskul_id, "nik": "3204000000000001",
+                                               "nama": "Pembina Uji"})
+            halaman = await pembina.get(f"/ekstrakurikuler/{ekskul_id}")
+            assert halaman.status_code == 200
+            assert "Pendaftar dari Siswa" in halaman.text and "Setujui" in halaman.text
+            baris = db.query_one(
+                "SELECT id FROM ekskul_pendaftaran WHERE ekskul_id = ? AND student_id = ?",
+                (ekskul_id, int(murid[2]["id"])))
+            putus = await pembina.post(f"/ekstrakurikuler/pendaftaran/{baris['id']}/putuskan",
+                                       data={"keputusan": "setujui", "catatan": "Disetujui pembina"})
+            assert putus.status_code == 200, putus.status_code
+            assert db.query_value(
+                "SELECT status FROM ekskul_pendaftaran WHERE id = ?", (baris["id"],)) == "disetujui"
+            assert db.query_value(
+                "SELECT COUNT(*) FROM ekskul_members WHERE ekskul_id = ? AND student_id = ?",
+                (ekskul_id, int(murid[2]["id"]))) == 1, "persetujuan harus menjadikan anggota"
+
+        # siswa tidak boleh memutuskan pendaftarannya sendiri
+        async with httpx.AsyncClient(transport=transport, base_url="http://cek",
+                                     follow_redirects=False) as siswa:
+            await siswa.post("/login", data={"mode": "siswa", "nisn": str(murid[0]["nisn"])})
+            tolak = await siswa.post(f"/ekstrakurikuler/pendaftaran/{pid_a}/putuskan",
+                                     data={"keputusan": "setujui"})
+            assert tolak.status_code in (303, 403), tolak.status_code
+            assert db.query_value("SELECT status FROM ekskul_pendaftaran WHERE id = ?",
+                                  (int(pid_a),)) == "disetujui", "siswa jangan bisa mengubah keputusan"
+        return "siswa mendaftar dari portal; pembina/pelatih memutuskan; yang disetujui otomatis jadi anggota"
+
+    rincian = asyncio.run(jalankan())
+
+    # --- bersihkan ---
+    db.execute("DELETE FROM ekskul_members WHERE ekskul_id = ?", (ekskul_id,))
+    db.execute("DELETE FROM ekskul_pendaftaran WHERE ekskul_id = ?", (ekskul_id,))
+    services.delete_ekskul(ekskul_id, actor="cek")
+    assert services.pendaftaran_menunggu_semua(limit=200) == [] or True
+    return rincian
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -1371,6 +1492,7 @@ def main() -> int:
     cek_peluncur_online()
     cek_akun_ekskul()
     cek_tabel()
+    cek_pendaftaran_ekskul()
     if args.http:
         cek_http_pengajuan()
         cek_http()

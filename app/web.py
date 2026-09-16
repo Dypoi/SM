@@ -313,6 +313,9 @@ templates.env.globals["qs_set"] = qs_set
 templates.env.globals["qs_tanpa"] = qs_tanpa
 templates.env.globals["hari_ini"] = hari_ini
 templates.env.globals["GROUP_LABELS"] = GROUP_LABELS
+#: Kolom yang tidak dapat diubah dari formulir (rombel & tingkat) — dipakai
+#: template untuk menampilkan kolom sebagai "tidak dapat diubah".
+templates.env.globals["FIELD_TERKUNCI"] = services.FIELD_TERKUNCI
 
 
 templates.env.filters.update(

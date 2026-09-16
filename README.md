@@ -257,7 +257,12 @@ akta lahir, kesehatan, sampai koordinat rumah.
   (Kolom kode, kategori, tempat, dan kuota sudah dihapus sesuai permintaan sekolah.)
 - Anggota dengan jabatan, **nilai A/B/C/D**, **catatan per siswa**, dan status.
 - Pembina/pelatih dapat **memasukkan & mengeluarkan siswa** (dengan NISN atau nama siswa),
-  lalu menyimpan nilai + catatan langsung dari tabel anggota.
+  lalu menyimpan nilai + catatan langsung dari tabel anggota. Ada juga **Cari cepat siswa**
+  (pilih kelas atau tulis nama) dengan tombol *Masukkan* per siswa.
+- **Hari & jam kegiatan diisi sendiri oleh pembina/pelatih** dari halaman ekskulnya.
+- **Siswa dapat mendaftar sendiri** dari portalnya; permintaan masuk sebagai *menunggu* dan
+  **disetujui/ditolak pembina atau pelatih** ekskul tersebut. Persetujuan langsung menjadikan
+  siswa anggota; penolakan boleh disertai catatan dan siswa dapat mendaftar lagi.
 - **Ekspor daftar anggota: Excel (.xlsx), CSV, dan PDF** — lengkap dengan nama sekolah,
   pembina, pelatih, tahun ajaran, dan kolom tanda tangan pada berkas PDF.
 - Statistik: jumlah kegiatan, keanggotaan, siswa terlibat, dan ekskul yang belum berpendamping.
@@ -268,6 +273,11 @@ akta lahir, kesehatan, sampai koordinat rumah.
   kartu keluarga, ijazah).
 - **Ajukan perubahan data**: memperbaiki setiap kolom datanya (kecuali NISN), melampirkan
   foto ketiga berkas, dan menunggu keputusan admin. Riwayat pengajuan terlihat di portal.
+- **Mendaftar ekstrakurikuler**: siswa memilih kegiatan yang ingin diikuti dari halaman
+  **Ekstrakurikuler**, memantau keadaannya (*menunggu / disetujui / ditolak*), dapat membatalkan
+  selama masih menunggu, dan melihat nilai + catatan setelah disetujui pembina/pelatih.
+- Kolom **Rombel Saat Ini** dan **Tingkat** tidak dapat diajukan siswa maupun diubah dari
+  formulir petugas — perubahannya hanya lewat **impor Excel**.
 
 ### Formulir data keluarga (ayah / ibu / wali)
 - **Pekerjaan** (ayah, ibu, wali) dipilih dari daftar 17 pilihan Dapodik:
@@ -329,9 +339,9 @@ Aturan yang berlaku:
   **Pengaturan → Pengguna → Akun Ekstrakurikuler** lalu menekan **Lepaskan**; posisi itu bisa diisi lagi
   oleh NIK berikutnya.
 * Akun ekskul hanya dapat membuka ekskulnya sendiri: **memasukkan & mengeluarkan siswa**,
-  mengisi **jabatan**, **nilai A/B/C/D**, **catatan**, dan status anggota, serta mengunduh
-  daftar anggota dalam **Excel, CSV, atau PDF**. Halaman data siswa, impor, statistik, dan
-  pengaturan tetap khusus petugas sekolah.
+  mengisi **hari & jam kegiatan**, **jabatan**, **nilai A/B/C/D**, **catatan**, dan status anggota,
+  memutuskan **pendaftaran siswa**, serta mengunduh daftar anggota dalam **Excel, CSV, atau PDF**.
+  Halaman data siswa, impor, statistik, dan pengaturan tetap khusus petugas sekolah.
 * Nama pembina/pelatih otomatis terisi pada data ekskul begitu yang bersangkutan masuk memakai NIK.
 
 Daftar ekstrakurikuler yang disiapkan aplikasi: OSIS, BASKET, FUTSAL, HADROH, MADING, PADUAN SUARA,

@@ -67,6 +67,9 @@ def daftar_ekskul(request: Request, user: auth.SessionUser = Depends(auth.requir
             "hari_options": services.HARI_OPTIONS,
             "edit_item": edit_item,
             "ringkasan": services.ekskul_ringkas(limit=8),
+            "pendaftar_menunggu": services.pendaftaran_menunggu_semua(),
+            "jumlah_menunggu": {baris["id"]: services.hitung_pendaftaran_menunggu(int(baris["id"]))
+                                for baris in services.list_ekskul()},
             "jumlah_akun": {baris["id"]: services.akun_ekskul_ekskul(int(baris["id"]))
                             for baris in services.list_ekskul()},
         },
@@ -136,6 +139,8 @@ def detail_ekskul(request: Request, ekskul_id: int, rombel: str = "", cari: str 
             "rombel_dipilih": rombel,
             "kata_cari": cari,
             "cari_aktif": ada_cari,
+            "pendaftar": services.pendaftaran_ekskul(ekskul_id),
+            "jumlah_menunggu": services.hitung_pendaftaran_menunggu(ekskul_id),
             "hasil_cari": services.cari_siswa_cepat(ekskul_id, rombel=rombel, cari=cari) if ada_cari else [],
         },
     )
@@ -146,6 +151,47 @@ def hapus_ekskul(request: Request, ekskul_id: int, user: auth.SessionUser = Depe
     ekskul = services.get_ekskul(ekskul_id)
     services.delete_ekskul(ekskul_id, actor=user.username)
     return _redirect(f"Ekstrakurikuler {ekskul['nama'] if ekskul else ''} dihapus.")
+
+
+@router.post("/ekstrakurikuler/{ekskul_id}/jadwal")
+def simpan_jadwal(
+    request: Request,
+    ekskul_id: int,
+    hari: str = Form(""),
+    jam_mulai: str = Form(""),
+    jam_selesai: str = Form(""),
+    user: auth.SessionUser = Depends(auth.require_user),
+):
+    """Hari & jam ekskul boleh diisi pembina/pelatih sendiri (dan petugas sekolah)."""
+    if not _boleh_kelola(user, ekskul_id):
+        return _tolak_kelola(user)
+    berhasil, pesan = services.simpan_jadwal_ekskul(ekskul_id, hari, jam_mulai, jam_selesai,
+                                                    actor=user.username)
+    return _redirect(pesan, level="ok" if berhasil else "err",
+                     target=f"/ekstrakurikuler/{ekskul_id}", fragmen="jadwal")
+
+
+@router.post("/ekstrakurikuler/pendaftaran/{pendaftaran_id}/putuskan")
+def putuskan_pendaftaran(
+    request: Request,
+    pendaftaran_id: int,
+    keputusan: str = Form(""),
+    catatan: str = Form(""),
+    user: auth.SessionUser = Depends(auth.require_user),
+):
+    """Pembina/pelatih menyetujui atau menolak permintaan siswa mengikuti ekskul."""
+    baris = services.db.query_one(
+        "SELECT ekskul_id FROM ekskul_pendaftaran WHERE id = ?", (pendaftaran_id,))
+    target = f"/ekstrakurikuler/{baris['ekskul_id']}" if baris else "/ekstrakurikuler"
+    if baris is None:
+        return _redirect("Pendaftaran tidak ditemukan.", level="err", target=target)
+    if not _boleh_kelola(user, int(baris["ekskul_id"])):
+        return _tolak_kelola(user)
+    if keputusan not in {"setujui", "tolak"}:
+        return _redirect("Keputusan tidak dikenali.", level="err", target=target)
+    berhasil, pesan = services.putuskan_pendaftaran_ekskul(
+        pendaftaran_id, keputusan == "setujui", catatan=catatan, actor=user.username)
+    return _redirect(pesan, level="ok" if berhasil else "warn", target=target, fragmen="pendaftar")
 
 
 @router.post("/ekstrakurikuler/{ekskul_id}/anggota")
