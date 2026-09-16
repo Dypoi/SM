@@ -440,6 +440,52 @@ def pasang_dependensi() -> tuple[bool, str]:
     return hasil.returncode == 0, keluaran[-4000:]
 
 
+def periksa_kode_baru(timeout: int = 120) -> tuple[bool, str]:
+    """Pastikan kode hasil pembaruan bisa dijalankan sebelum server dimuat ulang.
+
+    Dua lapis: ``compileall`` untuk seluruh modul Python, lalu uji impor
+    ``app.main`` di proses terpisah memakai folder data sementara supaya basis
+    data asli tidak tersentuh.
+    """
+    import tempfile
+
+    if _git_path() is None and not (BASE_DIR / "app").exists():  # pragma: no cover
+        return True, "Pemeriksaan kode dilewati."
+
+    try:
+        selesai = subprocess.run(
+            [sys.executable, "-m", "compileall", "-q", str(BASE_DIR / "app"), str(BASE_DIR / "run.py")],
+            cwd=str(BASE_DIR), capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=timeout, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, f"Pemeriksaan sintaks gagal dijalankan: {exc}"
+    if selesai.returncode != 0:
+        catatan = ((selesai.stdout or "") + (selesai.stderr or "")).strip().splitlines()
+        return False, "Sintaks Python bermasalah: " + " | ".join(catatan[-3:])
+
+    sementara = tempfile.mkdtemp(prefix="simsek-uji-kode-")
+    lingkungan = os.environ.copy()
+    lingkungan["SM_DATA_DIR"] = sementara
+    lingkungan["SM_DB_PATH"] = str(Path(sementara) / "uji.sqlite3")
+    lingkungan["SM_AUTO_SEED"] = "0"
+    try:
+        impor = subprocess.run(
+            [sys.executable, "-c", "import app.main"],
+            cwd=str(BASE_DIR), env=lingkungan, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=timeout, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, f"Uji impor kode baru gagal dijalankan: {exc}"
+    finally:
+        shutil.rmtree(sementara, ignore_errors=True)
+
+    if impor.returncode != 0:
+        catatan = ((impor.stdout or "") + (impor.stderr or "")).strip().splitlines()
+        return False, "Kode baru gagal dimuat: " + " | ".join(catatan[-3:])
+    return True, "Pemeriksaan kode baru lolos (sintaks + impor aplikasi)."
+
+
 def cadangkan_database() -> Path | None:
     """Salin basis data (backup API SQLite) sebelum kode diperbarui."""
     if not config.DB_PATH.exists():
@@ -531,6 +577,34 @@ def terapkan_pembaruan(cabang: str | None = None, remote: str | None = None,
     hasil["cadangan"] = str(simpan) if simpan else ""
     if simpan:
         hasil["log"].append(f"Cadangan basis data dibuat: {simpan}")
+
+    # Pintu pengaman: kode baru harus bisa dikompilasi & diimpor. Bila tidak,
+    # salinan dikembalikan ke versi sebelumnya agar server tetap bisa dijalankan.
+    if any(b.startswith(("app/", "run.py", "scripts/")) for b in berkas):
+        sehat, catatan = periksa_kode_baru()
+        hasil["log"].append(catatan)
+        if not sehat:
+            kode_balik, keluaran = jalankan_git(["reset", "--hard", sebelum])
+            hasil["log"].append(
+                (keluaran or "") + f" -> dikembalikan ke {sebelum}"
+                if kode_balik == 0 else f"Gagal mengembalikan kode: {keluaran}"
+            )
+            hasil["ok"] = False
+            hasil["dikembalikan"] = kode_balik == 0
+            hasil["sesudah"] = _rev("HEAD")
+            hasil["berubah"] = False
+            hasil["pesan"] = (
+                f"Pembaruan ditolak karena kode barunya bermasalah ({catatan}). "
+                + (f"Aplikasi sudah dikembalikan ke versi {sebelum} dan tetap berjalan. "
+                   if kode_balik == 0 else
+                   f"Kembalikan manual dengan 'git reset --hard {sebelum}'. ")
+                + "Laporkan ini ke pengembang agar diperbaiki di GitHub."
+            )
+            _catat_status(aksi="tarik_pembaruan", hasil="dikembalikan", sebelum=sebelum,
+                          sesudah=hasil["sesudah"], aktor=aktor or "", alasan=catatan)
+            services.log_audit(aktor, role or "admin", "pembaruan_dikembalikan", "aplikasi",
+                               sebelum, catatan)
+            return hasil
 
     hasil["perlu_dependensi"] = any(b == "requirements.txt" for b in berkas)
     if hasil["perlu_dependensi"]:
