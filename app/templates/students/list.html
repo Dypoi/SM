@@ -218,9 +218,9 @@
       <tbody>
         {% for row in rows %}
         <tr>
-          <td class="muted">{{ pagination.start + loop.index0 }}</td>
+          <td class="muted" data-label="#">{{ pagination.start + loop.index0 }}</td>
           {% for key in kolom %}
-            <td>
+            <td data-label="{{ field_label(key) }}">
               {% if key == 'nama' %}
                 <a href="/data-siswa/{{ row.id }}"><strong>{{ row.nama }}</strong></a>
                 {% if row.is_kip %}<span class="badge badge-success" title="Penerima KIP">KIP</span>{% endif %}
@@ -238,7 +238,7 @@
               {% endif %}
             </td>
           {% endfor %}
-          <td class="text-right nowrap">
+          <td class="text-right nowrap" data-label="Aksi">
             <a class="btn btn-outline btn-sm" href="/data-siswa/{{ row.id }}">Detail</a>
           </td>
         </tr>

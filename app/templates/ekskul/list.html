@@ -34,7 +34,7 @@
           <tbody>
             {% for item in daftar %}
             <tr>
-              <td>
+              <td data-label="Nama">
                 <a href="/ekstrakurikuler/{{ item.id }}"><strong>{{ item.nama }}</strong></a>
                 {% set akun = jumlah_akun.get(item.id) if jumlah_akun is defined else None %}
                 {% if akun and (akun.pembina or akun.pelatih) %}
@@ -43,19 +43,19 @@
                 </div>
                 {% endif %}
               </td>
-              <td>{{ item.pembina or '—' }}</td>
-              <td>{{ item.pelatih or '—' }}</td>
-              <td class="nowrap" style="font-size:.82rem">
+              <td data-label="Pembina">{{ item.pembina or '—' }}</td>
+              <td data-label="Pelatih">{{ item.pelatih or '—' }}</td>
+              <td class="nowrap" data-label="Jadwal" style="font-size:.82rem">
                 {% if item.hari %}{{ item.hari }}{% if item.jam_mulai %}, {{ item.jam_mulai }}{% if item.jam_selesai %}–{{ item.jam_selesai }}{% endif %}{% endif %}
                 {% else %}—{% endif %}
               </td>
-              <td class="num"><a href="/ekstrakurikuler/{{ item.id }}">{{ item.jumlah_anggota }}</a></td>
-              <td>
+              <td class="num" data-label="Anggota"><a href="/ekstrakurikuler/{{ item.id }}">{{ item.jumlah_anggota }}</a></td>
+              <td data-label="Status">
                 <span class="badge badge-{{ 'success' if item.aktif else 'muted' }}">
                   {{ 'Aktif' if item.aktif else 'Nonaktif' }}
                 </span>
               </td>
-              <td class="text-right nowrap">
+              <td class="text-right nowrap" data-label="Aksi">
                 <a class="btn btn-outline btn-sm" href="/ekstrakurikuler/{{ item.id }}">{{ icon('users') }}</a>
                 <a class="btn btn-outline btn-sm" href="/ekstrakurikuler?edit={{ item.id }}#form-ekskul">{{ icon('edit') }}</a>
                 {% if user.is_staff %}

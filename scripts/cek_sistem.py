@@ -1161,6 +1161,16 @@ def cek_tabel():
             if 'class="' not in potong:
                 keliru.append(f"{berkas.name}: tabel tanpa kelas")
 
+    # Tabel mode kartu (ponsel) harus memuat label dari server: bila JavaScript
+    # tidak jalan, sel kartu tetap punya keterangan kolom (tidak tampak acak).
+    kartu_tanpa_label: list[str] = []
+    for berkas in template:
+        isi = berkas.read_text(encoding="utf-8")
+        for blok in re.findall(r"<table[^>]*class=\"[^\"]*kartu[^\"]*\"[^>]*>(.*?)</table>", isi, re.S):
+            for sel in re.findall(r"<td([^>]*)>", blok):
+                if "empty-cell" not in sel and "data-label" not in sel:
+                    kartu_tanpa_label.append(berkas.name)
+
     # Kepala tabel lengket hanya boleh menempel di tepi kotak bergulir.
     assert ".table-wrap.compact table.data thead th" in css, \
         "kepala tabel di kotak bergulir harus menempel di tepi (top: 0)"
@@ -1223,7 +1233,10 @@ def cek_tabel():
     rincian = asyncio.run(jalankan())
     assert not keliru, "; ".join(sorted(set(keliru))[:4])
     assert not tanpa_wrap, "; ".join(sorted(set(tanpa_wrap))[:4])
-    return f"{rincian}; kelas tabel ber-CSS; semua terbungkus .table-wrap; jumlah sel seragam"
+    assert not kartu_tanpa_label, ("sel kartu tanpa data-label: "
+                                   + ", ".join(sorted(set(kartu_tanpa_label))[:4]))
+    return (f"{rincian}; kelas tabel ber-CSS; semua terbungkus .table-wrap; "
+            "jumlah sel seragam; label kartu tertulis dari server")
 
 
 def main() -> int:

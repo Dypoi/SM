@@ -424,8 +424,8 @@
           <tbody>
             {% for item in catatan_keamanan %}
             <tr>
-              <td><strong>{{ item.label }}</strong></td>
-              <td>
+              <td data-label="Periksa"><strong>{{ item.label }}</strong></td>
+              <td data-label="Keadaan">
                 {% if item.ok is none %}
                 <span class="badge badge-muted">info</span>
                 {% elif item.ok %}
@@ -434,7 +434,7 @@
                 <span class="badge badge-warning">{{ icon('warning') }} perlu dibenahi</span>
                 {% endif %}
               </td>
-              <td class="muted">
+              <td class="muted" data-label="Catatan">
                 {{ item.pesan }}
                 {% if item.aksi %}
                 <form method="post" action="/pengaturan/aman-online" class="inline-form">

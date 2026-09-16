@@ -84,14 +84,14 @@
         <tbody>
           {% for m in anggota %}
           <tr>
-            <td class="muted">{{ loop.index }}</td>
-            <td>
+            <td class="muted" data-label="#">{{ loop.index }}</td>
+            <td data-label="Nama">
               <a href="/data-siswa/{{ m.student_id }}"><strong>{{ m.nama }}</strong></a>
               <div class="muted" style="font-size:.74rem">{{ m.tahun_ajaran or '-' }} · {{ m.status }}</div>
             </td>
-            <td class="mono">{{ nilai(m.nisn) }}</td>
-            <td>{% if m.rombel %}<span class="badge badge-primary">{{ m.rombel }}</span>{% else %}—{% endif %}</td>
-            <td colspan="4">
+            <td class="mono" data-label="NISN">{{ nilai(m.nisn) }}</td>
+            <td data-label="Rombel">{% if m.rombel %}<span class="badge badge-primary">{{ m.rombel }}</span>{% else %}—{% endif %}</td>
+            <td colspan="4" data-label="Jabatan, nilai &amp; catatan">
               <form method="post" action="/ekstrakurikuler/anggota/{{ m.id }}" class="baris-nilai">
                 <select name="jabatan" aria-label="Jabatan {{ m.nama }}">
                   {% for jab in jabatan_options %}
@@ -117,7 +117,7 @@
                 <button class="btn btn-outline btn-sm" type="submit">{{ icon('check') }} Simpan</button>
               </form>
             </td>
-            <td class="text-right">
+            <td class="text-right" data-label="Aksi">
               <form method="post" action="/ekstrakurikuler/anggota/{{ m.id }}/hapus"
                     data-confirm="Keluarkan {{ m.nama }} dari {{ ekskul.nama }}?">
                 <button class="btn btn-outline btn-sm" type="submit" title="Keluarkan dari ekskul">{{ icon('trash') }}</button>
