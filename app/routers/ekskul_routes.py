@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import io
 from urllib.parse import quote_plus
 
@@ -202,8 +203,8 @@ def perbarui_anggota(
 
 #: Kolom daftar anggota untuk semua bentuk ekspor (CSV/Excel/PDF).
 KOLOM_ANGGOTA: tuple[tuple[str, int], ...] = (
-    ("No", 30), ("Nama", 150), ("NISN", 72), ("Rombel", 45),
-    ("JK", 28), ("Jabatan", 70), ("Nilai", 32), ("Catatan", 96),
+    ("No", 28), ("Nama", 140), ("NISN", 66), ("Rombel", 40),
+    ("JK", 26), ("Jabatan", 62), ("Nilai", 30), ("Catatan", 131),
 )
 
 
@@ -322,8 +323,11 @@ def ekspor_anggota_pdf(request: Request, ekskul_id: int,
         subjudul=_subjudul_ekspor(ekskul),
         kolom=[(label, float(lebar)) for label, lebar in KOLOM_ANGGOTA],
         baris=baris,
-        catatan_kaki=[f"{config.APP_NAME} · {services.school_profile().get('nama', '')}",
-                      "Tanda tangan pembina/pelatih: ____________________"],
+        catatan_kaki=[
+            f"{config.APP_NAME} · {services.school_profile().get('nama', '')}",
+            f"Dicetak {dt.datetime.now().strftime('%d-%m-%Y %H:%M')} · "
+            "Tanda tangan pembina/pelatih: ____________________",
+        ],
     )
     nama_berkas = f"anggota-{_berkas_aman(ekskul['nama'])}.pdf"
     return Response(

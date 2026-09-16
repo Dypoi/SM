@@ -151,11 +151,17 @@ def _buat_halaman(judul: str, subjudul: Sequence[str], kolom: Sequence[tuple[str
         isi.append(_teks_pdf(MARGIN, y, "(belum ada data)", UKURAN_TEKS))
         terpakai = 0
 
-    # Kaki halaman
+    # Kaki halaman: setiap catatan ditulis pada barisnya sendiri supaya tidak
+    # terpotong, dan nomor halaman di kanan bawah.
+    baris_kaki = [baris for baris in catatan_kaki if baris][:3]
     y_kaki = MARGIN
-    isi.append(f"0.6 w {MARGIN:.2f} {y_kaki + 12:.2f} m {A4_LEBAR - MARGIN:.2f} {y_kaki + 12:.2f} l S")
-    isi.append(_teks_pdf(MARGIN, y_kaki, _potong(" - ".join(catatan_kaki), 8, 320), 8))
-    isi.append(_teks_pdf(A4_LEBAR - MARGIN - 110, y_kaki,
+    isi.append(f"0.6 w {MARGIN:.2f} {y_kaki + 12 + 10 * max(0, len(baris_kaki) - 1):.2f} m "
+               f"{A4_LEBAR - MARGIN:.2f} {y_kaki + 12 + 10 * max(0, len(baris_kaki) - 1):.2f} l S")
+    for urutan, baris_kaki_satu in enumerate(baris_kaki):
+        y_baris = y_kaki + 10 * (len(baris_kaki) - 1 - urutan)
+        lebar_teks = A4_LEBAR - 2 * MARGIN if urutan < len(baris_kaki) - 1 else A4_LEBAR - 2 * MARGIN - 150
+        isi.append(_teks_pdf(MARGIN, y_baris, _potong(baris_kaki_satu, 8, lebar_teks), 8))
+    isi.append(_teks_pdf(A4_LEBAR - MARGIN - 140, y_kaki,
                          f"Halaman {nomor} dari {jumlah}  ({total_baris} data)", 8))
     return ("\n".join(isi) + "\n").encode("latin-1", "replace"), terpakai
 
