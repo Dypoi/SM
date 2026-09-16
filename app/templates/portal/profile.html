@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, nilai %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <h2 style="margin-bottom:.2rem">Perbaiki Data Saya</h2>
+    <p class="soft" style="margin-bottom:0">
+      Anda hanya dapat mengubah data kontak dan alamat. Kolom identitas (NISN, NIK, nama,
+      dan data orang tua) hanya bisa diubah oleh tata usaha sekolah.
+    </p>
+  </div>
+</div>
+
+{% if not boleh_ubah %}
+<div class="alert alert-warn mt-2">
+  {{ icon('warning') }}
+  <span>Fitur perbaikan data oleh siswa sedang dinonaktifkan di Pengaturan. Hubungi tata usaha.</span>
+</div>
+{% endif %}
+
+<div class="split mt-2">
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h3>Data yang bisa Anda perbarui</h3>
+        <p>Perubahan langsung tersimpan dan tercatat pada riwayat data sekolah.</p>
+      </div>
+    </div>
+    <form method="post" action="/portal/profil" class="card-body">
+      <div class="form-grid">
+        <div class="field span-2">
+          <label for="alamat">Alamat (jalan, nomor rumah)</label>
+          <input type="text" id="alamat" name="alamat" value="{{ siswa.alamat or '' }}" {{ '' if boleh_ubah else 'disabled' }}>
+        </div>
+        <div class="field">
+          <label for="rt">RT</label>
+          <input type="text" id="rt" name="rt" value="{{ siswa.rt or '' }}" {{ '' if boleh_ubah else 'disabled' }}>
+        </div>
+        <div class="field">
+          <label for="rw">RW</label>
+          <input type="text" id="rw" name="rw" value="{{ siswa.rw or '' }}" {{ '' if boleh_ubah else 'disabled' }}>
+        </div>
+        <div class="field">
+          <label for="dusun">Dusun / Kampung</label>
+          <input type="text" id="dusun" name="dusun" value="{{ siswa.dusun or '' }}" {{ '' if boleh_ubah else 'disabled' }}>
+        </div>
+        <div class="field">
+          <label for="kelurahan">Desa / Kelurahan</label>
+          <input type="text" id="kelurahan" name="kelurahan" value="{{ siswa.kelurahan or '' }}" {{ '' if boleh_ubah else 'disabled' }}>
+        </div>
+        <div class="field">
+          <label for="kecamatan">Kecamatan</label>
+          <input type="text" id="kecamatan" name="kecamatan" value="{{ siswa.kecamatan or '' }}" {{ '' if boleh_ubah else 'disabled' }}>
+        </div>
+        <div class="field">
+          <label for="kode_pos">Kode pos</label>
+          <input type="text" id="kode_pos" name="kode_pos" value="{{ siswa.kode_pos or '' }}" {{ '' if boleh_ubah else 'disabled' }}>
+        </div>
+        <div class="field">
+          <label for="jenis_tinggal">Jenis tinggal</label>
+          <select id="jenis_tinggal" name="jenis_tinggal" {{ '' if boleh_ubah else 'disabled' }}>
+            <option value="">— pilih —</option>
+            {% for opsi in ['Bersama orang tua', 'Wali', 'Kost', 'Asrama', 'Pesantren', 'Panti asuhan'] %}
+              <option value="{{ opsi }}" {{ 'selected' if siswa.jenis_tinggal == opsi }}>{{ opsi }}</option>
+            {% endfor %}
+            {% if siswa.jenis_tinggal and siswa.jenis_tinggal not in ['Bersama orang tua', 'Wali', 'Kost', 'Asrama', 'Pesantren', 'Panti asuhan'] %}
+              <option value="{{ siswa.jenis_tinggal }}" selected>{{ siswa.jenis_tinggal }}</option>
+            {% endif %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="transportasi">Alat transportasi</label>
+          <select id="transportasi" name="transportasi" {{ '' if boleh_ubah else 'disabled' }}>
+            <option value="">— pilih —</option>
+            {% for opsi in ['Jalan kaki', 'Sepeda', 'Sepeda motor', 'Angkutan umum/bus/pete-pete', 'Mobil/bus antar jemput', 'Mobil pribadi', 'Ojek', 'Lainnya'] %}
+              <option value="{{ opsi }}" {{ 'selected' if siswa.transportasi == opsi }}>{{ opsi }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="telepon">Telepon rumah</label>
+          <input type="text" id="telepon" name="telepon" value="{{ siswa.telepon or '' }}" {{ '' if boleh_ubah else 'disabled' }}>
+        </div>
+        <div class="field">
+          <label for="hp">Nomor HP / WhatsApp</label>
+          <input type="text" id="hp" name="hp" inputmode="numeric" value="{{ siswa.hp or '' }}" {{ '' if boleh_ubah else 'disabled' }}>
+          <span class="hint">Dipakai sekolah untuk mengirim informasi penting.</span>
+        </div>
+        <div class="field span-2">
+          <label for="email">E-mail</label>
+          <input type="email" id="email" name="email" value="{{ siswa.email or '' }}" {{ '' if boleh_ubah else 'disabled' }}>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit" {{ '' if boleh_ubah else 'disabled' }}>
+          {{ icon('check') }} Kirim perbaikan data
+        </button>
+        <a class="btn btn-outline" href="/portal">Kembali</a>
+      </div>
+    </form>
+  </div>
+
+  <aside>
+    <div class="card sticky-side">
+      <div class="card-head"><h3>Ringkasan Kelengkapan</h3></div>
+      <div class="card-body">
+        <div class="flex between">
+          <span class="muted">Terisi</span><strong>{{ kelengkapan.persen }}%</strong>
+        </div>
+        <div class="progress mt-1 {{ 'warn' if kelengkapan.persen < 80 else '' }}">
+          <span style="width: {{ kelengkapan.persen }}%"></span>
+        </div>
+
+        <div class="section-title">Wajib</div>
+        <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:.35rem;font-size:.85rem">
+          {% for item in kelengkapan.wajib %}
+            <li class="flex between">
+              <span>{{ item.label }}</span>
+              {% if item.terisi %}<span class="badge badge-success">ada</span>
+              {% else %}<span class="badge badge-warning">kosong</span>{% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+
+        <div class="section-title">Penting</div>
+        <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:.35rem;font-size:.85rem">
+          {% for item in kelengkapan.lain %}
+            <li class="flex between">
+              <span>{{ item.label }}</span>
+              {% if item.terisi %}<span class="badge badge-success">ada</span>
+              {% else %}<span class="badge badge-muted">kosong</span>{% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+
+        <div class="note mt-3" style="font-size:.8rem">
+          Kolom identitas seperti NIK, No. KK, dan data orang tua hanya dapat diubah oleh
+          tata usaha melalui menu Data Siswa.
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+{% endblock %}

@@ -1,0 +1,352 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, stat_card %}
+
+{% block content %}
+<div class="tabs">
+  <button class="tab active" data-tab="sekolah">{{ icon('home') }} Identitas Sekolah</button>
+  <button class="tab" data-tab="preferensi">{{ icon('cog') }} Preferensi</button>
+  <button class="tab" data-tab="pengguna">{{ icon('users') }} Pengguna</button>
+  <button class="tab" data-tab="integrasi">{{ icon('robot') }} Integrasi &amp; API</button>
+  <button class="tab" data-tab="audit">{{ icon('file') }} Audit</button>
+  <button class="tab" data-tab="sistem">{{ icon('info') }} Sistem</button>
+</div>
+
+<!-- ============================ Identitas Sekolah ============================ -->
+<section class="tab-panel active" data-panel="sekolah">
+  <div class="card" id="sekolah">
+    <div class="card-head">
+      <div>
+        <h3>Identitas Sekolah</h3>
+        <p>Dipakai pada kop halaman, laporan, dan berkas ekspor.</p>
+      </div>
+    </div>
+    <form method="post" action="/pengaturan/sekolah" class="card-body">
+      <div class="form-grid">
+        <div class="field span-2">
+          <label for="school_nama">Nama sekolah</label>
+          <input type="text" id="school_nama" name="school_nama" value="{{ settings.school_nama or '' }}" required>
+        </div>
+        <div class="field">
+          <label for="school_npsn">NPSN</label>
+          <input type="text" id="school_npsn" name="school_npsn" value="{{ settings.school_npsn or '' }}" placeholder="8 digit">
+        </div>
+        <div class="field">
+          <label for="school_kepala">Kepala sekolah</label>
+          <input type="text" id="school_kepala" name="school_kepala" value="{{ settings.school_kepala or '' }}">
+        </div>
+        <div class="field span-2">
+          <label for="school_alamat">Alamat</label>
+          <input type="text" id="school_alamat" name="school_alamat" value="{{ settings.school_alamat or '' }}"
+                 placeholder="Jalan, nomor, kelurahan">
+        </div>
+        <div class="field">
+          <label for="school_kecamatan">Kecamatan</label>
+          <input type="text" id="school_kecamatan" name="school_kecamatan" value="{{ settings.school_kecamatan or '' }}">
+        </div>
+        <div class="field">
+          <label for="school_kabupaten">Kabupaten / Kota</label>
+          <input type="text" id="school_kabupaten" name="school_kabupaten" value="{{ settings.school_kabupaten or '' }}">
+        </div>
+        <div class="field">
+          <label for="school_provinsi">Provinsi</label>
+          <input type="text" id="school_provinsi" name="school_provinsi" value="{{ settings.school_provinsi or '' }}">
+        </div>
+        <div class="field">
+          <label for="school_telepon">Telepon</label>
+          <input type="text" id="school_telepon" name="school_telepon" value="{{ settings.school_telepon or '' }}">
+        </div>
+        <div class="field">
+          <label for="school_email">E-mail sekolah</label>
+          <input type="email" id="school_email" name="school_email" value="{{ settings.school_email or '' }}">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">{{ icon('check') }} Simpan identitas</button>
+      </div>
+    </form>
+  </div>
+</section>
+
+<!-- ================================ Preferensi =============================== -->
+<section class="tab-panel" data-panel="preferensi">
+  <div class="card" id="preferensi">
+    <div class="card-head">
+      <div>
+        <h3>Preferensi Aplikasi</h3>
+        <p>Tahun ajaran aktif, aturan login siswa, dan perilaku impor.</p>
+      </div>
+    </div>
+    <form method="post" action="/pengaturan/preferensi" class="card-body">
+      <div class="form-grid">
+        <div class="field">
+          <label for="tahun_ajaran">Tahun ajaran</label>
+          <input type="text" id="tahun_ajaran" name="tahun_ajaran" value="{{ settings.tahun_ajaran or '' }}" placeholder="2026/2027">
+        </div>
+        <div class="field">
+          <label for="semester">Semester</label>
+          <select id="semester" name="semester">
+            <option value="1" {{ 'selected' if settings.semester == '1' }}>1 (Ganjil)</option>
+            <option value="2" {{ 'selected' if settings.semester == '2' }}>2 (Genap)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="rows_per_page">Baris per halaman</label>
+          <input type="number" id="rows_per_page" name="rows_per_page" min="10" max="200"
+                 value="{{ settings.rows_per_page or 25 }}">
+        </div>
+        <div class="field span-2">
+          <label>Keamanan &amp; kemudahan</label>
+          <label class="check">
+            <input type="checkbox" name="login_siswa_pakai_tanggal_lahir" value="1"
+                   {{ 'checked' if settings.login_siswa_pakai_tanggal_lahir == '1' }}>
+            Siswa wajib mengisi tanggal lahir saat login (selain NISN)
+          </label>
+          <label class="check">
+            <input type="checkbox" name="siswa_boleh_edit_data" value="1"
+                   {{ 'checked' if settings.siswa_boleh_edit_data != '0' }}>
+            Siswa boleh memperbaiki sendiri data alamat dan kontak
+          </label>
+          <label class="check">
+            <input type="checkbox" name="ekskul_aktif" value="1"
+                   {{ 'checked' if settings.ekskul_aktif != '0' }}>
+            Aktifkan modul ekstrakurikuler
+          </label>
+          <label class="check">
+            <input type="checkbox" name="dapodik_sync_aktif" value="1"
+                   {{ 'checked' if settings.dapodik_sync_aktif == '1' }}>
+            Aktifkan mode sinkronisasi Dapodik (bot akan dihubungkan kemudian)
+          </label>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">{{ icon('check') }} Simpan preferensi</button>
+      </div>
+    </form>
+  </div>
+</section>
+
+<!-- ================================= Pengguna ================================ -->
+<section class="tab-panel" data-panel="pengguna">
+  <div class="card" id="pengguna">
+    <div class="card-head">
+      <div>
+        <h3>Pengguna Aplikasi</h3>
+        <p>Admin dapat mengelola seluruh data; operator/guru hanya mengelola data siswa dan ekstrakurikuler.</p>
+      </div>
+    </div>
+    <div class="card-body p-0 table-wrap">
+      <table class="data">
+        <thead>
+          <tr><th>Username</th><th>Nama</th><th>Peran</th><th>Status</th><th>Login terakhir</th><th class="text-right">Aksi</th></tr>
+        </thead>
+        <tbody>
+          {% for item in pengguna %}
+          <tr>
+            <td><strong>{{ item.username }}</strong></td>
+            <td>{{ item.nama or '—' }}</td>
+            <td>
+              <span class="badge badge-{{ 'primary' if item.role == 'admin' else 'muted' }}">
+                {{ 'Administrator' if item.role == 'admin' else 'Operator/Guru' }}
+              </span>
+            </td>
+            <td>
+              <span class="badge badge-{{ 'success' if item.aktif else 'danger' }}">
+                {{ 'Aktif' if item.aktif else 'Nonaktif' }}
+              </span>
+            </td>
+            <td class="muted" style="font-size:.8rem">{{ item.last_login | tanggal_waktu }}</td>
+            <td class="text-right">
+              <form method="post" action="/pengaturan/pengguna/{{ item.id }}" class="flex gap-1" style="justify-content:flex-end">
+                <input type="text" name="nama" value="{{ item.nama or '' }}" placeholder="Nama" style="max-width:130px">
+                <select name="role" style="max-width:120px">
+                  <option value="admin" {{ 'selected' if item.role == 'admin' }}>Admin</option>
+                  <option value="operator" {{ 'selected' if item.role == 'operator' }}>Operator</option>
+                </select>
+                <input type="password" name="password" placeholder="Sandi baru" style="max-width:130px" autocomplete="new-password">
+                <select name="aktif" style="max-width:100px">
+                  <option value="1" {{ 'selected' if item.aktif }}>Aktif</option>
+                  <option value="0" {{ 'selected' if not item.aktif }}>Nonaktif</option>
+                </select>
+                <button class="btn btn-outline btn-sm" type="submit">{{ icon('check') }}</button>
+              </form>
+              {% if item.id != user.id %}
+              <form method="post" action="/pengaturan/pengguna/{{ item.id }}/hapus" class="mt-1"
+                    data-confirm="Hapus pengguna {{ item.username }}?">
+                <button class="btn btn-outline btn-sm" type="submit">{{ icon('trash') }}</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <form method="post" action="/pengaturan/pengguna" class="card-foot">
+      <div class="form-grid">
+        <div class="field">
+          <label for="username">Username baru</label>
+          <input type="text" id="username" name="username" required placeholder="guru.budi">
+        </div>
+        <div class="field">
+          <label for="nama_baru">Nama lengkap</label>
+          <input type="text" id="nama_baru" name="nama" placeholder="Budi Santoso, S.Pd">
+        </div>
+        <div class="field">
+          <label for="password_baru">Kata sandi</label>
+          <input type="password" id="password_baru" name="password" required minlength="5" autocomplete="new-password">
+          <span class="hint">Minimal 5 karakter.</span>
+        </div>
+        <div class="field">
+          <label for="role_baru">Peran</label>
+          <select id="role_baru" name="role">
+            <option value="operator">Operator / Guru</option>
+            <option value="admin">Administrator</option>
+          </select>
+        </div>
+        <div class="field" style="justify-content:flex-end">
+          <label>&nbsp;</label>
+          <button class="btn btn-primary" type="submit">{{ icon('plus') }} Tambah pengguna</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</section>
+
+<!-- ============================== Integrasi & API ============================ -->
+<section class="tab-panel" data-panel="integrasi">
+  <div class="split">
+    <div>
+      <div class="card" id="integrasi">
+        <div class="card-head">
+          <div>
+            <h3>{{ icon('robot') }} Integrasi Bot Dapodik</h3>
+            <p>Kesiapan data dan kunci akses API untuk otomatisasi.</p>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="note">
+            Sistem ini sudah menyediakan <strong>jejak perubahan per kolom</strong>
+            (<code>data_changes</code>), <strong>antrean pekerjaan</strong> (<code>dapodik_jobs</code>),
+            dan <strong>REST API</strong> dengan kunci akses. Bot Dapodik pada tahap berikutnya
+            dapat membaca daftar siswa, membandingkan dengan data Dapodik, lalu mengirim perbaikan
+            lewat <code>PATCH /api/siswa/{nisn}</code> — semuanya tercatat pada audit.
+          </div>
+
+          <dl class="kv mt-2 kv-2">
+            <dt>Data siap sinkron</dt><dd><strong>{{ readiness.siap | angka_id }}</strong> siswa</dd>
+            <dt>Perlu perbaikan</dt><dd>{{ readiness.perlu_perbaikan | angka_id }} siswa</dd>
+            <dt>Mode sinkronisasi</dt>
+            <dd><span class="badge badge-{{ 'success' if readiness.sync_aktif else 'muted' }}">
+              {{ 'Aktif' if readiness.sync_aktif else 'Belum diaktifkan' }}</span></dd>
+            <dt>Temuan terbuka</dt><dd>{{ (readiness.temuan | map(attribute='jumlah') | sum) | angka_id }}</dd>
+          </dl>
+        </div>
+      </div>
+
+      <div class="card mt-2">
+        <div class="card-head">
+          <div>
+            <h3>Kunci API</h3>
+            <p>Kirimkan pada header <code>X-API-Key</code> di setiap permintaan.</p>
+          </div>
+          <form method="post" action="/pengaturan/api-key" data-confirm="Kunci lama tidak akan berlaku lagi. Lanjutkan?">
+            <button class="btn btn-warning btn-sm" type="submit">{{ icon('cog') }} Putar kunci</button>
+          </form>
+        </div>
+        <div class="card-body">
+          <div class="mono-block" id="kunci-api">{{ api_key }}</div>
+          <div class="btn-group mt-2">
+            <button class="btn btn-outline btn-sm" type="button" data-copy="{{ api_key }}">Salin kunci</button>
+            <a class="btn btn-outline btn-sm" href="/pengaturan/dokumentasi-api">{{ icon('book') }} Dokumentasi API</a>
+            <a class="btn btn-outline btn-sm" href="/api/docs" target="_blank" rel="noopener">{{ icon('file') }} Swagger (OpenAPI)</a>
+          </div>
+          {% if settings.api_key_created_at %}
+            <p class="muted mt-2" style="font-size:.8rem">Dibuat: {{ settings.api_key_created_at }}</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <aside>
+      <div class="card sticky-side">
+        <div class="card-head"><h3>Peta Jalan Fitur</h3></div>
+        <div class="card-body">
+          <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:.6rem;font-size:.86rem">
+            <li class="flex between"><span>{{ icon('check') }} Impor Excel/CSV multi-format</span><span class="badge badge-success">selesai</span></li>
+            <li class="flex between"><span>{{ icon('check') }} Data peserta didik lengkap</span><span class="badge badge-success">selesai</span></li>
+            <li class="flex between"><span>{{ icon('check') }} Login admin &amp; siswa (NISN)</span><span class="badge badge-success">selesai</span></li>
+            <li class="flex between"><span>{{ icon('check') }} Modul ekstrakurikuler</span><span class="badge badge-success">selesai</span></li>
+            <li class="flex between"><span>{{ icon('check') }} Laporan kualitas data</span><span class="badge badge-success">selesai</span></li>
+            <li class="flex between"><span>{{ icon('robot') }} API untuk bot Dapodik</span><span class="badge badge-info">dasar tersedia</span></li>
+            <li class="flex between"><span>{{ icon('robot') }} Bot perbaikan data Dapodik</span><span class="badge badge-muted">rencana</span></li>
+          </ul>
+        </div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<!-- ================================== Audit ================================= -->
+<section class="tab-panel" data-panel="audit">
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h3>Audit Aktivitas</h3>
+        <p>{{ audit | length }} aktivitas terakhir dicatat otomatis.</p>
+      </div>
+    </div>
+    <div class="card-body p-0 table-wrap compact">
+      <table class="data tabel-kecil">
+        <thead><tr><th>Waktu</th><th>Aktor</th><th>Peran</th><th>Aksi</th><th>Entitas</th><th>Detail</th><th>IP</th></tr></thead>
+        <tbody>
+          {% for item in audit %}
+          <tr>
+            <td class="nowrap muted">{{ item.created_at | tanggal_waktu }}</td>
+            <td>{{ item.actor or 'sistem' }}</td>
+            <td><span class="badge badge-muted">{{ item.role or '-' }}</span></td>
+            <td><strong>{{ item.aksi | replace('_', ' ') }}</strong></td>
+            <td class="muted">{{ item.entitas or '-' }}{% if item.entitas_id %} #{{ item.entitas_id }}{% endif %}</td>
+            <td class="muted">{{ item.detail | singkat(40) if item.detail else '—' }}</td>
+            <td class="muted">{{ item.ip or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="empty">Belum ada aktivitas.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ================================= Sistem ================================= -->
+<section class="tab-panel" data-panel="sistem">
+  <div class="grid grid-4">
+    {{ stat_card('Data Siswa', jumlah_siswa | angka_id, 'users', 'primary') }}
+    {{ stat_card('Riwayat Impor', jumlah_impor | angka_id, 'upload', 'info') }}
+    {{ stat_card('Ekstrakurikuler', jumlah_ekskul | angka_id, 'flag', 'teal') }}
+    {{ stat_card('Versi Aplikasi', app_version, 'info', 'violet', app_name) }}
+  </div>
+
+  <div class="card mt-2">
+    <div class="card-head">
+      <div>
+        <h3>Informasi Teknis</h3>
+        <p>Ringkasan penyimpanan dan konfigurasi aplikasi.</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <dl class="kv">
+        <dt>Basis data</dt><dd class="mono">{{ db_path }}</dd>
+        <dt>Folder data</dt><dd class="mono">{{ data_dir }}</dd>
+        <dt>Tahun ajaran</dt><dd>{{ settings.tahun_ajaran }} · semester {{ settings.semester }}</dd>
+        <dt>Akun admin</dt><dd>Sesuai tabel Pengguna di atas</dd>
+        <dt>Cadangan</dt><dd>Salin seluruh folder <code>data/</code> untuk mencadangkan aplikasi.</dd>
+      </dl>
+      <div class="note mt-2">
+        <strong>Penting:</strong> segera ubah kata sandi <code>admin</code> bawaan
+        pada tab Pengguna sebelum aplikasi dipakai di lingkungan sekolah.
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, nilai %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <div class="flex between flex-wrap" style="gap:1rem">
+      <div style="min-width:260px">
+        <h2 style="margin-bottom:.2rem">{{ ekskul.nama }}</h2>
+        <div class="flex flex-wrap gap-1">
+          {% if ekskul.kode %}<span class="chip">{{ ekskul.kode }}</span>{% endif %}
+          <span class="chip chip-muted">{{ ekskul.kategori or 'Lainnya' }}</span>
+          <span class="badge badge-{{ 'success' if ekskul.aktif else 'muted' }} badge-lg">
+            {{ 'Aktif' if ekskul.aktif else 'Nonaktif' }}
+          </span>
+        </div>
+        <p class="muted mt-1" style="font-size:.83rem">
+          Pembina {{ ekskul.pembina or '—' }}
+          {% if ekskul.hari %} · {{ ekskul.hari }}{% if ekskul.jam_mulai %} {{ ekskul.jam_mulai }}{% if ekskul.jam_selesai %}–{{ ekskul.jam_selesai }}{% endif %}{% endif %}{% endif %}
+          {% if ekskul.tempat %} · {{ ekskul.tempat }}{% endif %}
+        </p>
+        {% if ekskul.deskripsi %}<p class="soft" style="font-size:.86rem">{{ ekskul.deskripsi }}</p>{% endif %}
+      </div>
+      <div class="btn-group">
+        <a class="btn btn-outline btn-sm" href="/ekstrakurikuler">{{ icon('flag') }} Semua ekskul</a>
+        <a class="btn btn-outline btn-sm" href="/ekstrakurikuler?edit={{ ekskul.id }}#form-ekskul">{{ icon('edit') }} Ubah</a>
+        <a class="btn btn-outline btn-sm" href="/ekstrakurikuler/{{ ekskul.id }}/anggota.csv">{{ icon('download') }} Ekspor anggota</a>
+        {% if user.is_staff %}
+        <form method="post" action="/ekstrakurikuler/{{ ekskul.id }}/hapus"
+              data-confirm="Hapus {{ ekskul.nama }} beserta seluruh anggotanya?">
+          <button class="btn btn-danger btn-sm" type="submit">{{ icon('trash') }} Hapus</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="split mt-2">
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h3>Anggota ({{ anggota | length }})</h3>
+        <p>Jabatan, nilai, dan predikat dapat diperbarui langsung dari tabel ini.</p>
+      </div>
+    </div>
+    <div class="card-body p-0 table-wrap">
+      <table class="data">
+        <thead>
+          <tr><th>#</th><th>Nama</th><th>NISN</th><th>Rombel</th><th>Jabatan &amp; nilai</th><th class="text-right">Aksi</th></tr>
+        </thead>
+        <tbody>
+          {% for m in anggota %}
+          <tr>
+            <td class="muted">{{ loop.index }}</td>
+            <td>
+              <a href="/data-siswa/{{ m.student_id }}"><strong>{{ m.nama }}</strong></a>
+              <div class="muted" style="font-size:.74rem">{{ m.tahun_ajaran or '-' }} · {{ m.status }}</div>
+            </td>
+            <td class="mono">{{ nilai(m.nisn) }}</td>
+            <td>{% if m.rombel %}<span class="badge badge-primary">{{ m.rombel }}</span>{% else %}—{% endif %}</td>
+            <td>
+              <form method="post" action="/ekstrakurikuler/anggota/{{ m.id }}" class="flex gap-1 flex-wrap">
+                <select name="jabatan" style="max-width:120px">
+                  {% for jab in ['Anggota', 'Ketua', 'Wakil Ketua', 'Sekretaris', 'Bendahara', 'Pelatih'] %}
+                    <option value="{{ jab }}" {{ 'selected' if m.jabatan == jab }}>{{ jab }}</option>
+                  {% endfor %}
+                </select>
+                <input type="number" step="0.01" name="nilai" value="{{ m.nilai if m.nilai is not none else '' }}"
+                       placeholder="Nilai" style="max-width:90px">
+                <select name="predikat" style="max-width:120px">
+                  <option value="">Predikat</option>
+                  {% for pred in ['A', 'B', 'C', 'D', 'Sangat Baik', 'Baik', 'Cukup'] %}
+                    <option value="{{ pred }}" {{ 'selected' if m.predikat == pred }}>{{ pred }}</option>
+                  {% endfor %}
+                </select>
+                <select name="status" style="max-width:110px">
+                  <option value="aktif" {{ 'selected' if m.status == 'aktif' }}>aktif</option>
+                  <option value="nonaktif" {{ 'selected' if m.status == 'nonaktif' }}>nonaktif</option>
+                  <option value="keluar" {{ 'selected' if m.status == 'keluar' }}>keluar</option>
+                </select>
+                <button class="btn btn-outline btn-sm" type="submit">{{ icon('check') }}</button>
+              </form>
+            </td>
+            <td class="text-right">
+              <form method="post" action="/ekstrakurikuler/anggota/{{ m.id }}/hapus"
+                    data-confirm="Keluarkan {{ m.nama }} dari {{ ekskul.nama }}?">
+                <button class="btn btn-outline btn-sm" type="submit">{{ icon('trash') }}</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="empty">Belum ada anggota. Tambahkan siswa lewat panel di samping.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <aside>
+    <div class="card sticky-side">
+      <div class="card-head"><h3>Tambah Anggota</h3></div>
+      <div class="card-body">
+        <form method="post" action="/ekstrakurikuler/{{ ekskul.id }}/anggota">
+          <div class="field">
+            <label for="nisn">NISN siswa</label>
+            <input type="text" id="nisn" name="nisn" inputmode="numeric" placeholder="0113374384" required>
+            <span class="hint">Masukkan NISN, atau tempel dari daftar siswa.</span>
+          </div>
+          <div class="field mt-2">
+            <label for="jabatan">Jabatan</label>
+            <select id="jabatan" name="jabatan">
+              <option value="Anggota">Anggota</option>
+              <option value="Ketua">Ketua</option>
+              <option value="Wakil Ketua">Wakil Ketua</option>
+              <option value="Sekretaris">Sekretaris</option>
+              <option value="Bendahara">Bendahara</option>
+            </select>
+          </div>
+          <button class="btn btn-primary btn-block mt-2" type="submit">{{ icon('plus') }} Tambahkan</button>
+        </form>
+
+        <div class="section-title">Ringkasan</div>
+        <dl class="kv" style="grid-template-columns:1fr">
+          <dt>Jumlah anggota</dt><dd>{{ anggota | length }}</dd>
+          <dt>Kuota</dt><dd>{{ ekskul.kuota or 'tidak dibatasi' }}</dd>
+          <dt>Status</dt><dd>{{ 'Aktif' if ekskul.aktif else 'Nonaktif' }}</dd>
+        </dl>
+      </div>
+    </div>
+
+    {% if opsi_rombel %}
+    <div class="card mt-2">
+      <div class="card-head"><h3>Cari cepat</h3></div>
+      <div class="card-body">
+        <p class="soft" style="font-size:.83rem">
+          Buka daftar siswa per rombel, salin NISN, lalu tambahkan di sini.
+        </p>
+        <div class="tag-list">
+          {% for rombel in opsi_rombel %}
+            <a class="chip chip-muted" href="/data-siswa?rombel={{ rombel }}">{{ rombel }}</a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

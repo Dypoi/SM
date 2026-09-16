@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+<div class="split">
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3>Dokumentasi API</h3>
+          <p>Kontrak integrasi yang akan dipakai bot Dapodik dan aplikasi lain.</p>
+        </div>
+        <a class="btn btn-outline btn-sm" href="/pengaturan#integrasi">Kembali ke Pengaturan</a>
+      </div>
+      <div class="card-body">
+        <dl class="kv kv-2">
+          <dt>Base URL</dt><dd class="mono">{{ base_url }}</dd>
+          <dt>Header autentikasi</dt><dd class="mono">X-API-Key: {{ api_key }}</dd>
+          <dt>Format</dt><dd>JSON (UTF-8)</dd>
+          <dt>Dokumentasi interaktif</dt><dd><a href="/api/docs" target="_blank" rel="noopener">/api/docs</a></dd>
+        </dl>
+
+        <div class="section-title">Endpoint Baca</div>
+        <div class="card-body p-0 table-wrap">
+          <table class="data">
+            <thead><tr><th>Metode</th><th>Jalur</th><th>Keterangan</th></tr></thead>
+            <tbody>
+              <tr><td><span class="badge badge-success">GET</span></td><td class="mono">/api/health</td><td>Cek status aplikasi (tanpa kunci)</td></tr>
+              <tr><td><span class="badge badge-success">GET</span></td><td class="mono">/api/sekolah</td><td>Identitas sekolah &amp; tahun ajaran</td></tr>
+              <tr><td><span class="badge badge-success">GET</span></td><td class="mono">/api/statistik</td><td>Ringkasan jumlah siswa per tingkat/rombel</td></tr>
+              <tr><td><span class="badge badge-success">GET</span></td><td class="mono">/api/siswa</td><td>Daftar siswa (parameter <code>q</code>, <code>rombel</code>, <code>tingkat</code>, <code>page</code>, <code>per_page</code>)</td></tr>
+              <tr><td><span class="badge badge-success">GET</span></td><td class="mono">/api/siswa/{nisn}</td><td>Detail satu siswa + ekstrakurikuler</td></tr>
+              <tr><td><span class="badge badge-success">GET</span></td><td class="mono">/api/kualitas-data</td><td>Temuan kualitas data siap perbaikan</td></tr>
+              <tr><td><span class="badge badge-success">GET</span></td><td class="mono">/api/field</td><td>Daftar field yang boleh ditulis beserta tipenya</td></tr>
+              <tr><td><span class="badge badge-success">GET</span></td><td class="mono">/api/perubahan</td><td>Riwayat perubahan data per kolom</td></tr>
+              <tr><td><span class="badge badge-success">GET</span></td><td class="mono">/api/ekskul</td><td>Daftar &amp; statistik ekstrakurikuler</td></tr>
+              <tr><td><span class="badge badge-success">GET</span></td><td class="mono">/api/audit</td><td>Log aktivitas pengguna</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="section-title">Endpoint Tulis</div>
+        <div class="card-body p-0 table-wrap">
+          <table class="data">
+            <thead><tr><th>Metode</th><th>Jalur</th><th>Keterangan</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><span class="badge badge-warning">PATCH</span></td>
+                <td class="mono">/api/siswa/{nisn}</td>
+                <td>Perbarui sebagian kolom siswa. Dipakai bot Dapodik setelah validasi.</td>
+              </tr>
+              <tr>
+                <td><span class="badge badge-primary">POST</span></td>
+                <td class="mono">/api/impor</td>
+                <td>Unggah berkas Excel/CSV dan impor otomatis. Parameter <code>mode</code>, <code>dry_run</code>.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="section-title">Contoh</div>
+        <div class="mono-block"># 1. Ambil daftar siswa kelas 9D
+curl -H "X-API-Key: {{ api_key }}" \
+     "{{ base_url }}/api/siswa?rombel=9D&per_page=5"
+
+# 2. Perbaiki NIK seorang siswa (bot Dapodik)
+curl -X PATCH -H "X-API-Key: {{ api_key }}" \
+     -H "Content-Type: application/json" \
+     -d '{"nik":"3671101605170001","_actor":"bot-dapodik"}' \
+     "{{ base_url }}/api/siswa/0113374384"
+
+# 3. Uji coba impor berkas tanpa menyimpan
+curl -X POST -H "X-API-Key: {{ api_key }}" \
+     -F "berkas=@daftar_pd.xlsx" \
+     "{{ base_url }}/api/impor?mode=upsert&dry_run=true"</div>
+
+        <div class="note mt-2">
+          Setiap perubahan yang dikirim melalui API otomatis tercatat pada tabel
+          <code>data_changes</code> beserta nilai lama dan baru, sehingga sinkronisasi
+          ke Dapodik bisa diaudit dan dibatalkan bila perlu.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <aside>
+    <div class="card sticky-side">
+      <div class="card-head"><h3>Rencana Bot Dapodik</h3></div>
+      <div class="card-body">
+        <ol class="soft" style="font-size:.85rem;padding-left:1.1rem;display:flex;flex-direction:column;gap:.5rem;margin:0">
+          <li><strong>Baca</strong> — bot mengambil data aplikasi lewat <code>GET /api/siswa</code> dan data Dapodik dari sumbernya.</li>
+          <li><strong>Bandingkan</strong> — cocokkan berdasarkan NISN, tandai kolom yang berbeda.</li>
+          <li><strong>Pelajari aturan</strong> — tentukan mana yang benar menurut aturan Dapodik (mis. format NIK 16 digit).</li>
+          <li><strong>Kirim perbaikan</strong> — <code>PATCH /api/siswa/{nisn}</code> dengan mode uji coba terlebih dahulu.</li>
+          <li><strong>Audit</strong> — tinjau <code>/api/perubahan</code> dan halaman Kualitas Data.</li>
+        </ol>
+        <div class="note mt-2" style="font-size:.82rem">
+          Tahap 1 sudah tersedia: antrean pekerjaan, API, dan jejak perubahan.
+          Tahap 2 (bot penuh) akan ditambahkan setelah alur manual disepakati sekolah.
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+{% endblock %}

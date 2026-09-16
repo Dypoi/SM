@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title }} · {{ app_name }}</title>
+  <meta name="description" content="{{ app_long_name }} {{ profil.nama }}">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M9 21V11l7-4 7 4v10' stroke='white' stroke-width='2.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M13 21v-4h6v4' stroke='white' stroke-width='2.2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+<div class="layout">
+  {% include "partials/sidebar.html" %}
+
+  <div class="main">
+    {% include "partials/topbar.html" %}
+
+    <main class="content">
+      {% from "_macros.html" import flash %}
+      {{ flash(msg, msg_level) }}
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+      <span>{{ app_long_name }} · <strong>{{ profil.nama }}</strong></span>
+      <span class="footer-meta">
+        Tahun Ajaran {{ profil.tahun_ajaran }} · Semester {{ profil.semester }} · {{ app_name }} v{{ app_version }}
+      </span>
+    </footer>
+  </div>
+</div>
+<script src="/static/js/app.js" defer></script>
+</body>
+</html>

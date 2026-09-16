@@ -1,0 +1,17 @@
+# SIMSEK - Sistem Informasi Manajemen Sekolah
+# Stack sengaja dipilih ringan: web framework async ringan + template server-side.
+# Tidak ada Node.js, tidak ada build step, tidak ada CDN eksternal.
+
+# --- Web layer ---
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+jinja2==3.1.6
+python-multipart==0.0.20
+itsdangerous==2.2.0
+
+# --- Pembaca berkas spreadsheet (multi format) ---
+openpyxl==3.1.5     # .xlsx .xlsm .xltx .xltm  (Excel 2007+)
+xlrd==2.0.2         # .xls                    (Excel 97-2003)
+pyxlsb==1.0.10      # .xlsb                   (Excel Binary)
+odfpy==1.4.1        # .ods                    (LibreOffice/OpenOffice)
+# .csv / .txt / .tsv memakai modul `csv` bawaan Python (tanpa dependensi)

@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, stat_card %}
+
+{% block content %}
+<div class="grid grid-4">
+  {{ stat_card('Total Ekstrakurikuler', stats.total | angka_id, 'flag', 'primary') }}
+  {{ stat_card('Aktif', stats.aktif | angka_id, 'check', 'success') }}
+  {{ stat_card('Keanggotaan', stats.anggota | angka_id, 'users', 'teal', 'Baris keanggotaan aktif') }}
+  {{ stat_card('Siswa Terlibat', stats.siswa_ikut | angka_id, 'user', 'violet') }}
+</div>
+
+<div class="split mt-2">
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3>Daftar Ekstrakurikuler</h3>
+          <p>Kelola kegiatan, pembina, jadwal, dan anggota.</p>
+        </div>
+        <button class="btn btn-primary btn-sm" type="button" data-tab="form-ekskul" onclick="document.getElementById('form-ekskul').scrollIntoView({behavior:'smooth'})">
+          {{ icon('plus') }} Tambah
+        </button>
+      </div>
+      <div class="card-body p-0 table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Nama</th><th>Kategori</th><th>Pembina</th><th>Jadwal</th>
+              <th class="num">Anggota</th><th>Status</th><th class="text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in daftar %}
+            <tr>
+              <td>
+                <a href="/ekstrakurikuler/{{ item.id }}"><strong>{{ item.nama }}</strong></a>
+                <div class="muted" style="font-size:.76rem">
+                  {% if item.kode %}{{ item.kode }} · {% endif %}{{ item.tempat or 'tempat belum diisi' }}
+                </div>
+              </td>
+              <td><span class="chip chip-muted">{{ item.kategori or 'Lainnya' }}</span></td>
+              <td>{{ item.pembina or '—' }}</td>
+              <td class="nowrap" style="font-size:.82rem">
+                {% if item.hari %}{{ item.hari }}{% if item.jam_mulai %}, {{ item.jam_mulai }}{% if item.jam_selesai %}–{{ item.jam_selesai }}{% endif %}{% endif %}
+                {% else %}—{% endif %}
+              </td>
+              <td class="num">
+                <a href="/ekstrakurikuler/{{ item.id }}">{{ item.jumlah_anggota }}</a>
+                {% if item.kuota %}<span class="muted">/ {{ item.kuota }}</span>{% endif %}
+              </td>
+              <td>
+                <span class="badge badge-{{ 'success' if item.aktif else 'muted' }}">
+                  {{ 'Aktif' if item.aktif else 'Nonaktif' }}
+                </span>
+              </td>
+              <td class="text-right nowrap">
+                <a class="btn btn-outline btn-sm" href="/ekstrakurikuler/{{ item.id }}">{{ icon('users') }}</a>
+                <a class="btn btn-outline btn-sm" href="/ekstrakurikuler?edit={{ item.id }}#form-ekskul">{{ icon('edit') }}</a>
+                {% if user.is_staff %}
+                <form method="post" action="/ekstrakurikuler/{{ item.id }}/hapus" style="display:inline"
+                      data-confirm="Hapus ekstrakurikuler {{ item.nama }} beserta anggotanya?">
+                  <button class="btn btn-outline btn-sm" type="submit">{{ icon('trash') }}</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="empty">Belum ada ekstrakurikuler. Tambahkan yang pertama di form bawah.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card mt-2" id="form-ekskul">
+      <div class="card-head">
+        <div>
+          <h3>{{ 'Ubah' if edit_item else 'Tambah' }} ekstrakurikuler</h3>
+          <p>{{ 'Sedang mengubah: ' ~ edit_item.nama if edit_item else 'Isi nama kegiatan, lalu lengkapi pembina dan jadwal.' }}</p>
+        </div>
+        {% if edit_item %}<a class="btn btn-outline btn-sm" href="/ekstrakurikuler#form-ekskul">Batal ubah</a>{% endif %}
+      </div>
+      <form method="post" action="/ekstrakurikuler/simpan" class="card-body">
+        <input type="hidden" name="ekskul_id" value="{{ edit_item.id if edit_item else '' }}">
+        <div class="form-grid">
+          <div class="field">
+            <label for="nama">Nama kegiatan *</label>
+            <input type="text" id="nama" name="nama" required value="{{ edit_item.nama if edit_item else '' }}"
+                   placeholder="Contoh: Palang Merah Remaja">
+          </div>
+          <div class="field">
+            <label for="kode">Kode</label>
+            <input type="text" id="kode" name="kode" value="{{ edit_item.kode if edit_item else '' }}" placeholder="PMR">
+          </div>
+          <div class="field">
+            <label for="kategori">Kategori</label>
+            <select id="kategori" name="kategori">
+              {% for opsi in kategori_options %}
+                <option value="{{ opsi }}" {{ 'selected' if edit_item and edit_item.kategori == opsi }}>{{ opsi }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="pembina">Pembina</label>
+            <input type="text" id="pembina" name="pembina" value="{{ edit_item.pembina if edit_item else '' }}"
+                   placeholder="Nama guru pembina">
+          </div>
+          <div class="field">
+            <label for="hari">Hari</label>
+            <select id="hari" name="hari">
+              <option value="">— pilih —</option>
+              {% for opsi in hari_options %}
+                <option value="{{ opsi }}" {{ 'selected' if edit_item and edit_item.hari == opsi }}>{{ opsi }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="jam_mulai">Jam mulai</label>
+            <input type="time" id="jam_mulai" name="jam_mulai" value="{{ edit_item.jam_mulai if edit_item else '' }}">
+          </div>
+          <div class="field">
+            <label for="jam_selesai">Jam selesai</label>
+            <input type="time" id="jam_selesai" name="jam_selesai" value="{{ edit_item.jam_selesai if edit_item else '' }}">
+          </div>
+          <div class="field">
+            <label for="tempat">Tempat</label>
+            <input type="text" id="tempat" name="tempat" value="{{ edit_item.tempat if edit_item else '' }}" placeholder="Lapangan / Ruang 9A">
+          </div>
+          <div class="field">
+            <label for="kuota">Kuota anggota</label>
+            <input type="number" id="kuota" name="kuota" min="0" value="{{ edit_item.kuota if edit_item and edit_item.kuota else '' }}">
+          </div>
+          <div class="field span-2">
+            <label for="deskripsi">Deskripsi</label>
+            <textarea id="deskripsi" name="deskripsi">{{ edit_item.deskripsi if edit_item else '' }}</textarea>
+          </div>
+          <div class="field">
+            <label>Status</label>
+            <label class="check">
+              <input type="checkbox" name="aktif" value="1"
+                     {{ 'checked' if not edit_item or edit_item.aktif }}>
+              Aktif pada tahun ajaran ini
+            </label>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">{{ icon('check') }} {{ 'Simpan perubahan' if edit_item else 'Tambah ekstrakurikuler' }}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <aside>
+    <div class="card sticky-side">
+      <div class="card-head"><h3>Sebaran per Kategori</h3></div>
+      <div class="card-body">
+        {% if kategori %}
+          {% set maks = kategori | map(attribute='jumlah') | max %}
+          <ul class="bar-list">
+            {% for item in kategori %}
+            <li>
+              <span class="bar-label" title="{{ item.label }}">{{ item.label }}</span>
+              <span class="bar-track">
+                <span class="bar-fill" style="width: {{ (item.jumlah / maks * 100) | round(1) if maks else 0 }}%"></span>
+              </span>
+              <span class="bar-value">{{ item.jumlah }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty">Belum ada data kategori.</p>
+        {% endif %}
+
+        <dl class="kv mt-3" style="grid-template-columns:1fr">
+          <dt>Total kegiatan</dt><dd>{{ stats.total | angka_id }}</dd>
+          <dt>Aktif</dt><dd>{{ stats.aktif | angka_id }}</dd>
+          <dt>Keanggotaan tercatat</dt><dd>{{ stats.anggota | angka_id }}</dd>
+          <dt>Siswa terlibat</dt><dd>{{ stats.siswa_ikut | angka_id }}</dd>
+        </dl>
+        <p class="soft mt-2" style="font-size:.83rem">
+          Grafik lengkap tersedia di halaman <a href="/statistik">Statistik</a>.
+        </p>
+      </div>
+    </div>
+  </aside>
+</div>
+{% endblock %}

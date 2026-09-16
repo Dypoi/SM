@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <h2 style="margin-bottom:.2rem">Kegiatan yang saya ikuti</h2>
+    <p class="soft">Daftar ini dikelola oleh pembina/guru. Hubungi pembina bila ada perubahan.</p>
+  </div>
+</div>
+
+<div class="card mt-2">
+  <div class="card-head"><h3>{{ diikuti | length }} kegiatan terdaftar</h3></div>
+  <div class="card-body p-0 table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Kegiatan</th><th>Kategori</th><th>Jadwal</th><th>Tempat</th><th>Pembina</th><th>Jabatan</th><th>Predikat</th></tr>
+      </thead>
+      <tbody>
+        {% for item in diikuti %}
+        <tr>
+          <td><strong>{{ item.nama }}</strong></td>
+          <td><span class="chip chip-muted">{{ item.kategori or 'Lainnya' }}</span></td>
+          <td class="nowrap">
+            {% if item.hari %}{{ item.hari }}{% endif %}
+            {% if item.jam_mulai %}, {{ item.jam_mulai }}{% if item.jam_selesai %}–{{ item.jam_selesai }}{% endif %}{% endif %}
+            {% if not item.hari and not item.jam_mulai %}—{% endif %}
+          </td>
+          <td>{{ item.tempat or '—' }}</td>
+          <td>{{ item.pembina or '—' }}</td>
+          <td>{{ item.jabatan }}</td>
+          <td>{% if item.predikat %}<span class="badge badge-success">{{ item.predikat }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="empty">Belum terdaftar pada ekstrakurikuler mana pun.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Pilihan Ekstrakurikuler di Sekolah</h3>
+      <p>{{ tersedia | length }} kegiatan aktif pada tahun ajaran ini</p>
+    </div>
+  </div>
+  <div class="card-body">
+    <div class="grid grid-3">
+      {% for item in tersedia %}
+      <div class="card card-tight">
+        <div class="card-body">
+          <div class="flex between">
+            <strong>{{ item.nama }}</strong>
+            {% if item.kuota %}<span class="badge badge-muted">{{ item.jumlah_anggota }}/{{ item.kuota }}</span>{% endif %}
+          </div>
+          <div class="muted" style="font-size:.79rem">{{ item.kategori or 'Lainnya' }}</div>
+          <div class="soft" style="font-size:.82rem">
+            {% if item.hari %}{{ item.hari }}{% endif %}
+            {% if item.jam_mulai %} {{ item.jam_mulai }}–{{ item.jam_selesai }}{% endif %}
+            {% if item.tempat %} · {{ item.tempat }}{% endif %}
+          </div>
+          {% if item.pembina %}<div class="muted" style="font-size:.78rem">Pembina: {{ item.pembina }}</div>{% endif %}
+        </div>
+      </div>
+      {% else %}
+      <p class="empty">Belum ada ekstrakurikuler aktif.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

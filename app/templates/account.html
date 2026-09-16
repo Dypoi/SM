@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+<div class="split">
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h3>Akun Saya</h3>
+        <p>Ubah kata sandi akun yang sedang digunakan.</p>
+      </div>
+    </div>
+    <form method="post" action="/profil-akun" class="card-body">
+      <div class="form-grid">
+        <div class="field">
+          <label for="sandi_lama">Kata sandi lama</label>
+          <input type="password" id="sandi_lama" name="sandi_lama" required autocomplete="current-password">
+        </div>
+        <div class="field">
+          <label for="sandi_baru">Kata sandi baru</label>
+          <input type="password" id="sandi_baru" name="sandi_baru" required minlength="5" autocomplete="new-password">
+          <span class="hint">Minimal 5 karakter, gunakan kombinasi huruf dan angka.</span>
+        </div>
+        <div class="field">
+          <label for="ulangi">Ulangi kata sandi baru</label>
+          <input type="password" id="ulangi" name="ulangi" required minlength="5" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">{{ icon('check') }} Simpan kata sandi</button>
+      </div>
+    </form>
+  </div>
+
+  <aside>
+    <div class="card sticky-side">
+      <div class="card-head"><h3>Informasi Akun</h3></div>
+      <div class="card-body">
+        <dl class="kv" style="grid-template-columns:1fr">
+          <dt>Nama</dt><dd>{{ user.nama }}</dd>
+          <dt>Username</dt><dd class="mono">{{ user.username }}</dd>
+          <dt>Peran</dt><dd><span class="badge badge-primary">{{ user.role_label }}</span></dd>
+        </dl>
+        <div class="note mt-2" style="font-size:.83rem">
+          Lupa kata sandi? Administrator dapat menggantinya melalui
+          menu <strong>Pengaturan → Pengguna</strong>.
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+{% endblock %}

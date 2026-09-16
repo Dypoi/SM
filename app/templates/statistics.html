@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, stat_card, bar_list %}
+
+{% block content %}
+<div class="grid grid-4">
+  {{ stat_card('Total Siswa', stats.total | angka_id, 'users', 'primary') }}
+  {{ stat_card('Laki-laki', stats.laki_laki | angka_id, 'user', 'info', ((stats.laki_laki / stats.total * 100) | round(1) if stats.total else 0) ~ '% dari total') }}
+  {{ stat_card('Perempuan', stats.perempuan | angka_id, 'user', 'violet', ((stats.perempuan / stats.total * 100) | round(1) if stats.total else 0) ~ '% dari total') }}
+  {{ stat_card('Rombel', stats.rombel | angka_id, 'book', 'teal', 'Kelas aktif') }}
+</div>
+
+<div class="grid grid-2 mt-2">
+  {{ bar_list('Sebaran per Tingkat', per_tingkat, 'Belum ada data', 'primary') }}
+  {{ bar_list('Agama', agama, 'Belum ada data', 'teal') }}
+</div>
+
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Rekapitulasi per Rombel</h3>
+      <p>Jumlah siswa, komposisi jenis kelamin, dan tingkat setiap rombel.</p>
+    </div>
+    <button class="btn btn-outline btn-sm" type="button" data-print>{{ icon('file') }} Cetak</button>
+  </div>
+  <div class="card-body p-0 table-wrap">
+    <table class="data">
+      <thead>
+        <tr><th>Rombel</th><th>Tingkat</th><th class="num">L</th><th class="num">P</th><th class="num">Jumlah</th><th class="num">% dari sekolah</th></tr>
+      </thead>
+      <tbody>
+        {% for row in per_rombel %}
+        <tr>
+          <td><a href="/data-siswa?rombel={{ row.rombel }}"><strong>{{ row.rombel }}</strong></a></td>
+          <td>Kelas {{ row.tingkat or '-' }}</td>
+          <td class="num">{{ row.laki_laki }}</td>
+          <td class="num">{{ row.perempuan }}</td>
+          <td class="num"><strong>{{ row.jumlah }}</strong></td>
+          <td class="num">{{ (row.jumlah / stats.total * 100) | round(2) if stats.total else 0 }}%</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">Belum ada data siswa.</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if per_rombel %}
+      <tfoot>
+        <tr style="background:#f8fafc;font-weight:700">
+          <td colspan="3">Total</td>
+          <td class="num">{{ stats.laki_laki }}</td>
+          <td class="num">{{ stats.perempuan }}</td>
+          <td class="num">{{ stats.total }}</td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+
+<div class="grid grid-2 mt-2">
+  {{ bar_list('Kecamatan Asal', kecamatan, 'Belum ada data', 'info') }}
+  {{ bar_list('Alat Transportasi', transportasi, 'Belum ada data', 'primary') }}
+</div>
+
+<div class="grid grid-3 mt-2">
+  {{ bar_list('Jenis Tinggal', jenis_tinggal, 'Belum ada data', 'teal') }}
+  {{ bar_list('Kebutuhan Khusus', kebutuhan_khusus, 'Belum ada data', 'warning') }}
+  {{ bar_list('Sekolah Asal', sekolah_asal, 'Belum ada data', 'violet') }}
+</div>
+
+<div class="grid grid-2 mt-2">
+  <div class="card">
+    <div class="card-head"><h3>Program Bantuan</h3></div>
+    <div class="card-body">
+      <dl class="kv kv-2">
+        <dt>Penerima KIP</dt><dd><strong>{{ stats.penerima_kip | angka_id }}</strong> siswa</dd>
+        <dt>Penerima KPS</dt><dd><strong>{{ stats.penerima_kps | angka_id }}</strong> siswa</dd>
+        <dt>Layak PIP (usulan sekolah)</dt><dd><strong>{{ stats.layak_pip | angka_id }}</strong> siswa</dd>
+        <dt>Berkebutuhan khusus</dt><dd><strong>{{ stats.kebutuhan_khusus | angka_id }}</strong> siswa</dd>
+      </dl>
+      <a class="btn btn-outline btn-sm mt-2" href="/data-siswa?q=&lengkap=">Lihat data siswa</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h3>Ekstrakurikuler</h3></div>
+    <div class="card-body">
+      <dl class="kv kv-2">
+        <dt>Jumlah kegiatan</dt><dd>{{ ekskul.total | angka_id }}</dd>
+        <dt>Kegiatan aktif</dt><dd>{{ ekskul.aktif | angka_id }}</dd>
+        <dt>Keanggotaan tercatat</dt><dd>{{ ekskul.anggota | angka_id }}</dd>
+        <dt>Siswa terlibat</dt><dd>{{ ekskul.siswa_ikut | angka_id }}</dd>
+      </dl>
+      {% if ekskul_kategori %}
+        {% set maks = ekskul_kategori | map(attribute='jumlah') | max %}
+        <ul class="bar-list mt-2">
+          {% for item in ekskul_kategori %}
+          <li>
+            <span class="bar-label">{{ item.label }}</span>
+            <span class="bar-track"><span class="bar-fill bar-teal" style="width: {{ (item.jumlah / maks * 100) | round(1) if maks else 0 }}%"></span></span>
+            <span class="bar-value">{{ item.jumlah }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

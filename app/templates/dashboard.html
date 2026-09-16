@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, stat_card, bar_list %}
+
+
+{% block content %}
+<div class="grid grid-4">
+  {{ stat_card('Total Peserta Didik', stats.total | angka_id, 'users', 'primary', 'Seluruh rombel aktif') }}
+  {{ stat_card('Laki-laki / Perempuan', (stats.laki_laki | angka_id) ~ ' / ' ~ (stats.perempuan | angka_id), 'users', 'info') }}
+  {{ stat_card('Rombel', stats.rombel | angka_id, 'book', 'violet', 'Kelas terdaftar') }}
+  {{ stat_card('Ekstrakurikuler', ekskul.aktif | angka_id, 'flag', 'teal', ekskul.anggota | angka_id ~ ' keanggotaan') }}
+</div>
+
+<div class="grid grid-4 mt-2">
+  {{ stat_card('Penerima KIP', stats.penerima_kip | angka_id, 'check', 'success', 'Program Indonesia Pintar') }}
+  {{ stat_card('Penerima KPS', stats.penerima_kps | angka_id, 'check', 'success', 'Kartu Perlindungan Sosial') }}
+  {{ stat_card('Layak PIP', stats.layak_pip | angka_id, 'check', 'warning', 'Usulan sekolah') }}
+  {{ stat_card('Berkebutuhan Khusus', stats.kebutuhan_khusus | angka_id, 'info', 'violet', 'Perlu pendampingan') }}
+</div>
+
+{% if total_temuan %}
+<div class="alert alert-warn mt-3">
+  {{ icon('warning') }}
+  <span>
+    Ada <strong>{{ total_temuan | angka_id }} temuan</strong> kualitas data yang bisa diperbaiki
+    sebelum sinkronisasi ke Dapodik.
+  </span>
+  <a class="btn btn-warning btn-sm" style="margin-left:auto" href="/kualitas-data">Periksa sekarang</a>
+</div>
+{% endif %}
+
+<div class="split mt-3">
+  <div>
+    <div class="grid grid-2">
+      {{ bar_list('Sebaran per Tingkat', per_tingkat, 'Belum ada data siswa', 'primary') }}
+      {{ bar_list('Agama', agama, 'Belum ada data', 'teal') }}
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Rombongan Belajar</h3>
+          <p>Jumlah siswa per rombel</p>
+        </div>
+        <a class="btn btn-outline btn-sm" href="/data-siswa">Lihat data siswa</a>
+      </div>
+      <div class="card-body p-0 table-wrap compact">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Rombel</th><th>Tingkat</th><th class="num">L</th><th class="num">P</th>
+              <th class="num">Jumlah</th><th>Komposisi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in per_rombel %}
+            <tr>
+              <td><a href="/data-siswa?rombel={{ row.rombel }}"><strong>{{ row.rombel }}</strong></a></td>
+              <td><span class="badge badge-primary">Kelas {{ row.tingkat or '-' }}</span></td>
+              <td class="num">{{ row.laki_laki }}</td>
+              <td class="num">{{ row.perempuan }}</td>
+              <td class="num"><strong>{{ row.jumlah }}</strong></td>
+              <td style="min-width:140px">
+                <div class="progress">
+                  <span style="width: {{ (row.jumlah / (stats.total or 1) * 100 * 4) | round(1) }}%"></span>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="empty">Belum ada data siswa. Mulai dengan mengimpor berkas Excel/CSV.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="grid grid-2 mt-2">
+      {{ bar_list('Kecamatan Asal Siswa', kecamatan, 'Belum ada data', 'info') }}
+      {{ bar_list('Alat Transportasi ke Sekolah', transportasi, 'Belum ada data', 'violet') }}
+    </div>
+  </div>
+
+  <aside>
+    <div class="card sticky-side">
+      <div class="card-head"><h3>Status Kelengkapan Data</h3></div>
+      <div class="card-body">
+        {% set persen = (kualitas.siap_sinkron / kualitas.total * 100) | round(0) if kualitas.total else 0 %}
+        <div class="flex between">
+          <span class="muted">Siap sinkron Dapodik</span>
+          <strong>{{ persen | int }}%</strong>
+        </div>
+        <div class="progress mt-1 {{ 'warn' if persen < 80 else '' }}">
+          <span style="width: {{ persen }}%"></span>
+        </div>
+        <dl class="kv mt-2" style="grid-template-columns: 1fr 1fr">
+          <dt>Siap</dt><dd><strong>{{ kualitas.siap_sinkron | angka_id }}</strong> siswa</dd>
+          <dt>Perlu perbaikan</dt><dd><strong>{{ kualitas.belum_lengkap | angka_id }}</strong> siswa</dd>
+        </dl>
+        <a class="btn btn-outline btn-block mt-2" href="/kualitas-data">{{ icon('check') }} Buka Kualitas Data</a>
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <h3>Impor Terakhir</h3>
+        <a class="btn btn-outline btn-sm" href="/impor">Semua</a>
+      </div>
+      <div class="card-body p-0">
+        {% if impor_terakhir %}
+        <table class="data tabel-kecil">
+          <tbody>
+          {% for item in impor_terakhir %}
+            <tr>
+              <td>
+                <a href="/impor/{{ item.id }}">{{ item.filename | singkat(26) }}</a>
+                <div class="muted" style="font-size:.76rem">
+                  {{ item.file_format or '-' }} · {{ item.created_at | tanggal_waktu }}
+                </div>
+              </td>
+              <td class="text-right">
+                <span class="badge badge-{{ item.status | badge }}">{{ item.status }}</span>
+                <div class="muted" style="font-size:.76rem">{{ item.rows_total }} baris</div>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="empty">Belum ada riwayat impor.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head"><h3>Aktivitas Terbaru</h3></div>
+      <div class="card-body p-0">
+        <table class="data tabel-kecil">
+          <tbody>
+          {% for log in audit %}
+            <tr>
+              <td>
+                <strong>{{ log.aksi | replace('_', ' ') }}</strong>
+                <div class="muted" style="font-size:.76rem">
+                  {{ log.actor or 'sistem' }} · {{ log.created_at | tanggal_waktu }}
+                </div>
+              </td>
+            </tr>
+          {% else %}
+            <tr><td class="empty">Belum ada aktivitas.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </aside>
+</div>
+{% endblock %}

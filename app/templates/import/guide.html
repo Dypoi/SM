@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+<div class="split">
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3>Cara kerja pembacaan berkas</h3>
+          <p>SIMSEK membaca berkas apa adanya, lalu mencari sendiri struktur tabelnya.</p>
+        </div>
+        <a class="btn btn-outline btn-sm" href="/impor">Kembali ke Impor</a>
+      </div>
+      <div class="card-body">
+        <ol class="soft" style="padding-left:1.2rem;display:flex;flex-direction:column;gap:.6rem">
+          <li>
+            <strong>Mendeteksi format.</strong> Ditentukan dari ekstensi berkas
+            (dan isi berkas bila ekstensi tidak ada), lalu dibaca dengan pustaka yang sesuai.
+          </li>
+          <li>
+            <strong>Mencari baris header.</strong> Sistem memindai 40 baris pertama dan memberi skor
+            setiap baris berdasarkan jumlah sel yang cocok dengan nama kolom peserta didik.
+            Baris dengan skor tertinggi dianggap header — inilah sebabnya baris judul, nama sekolah,
+            dan tanggal unduh pada ekspor Dapodik otomatis terlewati.
+          </li>
+          <li>
+            <strong>Menggabungkan sub-header.</strong> Ekspor Dapodik memakai dua baris header,
+            di mana <em>Data Ayah</em>, <em>Data Ibu</em>, dan <em>Data Wali</em> menjadi judul
+            bergabung (merge). Sistem menyambung keduanya sehingga terbentuk kolom seperti
+            <code>Data Ayah - Pekerjaan</code>.
+          </li>
+          <li>
+            <strong>Memetakan kolom.</strong> Setiap kolom dicocokkan dengan daftar alias
+            (mis. <code>JK</code>, <code>Jenis Kelamin</code>, dan <code>L/P</code> semuanya
+            menuju field yang sama).
+          </li>
+          <li>
+            <strong>Menormalkan nilai.</strong> Tanggal diubah ke format ISO (mendukung
+            <code>2011-08-22</code>, <code>22/08/2011</code>, <code>22 Agustus 2011</code>,
+            serial angka Excel, dan <code>20110822</code>). Angka desimal bergaya Indonesia
+            (<code>1.234,5</code>) juga dibaca dengan benar.
+          </li>
+          <li>
+            <strong>Validasi ala Dapodik.</strong> NISN harus angka, panjang NISN/NIK diperiksa,
+            kelengkapan data orang tua dan No. KK ditandai, lalu temuan dikelompokkan menjadi
+            error, peringatan, dan informasi.
+          </li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head"><h3>Format yang didukung</h3></div>
+      <div class="card-body p-0 table-wrap">
+        <table class="data">
+          <thead><tr><th>Ekstensi</th><th>Keterangan</th><th>Mesin pembaca</th></tr></thead>
+          <tbody>
+            {% for ext, label in format_didukung %}
+            <tr>
+              <td><code>{{ ext }}</code></td>
+              <td>{{ label }}</td>
+              <td class="muted">
+                {% if ext in ['.xlsx', '.xlsm', '.xltx', '.xltm'] %}openpyxl
+                {% elif ext == '.xls' %}xlrd
+                {% elif ext == '.xlsb' %}pyxlsb
+                {% elif ext == '.ods' %}odfpy
+                {% else %}csv (pustaka standar Python){% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Kolom yang dikenali ({{ grup_field.values() | map('length') | sum }} field)</h3>
+          <p>Selain kolom di bawah ini, kolom lain pada berkas akan diabaikan tanpa membuat impor gagal.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        {% for grup, daftar in grup_field.items() %}
+          <div class="section-title">{{ grup | capitalize }}</div>
+          <div class="tag-list">
+            {% for spec in daftar %}
+              <span class="chip chip-muted" title="Alias: {{ spec.aliases | join(', ') }}">{{ spec.label }}</span>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <aside>
+    <div class="card sticky-side">
+      <div class="card-head"><h3>Contoh struktur Dapodik</h3></div>
+      <div class="card-body">
+        <div class="mono-block">Baris 1 : Daftar Peserta Didik
+Baris 2 : SMP NEGERI 2 TANGERANG
+Baris 3 : Kecamatan …, Kabupaten …, Provinsi …
+Baris 4 : Tanggal Unduh: 2026-09-16 10:52:47
+Baris 5 : No | Nama | NIPD | JK | NISN | … (66 kolom)
+Baris 6 : (sub-header Data Ayah/Ibu/Wali)
+Baris 7+: data siswa</div>
+        <p class="soft mt-2" style="font-size:.83rem">
+          Jika berkas Anda memakai susunan berbeda, sistem tetap akan mencari baris header
+          yang paling mungkin — dan Anda bisa memeriksa hasil pemetaannya pada halaman
+          pratinjau sebelum menyimpan.
+        </p>
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head"><h3>Mode penyimpanan</h3></div>
+      <div class="card-body">
+        <dl class="kv" style="grid-template-columns:1fr">
+          <dt>Perbarui (upsert)</dt>
+          <dd>Menambah siswa baru dan mengisi kolom yang masih kosong. Nama, NIK, dan No. KK
+              yang sudah terisi tidak ditimpa. Pilihan paling aman.</dd>
+          <dt>Hanya tambah</dt>
+          <dd>Melewati siswa yang NISN-nya sudah ada. Cocok untuk impor data baru.</dd>
+          <dt>Timpa</dt>
+          <dd>Seluruh kolom dari berkas menimpa data aplikasi. Gunakan bila berkas adalah
+              sumber kebenaran terbaru.</dd>
+          <dt>Uji coba</dt>
+          <dd>Hanya memvalidasi, tidak menyimpan apa pun.</dd>
+        </dl>
+      </div>
+    </div>
+  </aside>
+</div>
+{% endblock %}
