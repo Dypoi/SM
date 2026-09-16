@@ -54,6 +54,8 @@ class UnsurPalsu:
         self.kelas = sifat.get("kelas", "")
         #: True = unsur milik popup pengumuman (tombol Tutup & isi jendelanya)
         self.popup = bool(sifat.get("popup", False))
+        #: True = baris tabel sudah terpilih (Dapodik: pilihan terjadi saat mousedown)
+        self.terpilih = bool(sifat.get("terpilih", False))
         #: XPath absolut skrip sekolah, mis. /html/body/div[5]/div[2]/form/input
         self.jalur = sifat.get("jalur", "")
 
@@ -79,6 +81,10 @@ class UnsurPalsu:
     def is_enabled(self) -> bool:
         return bool(self.enabled)
 
+    def is_selected(self) -> bool:
+        """Terpilih — dipakai untuk baris tabel & kotak centang."""
+        return bool(self.terpilih)
+
     # ------------------------------------------------------------ aksi ------ #
     def _buka_formulir_bila_pembuka(self) -> None:
         if self.teks.strip().lower() == "masuk" and not self.name and not self.id:
@@ -93,6 +99,9 @@ class UnsurPalsu:
             self.peramban.klik_terblokir += 1
             return
         self.diklik += 1
+        # Catatan: di Ext JS pemilihan baris terjadi pada *mousedown*; klik lewat skrip
+        # (arguments[0].click()) hanya mengirim event 'click' sehingga baris TIDAK terpilih —
+        # inilah sebabnya tombol Registrasi tidak membuka apa pun di PC sekolah.
         if self.popup and (self.teks.strip().lower() == "tutup" or
                            "x-tool-close" in (self.kelas or "")):
             self.peramban.tutup_popup()
@@ -112,6 +121,7 @@ class UnsurPalsu:
             self.peramban.buka_daftar_peserta_didik()
 
     def click(self) -> None:
+        """Klik sungguhan (mouse event asli) — inilah yang memilih baris di Ext JS."""
         if not self.is_displayed():
             raise ElementNotInteractableException("unsur tidak terlihat")
         if self.peramban.popup_terbuka() and not self.popup:
@@ -123,7 +133,15 @@ class UnsurPalsu:
             # sehingga klik biasa ditelan (ElementClickInterceptedException).
             raise ElementClickInterceptedException(
                 "element click intercepted: lapisan pemuatan menutupi unsur ini")
+        self._pilih_baris()          # klik sungguhan memilih baris tabel (mousedown)
         self._klik_paksa()
+
+    def _pilih_baris(self) -> None:
+        """Klik sungguhan pada baris tabel = memilih baris itu (seperti Ext JS)."""
+        if self.tag_name == "tr" and "x-grid-row" in (self.kelas or ""):
+            self.terpilih = True
+            if "x-grid-row-selected" not in self.kelas:
+                self.kelas = (self.kelas + " x-grid-row-selected").strip()
 
     def send_keys(self, *tombol: Any) -> None:
         """Meniru pengetikan: tombol pengubah (Ctrl+A) ditangani, bukan diketik apa adanya."""
@@ -339,12 +357,23 @@ class PerambanPalsu:
         return self
 
     def buka_formulir_registrasi(self) -> None:
-        """Formulir Registrasi terbuka (dipicu tombol Registrasi, seperti Dapodik)."""
+        """Formulir Registrasi terbuka (dipicu tombol Registrasi, seperti Dapodik).
+
+        Seperti Dapodik: tanpa baris siswa yang terpilih, tombol Registrasi tidak
+        membuka apa pun.
+        """
         if self.tolak_klik_registrasi > 0:
             self.tolak_klik_registrasi -= 1      # klik pertama tertelan lapisan/popup
             return
+        if not self.baris_siswa_terpilih():
+            return
         if self.registrasi_otomatis and not any(u.name == "nipd" for u in self.unsur):
             self.tambah_formulir_registrasi(self.nisn_dicari)
+
+    def baris_siswa_terpilih(self) -> bool:
+        """Apakah ada baris siswa (x-grid-row) yang sudah terpilih."""
+        return any(u.tag_name == "tr" and "x-grid-row" in (u.kelas or "") and u.terpilih
+                   for u in self.unsur)
 
     def tambah_baris_siswa(self, nisn: str) -> None:
         """Tambahkan satu baris tabel Ext JS untuk NISN tertentu (skenario alur_penuh)."""
@@ -397,26 +426,48 @@ class PerambanPalsu:
         if bagian.startswith("xpath:"):
             bagian = bagian[6:]
         if bagian.startswith("//"):
-            # Saringan berdasarkan @id (mis. //*[@id="ext-element-76"])
-            id_dicari = re.findall(r'@id\s*=\s*"([^"]+)"', bagian) + \
-                        re.findall(r"@id\s*=\s*'([^']+)'", bagian)
-            if id_dicari:
-                return all(unsur.id == satu for satu in id_dicari)
-            teks_unsur = " ".join([unsur.teks or "", unsur.nilai or ""]).lower()
+            # XPath sederhana: seluruh saringan yang dikenali harus cocok, dan pola yang
+            # sama sekali tidak dikenali tidak dianggap cocok (supaya uji tidak lolos palsu).
+            dikenali = False
+            # (a) saringan atribut: @id="…", @type="…", @aria-selected="true", …
+            for nama, nilai_atr in re.findall(r'@([\w:-]+)\s*=\s*[\'"]([^\'"]*)[\'"]', bagian):
+                if nama == "class":
+                    continue                      # class lewat contains(@class, …) di bawah
+                dikenali = True
+                if nama == "id":
+                    if unsur.id != nilai_atr:
+                        return False
+                elif nama == "type":
+                    if unsur.type != nilai_atr:
+                        return False
+                elif str(unsur.get_attribute(nama) or "") != nilai_atr:
+                    return False
+            # (b) contains(@class, "…") — semua yang diminta harus ada
+            for kelas_dicari in re.findall(
+                    r'contains\(\s*@class\s*,\s*[\'"]([^\'"]+)[\'"]\s*\)', bagian):
+                dikenali = True
+                if kelas_dicari.lower() not in (unsur.kelas or "").lower():
+                    return False
+            # (c) tag majemuk: [self::a or self::span or self::button]
+            tag_majemuk = re.findall(r'self::(\w+)', bagian)
+            if tag_majemuk:
+                dikenali = True
+                if unsur.tag_name not in tag_majemuk:
+                    return False
+            # (d) teks: contains(normalize-space(), "…"), contains(., "…"), normalize-space()="…"
+            teks_unsur = " ".join([unsur.teks or "", unsur.nilai or ""]).strip().lower()
             for penanda in ("normalize-space(), ", "., "):
                 if penanda in bagian:
-                    # ambil teks di dalam tanda kutip pertama setelah penanda,
-                    # mis. contains(normalize-space(), "Simpan dan Tutup")
+                    dikenali = True
                     sisa = bagian.split(penanda, 1)[1]
                     cocok = re.search(r"['\"]([^'\"]+)['\"]", sisa)
-                    if not cocok:
+                    if not cocok or cocok.group(1).lower() not in teks_unsur:
                         return False
-                    return cocok.group(1).lower() in teks_unsur
-            if "contains(@class" in bagian:
-                kelas = bagian.split("contains(@class", 1)[1]
-                kelas = kelas.split(",")[1].split(")")[0].strip().strip("'\"")
-                return kelas.lower() in (unsur.kelas or "").lower()
-            return False
+            for nilai_teks in re.findall(r'normalize-space\(\)\s*=\s*[\'"]([^\'"]+)[\'"]', bagian):
+                dikenali = True
+                if teks_unsur != nilai_teks.strip().lower():
+                    return False
+            return dikenali
         if bagian.startswith("/html/") or bagian.startswith("/body"):
             return bool(unsur.jalur) and (unsur.jalur == bagian or unsur.jalur.startswith(bagian))
         sisa = bagian
@@ -481,6 +532,12 @@ class PerambanPalsu:
     # ------------------------------------------------------------ skrip ----- #
     def execute_script(self, skrip: str, *argumen: Any) -> Any:
         self.skrip.append(skrip)
+        if "mousedown" in skrip and "dispatchEvent" in skrip:
+            # Bot mengirim urutan tetikus lengkap (mousedown → mouseup → click):
+            # inilah yang benar-benar memilih baris tabel Ext JS.
+            if argumen:
+                argumen[0]._pilih_baris()
+            return None
         if ".remove()" in skrip or "removeChild" in skrip:
             # Jalan keluar terakhir bot: membuang jendela popup dari halaman.
             self.tutup_popup()

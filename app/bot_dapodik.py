@@ -672,6 +672,69 @@ class BotDapodik:
                            "diteruskan dengan cara paksa.")
         return False
 
+    def _baris_terpilih(self, peramban, xpath_baris: str) -> bool:
+        """Apakah baris siswa sudah terpilih (wajib sebelum menekan tombol Registrasi)."""
+        from selenium.webdriver.common.by import By
+
+        try:
+            if peramban.find_elements(
+                    By.XPATH, f'{xpath_baris}[contains(@class, "x-grid-row-selected")]'):
+                return True
+        except Exception:  # noqa: BLE001 — lanjut ke pemeriksaan berikutnya
+            pass
+        try:
+            baris = peramban.find_element(By.XPATH, xpath_baris)
+            if baris.is_selected():
+                return True
+            if str(baris.get_attribute("aria-selected") or "").strip().lower() == "true":
+                return True
+            if "selected" in str(baris.get_attribute("class") or "").lower():
+                return True
+        except Exception:  # noqa: BLE001 — tidak dapat diperiksa
+            pass
+        return False
+
+    def _pastikan_baris_terpilih(self, peramban, xpath_baris: str, nisn: str) -> bool:
+        """Pilih baris siswa sampai benar-benar terpilih.
+
+        Penting: di Ext JS baris terpilih saat **mousedown**. Klik lewat skrip
+        (``arguments[0].click()``) hanya mengirim event *click*, sehingga barisnya tidak
+        pernah terpilih — akibatnya tombol Registrasi tidak membuka apa pun (gejala di
+        screenshot PC sekolah: kotak centang baris kosong, panel Data Periodik kelabu).
+        """
+        from selenium.webdriver.common.by import By
+
+        if self._baris_terpilih(peramban, xpath_baris):
+            return True
+        # 1) klik sungguhan: sel NISN lebih dulu, lalu barisnya.
+        for locator in ((By.XPATH, f'{xpath_baris}//td[contains(., "{nisn}")]'),
+                        (By.XPATH, xpath_baris)):
+            try:
+                self._klik_aman(peramban, locator, ulang=2)
+            except Exception:  # noqa: BLE001 — coba cara berikutnya
+                continue
+            if self._baris_terpilih(peramban, xpath_baris):
+                return True
+        # 2) urutan tetikus lengkap lewat skrip (mousedown → mouseup → click) pada sel/baris.
+        for locator in ((By.XPATH, f'{xpath_baris}//td[contains(., "{nisn}")]'),
+                        (By.XPATH, xpath_baris)):
+            try:
+                peramban.execute_script(
+                    """
+                    const el = arguments[0];
+                    for (const tipe of ['mousedown', 'mouseup', 'click']) {
+                        el.dispatchEvent(new MouseEvent(tipe, {bubbles: true, cancelable: true,
+                                                              view: window}));
+                    }
+                    """, peramban.find_element(*locator))
+            except Exception:  # noqa: BLE001 — coba sasaran berikutnya
+                continue
+            if self._baris_terpilih(peramban, xpath_baris):
+                self._catat_kepala("[registrasi] baris siswa dipilih lewat skrip "
+                                   "(klik sungguhan tertelan lapisan pemuatan).")
+                return True
+        return False
+
     def _formulir_registrasi_terbuka(self, peramban, peta: dict[str, str] | None = None) -> bool:
         """Apakah formulir Registrasi sudah terbuka (kolom NIS atau Hobi sudah terlihat)."""
         peta = peta or peta_selector()
@@ -1364,7 +1427,12 @@ class BotDapodik:
                                    "Data NISN tidak ditemukan pada tabel Dapodik", nisn)
                 return
             self._klik_aman(peramban, (By.XPATH, xpath_baris))
-            time.sleep(2)
+            time.sleep(1)
+            # Dapodik hanya membuka Registrasi untuk siswa yang barisnya terpilih.
+            if not self._pastikan_baris_terpilih(peramban, xpath_baris, nisn):
+                self._catat_kepala("[registrasi] peringatan: baris siswa belum terpilih — "
+                                   "Dapodik biasanya perlu baris terpilih untuk Registrasi.")
+            time.sleep(1)
 
             # 3) tombol Registrasi → formulir Registrasi. Formulir baru terbuka setelah
             #    tombolnya benar-benar diproses Dapodik; kalau kliknya tertelan (popup
@@ -1375,6 +1443,7 @@ class BotDapodik:
             terbuka = False
             for percobaan in range(1, ulang_form + 1):
                 self._singkirkan_popup(peramban, peta)
+                self._pastikan_baris_terpilih(peramban, xpath_baris, nisn)
                 self._klik_aman(peramban, loc_daftar)
                 time.sleep(2)
                 self._siap_melanjutkan(peramban, "formulir Registrasi")

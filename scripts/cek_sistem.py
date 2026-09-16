@@ -2074,7 +2074,8 @@ def cek_bot_dapodik() -> str:
             palsu_cari.popup_detik = None
             palsu_cari.registrasi_otomatis = True
             nisn_cari = "3137492869"
-            palsu_cari.siapkan_popup_setelah_cari(nisn_cari)
+            palsu_cari.siapkan_popup_setelah_cari(nisn_cari)   # barisnya baru tampil setelah popup ditutup
+            palsu_cari.tambah_baris_siswa(nisn_cari)
             bot_cari = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
                                               kepala=jejak.append)
             bot_cari._login(palsu_cari)
@@ -2087,6 +2088,36 @@ def cek_bot_dapodik() -> str:
             "siswa salah dinyatakan dilewati karena popup menutupi hasil pencarian"
         assert any("berhasil dikirim" in baris for baris in jejak), jejak[-4:]
         assert palsu_cari.unsur_bernama("nipd").nilai == "3140", "NIS tidak terisi"
+
+        # (13) Baris siswa tidak terpilih (persis keadaan pada screenshot PC sekolah: kotak
+        #      centang baris kosong, panel "Data Periodik" kelabu). Di Ext JS baris terpilih
+        #      saat *mousedown*; klik lewat skrip (arguments[0].click()) hanya mengirim 'click',
+        #      sehingga tombol Registrasi tidak membuka apa pun. Bot harus memilih barisnya
+        #      sendiri (urutan tetikus lengkap lewat skrip) sebelum menekan Registrasi.
+        jejak.clear()
+        asli_waktu = bot_dapodik.time
+        jam_baris = _WaktuCepat(time)
+        bot_dapodik.time = jam_baris
+        try:
+            palsu_baris = peramban_palsu.buat("alur_penuh").pakai_jam(jam_baris.monotonic)
+            palsu_baris.popup_detik = None
+            palsu_baris.registrasi_otomatis = True
+            nisn_baris = "3137492870"
+            palsu_baris.nisn_dicari = nisn_baris
+            palsu_baris.tambah_baris_siswa(nisn_baris)
+            palsu_baris.sibukkan()      # klik sungguhan selalu tertelan lapisan pemuatan
+            bot_baris = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                               kepala=jejak.append)
+            bot_baris._login(palsu_baris)
+            bot_baris._proses_satu(palsu_baris, {"nisn": nisn_baris, "nipd": "3141", "nama": "Uji"},
+                                   None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert palsu_baris.baris_siswa_terpilih(), \
+            "baris siswa tidak pernah terpilih — tombol Registrasi tidak akan membuka formulir"
+        assert any("dipilih lewat skrip" in baris for baris in jejak), jejak[-6:]
+        assert palsu_baris.unsur_bernama("nipd").nilai == "3141", "NIS tidak terisi"
+        assert any("berhasil dikirim" in baris for baris in jejak), jejak[-4:]
 
         assert not hasattr(bot_routes, "pakai_saran"), "rute saran selector masih ada"
         jejak.clear()

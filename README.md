@@ -469,7 +469,11 @@ detik** & **3 percobaan ulang** juga sama seperti skrip itu.
 
 **Bila formulir Registrasi tidak terbuka**, bot **mengklik tombol Registrasi ulang**
 (3× seperti batas percobaan ulang) sambil memeriksa popup yang mungkin menutupi halaman —
-jadi pekerjaan tidak berhenti hanya karena satu klik tertelan.
+jadi pekerjaan tidak berhenti hanya karena satu klik tertelan. Bot juga **memastikan baris
+siswanya benar-benar terpilih** sebelum menekan Registrasi: Dapodik hanya membuka Registrasi
+untuk siswa yang terpilih, sedangkan di Ext JS pemilihan terjadi saat *mousedown* sehingga
+klik lewat skrip saja tidak cukup — bila perlu, bot mengirim urutan tetikus lengkap
+(*mousedown → mouseup → click*) ke sel NISN.
 
 **Bila bot berhenti dengan pesan waktu habis / elemen tidak ditemukan** — tekan tombol
 **«Uji koneksi Dapodik»**. Bot membuka Dapodik sebentar lalu menampilkan apa yang
