@@ -1477,6 +1477,137 @@ def cek_pendaftaran_ekskul():
     return rincian
 
 
+@cek("23. Kualitas Data: temuan & tombol Perbaiki tepat sasaran")
+def cek_kualitas_data():
+    """Halaman Kualitas Data harus menuntun ke daftar siswa yang benar.
+
+    Dulu semua tombol "Perbaiki" membuka /data-siswa?lengkap=0 (kolom wajib
+    kosong), sehingga temuan seperti NIK salah atau NISN ganda tidak pernah
+    menemukan siswanya. Sekarang angka pada halaman itu dan daftar siswa yang
+    dibuka dihitung dari klausa SQL yang sama (TEMUAN_DAFTAR).
+    """
+    import asyncio
+    import re
+
+    import httpx
+
+    from app import db, services
+    from app.main import app
+
+    # --- registry temuan -------------------------------------------------- #
+    kode = [temuan.kode for temuan in services.TEMUAN_DAFTAR]
+    assert len(kode) == len(set(kode)) and kode, "kode temuan harus unik"
+    assert services.temuan_where("TIDAK_ADA_TEMUAN") is None, "kode asing jangan menghasilkan saringan"
+    assert services.StudentFilter(masalah="TIDAK_ADA_TEMUAN").where_clause()[0] == "1=1", \
+        "kode temuan asing jangan menyaring apa pun"
+
+    # --- angka di halaman = hitungan python (bukan sekadar SQL yang sama) -- #
+    ringkas = {item["kode"]: item["jumlah"] for item in services.temuan_ringkas()}
+    siswa = db.rows_to_dicts(db.query_all("SELECT * FROM students"))
+    harap = {
+        "NISN_TIDAK_VALID": sum(
+            1 for row in siswa
+            if not (row["nisn"] or "").strip() or len(str(row["nisn"]).strip()) != 10
+            or not str(row["nisn"]).strip().isdigit()),
+        "AYAH_IBU_SAMA": sum(
+            1 for row in siswa
+            if (row.get("ayah_nama") or "").strip() and (row.get("ibu_nama") or "").strip()
+            and services._nama_normal(row["ayah_nama"]) == services._nama_normal(row["ibu_nama"])),
+        "WALI_PERLU_DIBERSIHKAN": len(services.siswa_perlu_bersih_wali()),
+    }
+    for nama, jumlah in harap.items():
+        assert ringkas.get(nama) == jumlah, f"{nama}: halaman {ringkas.get(nama)} vs hitungan {jumlah}"
+
+    # NISN ganda: jumlah siswa (bukan jumlah nilai NISN-nya)
+    ganda_nilai = {item["nisn"] for item in services.students_with_duplicate_nisn()}
+    ganda_siswa = sum(1 for row in siswa if str(row["nisn"] or "").strip() in ganda_nilai)
+    assert ringkas["NISN_GANDA"] == ganda_siswa, f"NISN ganda: {ringkas['NISN_GANDA']} vs {ganda_siswa}"
+
+    # --- siswa uji: NIK & NISN tidak sah ---------------------------------- #
+    # Catatan: kolom nisn bersifat UNIQUE, jadi NISN ganda hanya mungkin datang
+    # dari basis data lama — temuannya tetap disediakan sebagai jaring pengaman.
+    uji_id = db.insert_returning_id(
+        "INSERT INTO students(nama, nisn, nik, jk, tempat_lahir, tanggal_lahir, alamat, kelurahan, "
+        "kecamatan, agama, rombel) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        ("SISWA UJI TEMUAN", "12345", "123", "L", "Bandung", "2010-01-01",
+         "Jl. Uji 1", "Sukamaju", "Takokak", "Islam", "7A"))
+    try:
+        baru = {item["kode"]: item["jumlah"] for item in services.temuan_ringkas()}
+        assert baru["NIK_TIDAK_VALID"] == ringkas["NIK_TIDAK_VALID"] + 1, \
+            "siswa dengan NIK 3 digit harus terhitung"
+        assert baru["NISN_TIDAK_VALID"] == ringkas["NISN_TIDAK_VALID"] + 1, \
+            "siswa dengan NISN 5 digit harus terhitung"
+        # NISN ganda: klausanya harus mencacah siswa (bukan hanya nilai NISN)
+        ganda_kini = {item["nisn"] for item in services.students_with_duplicate_nisn()}
+        assert set() == ganda_kini, "basis data uji tidak boleh punya NISN ganda"
+
+        transport = httpx.ASGITransport(app=app)
+
+        async def jalankan() -> str:
+            async with httpx.AsyncClient(transport=transport, base_url="http://cek",
+                                         follow_redirects=True) as klien:
+                await klien.post("/login", data={"mode": "staff", "username": "admin",
+                                                 "password": "admin123"})
+
+                def jumlah(halaman: str) -> int:
+                    cocok = re.search(r"dari ([\d.]+) siswa", halaman)
+                    assert cocok, "jumlah siswa tidak terbaca pada halaman daftar"
+                    return int(cocok.group(1).replace(".", ""))
+
+                halaman_kualitas = (await klien.get("/kualitas-data")).text
+                berjumlah = [t for t in services.temuan_ringkas() if t["jumlah"]]
+                assert halaman_kualitas.count("?masalah=") == len(berjumlah), \
+                    ("setiap temuan yang berjumlah > 0 harus punya tautan Perbaiki sendiri: "
+                     f"{halaman_kualitas.count('?masalah=')} tautan vs {len(berjumlah)} temuan")
+                assert not re.search(r"\?lengkap=0[^>]*>\s*(?:<[^>]+>\s*)*Perbaiki", halaman_kualitas), \
+                    'tombol "Perbaiki" jangan generik ke ?lengkap=0 lagi'
+                assert '?kosong=' in halaman_kualitas, \
+                    'tabel Kelengkapan per Kolom harus bisa dibuka per kolom (?kosong=)'
+
+                # tiap temuan yang berjumlah > 0 harus membuka tepat siswanya
+                diperiksa = 0
+                for temuan in services.temuan_ringkas():
+                    if not temuan["jumlah"]:
+                        continue
+                    halaman = await klien.get(f"/data-siswa?masalah={temuan['kode']}")
+                    assert halaman.status_code == 200, (temuan["kode"], halaman.status_code)
+                    assert jumlah(halaman.text) == temuan["jumlah"], \
+                        f"{temuan['kode']}: daftar {jumlah(halaman.text)} vs halaman {temuan['jumlah']}"
+                    assert f"?masalah={temuan['kode']}" in halaman_kualitas, \
+                        f"tidak ada tombol Perbaiki untuk {temuan['kode']}"
+                    diperiksa += 1
+                assert diperiksa >= 3, f"terlalu sedikit temuan berjumlah > 0 ({diperiksa})"
+
+                # kolom bermasalah: ditampilkan, baris & selnya ditandai, ada penjelasan
+                halaman = await klien.get("/data-siswa?masalah=NIK_TIDAK_VALID")
+                teks = halaman.text
+                assert "Temuan: NIK bukan 16 digit angka" in teks, "banner temuan tidak tampil"
+                assert "NIK Siswa" in teks, "kolom bermasalah (NIK) harus ikut ditampilkan"
+                assert 'class="sel-masalah"' in teks and 'class="row-error"' in teks, \
+                    "baris & sel bermasalah harus ditandai"
+                assert "Tampilkan semua siswa" in teks, "harus ada jalan keluar dari filter temuan"
+
+                # kolom kosong: jumlahnya sama dengan tabel kelengkapan
+                kualitas = services.data_quality()
+                kolom_uji = next(item for item in kualitas["fields"] if item["kosong"])
+                halaman = await klien.get(f"/data-siswa?kosong={kolom_uji['key']}")
+                assert halaman.status_code == 200
+                assert jumlah(halaman.text) == kolom_uji["kosong"], (
+                    f"kolom {kolom_uji['key']}: daftar {jumlah(halaman.text)} vs tabel "
+                    f"{kolom_uji['kosong']}")
+                assert f"Kolom kosong: {kolom_uji['label']}" in halaman.text, "banner kolom kosong tidak tampil"
+            return (f"{len(services.TEMUAN_DAFTAR)} temuan; {diperiksa} temuan berjumlah > 0 membuka "
+                    f"daftar siswa yang tepat; kolom '{kolom_uji['key']}' juga")
+
+        rincian = asyncio.run(jalankan())
+    finally:
+        db.execute("DELETE FROM students WHERE id = ?", (uji_id,))
+    kembali = {item["kode"]: item["jumlah"] for item in services.temuan_ringkas()}
+    assert kembali["NIK_TIDAK_VALID"] == ringkas["NIK_TIDAK_VALID"], \
+        "siswa uji harus terhapus lagi setelah pemeriksaan"
+    return rincian
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -1507,6 +1638,7 @@ def main() -> int:
     cek_akun_ekskul()
     cek_tabel()
     cek_pendaftaran_ekskul()
+    cek_kualitas_data()
     if args.http:
         cek_http_pengajuan()
         cek_http()

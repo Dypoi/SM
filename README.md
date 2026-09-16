@@ -366,6 +366,19 @@ ditambahkan lewat menu **Ekstrakurikuler**.
   nama ibu**, **nama wali sama dengan nama ayah/ibu**, **data wali yang akan
   dibersihkan otomatis**, **pendidikan/pekerjaan/penghasilan di luar daftar
   pilihan**, dan lainnya), serta panel kesiapan sinkronisasi.
+- **Dua tombol di halaman itu dan gunanya:**
+  * **Daftar siswa bermasalah (N)** — membuka Data Siswa berisi siswa yang masih ada
+    kolom wajib kosong (`?lengkap=0`), yaitu yang menghambat sinkron Dapodik.
+  * **Perbaiki** pada tiap baris temuan — membuka Data Siswa yang **hanya memuat siswa
+    terkena temuan itu** (`?masalah=KODE`), plus banner penjelasan, saran perbaikan, dan
+    penandaan baris serta sel yang harus dibetulkan. Angka pada halaman Kualitas Data dan
+    daftar siswa yang terbuka dihitung dari satu sumber yang sama (`TEMUAN_DAFTAR`),
+    jadi tidak mungkin berbeda.
+  * Pada tabel **Kelengkapan per Kolom**, angka **Kosong** dan tombol **Perbaiki**
+    membuka siswa yang kolom tersebut masih kosong (`?kosong=nama_kolom`); kolom
+    bermasalah otomatis ikut ditampilkan walau preset tabel tidak memuatnya.
+  * NISN ganda dihitung sebagai **jumlah siswa** (bukan jumlah nilai NISN) dan barisnya
+    bisa diklik untuk melihat siswa pemakai NISN tersebut.
 
 ### Pengaturan (khusus admin)
 - Identitas sekolah (nama, NPSN, alamat, kepala sekolah, kontak).

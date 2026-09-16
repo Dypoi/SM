@@ -17,7 +17,11 @@
   <div class="card-head">
     <div>
       <h3>Temuan yang perlu ditindaklanjuti</h3>
-      <p>Pemeriksaan ini meniru validasi Dapodik sehingga data lebih siap saat disinkronkan.</p>
+      <p>
+        Pemeriksaan ini meniru validasi Dapodik sehingga data lebih siap saat disinkronkan.
+        Tombol <strong>Perbaiki</strong> membuka daftar siswa yang terkena temuan itu saja,
+        sudah ditandai kolom mana yang perlu dibetulkan.
+      </p>
       {% if kualitas.wali_dibersihkan %}
       <p class="muted" style="font-size:.82rem;margin-top:.3rem">
         Data wali di bawah ini akan dihapus <strong>otomatis oleh sistem</strong>
@@ -25,7 +29,9 @@
       </p>
       {% endif %}
     </div>
-    <a class="btn btn-outline btn-sm" href="/data-siswa?lengkap=0">{{ icon('search') }} Buka daftar siswa bermasalah</a>
+    <a class="btn btn-outline btn-sm" href="/data-siswa?lengkap=0">
+      {{ icon('search') }} Daftar siswa bermasalah ({{ kualitas.belum_lengkap | angka_id }})
+    </a>
     {% if kualitas.wali_dibersihkan %}
     <form method="post" action="/kualitas-data/rapikan-wali" class="inline-form">
       <button class="btn btn-warning btn-sm" type="submit"
@@ -37,10 +43,15 @@
   </div>
   <div class="card-body p-0 table-wrap">
     <table class="data">
-      <thead><tr><th>Kode</th><th>Temuan</th><th class="num">Jumlah siswa</th><th>Tindakan</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Kode</th><th>Temuan</th><th class="num">Jumlah siswa</th>
+          <th>Perbaikan</th><th class="text-right">Tindakan</th>
+        </tr>
+      </thead>
       <tbody>
         {% for item in kualitas.temuan %}
-        <tr>
+        <tr class="{{ 'row-error' if item.jumlah and item.jumlah > 10 }}">
           <td><code>{{ item.kode }}</code></td>
           <td>{{ item.label }}</td>
           <td class="num">
@@ -50,9 +61,13 @@
               <span class="badge badge-success">0</span>
             {% endif %}
           </td>
-          <td>
+          <td class="muted" style="font-size:.8rem">{{ item.saran or '—' }}</td>
+          <td class="text-right">
             {% if item.jumlah %}
-              <a class="btn btn-outline btn-sm" href="/data-siswa?lengkap=0">Perbaiki</a>
+              <a class="btn btn-outline btn-sm" href="/data-siswa?masalah={{ item.kode }}"
+                 title="Buka daftar siswa dengan temuan {{ item.label }}">
+                {{ icon('search') }} Perbaiki
+              </a>
             {% else %}
               <span class="muted">—</span>
             {% endif %}
@@ -107,7 +122,10 @@
     <div class="card-body p-0 table-wrap compact">
       <table class="data">
         <thead>
-          <tr><th>Kolom</th><th>Grup</th><th class="num">Terisi</th><th class="num">Kosong</th><th style="width:180px">Kelengkapan</th></tr>
+          <tr>
+            <th>Kolom</th><th>Grup</th><th class="num">Terisi</th><th class="num">Kosong</th>
+            <th style="width:180px">Kelengkapan</th><th class="text-right">Tindakan</th>
+          </tr>
         </thead>
         <tbody>
           {% for item in kualitas.fields %}
@@ -118,7 +136,14 @@
             </td>
             <td class="muted">{{ label_grup.get(item.group, item.group) }}</td>
             <td class="num">{{ item.terisi | angka_id }}</td>
-            <td class="num">{{ item.kosong | angka_id }}</td>
+            <td class="num">
+              {% if item.kosong %}
+                <a href="/data-siswa?kosong={{ item.key }}"
+                   title="Lihat {{ item.kosong | angka_id }} siswa yang kolom {{ item.label }} masih kosong">{{ item.kosong | angka_id }}</a>
+              {% else %}
+                {{ item.kosong | angka_id }}
+              {% endif %}
+            </td>
             <td>
               <div class="flex gap-1">
                 <div class="progress {{ 'danger' if item.persen < 50 else ('warn' if item.persen < 90 else '') }}" style="flex:1">
@@ -126,6 +151,13 @@
                 </div>
                 <small class="muted" style="min-width:46px;text-align:right">{{ item.persen }}%</small>
               </div>
+            </td>
+            <td class="text-right">
+              {% if item.kosong %}
+                <a class="btn btn-outline btn-sm" href="/data-siswa?kosong={{ item.key }}">Perbaiki</a>
+              {% else %}
+                <span class="muted" style="font-size:.8rem">lengkap</span>
+              {% endif %}
             </td>
           </tr>
           {% endfor %}
@@ -199,8 +231,8 @@
           <tbody>
             {% for item in duplikat %}
             <tr>
-              <td class="mono">{{ item.nisn }}</td>
-              <td class="num"><span class="badge badge-danger">{{ item.jumlah }}</span></td>
+              <td class="mono"><a href="/data-siswa?q={{ item.nisn }}">{{ item.nisn }}</a></td>
+              <td class="num"><a href="/data-siswa?masalah=NISN_GANDA" class="badge badge-danger">{{ item.jumlah }}</a></td>
               <td class="muted" style="font-size:.78rem">{{ item.nama | singkat(40) }}</td>
             </tr>
             {% endfor %}

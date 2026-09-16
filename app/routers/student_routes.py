@@ -36,6 +36,8 @@ def _filters_from_request(request: Request) -> services.StudentFilter:
         sort=params.get("sort", "nama"),
         direction=params.get("dir", "asc"),
         incomplete_only=params.get("lengkap") == "0",
+        masalah=(params.get("masalah") or "").strip()[:40],
+        kosong=(params.get("kosong") or "").strip()[:40],
     )
 
 
@@ -55,6 +57,15 @@ def daftar_siswa(request: Request, user: auth.SessionUser = Depends(auth.require
     if preset not in COLUMN_PRESETS:
         preset = "ringkas"
 
+    # Kolom yang bermasalah (temuan Kualitas Data / kolom kosong) selalu ikut
+    # ditampilkan, walaupun preset tabel tidak memuatnya — supaya sel yang salah
+    # benar-benar terlihat dan bisa ditandai, bukan tersembunyi.
+    temuan_aktif = services.keterangan_filter(filters)
+    kolom = [key for key in COLUMN_PRESETS[preset] if key in FIELD_BY_KEY]
+    for key in temuan_aktif["kolom"]:
+        if key in FIELD_BY_KEY and key not in kolom:
+            kolom.append(key)
+
     rows, total = services.list_students(filters, page=page, per_page=per_page)
     return render(
         request,
@@ -67,15 +78,19 @@ def daftar_siswa(request: Request, user: auth.SessionUser = Depends(auth.require
             "filters": filters,
             "filter_aktif": any(
                 [filters.q, filters.rombel, filters.tingkat, filters.jk, filters.agama,
-                 filters.status, filters.kelurahan, filters.incomplete_only]
+                 filters.status, filters.kelurahan, filters.incomplete_only,
+                 filters.masalah, filters.kosong]
             ),
+            # Keterangan temuan (tombol "Perbaiki" di halaman Kualitas Data) supaya
+            # petugas tahu daftar ini sedang menyaring apa dan kolom mana yang salah.
+            "temuan_aktif": temuan_aktif,
             "opsi_rombel": services.distinct_values("rombel"),
             "opsi_tingkat": services.distinct_values("tingkat"),
             "opsi_agama": services.distinct_values("agama"),
             "opsi_kelurahan": services.distinct_values("kelurahan"),
             "opsi_status": services.STATUS_OPTIONS,
             "statistik": services.student_stats(),
-            "kolom": COLUMN_PRESETS[preset],
+            "kolom": kolom,
             "preset": preset,
             "presets": {key: [FIELD_BY_KEY[k].label for k in keys if k in FIELD_BY_KEY] for key, keys in COLUMN_PRESETS.items()},
             "field_by_key": FIELD_BY_KEY,

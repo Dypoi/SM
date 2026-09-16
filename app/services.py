@@ -14,7 +14,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from . import config, db
 from .dapodik import (
@@ -429,6 +429,10 @@ class StudentFilter:
     sort: str = "nama"
     direction: str = "asc"
     incomplete_only: bool = False
+    #: Kode temuan dari halaman Kualitas Data (mis. "NIK_TIDAK_VALID").
+    masalah: str = ""
+    #: Kolom yang kosong (tombol "Perbaiki" pada tabel Kelengkapan per Kolom).
+    kosong: str = ""
 
     def where_clause(self) -> tuple[str, list[Any]]:
         clauses: list[str] = []
@@ -462,6 +466,14 @@ class StudentFilter:
         if self.incomplete_only:
             checks = " OR ".join(f"s.{field} IS NULL OR TRIM(s.{field}) = ''" for field in FIELD_WAJIB)
             clauses.append(f"({checks})")
+        if self.kosong and self.kosong in FIELD_BY_KEY:
+            clauses.append(f"({_kosong(self.kosong)})")
+        if self.masalah:
+            klausa = temuan_where(self.masalah)
+            if klausa:
+                sql_temuan, params_temuan = klausa
+                clauses.append(f"({sql_temuan})")
+                params.extend(params_temuan)
 
         return (" AND ".join(clauses) if clauses else "1=1"), params
 
@@ -478,6 +490,33 @@ def _pick_columns(include_detail: bool = False) -> str:
         "s.is_kip, s.is_kps, s.is_layak_pip, s.updated_at, s.alamat"
     )
     return base + (", s.*" if include_detail else "")
+
+
+def keterangan_filter(filters: "StudentFilter") -> dict[str, Any]:
+    """Keterangan temuan/kolom kosong yang sedang disaring (untuk banner daftar siswa).
+
+    Dipakai halaman Data Siswa agar petugas tahu *kenapa* daftar itu tersaring dan
+    kolom mana yang perlu diperbaiki — bukan sekadar daftar siswa tanpa penjelasan.
+    """
+    keterangan: dict[str, Any] = {"judul": "", "saran": "", "kolom": [], "kode": ""}
+    if filters.masalah:
+        temuan = TEMUAN_BY_KODE.get(filters.masalah.strip().upper())
+        if temuan:
+            keterangan.update({
+                "judul": f"Temuan: {temuan.label}",
+                "saran": temuan.saran,
+                "kolom": list(temuan.kolom),
+                "kode": temuan.kode,
+            })
+    elif filters.kosong and filters.kosong in FIELD_BY_KEY:
+        spec = FIELD_BY_KEY[filters.kosong]
+        keterangan.update({
+            "judul": f"Kolom kosong: {spec.label}",
+            "saran": "Lengkapi kolom ini pada halaman Detail siswa atau lewat impor Excel.",
+            "kolom": [spec.key],
+            "kode": "",
+        })
+    return keterangan
 
 
 def list_students(
@@ -713,6 +752,142 @@ def stats_by(column: str, limit: int = 12) -> list[dict[str, Any]]:
     return db.rows_to_dicts(rows)
 
 
+# --------------------------------------------------------------------------- #
+# TEMUAN KUALITAS DATA
+# --------------------------------------------------------------------------- #
+#: Satu temuan = satu klausa SQL (alias tabel ``s``). Angka pada halaman
+#: Kualitas Data dan daftar siswa yang dibuka lewat tombol "Perbaiki" dihitung
+#: dari klausa yang sama, sehingga keduanya tidak mungkin berbeda.
+@dataclass(frozen=True)
+class Temuan:
+    kode: str
+    label: str
+    where: Callable[[], tuple[str, list[Any]]]
+    kolom: tuple[str, ...] = ()      # kolom yang perlu diperbaiki (disorot di daftar)
+    saran: str = ""                  # langkah perbaikan singkat untuk petugas
+
+
+def _kosong(kolom: str) -> str:
+    return f"(s.{kolom} IS NULL OR TRIM(CAST(s.{kolom} AS TEXT)) = '')"
+
+
+def _norm(kolom: str) -> str:
+    """Bentuk nama untuk pembandingan — sama dengan _nama_normal()."""
+    return f"REPLACE(LOWER(TRIM(COALESCE(s.{kolom}, ''))), ' ', '')"
+
+
+def _klausa_luar_daftar(kolom: tuple[str, ...], opsi: tuple[str, ...]) -> tuple[str, list[Any]]:
+    tanda = ", ".join("?" for _ in opsi)
+    bagian = " OR ".join(
+        f"(COALESCE(s.{nama}, '') <> '' AND LOWER(TRIM(s.{nama})) NOT IN ({tanda}))"
+        for nama in kolom
+    )
+    return f"({bagian})", [opsi.lower() for opsi in opsi] * len(kolom)
+
+
+#: Kolom wali selain nama (dipakai aturan pembersihan wali otomatis).
+_WALI_SELAIN_NAMA: tuple[str, ...] = tuple(
+    key for key in FIELD_WALI if key != "wali_nama"
+)
+
+
+def _isi_wali_lain() -> str:
+    bagian = " OR ".join(f"COALESCE(TRIM(s.{key}), '') <> ''" for key in _WALI_SELAIN_NAMA)
+    return f"({bagian})"
+
+
+def _temuan_wali_dibersihkan() -> tuple[str, list[Any]]:
+    """Cermin SQL dari alasan_wali_dihapus(): siswa yang data walinya dihapus sistem."""
+    wali_ada = "COALESCE(TRIM(s.wali_nama), '') <> ''"
+    ayah_ada = "COALESCE(TRIM(s.ayah_nama), '') <> ''"
+    sama_ayah_ibu = (
+        f"{wali_ada} AND ({_norm('ayah_nama')} <> '' OR {_norm('ibu_nama')} <> '') "
+        f"AND {_norm('wali_nama')} IN ({_norm('ayah_nama')}, {_norm('ibu_nama')})"
+    )
+    kolom_tanpa_nama = f"NOT {wali_ada} AND {_isi_wali_lain()}"
+    ayah_terisi = f"{ayah_ada} AND ({wali_ada} OR {_isi_wali_lain()})"
+    return f"({sama_ayah_ibu} OR {kolom_tanpa_nama} OR {ayah_terisi})", []
+
+
+TEMUAN_DAFTAR: tuple[Temuan, ...] = (
+    Temuan("NISN_TIDAK_VALID", "NISN bukan 10 digit angka",
+           lambda: (f"({_kosong('nisn')} OR LENGTH(TRIM(s.nisn)) <> 10 "
+                    f"OR TRIM(s.nisn) GLOB '*[^0-9]*')", []),
+           ("nisn",), "Perbaiki NISN lewat impor Excel (NISN tidak dapat diubah dari formulir)."),
+    Temuan("NIK_TIDAK_VALID", "NIK bukan 16 digit angka",
+           lambda: (f"({_kosong('nik')} OR LENGTH(TRIM(s.nik)) <> 16 "
+                    f"OR TRIM(s.nik) GLOB '*[^0-9]*')", []),
+           ("nik",), "Isi NIK 16 angka pada halaman Detail siswa."),
+    Temuan("TANGGAL_LAHIR_KOSONG", "Tanggal lahir belum diisi",
+           lambda: (_kosong("tanggal_lahir"), []), ("tanggal_lahir",)),
+    Temuan("ROMBEL_KOSONG", "Rombel belum diisi",
+           lambda: (_kosong("rombel"), []), ("rombel",),
+           "Rombel ditetapkan sekolah lewat impor Excel."),
+    Temuan("NO_KK_KOSONG", "Nomor Kartu Keluarga belum diisi",
+           lambda: (_kosong("no_kk"), []), ("no_kk",)),
+    Temuan("NISN_GANDA", "NISN ganda (dipakai lebih dari satu siswa)",
+           lambda: ("s.nisn IS NOT NULL AND TRIM(s.nisn) <> '' AND s.nisn IN ("
+                    "SELECT nisn FROM students WHERE nisn IS NOT NULL AND TRIM(nisn) <> '' "
+                    "GROUP BY nisn HAVING COUNT(*) > 1)", []),
+           ("nisn", "nama"), "Pastikan NISN tidak tertukar; perbaiki lewat impor Excel."),
+    Temuan("ALAMAT_KOSONG", "Alamat belum diisi",
+           lambda: (_kosong("alamat"), []), ("alamat",)),
+    Temuan("AYAH_IBU_SAMA", "Nama ayah sama dengan nama ibu",
+           lambda: (f"(COALESCE(TRIM(s.ayah_nama), '') <> '' "
+                    f"AND COALESCE(TRIM(s.ibu_nama), '') <> '' "
+                    f"AND {_norm('ayah_nama')} = {_norm('ibu_nama')})", []),
+           ("ayah_nama", "ibu_nama"), "Nama ayah dan ibu harus berbeda."),
+    Temuan("WALI_SAMA_AYAH_IBU", "Nama wali sama dengan nama ayah/ibu",
+           lambda: (f"(COALESCE(TRIM(s.wali_nama), '') <> '' "
+                    f"AND {_norm('wali_nama')} IN ({_norm('ayah_nama')}, {_norm('ibu_nama')}))", []),
+           ("wali_nama",), "Kosongkan kolom wali bila memang tidak ada wali."),
+    Temuan("WALI_PERLU_DIBERSIHKAN", "Data wali akan dihapus otomatis oleh sistem",
+           _temuan_wali_dibersihkan, ("wali_nama",),
+           "Gunakan tombol \"Rapikan data wali\" di halaman ini."),
+    Temuan("PENDIDIKAN_LUAR_DAFTAR", "Pendidikan ayah/ibu/wali di luar daftar pilihan",
+           lambda: _klausa_luar_daftar(
+               ("ayah_pendidikan", "ibu_pendidikan", "wali_pendidikan"), PENDIDIKAN_OPTIONS),
+           ("ayah_pendidikan", "ibu_pendidikan", "wali_pendidikan"),
+           "Pilih dari daftar Pendidikan yang tersedia."),
+    Temuan("PEKERJAAN_LUAR_DAFTAR", "Pekerjaan ayah/ibu/wali di luar daftar pilihan",
+           lambda: _klausa_luar_daftar(
+               ("ayah_pekerjaan", "ibu_pekerjaan", "wali_pekerjaan"), PEKERJAAN_OPTIONS),
+           ("ayah_pekerjaan", "ibu_pekerjaan", "wali_pekerjaan"),
+           "Pilih dari daftar Pekerjaan yang tersedia."),
+    Temuan("PENGHASILAN_LUAR_DAFTAR", "Penghasilan ayah/ibu/wali di luar daftar pilihan",
+           lambda: _klausa_luar_daftar(
+               ("ayah_penghasilan", "ibu_penghasilan", "wali_penghasilan"), PENGHASILAN_OPTIONS),
+           ("ayah_penghasilan", "ibu_penghasilan", "wali_penghasilan"),
+           "Pilih dari daftar Penghasilan yang tersedia."),
+    Temuan("IBU_KOSONG", "Data ibu belum diisi",
+           lambda: (_kosong("ibu_nama"), []), ("ibu_nama",)),
+)
+
+TEMUAN_BY_KODE: dict[str, Temuan] = {temuan.kode: temuan for temuan in TEMUAN_DAFTAR}
+
+
+def temuan_where(kode: str) -> tuple[str, list[Any]] | None:
+    """Klausa SQL sebuah temuan (None bila kodenya tidak dikenal)."""
+    temuan = TEMUAN_BY_KODE.get((kode or "").strip().upper())
+    return temuan.where() if temuan else None
+
+
+def temuan_ringkas() -> list[dict[str, Any]]:
+    """Semua temuan + jumlah siswa yang terkena (dipakai halaman Kualitas Data)."""
+    hasil: list[dict[str, Any]] = []
+    for temuan in TEMUAN_DAFTAR:
+        where, params = temuan.where()
+        jumlah = int(db.query_value(f"SELECT COUNT(*) FROM students s WHERE {where}", params) or 0)
+        hasil.append({
+            "kode": temuan.kode,
+            "label": temuan.label,
+            "kolom": list(temuan.kolom),
+            "saran": temuan.saran,
+            "jumlah": jumlah,
+        })
+    return hasil
+
+
 def data_quality() -> dict[str, Any]:
     """Ringkas kelengkapan data siswa per field — bahan perbaikan sebelum sinkron Dapodik."""
     total = int(db.query_value("SELECT COUNT(*) FROM students") or 0)
@@ -729,6 +904,7 @@ def data_quality() -> dict[str, Any]:
                 "key": spec.key,
                 "label": spec.label,
                 "group": spec.group,
+                "boleh_perbaiki": True,
                 "wajib": spec.key in FIELD_WAJIB,
                 "terisi": filled,
                 "kosong": total - filled,
@@ -740,145 +916,11 @@ def data_quality() -> dict[str, Any]:
     checks = " OR ".join(f"s.{field} IS NULL OR TRIM(CAST(s.{field} AS TEXT)) = ''" for field in FIELD_WAJIB)
     belum_lengkap = int(db.query_value(f"SELECT COUNT(*) FROM students s WHERE {checks}") or 0)
 
-    # Temuan spesifik ala Dapodik
-    tanda_pendidikan = ", ".join("?" for _ in PENDIDIKAN_OPTIONS)
-    tanda_pekerjaan = ", ".join("?" for _ in PEKERJAAN_OPTIONS)
-    tanda_penghasilan = ", ".join("?" for _ in PENGHASILAN_OPTIONS)
-    baku_pendidikan = [opsi.lower() for opsi in PENDIDIKAN_OPTIONS]
-    baku_pekerjaan = [opsi.lower() for opsi in PEKERJAAN_OPTIONS]
-    baku_penghasilan = [opsi.lower() for opsi in PENGHASILAN_OPTIONS]
-    temuan = [
-        {
-            "kode": "NISN_TIDAK_VALID",
-            "label": "NISN bukan 10 digit angka",
-            "jumlah": int(db.query_value(
-                "SELECT COUNT(*) FROM students WHERE nisn IS NULL OR LENGTH(TRIM(nisn)) <> 10 OR TRIM(nisn) GLOB '*[^0-9]*'"
-            ) or 0),
-            "field": "nisn",
-        },
-        {
-            "kode": "NIK_TIDAK_VALID",
-            "label": "NIK bukan 16 digit angka",
-            "jumlah": int(db.query_value(
-                "SELECT COUNT(*) FROM students WHERE nik IS NULL OR TRIM(nik) = '' OR LENGTH(TRIM(nik)) <> 16 OR TRIM(nik) GLOB '*[^0-9]*'"
-            ) or 0),
-            "field": "nik",
-        },
-        {
-            "kode": "TANGGAL_LAHIR_KOSONG",
-            "label": "Tanggal lahir belum diisi",
-            "jumlah": int(db.query_value("SELECT COUNT(*) FROM students WHERE tanggal_lahir IS NULL OR TRIM(tanggal_lahir) = ''") or 0),
-            "field": "tanggal_lahir",
-        },
-        {
-            "kode": "ROMBEL_KOSONG",
-            "label": "Rombel belum diisi",
-            "jumlah": int(db.query_value("SELECT COUNT(*) FROM students WHERE rombel IS NULL OR TRIM(rombel) = ''") or 0),
-            "field": "rombel",
-        },
-        {
-            "kode": "NO_KK_KOSONG",
-            "label": "Nomor Kartu Keluarga belum diisi",
-            "jumlah": int(db.query_value("SELECT COUNT(*) FROM students WHERE no_kk IS NULL OR TRIM(no_kk) = ''") or 0),
-            "field": "no_kk",
-        },
-        {
-            "kode": "NISN_GANDA",
-            "label": "NISN ganda",
-            "jumlah": int(db.query_value(
-                "SELECT COUNT(*) FROM (SELECT nisn FROM students WHERE nisn IS NOT NULL AND TRIM(nisn) <> '' GROUP BY nisn HAVING COUNT(*) > 1)"
-            ) or 0),
-            "field": "nisn",
-        },
-        {
-            "kode": "ALAMAT_KOSONG",
-            "label": "Alamat belum diisi",
-            "jumlah": int(db.query_value("SELECT COUNT(*) FROM students WHERE alamat IS NULL OR TRIM(alamat) = ''") or 0),
-            "field": "alamat",
-        },
-        {
-            "kode": "AYAH_IBU_SAMA",
-            "label": "Nama ayah sama dengan nama ibu",
-            "jumlah": int(db.query_value(
-                """
-                SELECT COUNT(*) FROM students
-                 WHERE ayah_nama IS NOT NULL AND TRIM(ayah_nama) <> ''
-                   AND ibu_nama IS NOT NULL AND TRIM(ibu_nama) <> ''
-                   AND REPLACE(LOWER(TRIM(ayah_nama)), ' ', '')
-                     = REPLACE(LOWER(TRIM(ibu_nama)), ' ', '')
-                """
-            ) or 0),
-            "field": "ayah_nama",
-        },
-        {
-            "kode": "WALI_SAMA_AYAH_IBU",
-            "label": "Nama wali sama dengan nama ayah/ibu",
-            "jumlah": int(db.query_value(
-                """
-                SELECT COUNT(*) FROM students
-                 WHERE wali_nama IS NOT NULL AND TRIM(wali_nama) <> ''
-                   AND REPLACE(LOWER(TRIM(wali_nama)), ' ', '')
-                       IN (REPLACE(LOWER(TRIM(COALESCE(ayah_nama, ''))), ' ', ''),
-                           REPLACE(LOWER(TRIM(COALESCE(ibu_nama, ''))), ' ', ''))
-                """
-            ) or 0),
-            "field": "wali_nama",
-        },
-        {
-            "kode": "WALI_PERLU_DIBERSIHKAN",
-            "label": "Data wali akan dihapus otomatis oleh sistem",
-            "jumlah": len(siswa_perlu_bersih_wali()),
-            "field": "wali_nama",
-        },
-        {
-            "kode": "PENDIDIKAN_LUAR_DAFTAR",
-            "label": "Pendidikan ayah/ibu/wali di luar daftar pilihan",
-            "jumlah": int(db.query_value(
-                f"""
-                SELECT COUNT(*) FROM students
-                 WHERE (COALESCE(ayah_pendidikan, '') <> '' AND LOWER(TRIM(ayah_pendidikan)) NOT IN ({tanda_pendidikan}))
-                    OR (COALESCE(ibu_pendidikan, '') <> '' AND LOWER(TRIM(ibu_pendidikan)) NOT IN ({tanda_pendidikan}))
-                    OR (COALESCE(wali_pendidikan, '') <> '' AND LOWER(TRIM(wali_pendidikan)) NOT IN ({tanda_pendidikan}))
-                """,
-                (*baku_pendidikan, *baku_pendidikan, *baku_pendidikan),
-            ) or 0),
-            "field": "ayah_pendidikan",
-        },
-        {
-            "kode": "PEKERJAAN_LUAR_DAFTAR",
-            "label": "Pekerjaan ayah/ibu/wali di luar daftar pilihan",
-            "jumlah": int(db.query_value(
-                f"""
-                SELECT COUNT(*) FROM students
-                 WHERE (COALESCE(ayah_pekerjaan, '') <> '' AND LOWER(TRIM(ayah_pekerjaan)) NOT IN ({tanda_pekerjaan}))
-                    OR (COALESCE(ibu_pekerjaan, '') <> '' AND LOWER(TRIM(ibu_pekerjaan)) NOT IN ({tanda_pekerjaan}))
-                    OR (COALESCE(wali_pekerjaan, '') <> '' AND LOWER(TRIM(wali_pekerjaan)) NOT IN ({tanda_pekerjaan}))
-                """,
-                (*baku_pekerjaan, *baku_pekerjaan, *baku_pekerjaan),
-            ) or 0),
-            "field": "ayah_pekerjaan",
-        },
-        {
-            "kode": "PENGHASILAN_LUAR_DAFTAR",
-            "label": "Penghasilan ayah/ibu/wali di luar daftar pilihan",
-            "jumlah": int(db.query_value(
-                f"""
-                SELECT COUNT(*) FROM students
-                 WHERE (COALESCE(ayah_penghasilan, '') <> '' AND LOWER(TRIM(ayah_penghasilan)) NOT IN ({tanda_penghasilan}))
-                    OR (COALESCE(ibu_penghasilan, '') <> '' AND LOWER(TRIM(ibu_penghasilan)) NOT IN ({tanda_penghasilan}))
-                    OR (COALESCE(wali_penghasilan, '') <> '' AND LOWER(TRIM(wali_penghasilan)) NOT IN ({tanda_penghasilan}))
-                """,
-                (*baku_penghasilan, *baku_penghasilan, *baku_penghasilan),
-            ) or 0),
-            "field": "ayah_penghasilan",
-        },
-        {
-            "kode": "IBU_KOSONG",
-            "label": "Data ibu belum diisi",
-            "jumlah": int(db.query_value("SELECT COUNT(*) FROM students WHERE ibu_nama IS NULL OR TRIM(ibu_nama) = ''") or 0),
-            "field": "ibu_nama",
-        },
-    ]
+    # Temuan spesifik ala Dapodik — dihitung dari satu sumber kebenaran
+    # (TEMUAN_DAFTAR) supaya sama dengan daftar siswa yang dibuka lewat
+    # tombol "Perbaiki" pada halaman Kualitas Data.
+    temuan = temuan_ringkas()
+
     return {
         "total": total,
         "fields": items,

@@ -6,13 +6,37 @@
 
 {% block content %}
 {#- Ringkasan keadaan filter lanjutan (dipakai untuk membuka panel & lencana) -#}
+{% set kolom_masalah = temuan_aktif.kolom if temuan_aktif is defined else [] %}
 {% set filter_lanjutan = (filters.agama or filters.kelurahan or filters.status or filters.incomplete_only
+                          or filters.masalah or filters.kosong
                           or filters.sort != 'nama' or filters.direction != 'asc'
                           or pagination.per_page != 25 or preset != 'ringkas') %}
 {% set jumlah_lanjutan = ([filters.agama, filters.kelurahan, filters.status] | select | list | length)
                           + (1 if filters.incomplete_only else 0)
+                          + (1 if (filters.masalah or filters.kosong) else 0)
                           + (1 if (filters.sort != 'nama' or filters.direction != 'asc') else 0)
                           + (1 if (pagination.per_page != 25 or preset != 'ringkas') else 0) %}
+{% if temuan_aktif is defined and temuan_aktif.judul %}
+{# Banner temuan: daftar ini dibuka dari tombol "Perbaiki" di halaman Kualitas Data,
+   jadi jelas sedang menyaring apa dan kolom mana yang perlu dibetulkan. #}
+<div class="alert alert-warning" role="status">
+  <span class="alert-icon">{{ icon('warning') }}</span>
+  <div>
+    <strong>{{ temuan_aktif.judul }}</strong>
+    <div>
+      {{ total | angka_id }} siswa pada daftar di bawah.
+      {% if temuan_aktif.saran %}<span class="muted">{{ temuan_aktif.saran }}</span>{% endif %}
+    </div>
+    <div class="mt-1">
+      <a class="btn btn-outline btn-sm" href="/data-siswa{{ qs_tanpa(qs, 'masalah', 'kosong') if qs_tanpa is defined else '' }}">
+        {{ icon('x') }} Tampilkan semua siswa
+      </a>
+      <a class="btn btn-ghost btn-sm" href="/kualitas-data">{{ icon('chart') }} Kembali ke Kualitas Data</a>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="card">
   <div class="card-body">
     {#-- Filter cepat: yang paling sering dipakai ------------------------------------#}
@@ -57,6 +81,8 @@
       <input type="hidden" name="per" value="{{ pagination.per_page }}">
       <input type="hidden" name="kolom" value="{{ preset }}">
       {% if filters.incomplete_only %}<input type="hidden" name="lengkap" value="0">{% endif %}
+      {% if filters.masalah %}<input type="hidden" name="masalah" value="{{ filters.masalah }}">{% endif %}
+      {% if filters.kosong %}<input type="hidden" name="kosong" value="{{ filters.kosong }}">{% endif %}
       <div class="field">
         <label>&nbsp;</label>
         <div class="btn-group">
@@ -78,6 +104,8 @@
           <input type="hidden" name="rombel" value="{{ filters.rombel }}">
           <input type="hidden" name="tingkat" value="{{ filters.tingkat }}">
           <input type="hidden" name="jk" value="{{ filters.jk }}">
+          <input type="hidden" name="masalah" value="{{ filters.masalah }}">
+          <input type="hidden" name="kosong" value="{{ filters.kosong }}">
           <div class="field">
             <label for="agama">Agama</label>
             <select id="agama" name="agama">
@@ -167,6 +195,7 @@
       {% if filters.kelurahan %}<span class="filter-chip">Kel. {{ filters.kelurahan }} <a href="/data-siswa{{ qs_tanpa(qs, 'kelurahan') if qs_tanpa is defined else qs }}" aria-label="Hapus filter kelurahan">×</a></span>{% endif %}
       {% if filters.status %}<span class="filter-chip">{{ filters.status }} <a href="/data-siswa{{ qs_tanpa(qs, 'status') if qs_tanpa is defined else qs }}" aria-label="Hapus filter status">×</a></span>{% endif %}
       {% if filters.incomplete_only %}<span class="filter-chip">Data belum lengkap <a href="/data-siswa{{ qs_tanpa(qs, 'lengkap') if qs_tanpa is defined else qs }}" aria-label="Hapus filter kelengkapan">×</a></span>{% endif %}
+      {% if temuan_aktif is defined and temuan_aktif.judul %}<span class="filter-chip">{{ temuan_aktif.judul }} <a href="/data-siswa{{ qs_tanpa(qs, 'masalah', 'kosong') if qs_tanpa is defined else qs }}" aria-label="Hapus filter temuan">×</a></span>{% endif %}
       <a class="btn btn-ghost btn-sm" href="/data-siswa">Bersihkan semua</a>
     </div>
     {% endif %}
@@ -217,10 +246,10 @@
       </thead>
       <tbody>
         {% for row in rows %}
-        <tr>
+        <tr class="{{ 'row-error' if kolom_masalah }}">
           <td class="muted" data-label="#">{{ pagination.start + loop.index0 }}</td>
           {% for key in kolom %}
-            <td data-label="{{ field_label(key) }}">
+            <td data-label="{{ field_label(key) }}"{% if key in kolom_masalah %} class="sel-masalah"{% endif %}>
               {% if key == 'nama' %}
                 <a href="/data-siswa/{{ row.id }}"><strong>{{ row.nama }}</strong></a>
                 {% if row.is_kip %}<span class="badge badge-success" title="Penerima KIP">KIP</span>{% endif %}
@@ -235,6 +264,9 @@
                 <span class="badge badge-{{ row.status | badge }}">{{ row.status }}</span>
               {% else %}
                 {{ nilai(row[key] if key in row else None) }}
+              {% endif %}
+              {% if key in kolom_masalah %}
+                <span class="badge badge-danger" title="Kolom ini yang perlu diperbaiki">perbaiki</span>
               {% endif %}
             </td>
           {% endfor %}

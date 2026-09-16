@@ -818,6 +818,10 @@ table.data.anggota td select[name="jabatan"] { max-width: 148px; }
 table.data.anggota td select[name="status"] { max-width: 118px; }
 table.data.anggota td input[name="catatan"] { min-width: 190px; }
 
+/* --- Sel yang perlu diperbaiki (dari temuan halaman Kualitas Data) ----- */
+table.data td.sel-masalah { background: var(--danger-50); box-shadow: inset 2px 0 0 var(--danger); }
+table.data td.sel-masalah .badge { margin-left: .3rem; }
+
 /* --- Form jadwal ekskul (hari & jam oleh pembina/pelatih) --------------- */
 .form-jadwal {
   display: grid; gap: .8rem; align-items: end;
