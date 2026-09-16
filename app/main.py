@@ -17,6 +17,7 @@ import time
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -110,6 +111,30 @@ app.include_router(api_routes.router)
 @app.get("/health", include_in_schema=False)
 def health() -> dict[str, str]:
     return {"status": "ok", "app": config.APP_NAME, "version": config.APP_VERSION}
+
+
+@app.exception_handler(RequestValidationError)
+async def validasi_request_handler(request: Request, exc: RequestValidationError) -> Response:
+    """Parameter alamat yang tidak sah memakai halaman galat ramah, bukan JSON mentah."""
+    if request.url.path.startswith("/api/"):
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse({"detail": "Parameter permintaan tidak sah."}, status_code=400)
+
+    rincian = "; ".join(
+        f"{'.'.join(str(bagian) for bagian in item.get('loc', []))}: {item.get('msg', '')}"
+        for item in exc.errors()[:3]
+    )
+    return render(
+        request,
+        "error.html",
+        {
+            "kode": 400,
+            "pesan": "Permintaan tidak dapat diproses.",
+            "detail": rincian or None,
+        },
+        status_code=400,
+    )
 
 
 @app.exception_handler(StarletteHTTPException)

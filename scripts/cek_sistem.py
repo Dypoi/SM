@@ -661,6 +661,18 @@ def cek_http():
             assert "/static/js/app.js?v=" in beranda, "app.js tanpa penanda versi"
             assert "/static/css/app.css?v=" in beranda, "app.css tanpa penanda versi"
 
+            # Alamat dengan parameter tidak sah memakai halaman galat ramah (HTML),
+            # bukan balasan JSON mentah dari FastAPI.
+            galat_ramah = await client.get("/impor/zzz")
+            assert galat_ramah.status_code == 400, f"/impor/zzz -> {galat_ramah.status_code}"
+            assert "text/html" in galat_ramah.headers.get("content-type", ""), "galat bukan halaman HTML"
+
+            # Penyempurnaan tampilan: pencarian cepat, panel filter, dan keadaan kosong.
+            kosong = await client.get("/data-siswa", params={"q": "zzz-tidak-ada"})
+            assert "quick-search" in kosong.text, "pencarian cepat topbar tidak dirender"
+            assert "filter-panel" in kosong.text, "panel filter lanjutan tidak dirender"
+            assert "empty-state" in kosong.text, "keadaan kosong tidak tampil pada daftar siswa"
+
             kunci = services.get_setting("api_key")
             tanpa_kunci = await client.get("/api/statistik")
             assert tanpa_kunci.status_code in (303, 401), "API seharusnya menolak tanpa kunci"

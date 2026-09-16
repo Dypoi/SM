@@ -701,6 +701,8 @@ td.empty-cell { padding: 0; }
     content: attr(data-label); flex: 0 0 42%; color: var(--muted);
     font-size: .74rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
   }
-  table.data.kartu td[data-label="#"], table.data.kartu td.empty-cell { display: none; }
+  table.data.kartu td[data-label="#"] { display: none; }
+  /* Keadaan kosong harus tetap terlihat: satu sel selebar kartu. */
+  table.data.kartu td.empty-cell { display: block; padding: 0; }
   table.data.kartu td.empty-cell::before { content: none; }
 }
