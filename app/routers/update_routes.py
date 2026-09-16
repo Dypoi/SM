@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 
 from .. import auth, config, services, updater
-from ..web import render
+from ..web import halaman_jeda, render
 
 router = APIRouter()
 
@@ -79,7 +79,17 @@ def tarik_pembaruan(
     pesan = hasil["pesan"]
     if hasil["berubah"] and muat_ulang_setelah in {"1", "on", "true"}:
         updater.minta_muat_ulang(aktor=user.username, alasan="pembaruan manual")
-        pesan += " Server akan dimuat ulang otomatis dalam beberapa detik — halaman ini terputus sesaat."
+        # Balasan memakai halaman mandiri (tanpa template): berkas template sudah
+        # baru sementara proses ini masih memakai kode lama, jadi templat apa pun
+        # belum tentu bisa disusun. Halaman ini menunggu server siap lalu membuka
+        # kembali halaman Pembaruan.
+        return halaman_jeda(
+            "Pembaruan berhasil dipasang",
+            f"{pesan} Server sedang dimuat ulang dengan kode terbaru; "
+            "halaman akan terbuka sendiri setelah server siap.",
+            tujuan="/pembaruan",
+            detik=4,
+        )
     return _redirect(pesan, anchor=ANCHOR)
 
 
@@ -120,10 +130,12 @@ def muat_ulang(request: Request, user: auth.SessionUser = Depends(auth.require_a
             anchor=ANCHOR,
         )
     updater.minta_muat_ulang(aktor=user.username, alasan="diminta admin")
-    return _redirect(
-        "Server akan dimuat ulang dalam beberapa detik memakai kode terbaru. "
-        "Halaman ini terputus sesaat, lalu bisa dibuka kembali.",
-        anchor=ANCHOR,
+    return halaman_jeda(
+        "Server sedang dimuat ulang",
+        "Aplikasi memakai kode terbaru dari folder aplikasi. "
+        "Halaman akan terbuka sendiri setelah server siap.",
+        tujuan="/pembaruan",
+        detik=4,
     )
 
 

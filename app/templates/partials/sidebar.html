@@ -21,7 +21,9 @@
   </div>
 
   <nav class="nav" aria-label="Menu utama">
-    {% for grup in nav_grup %}
+    {#- nav_grup baru ada pada versi ini; kode lama hanya mengirim `nav`. -#}
+    {% set menu_samping = nav_grup if nav_grup is defined else [{'label': '', 'items': nav}] %}
+    {% for grup in menu_samping %}
       {% if grup.label %}<div class="nav-label">{{ grup.label }}</div>{% endif %}
       {% for item in grup['items'] %}
       <a class="nav-link {{ 'active' if current_path == item.href or (item.href != '/' and current_path.startswith(item.href)) }}"

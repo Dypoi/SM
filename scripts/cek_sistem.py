@@ -661,6 +661,49 @@ def cek_http():
             assert "/static/js/app.js?v=" in beranda, "app.js tanpa penanda versi"
             assert "/static/css/app.css?v=" in beranda, "app.css tanpa penanda versi"
 
+            # Penyangga peralihan sesudah "Tarik pembaruan": berkas template sudah
+            # baru sementara proses masih memakai kode lama (belum ada static_url,
+            # qs_set, qs_tanpa, hari_ini). Inilah penyebab galat 500 pada versi
+            # sebelumnya; halaman harus tetap terbuka.
+            from app import web as modul_web
+
+            disimpan: dict[str, object] = {}
+            for nama_global in ("static_url", "qs_set", "qs_tanpa", "hari_ini"):
+                if nama_global in modul_web.templates.env.globals:
+                    disimpan[nama_global] = modul_web.templates.env.globals.pop(nama_global)
+            try:
+                rusak_transisi = []
+                for path in ("/", "/data-siswa", "/pembaruan", "/statistik", "/login"):
+                    kode = (await client.get(path)).status_code
+                    if kode >= 500:
+                        rusak_transisi.append(f"{path} -> {kode}")
+                assert not rusak_transisi, (
+                    "template baru harus tetap terbuka walau proses memakai kode lama: "
+                    + ", ".join(rusak_transisi)
+                )
+            finally:
+                modul_web.templates.env.globals.update(disimpan)
+
+            # Halaman darurat tanpa template & halaman jeda sesudah pembaruan.
+            from starlette.requests import Request as PermintaanUji
+
+            permintaan_uji = PermintaanUji({
+                "type": "http", "method": "GET", "path": "/uji", "query_string": b"",
+                "headers": [], "scheme": "http", "server": ("cek", 80),
+                "client": ("127.0.0.1", 1),
+            })
+            darurat = modul_web.render(permintaan_uji, "template-tidak-ada.html")
+            isi_darurat = darurat.body.decode()
+            assert darurat.status_code == 500, "template gagal seharusnya dibalas 500 ramah"
+            assert "text/html" in darurat.headers.get("content-type", ""), "halaman darurat bukan HTML"
+            assert "Buka dasbor" in isi_darurat, "halaman darurat tanpa tombol kembali"
+
+            jeda = modul_web.halaman_jeda("Uji jeda", "Pesan uji", "/pembaruan", detik=2)
+            isi_jeda = jeda.body.decode()
+            assert jeda.status_code == 200, "halaman jeda bukan 200"
+            assert "Menunggu server siap" in isi_jeda, "halaman jeda tanpa penanda tunggu"
+            assert "/health" in isi_jeda, "halaman jeda tidak memantau /health"
+
             # Alamat dengan parameter tidak sah memakai halaman galat ramah (HTML),
             # bukan balasan JSON mentah dari FastAPI.
             galat_ramah = await client.get("/impor/zzz")

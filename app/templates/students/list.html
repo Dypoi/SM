@@ -159,14 +159,14 @@
     {% if filter_aktif %}
     <div class="filter-chips" aria-label="Filter aktif">
       <span class="muted" style="font-size:.82rem">Filter aktif:</span>
-      {% if filters.q %}<span class="filter-chip">Cari: {{ filters.q }} <a href="/data-siswa{{ qs_tanpa(qs, 'q') }}" aria-label="Hapus filter pencarian">×</a></span>{% endif %}
-      {% if filters.rombel %}<span class="filter-chip">Rombel {{ filters.rombel }} <a href="/data-siswa{{ qs_tanpa(qs, 'rombel') }}" aria-label="Hapus filter rombel">×</a></span>{% endif %}
-      {% if filters.tingkat %}<span class="filter-chip">Kelas {{ filters.tingkat }} <a href="/data-siswa{{ qs_tanpa(qs, 'tingkat') }}" aria-label="Hapus filter tingkat">×</a></span>{% endif %}
-      {% if filters.jk %}<span class="filter-chip">{{ 'Laki-laki' if filters.jk == 'L' else 'Perempuan' }} <a href="/data-siswa{{ qs_tanpa(qs, 'jk') }}" aria-label="Hapus filter jenis kelamin">×</a></span>{% endif %}
-      {% if filters.agama %}<span class="filter-chip">{{ filters.agama }} <a href="/data-siswa{{ qs_tanpa(qs, 'agama') }}" aria-label="Hapus filter agama">×</a></span>{% endif %}
-      {% if filters.kelurahan %}<span class="filter-chip">Kel. {{ filters.kelurahan }} <a href="/data-siswa{{ qs_tanpa(qs, 'kelurahan') }}" aria-label="Hapus filter kelurahan">×</a></span>{% endif %}
-      {% if filters.status %}<span class="filter-chip">{{ filters.status }} <a href="/data-siswa{{ qs_tanpa(qs, 'status') }}" aria-label="Hapus filter status">×</a></span>{% endif %}
-      {% if filters.incomplete_only %}<span class="filter-chip">Data belum lengkap <a href="/data-siswa{{ qs_tanpa(qs, 'lengkap') }}" aria-label="Hapus filter kelengkapan">×</a></span>{% endif %}
+      {% if filters.q %}<span class="filter-chip">Cari: {{ filters.q }} <a href="/data-siswa{{ qs_tanpa(qs, 'q') if qs_tanpa is defined else qs }}" aria-label="Hapus filter pencarian">×</a></span>{% endif %}
+      {% if filters.rombel %}<span class="filter-chip">Rombel {{ filters.rombel }} <a href="/data-siswa{{ qs_tanpa(qs, 'rombel') if qs_tanpa is defined else qs }}" aria-label="Hapus filter rombel">×</a></span>{% endif %}
+      {% if filters.tingkat %}<span class="filter-chip">Kelas {{ filters.tingkat }} <a href="/data-siswa{{ qs_tanpa(qs, 'tingkat') if qs_tanpa is defined else qs }}" aria-label="Hapus filter tingkat">×</a></span>{% endif %}
+      {% if filters.jk %}<span class="filter-chip">{{ 'Laki-laki' if filters.jk == 'L' else 'Perempuan' }} <a href="/data-siswa{{ qs_tanpa(qs, 'jk') if qs_tanpa is defined else qs }}" aria-label="Hapus filter jenis kelamin">×</a></span>{% endif %}
+      {% if filters.agama %}<span class="filter-chip">{{ filters.agama }} <a href="/data-siswa{{ qs_tanpa(qs, 'agama') if qs_tanpa is defined else qs }}" aria-label="Hapus filter agama">×</a></span>{% endif %}
+      {% if filters.kelurahan %}<span class="filter-chip">Kel. {{ filters.kelurahan }} <a href="/data-siswa{{ qs_tanpa(qs, 'kelurahan') if qs_tanpa is defined else qs }}" aria-label="Hapus filter kelurahan">×</a></span>{% endif %}
+      {% if filters.status %}<span class="filter-chip">{{ filters.status }} <a href="/data-siswa{{ qs_tanpa(qs, 'status') if qs_tanpa is defined else qs }}" aria-label="Hapus filter status">×</a></span>{% endif %}
+      {% if filters.incomplete_only %}<span class="filter-chip">Data belum lengkap <a href="/data-siswa{{ qs_tanpa(qs, 'lengkap') if qs_tanpa is defined else qs }}" aria-label="Hapus filter kelengkapan">×</a></span>{% endif %}
       <a class="btn btn-ghost btn-sm" href="/data-siswa">Bersihkan semua</a>
     </div>
     {% endif %}
@@ -201,7 +201,8 @@
           {% for key in kolom %}
             <th {% if filters.sort == key %}aria-sort="{{ 'descending' if filters.direction == 'desc' else 'ascending' }}"{% endif %}>
               {% if key in ['nama', 'nisn', 'nipd', 'rombel', 'tanggal_lahir', 'kelurahan'] %}
-                <a href="/data-siswa{{ qs_set(qs, sort=key, dir=('desc' if filters.sort == key and filters.direction == 'asc' else 'asc')) }}"
+                {% set arah = 'desc' if filters.sort == key and filters.direction == 'asc' else 'asc' %}
+                <a href="/data-siswa{{ qs_set(qs, sort=key, dir=arah) if qs_set is defined else qs }}"
                    title="Urutkan menurut {{ field_label(key) }}">
                   {{ field_label(key) }}
                   {% if filters.sort == key %}<span aria-hidden="true">{{ '↓' if filters.direction == 'desc' else '↑' }}</span>{% endif %}

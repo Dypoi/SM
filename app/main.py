@@ -147,6 +147,11 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
         return RedirectResponse(f"/login?next={request.url.path}", status_code=303)
 
     if exc.status_code == 404:
+        # Permintaan bawaan peramban (favicon/robots) tidak perlu halaman galat;
+        # ikon aplikasi sudah tertanam sebagai data URI di setiap template.
+        if request.url.path in {"/favicon.ico", "/robots.txt"}:
+            return Response(status_code=204)
+
         if request.url.path.startswith("/api/"):
             from fastapi.responses import JSONResponse
 

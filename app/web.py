@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode
 
 from fastapi import Request
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from . import auth, config, services
@@ -134,6 +135,147 @@ def field_label(key: str) -> str:
 def singkat(value: Any, length: int = 40) -> str:
     text = "" if value is None else str(value)
     return text if len(text) <= length else text[: length - 1] + "…"
+
+
+#: Kerangka halaman HTML mandiri (tanpa template). Dipakai saat template tidak
+#: boleh atau gagal disusun: berkas template sudah baru sementara proses masih
+#: memakai kode lama (beberapa saat sesudah menarik pembaruan), atau ada galat
+#: pada template. Halaman ini tidak bergantung pada berkas apa pun sehingga
+#: selalu bisa dikirim.
+_HALAMAN_MANDIRI = """<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f172a">
+  <title>__JUDUL__ - __APP__</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M9 21V11l7-4 7 4v10' stroke='white' stroke-width='2.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 1.5rem;
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #2563eb 100%);
+      font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif; color: #0f172a;
+    }
+    .kotak {
+      background: #fff; border-radius: 18px; padding: 2rem 1.9rem; max-width: 30rem; width: 100%;
+      box-shadow: 0 24px 60px rgba(2, 6, 23, .35); text-align: center;
+    }
+    .lambang {
+      width: 52px; height: 52px; border-radius: 15px; margin: 0 auto .9rem;
+      display: grid; place-items: center; background: #eff6ff; color: #2563eb;
+    }
+    h1 { font-size: 1.22rem; margin: 0 0 .5rem; }
+    p { margin: 0 0 .85rem; color: #475569; font-size: .92rem; line-height: 1.55; }
+    code { background: #f1f5f9; border-radius: 6px; padding: .12rem .38rem; font-size: .82rem; }
+    .tombol {
+      display: inline-flex; align-items: center; gap: .45rem; text-decoration: none;
+      background: #2563eb; color: #fff; font-weight: 600; font-size: .92rem;
+      padding: .72rem 1.15rem; border-radius: 10px; border: 0; cursor: pointer;
+    }
+    .tombol:hover { background: #1d4ed8; }
+    .tombol.polos { background: #f1f5f9; color: #1e293b; }
+    .status { margin-top: 1rem; font-size: .82rem; color: #64748b; }
+    .denyut {
+      width: 8px; height: 8px; border-radius: 50%; background: #2563eb; display: inline-block;
+      margin-right: .4rem; animation: denyut 1s ease-in-out infinite;
+    }
+    @keyframes denyut { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { .denyut { animation: none; opacity: .8; } }
+  </style>
+</head>
+<body>
+  <main class="kotak">
+    <div class="lambang">__LAMBANG__</div>
+    <h1>__JUDUL__</h1>
+    __ISI__
+  </main>
+</body>
+</html>
+"""
+
+_IKON_JAM = (
+    '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" '
+    'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>'
+)
+_IKON_SEGITIGA = (
+    '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" '
+    'stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>'
+    '<path d="M12 9v4"/><path d="M12 17h.01"/></svg>'
+)
+
+_SKRIP_JEDA = """<script>
+var tujuan = "__TUJUAN__";
+var percobaan = 0;
+function cekServer() {
+  percobaan += 1;
+  var status = document.getElementById("status");
+  if (status) {
+    status.innerHTML = '<span class="denyut"></span>Menunggu server siap ... (' + percobaan + ')';
+  }
+  fetch("/health", { cache: "no-store" }).then(function (balasan) {
+    if (balasan.ok) { window.location.replace(tujuan); }
+  }).catch(function () {
+    /* server belum siap - coba lagi */
+  }).then(function () {
+    if (percobaan < 20) {
+      window.setTimeout(cekServer, 2500);
+    } else if (status) {
+      status.textContent = "Server belum siap juga. Klik \\"Buka aplikasi sekarang\\" sebentar lagi.";
+    }
+  });
+}
+window.setTimeout(cekServer, __DETIK__);
+</script>"""
+
+
+def halaman_jeda(judul: str, pesan: str, tujuan: str = "/", detik: int = 3) -> HTMLResponse:
+    """Halaman mandiri "server sedang dimuat ulang" (tanpa template).
+
+    Dipakai sesudah pembaruan ditarik: proses server menggantikan dirinya dalam
+    beberapa detik, halaman ini menunggu sampai /health menjawab lagi lalu
+    membuka halaman tujuan. Karena tidak memakai template, halaman ini tetap
+    terkirim walau berkas template sudah berubah sementara kode lama masih
+    berjalan (penyebab galat 500 sesaat sesudah menarik pembaruan).
+    """
+    isi = (
+        f"<p>{pesan}</p>"
+        '<p class="status" id="status"><span class="denyut"></span>Menunggu server siap ...</p>'
+        f'<p><a class="tombol" href="{tujuan}">Buka aplikasi sekarang</a></p>'
+    )
+    skrip = (
+        _SKRIP_JEDA.replace("__TUJUAN__", tujuan)
+        .replace("__DETIK__", str(max(1, int(detik)) * 1000))
+    )
+    halaman = (
+        _HALAMAN_MANDIRI.replace("__JUDUL__", judul)
+        .replace("__APP__", config.APP_NAME)
+        .replace("__LAMBANG__", _IKON_JAM)
+        .replace("__ISI__", isi + skrip)
+    )
+    return HTMLResponse(halaman, status_code=200, headers={"Cache-Control": "no-store"})
+
+
+def _halaman_darurat(template: str, galat: Exception) -> HTMLResponse:
+    """Balasan terakhir bila template gagal disusun - jangan sampai 500 kosong."""
+    isi = (
+        "<p>Halaman tidak dapat disusun. Bila Bapak/Ibu baru saja menekan "
+        "<strong>Tarik pembaruan</strong>, tunggu beberapa detik lalu buka kembali: "
+        "server sedang memakai kode terbaru.</p>"
+        f'<p class="status">Rincian teknis: <code>{type(galat).__name__}: {galat}</code></p>'
+        f'<p class="status">Template: <code>{template}</code></p>'
+        '<p><a class="tombol" href="/">Buka dasbor</a></p>'
+    )
+    print(f"[!] Template '{template}' gagal disusun: {type(galat).__name__}: {galat}")
+    halaman = (
+        _HALAMAN_MANDIRI.replace("__JUDUL__", "Halaman gagal disusun")
+        .replace("__APP__", config.APP_NAME)
+        .replace("__LAMBANG__", _IKON_SEGITIGA)
+        .replace("__ISI__", isi)
+    )
+    return HTMLResponse(halaman, status_code=500, headers={"Cache-Control": "no-store"})
 
 
 def qs_set(qs: str, **nilai: Any) -> str:
@@ -284,9 +426,12 @@ def render(request: Request, template: str, context: dict[str, Any] | None = Non
     }
     if context:
         ctx.update(context)
-    return templates.TemplateResponse(
-        request=request, name=template, context=ctx, status_code=status_code
-    )
+    try:
+        return templates.TemplateResponse(
+            request=request, name=template, context=ctx, status_code=status_code
+        )
+    except Exception as galat:  # noqa: BLE001 - kirim halaman darurat, bukan 500 kosong
+        return _halaman_darurat(template, galat)
 
 
 # --------------------------------------------------------------------------- #

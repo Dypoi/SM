@@ -706,3 +706,93 @@ td.empty-cell { padding: 0; }
   table.data.kartu td.empty-cell { display: block; padding: 0; }
   table.data.kartu td.empty-cell::before { content: none; }
 }
+
+/* ==========================================================================
+   Ikon: ukuran dasar yang aman
+   ========================================================================== */
+/* Sebelumnya setiap ikon disetel oleh wadahnya masing-masing. Akibatnya ikon di
+   wadah baru (mis. ringkasan panel filter) tampil raksasa karena SVG tanpa
+   ukuran memenuhi lebar induknya. Ukuran dasar ini mencegahnya; aturan wadah
+   yang lebih khusus (.btn .icon, .stat-icon .icon, dan seterusnya) tetap menang. */
+.icon { width: 18px; height: 18px; flex: 0 0 auto; }
+.icon-besar { width: 26px; height: 26px; }
+
+/* ==========================================================================
+   Login: lebih ramah untuk siswa
+   ========================================================================== */
+.login-peran { display: grid; gap: .8rem; margin-top: .9rem; }
+.login-peran-kartu {
+  display: flex; gap: .75rem; align-items: flex-start;
+  background: rgba(255, 255, 255, .07); border: 1px solid rgba(191, 219, 254, .22);
+  border-radius: 14px; padding: .85rem .95rem;
+}
+.login-peran-kartu .ikon {
+  flex: 0 0 38px; width: 38px; height: 38px; border-radius: 11px;
+  display: grid; place-items: center; background: rgba(255, 255, 255, .12); color: #bfdbfe;
+}
+.login-peran-kartu .ikon .icon { width: 20px; height: 20px; }
+.login-peran-kartu strong { display: block; color: #fff; font-size: .95rem; margin-bottom: .12rem; }
+.login-peran-kartu span { color: #cbd5e1; font-size: .84rem; line-height: 1.45; }
+
+/* Dua pilihan peran di panel kanan — sasaran sentuh besar dan jelas. */
+.switch { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; background: none; padding: 0; }
+.switch button {
+  display: flex; align-items: center; gap: .6rem; text-align: left;
+  background: #fff; border: 1.5px solid var(--border); border-radius: 13px;
+  padding: .68rem .75rem; font-size: .9rem;
+}
+.switch button .icon { width: 20px; height: 20px; color: var(--muted); }
+.switch button strong { display: block; font-size: .9rem; color: var(--text); line-height: 1.25; }
+.switch button small { display: block; font-size: .74rem; font-weight: 500; color: var(--muted); }
+.switch button:hover { border-color: var(--primary); background: var(--primary-50); }
+.switch button.active {
+  background: var(--primary-50); border-color: var(--primary); box-shadow: none;
+  color: var(--primary-600);
+}
+.switch button.active .icon { color: var(--primary-600); }
+.switch button.active strong { color: var(--primary-700, #1d4ed8); }
+.switch button.active small { color: var(--primary-600); }
+
+/* Kepala panel siswa */
+.login-siswa-head { display: flex; gap: .7rem; align-items: flex-start; margin: .3rem 0 1rem; }
+.login-siswa-head .ikon {
+  flex: 0 0 42px; width: 42px; height: 42px; border-radius: 13px; display: grid;
+  place-items: center; background: var(--primary-50); color: var(--primary-600);
+}
+.login-siswa-head .ikon .icon { width: 22px; height: 22px; }
+.login-siswa-head h3 { margin: 0 0 .15rem; font-size: 1rem; }
+.login-siswa-head p { margin: 0; color: var(--muted); font-size: .84rem; line-height: 1.45; }
+
+/* Isian NISN: angka besar dan mudah dibaca */
+input.input-nisn {
+  font-size: 1.15rem; font-weight: 600; letter-spacing: .12em;
+  font-variant-numeric: tabular-nums; padding: .7rem .8rem;
+}
+
+/* Kotak bantuan & langkah */
+.login-bantuan {
+  margin-top: 1rem; background: #f8fafc; border: 1px dashed var(--border);
+  border-radius: 12px; padding: .75rem .85rem; font-size: .82rem; color: var(--text-soft);
+}
+.login-bantuan strong { display: block; color: var(--text); margin-bottom: .18rem; }
+.login-bantuan ol { margin: .35rem 0 0; padding-left: 1.1rem; }
+.login-bantuan li { margin-bottom: .12rem; }
+
+/* Nama sekolah tampil di panel saat layar kecil (hero disembunyikan) */
+.login-mobile-brand { display: none; }
+@media (max-width: 860px) {
+  .login-mobile-brand {
+    display: flex; align-items: center; gap: .6rem; margin-bottom: .9rem;
+  }
+  .login-mobile-brand .brand-mark { width: 40px; height: 40px; flex-basis: 40px; }
+  .login-mobile-brand strong { display: block; font-size: 1rem; }
+  .login-mobile-brand small { color: var(--muted); font-size: .78rem; }
+  .login-panel { padding: 1.4rem 1.1rem 2.2rem; align-items: start; }
+  .login-card { max-width: 100%; }
+  .switch button { padding: .6rem .62rem; }
+  .switch button strong { font-size: .84rem; }
+  .switch button small { font-size: .7rem; }
+}
+@media (max-width: 380px) {
+  .switch { grid-template-columns: 1fr; }
+}
