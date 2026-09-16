@@ -651,6 +651,12 @@ def cek_http():
                     rusak.append(f"{path} -> {kode}")
             assert not rusak, "halaman bermasalah: " + ", ".join(rusak)
 
+            # Berkas statis harus memakai penanda versi supaya browser tidak
+            # memakai app.js/app.css lama dari cache setelah pembaruan.
+            beranda = (await client.get("/")).text
+            assert "/static/js/app.js?v=" in beranda, "app.js tanpa penanda versi"
+            assert "/static/css/app.css?v=" in beranda, "app.css tanpa penanda versi"
+
             kunci = services.get_setting("api_key")
             tanpa_kunci = await client.get("/api/statistik")
             assert tanpa_kunci.status_code in (303, 401), "API seharusnya menolak tanpa kunci"

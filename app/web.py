@@ -52,6 +52,21 @@ def tanggal_waktu(value: Any) -> str:
     return f"{moment.day} {BULAN_ID[moment.month]} {moment.year} {moment:%H:%M}"
 
 
+def static_url(path: str) -> str:
+    """URL berkas statis + penanda waktu ubah berkas.
+
+    Tanpa penanda ini browser bisa memakai app.css/app.js lama dari cache,
+    sehingga perbaikan tampilan tidak terlihat walau server sudah diperbarui.
+    """
+    bersih = str(path).lstrip("/").replace("\\", "/")
+    target = config.STATIC_DIR / bersih
+    try:
+        penanda = int(target.stat().st_mtime)
+    except OSError:
+        penanda = 0
+    return f"/static/{bersih}?v={penanda}"
+
+
 def angka_id(value: Any) -> str:
     """1234 -> '1.234'."""
     if value is None or value == "":
@@ -121,6 +136,7 @@ def singkat(value: Any, length: int = 40) -> str:
 
 
 templates.env.globals["field_label"] = field_label
+templates.env.globals["static_url"] = static_url
 templates.env.globals["GROUP_LABELS"] = GROUP_LABELS
 
 
