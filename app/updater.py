@@ -296,6 +296,7 @@ def status_pembaruan(periksa_jaringan: bool = False, remote: str | None = None,
         "revisi_remote": "",
         "jaringan_diperiksa": False,
         "ketinggalan": None,
+        "di_depan": 0,
         "ada_pembaruan": None,
         "komit_lokal": komit_terakhir("HEAD"),
         "komit_remote": {},
@@ -352,6 +353,9 @@ def status_pembaruan(periksa_jaringan: bool = False, remote: str | None = None,
     if kode == 0 and keluaran.strip().isdigit():
         status["ketinggalan"] = int(keluaran.strip())
         status["ada_pembaruan"] = status["ketinggalan"] > 0
+    kode, keluaran = jalankan_git(["rev-list", "--count", f"{ref_banding}..HEAD"])
+    if kode == 0 and keluaran.strip().isdigit():
+        status["di_depan"] = int(keluaran.strip())
     status["komit_remote"] = komit_terakhir(ref_banding)
     status["catatan"] = catatan_perubahan(ref_banding, batas=12)
     status["berkas_berubah"] = berkas_berbeda("HEAD", ref_banding)[:20]

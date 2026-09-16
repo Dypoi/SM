@@ -26,6 +26,7 @@
           <dd class="mono">
             {{ status.revisi_remote or 'belum diperiksa' }}
             {%- if status.komit_remote.subjek %} · {{ status.komit_remote.subjek | singkat(48) }}{% endif %}
+            {%- if status.di_depan %} <span class="badge badge-info">lokal lebih maju {{ status.di_depan }} komit</span>{% endif %}
           </dd>
           <dt>Pemeriksaan terakhir</dt>
           <dd>
