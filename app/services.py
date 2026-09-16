@@ -1609,6 +1609,244 @@ def create_dapodik_job(jenis: str, mode: str, payload: dict[str, Any] | None = N
     return job_id
 
 
+# --------------------------------------------------------------------------- #
+# BOT DAPODIK — antrean, kemajuan, dan pengaturan
+# --------------------------------------------------------------------------- #
+#: Kunci pengaturan bot Dapodik di tabel settings.
+BOT_KEYS: tuple[str, ...] = (
+    "bot_url", "bot_username", "bot_password", "bot_hobi", "bot_cita",
+    "bot_jawaban_ya", "bot_headless", "bot_simulasi", "bot_timeout",
+    "bot_max_retries", "bot_jeda", "bot_selector_json", "bot_pakai_nisn",
+)
+
+BOT_BAWAAN: dict[str, str] = {
+    # Alamat Dapodik lokal (Dapodikda/Webservice lokal) — sama seperti skrip bot.
+    "bot_url": "http://localhost:5774/",
+    "bot_username": "",
+    "bot_password": "",
+    "bot_hobi": "Olah Raga",
+    "bot_cita": "Pegawai Negeri Sipil / PNS",
+    "bot_jawaban_ya": "1",       # centang semua pilihan "Ya"
+    "bot_headless": "1",         # bekerja di belakang layar (tanpa jendela)
+    "bot_simulasi": "0",         # 1 = uji coba tanpa membuka peramban
+    "bot_timeout": "15",
+    "bot_max_retries": "3",
+    "bot_jeda": "1",             # jeda antar siswa (detik)
+    "bot_selector_json": "",     # kosong = pakai peta bawaan
+    "bot_pakai_nisn": "0",       # 1 = isi NIS dengan NISN bila NIPD kosong
+}
+
+#: Keadaan item bot.
+BOT_ITEM_STATUS = ("menunggu", "sukses", "gagal", "dilewati")
+
+#: Siswa yang tidak lagi didaftarkan (lulus/mutasi/keluar/non-aktif) tidak masuk antrean.
+BOT_STATUS_DILEWATI = ("Lulus", "Mutasi", "Keluar", "Non-aktif")
+
+
+def bot_setting() -> dict[str, str]:
+    """Pengaturan bot Dapodik (nilai kosong diisi bawaan)."""
+    tersimpan = get_settings()
+    return {key: (tersimpan.get(key) or BOT_BAWAAN.get(key, "")) for key in BOT_KEYS}
+
+
+def simpan_bot_setting(data: dict[str, Any]) -> list[str]:
+    """Simpan pengaturan bot. Kembalikan daftar kunci yang berubah."""
+    berubah: list[str] = []
+    for key in BOT_KEYS:
+        if key not in data:
+            continue
+        nilai = data.get(key)
+        nilai = "" if nilai is None else str(nilai).strip()
+        if get_setting(key) != nilai:
+            set_setting(key, nilai)
+            berubah.append(key)
+    log_audit(None, "admin", "simpan_pengaturan_bot", "settings", "bot", ", ".join(berubah))
+    return berubah
+
+
+def bot_siap_pakai() -> tuple[bool, str]:
+    """Periksa kesiapan bot: selenium + data pengaturan wajib."""
+    cfg = bot_setting()
+    if cfg["bot_simulasi"] == "1":
+        return True, "Mode uji coba (tanpa peramban): antrean & kemajuan tetap dicatat."
+    if not cfg["bot_username"] or not cfg["bot_password"]:
+        return False, "Isi dulu alamat Dapodik, surel/NIK, dan kata sandi pada pengaturan bot."
+    import importlib.util
+
+    if importlib.util.find_spec("selenium") is None:
+        return False, ("Pustaka selenium belum terpasang. Jalankan: "
+                       "pip install -r requirements-bot.txt")
+    return True, "Bot siap dijalankan."
+
+
+def bot_antrean(rombel: str = "", limit: int = 0, nisn_manual: str = "",
+                lewati_sukses: bool = True, hanya_tanpa_nipd: bool = False) -> list[dict[str, Any]]:
+    """Susun antrean bot dari **data siswa di aplikasi SM** (bukan berkas Excel).
+
+    Sumber: siswa aktif dengan NISN 10 digit. Bila ``nisn_manual`` diisi
+    (satu NISN per baris), hanya NISN itu yang dipakai — berguna untuk meniru
+    daftar dari Excel atau mengulang siswa tertentu.
+    """
+    daftar_manual = [baris.strip() for baris in (nisn_manual or "").splitlines() if baris.strip()]
+    syarat = ["COALESCE(TRIM(s.nisn), '') <> ''"]
+    syarat.append("(COALESCE(TRIM(s.status), '') = '' OR TRIM(s.status) = 'Aktif')")
+    nilai: list[Any] = []
+    if daftar_manual:
+        syarat.append("s.nisn IN (%s)" % ", ".join("?" for _ in daftar_manual))
+        nilai.extend(daftar_manual)
+    else:
+        syarat.append("LENGTH(TRIM(s.nisn)) = 10")
+        syarat.append("TRIM(s.nisn) NOT GLOB '*[^0-9]*'")
+        if rombel:
+            syarat.append("s.rombel = ?")
+            nilai.append(rombel)
+        if hanya_tanpa_nipd:
+            syarat.append("(s.nipd IS NULL OR TRIM(s.nipd) = '')")
+    sql = (
+        "SELECT s.id, s.nama, s.nisn, s.nipd, s.rombel, s.tingkat, s.status FROM students s "
+        "WHERE " + " AND ".join(syarat) +
+        " ORDER BY s.rombel COLLATE NOCASE, s.nama COLLATE NOCASE"
+    )
+    baris = db.rows_to_dicts(db.query_all(sql, tuple(nilai)))
+
+    if lewati_sukses:
+        sudah = {nisn for nisn in bot_nisn_sukses()}
+        baris = [item for item in baris if str(item["nisn"]).strip() not in sudah]
+    if limit and limit > 0:
+        baris = baris[:limit]
+
+    for indeks, item in enumerate(baris, start=1):
+        item["urutan"] = indeks
+        item["nis"] = (item.get("nipd") or "").strip()
+    return baris
+
+
+def bot_nisn_sukses() -> list[str]:
+    """NISN yang sudah pernah SUCCESS pada pekerjaan bot sebelumnya (untuk lanjut)."""
+    return [str(row["nisn"]) for row in db.query_all(
+        "SELECT DISTINCT nisn FROM dapodik_job_items WHERE status = 'sukses' "
+        "AND nisn IS NOT NULL AND TRIM(nisn) <> ''"
+    )]
+
+
+def bot_menunggu_kira() -> int:
+    """Perkiraan siswa yang belum pernah berhasil (untuk lencana menu).
+
+    Dihitung ringan: hanya siswa aktif dengan NISN 10 digit yang belum ada pada
+    riwayat sukses. Tidak menyertakan pemrosesan berat lain.
+    """
+    sudah = bot_nisn_sukses()
+    sql = ("SELECT COUNT(*) FROM students WHERE nisn IS NOT NULL AND LENGTH(TRIM(nisn)) = 10 "
+           "AND TRIM(nisn) NOT GLOB '*[^0-9]*' "
+           "AND (COALESCE(TRIM(status), '') = '' OR TRIM(status) = 'Aktif')")
+    total = int(db.query_value(sql) or 0)
+    return max(0, total - len(sudah))
+
+
+def buat_job_bot(total: int, payload: dict[str, Any], actor: str | None = None,
+                 mode: str = "headless") -> int:
+    job_id = db.insert_returning_id(
+        "INSERT INTO dapodik_jobs(jenis, mode, status, total_item, payload_json, created_by, "
+        "started_at) VALUES('registrasi', ?, 'jalan', ?, ?, ?, datetime('now','localtime'))",
+        (mode, total, json.dumps(payload, ensure_ascii=False), actor),
+    )
+    log_audit(actor, None, "mulai_bot_dapodik", "dapodik_jobs", job_id, f"{total} siswa")
+    return job_id
+
+
+def isi_item_bot(job_id: int, siswa: dict[str, Any]) -> int:
+    return db.insert_returning_id(
+        "INSERT INTO dapodik_job_items(job_id, student_id, nisn, nipd, nama, urutan) "
+        "VALUES(?,?,?,?,?,?)",
+        (job_id, siswa.get("id"), str(siswa.get("nisn") or ""), siswa.get("nis") or siswa.get("nipd"),
+         siswa.get("nama"), int(siswa.get("urutan") or 0)),
+    )
+
+
+def catat_item_bot(item_id: int, status: str, pesan: str = "") -> None:
+    db.execute(
+        "UPDATE dapodik_job_items SET status = ?, pesan = ?, "
+        "waktu = datetime('now','localtime') WHERE id = ?",
+        (status, (pesan or "")[:400], item_id),
+    )
+
+
+def perbarui_job_bot(job_id: int, *, tambah_sukses: int = 0, tambah_gagal: int = 0,
+                     status: str | None = None, baris_log: str = "") -> None:
+    """Perbarui kepala pekerjaan bot (hitungan & log berjalan)."""
+    if tambah_sukses or tambah_gagal:
+        db.execute(
+            "UPDATE dapodik_jobs SET sukses_item = sukses_item + ?, gagal_item = gagal_item + ? "
+            "WHERE id = ?",
+            (tambah_sukses, tambah_gagal, job_id),
+        )
+    if status:
+        akhiran = ", finished_at = datetime('now','localtime')" if status != "jalan" else ""
+        db.execute(f"UPDATE dapodik_jobs SET status = ?{akhiran} WHERE id = ?", (status, job_id))
+    if baris_log:
+        lama = db.query_value("SELECT log FROM dapodik_jobs WHERE id = ?", (job_id,)) or ""
+        gabung = (str(lama).rstrip("\n") + "\n" + baris_log).strip()
+        db.execute("UPDATE dapodik_jobs SET log = ? WHERE id = ?", (gabung[-4000:], job_id))
+
+
+def tandai_sisa_menunggu_bot(job_id: int,
+                             pesan: str = "Pekerjaan dihentikan sebelum siswa ini diproses") -> int:
+    """Tandai item yang belum diproses (dipakai saat bot dihentikan atau gagal fatal)."""
+    jumlah = int(db.query_value(
+        "SELECT COUNT(*) FROM dapodik_job_items WHERE job_id = ? AND status = 'menunggu'",
+        (int(job_id),)) or 0)
+    if jumlah:
+        db.execute(
+            "UPDATE dapodik_job_items SET status = 'dilewati', pesan = ?, "
+            "waktu = datetime('now','localtime') WHERE job_id = ? AND status = 'menunggu'",
+            (pesan[:400], int(job_id)),
+        )
+    return jumlah
+
+
+def items_bot(job_id: int, limit: int = 200) -> list[dict[str, Any]]:
+    return db.rows_to_dicts(db.query_all(
+        "SELECT * FROM dapodik_job_items WHERE job_id = ? ORDER BY urutan, id LIMIT ?",
+        (job_id, limit)))
+
+
+def ringkas_bot(job_id: int | None = None) -> dict[str, Any]:
+    """Kemajuan pekerjaan bot: hitungan per keadaan + item yang sedang diproses."""
+    if job_id is None:
+        job_id = db.query_value("SELECT id FROM dapodik_jobs ORDER BY id DESC LIMIT 1")
+    if not job_id:
+        return {"job": None, "hitung": {}, "total": 0}
+    job = db.row_to_dict(db.query_one("SELECT * FROM dapodik_jobs WHERE id = ?", (int(job_id),)))
+    hitung = {row["status"]: int(row["n"]) for row in db.query_all(
+        "SELECT status, COUNT(*) AS n FROM dapodik_job_items WHERE job_id = ? GROUP BY status",
+        (int(job_id),))}
+    # item yang sedang dikerjakan ditandai pesan "sedang diproses" oleh bot
+    sedang = db.row_to_dict(db.query_one(
+        "SELECT nama, nisn, urutan FROM dapodik_job_items WHERE job_id = ? "
+        "AND status = 'menunggu' AND pesan LIKE 'sedang diproses%' "
+        "ORDER BY waktu DESC, id DESC LIMIT 1", (int(job_id),)))
+    return {
+        "job": job,
+        "hitung": hitung,
+        "total": len(items_bot(int(job_id), limit=100000)),
+        "sedang": sedang,
+    }
+
+
+def hapus_riwayat_bot() -> tuple[int, int]:
+    """Hapus riwayat pekerjaan bot (kepala + item). Kembalikan (jumlah job, jumlah item).
+
+    Dipakai admin setelah uji coba, atau ketika seluruh siswa perlu didaftarkan ulang
+    (karena siswa yang berstatus "sukses" pada riwayat otomatis dilewati).
+    """
+    job = int(db.query_value("SELECT COUNT(*) FROM dapodik_jobs") or 0)
+    item = int(db.query_value("SELECT COUNT(*) FROM dapodik_job_items") or 0)
+    db.execute("DELETE FROM dapodik_job_items")
+    db.execute("DELETE FROM dapodik_jobs")
+    log_audit(None, "admin", "hapus_riwayat_bot", "dapodik_jobs", "", f"{job} pekerjaan, {item} item")
+    return job, item
+
+
 def dapodik_readiness() -> dict[str, Any]:
     """Ringkasan kesiapan data untuk sinkronisasi ke Dapodik."""
     quality = data_quality()

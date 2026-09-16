@@ -810,6 +810,28 @@ table.data.anggota td select[name="jabatan"] { max-width: 148px; }
 table.data.anggota td select[name="status"] { max-width: 118px; }
 table.data.anggota td input[name="catatan"] { min-width: 190px; }
 
+/* --- Halaman Bot Dapodik ---------------------------------------------- */
+.form-bot {
+  display: grid; gap: .8rem; align-items: end;
+  grid-template-columns: 190px 190px minmax(240px, 1fr);
+}
+.form-bot .field { margin: 0; }
+.form-bot .field.span-3 { grid-column: 1 / -1; }
+.form-bot .form-aksi { grid-column: 1 / -1; }
+.opsi-bot {
+  display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+.cek-bot {
+  display: flex; gap: .6rem; align-items: flex-start;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: .7rem .8rem; background: #fcfdff; cursor: pointer;
+}
+.cek-bot input { margin-top: .25rem; accent-color: var(--primary); width: 16px; height: 16px; }
+.cek-bot small { color: var(--muted); font-size: .76rem; }
+textarea.mono-blok { font-family: var(--mono); font-size: .8rem; }
+.langkah-bot { margin: 0; padding-left: 1.1rem; font-size: .85rem; color: var(--text-soft); }
+.langkah-bot li { margin-bottom: .4rem; }
+
 /* --- Sel yang perlu diperbaiki (dari temuan halaman Kualitas Data) ----- */
 table.data td.sel-masalah { background: var(--danger-50); box-shadow: inset 2px 0 0 var(--danger); }
 table.data td.sel-masalah .badge { margin-left: .3rem; }

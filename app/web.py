@@ -356,11 +356,14 @@ def nav_items(user: auth.SessionUser | None) -> list[dict[str, str]]:
         {"href": "/ekstrakurikuler", "label": "Ekstrakurikuler", "icon": "flag"},
         {"href": "/statistik", "label": "Statistik", "icon": "chart"},
         {"href": "/kualitas-data", "label": "Kualitas Data", "icon": "check"},
+        {"href": "/bot-dapodik", "label": "Bot Dapodik", "icon": "robot",
+         "badge": services.bot_menunggu_kira()},
         {"href": "/pengaturan", "label": "Pengaturan", "icon": "cog"},
         {"href": "/pembaruan", "label": "Pembaruan", "icon": "refresh"},
     ]
     if user.role != auth.ROLE_ADMIN:
-        items = [item for item in items if item["href"] not in {"/pengaturan", "/pembaruan", "/pengajuan"}]
+        items = [item for item in items if item["href"] not in
+                 {"/pengaturan", "/pembaruan", "/pengajuan", "/bot-dapodik"}]
         items.append({"href": "/profil-akun", "label": "Akun Saya", "icon": "user"})
     return items
 
@@ -372,6 +375,7 @@ NAV_GRUP = {
     "/pengajuan": "Utama",
     "/impor": "Data & Laporan",
     "/kualitas-data": "Data & Laporan",
+    "/bot-dapodik": "Sistem",
     "/statistik": "Data & Laporan",
     "/ekstrakurikuler": "Data & Laporan",
     "/pengaturan": "Sistem",
@@ -402,6 +406,7 @@ PAGE_TITLES = {
     "/ekstrakurikuler": "Ekstrakurikuler",
     "/statistik": "Statistik",
     "/kualitas-data": "Kualitas Data",
+    "/bot-dapodik": "Bot Dapodik",
     "/pengaturan": "Pengaturan",
     "/pembaruan": "Pembaruan Aplikasi",
     "/pengajuan": "Persetujuan Perubahan Data",

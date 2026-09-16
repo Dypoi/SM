@@ -26,6 +26,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from . import auth, config, db, migrations, online, services, updater
 from .routers import (
     api_routes,
+    bot_routes,
     approval_routes,
     auth_routes,
     dashboard_routes,
@@ -162,6 +163,7 @@ app.include_router(settings_routes.router)
 app.include_router(update_routes.router)
 app.include_router(approval_routes.router)
 app.include_router(api_routes.router)
+app.include_router(bot_routes.router)
 
 
 # --------------------------------------------------------------------------- #

@@ -760,7 +760,7 @@ def cek_http():
     halaman_admin = ["/", "/data-siswa", "/data-siswa/1", "/data-siswa/baru", "/statistik",
                      "/kualitas-data", "/ekstrakurikuler", "/ekstrakurikuler/1", "/impor",
                      "/impor/1", "/impor/panduan", "/pengaturan",
-                     "/pengaturan/dokumentasi-api", "/profil-akun", "/pembaruan"]
+                     "/pengaturan/dokumentasi-api", "/profil-akun", "/pembaruan", "/bot-dapodik"]
 
     async def jalankan() -> str:
         transport = httpx.ASGITransport(app=app)
@@ -1614,6 +1614,156 @@ def cek_kualitas_data():
     return rincian
 
 
+@cek("24. Bot Dapodik (antrean dari data SM, kemajuan, lanjut tanpa mengulang)")
+def cek_bot_dapodik() -> str:
+    """Bot Dapodik: antrean bersumber dari tabel students, berjalan tanpa peramban
+    pada mode uji coba, dan pekerjaan yang sudah berhasil tidak diulang."""
+    import inspect
+    import time
+
+    from app import auth, bot_dapodik, db, services, web
+
+    # 1) Peta tombol Dapodik = alur skrip bot pemilik aplikasi.
+    kunci = list(bot_dapodik.SELECTOR_BAWAAN)
+    assert kunci == list(bot_dapodik.SELECTOR_DIIZINKAN), "daftar selector bawaan & yang boleh diubah beda"
+    for wajib in ("login_username", "login_password", "login_tombol", "menu_tujuan", "menu_1",
+                  "cari_nisn", "tombol_registrasi", "input_nis", "radio_ya", "hobi", "cita",
+                  "simpan"):
+        assert wajib in bot_dapodik.SELECTOR_BAWAAN, f"selector {wajib} hilang"
+    assert bot_dapodik.SELECTOR_BAWAAN["cari_nisn"] == "name:cari_text", "selector NISN berubah"
+    assert bot_dapodik.SELECTOR_BAWAAN["input_nis"] == "name:nipd", "kolom NIS berubah"
+    assert bot_dapodik.SELECTOR_BAWAAN["hobi"] == "name:id_hobby"
+    assert bot_dapodik.SELECTOR_BAWAAN["cita"] == "name:id_cita"
+
+    # Penimpaan selector dari halaman pengaturan harus menolak kunci asing & JSON rusak.
+    services.simpan_bot_setting({"bot_selector_json": '{"cari_nisn": "name:cari_teks_baru"}'})
+    peta = bot_dapodik.peta_selector()
+    assert peta["cari_nisn"] == "name:cari_teks_baru" and peta["input_nis"] == "name:nipd", \
+        "penimpaan selector tidak bekerja"
+    services.simpan_bot_setting({"bot_selector_json": ""})
+    assert bot_dapodik.peta_selector()["cari_nisn"] == "name:cari_text", \
+        "selector bawaan tidak kembali setelah pengaturan dikosongkan"
+    assert bot_dapodik._pesan_galat_selector("{bukan json"), "JSON rusak seharusnya ditolak"
+    assert bot_dapodik._pesan_galat_selector('{"tombol_asing": "name:x"}'), "kunci asing seharusnya ditolak"
+    assert not bot_dapodik._pesan_galat_selector(""), "peta kosong (bawaan) seharusnya diterima"
+
+    # 2) Aplikasi wajib tetap jalan tanpa selenium: peramban hanya dibuka di dalam fungsi.
+    sumber = inspect.getsource(bot_dapodik)
+    for baris in sumber.splitlines():
+        tanpa_spasi = baris.lstrip()
+        if tanpa_spasi.startswith(("import selenium", "from selenium")):
+            assert baris != tanpa_spasi, "selenium diimpor di tingkat modul — aplikasi bisa gagal jalan"
+
+    # 3) Antrean bersumber dari data siswa aplikasi SM (bukan Excel).
+    contoh = db.query_all(
+        "SELECT id, nisn, nipd, nama, rombel FROM students WHERE LENGTH(TRIM(nisn)) = 10 "
+        "AND TRIM(nisn) NOT GLOB '*[^0-9]*' ORDER BY id LIMIT 2")
+    assert len(contoh) == 2, "data siswa contoh tidak ditemukan"
+    nisn_a, nisn_b = str(contoh[0]["nisn"]).strip(), str(contoh[1]["nisn"]).strip()
+    manual = services.bot_antrean(nisn_manual=f"{nisn_a}\n{nisn_b}")
+    assert len(manual) == 2, f"daftar NISN manual tidak dihormati: {len(manual)}"
+    assert {str(item["nisn"]) for item in manual} == {nisn_a, nisn_b}, "NISN antrean tidak sesuai"
+    nis_menurut_nisn = {str(item["nisn"]).strip(): item["nis"] for item in manual}
+    for baris in contoh:
+        assert nis_menurut_nisn[str(baris["nisn"]).strip()] == str(baris["nipd"] or "").strip(), \
+            "NIS tidak diambil dari kolom NIPD siswa"
+    assert len(services.bot_antrean(limit=3)) == 3, "batas jumlah siswa tidak dihormati"
+    rombel_contoh = str(contoh[0]["rombel"] or "")
+    if rombel_contoh:
+        kelas = services.bot_antrean(rombel=rombel_contoh)
+        assert kelas and all(item["rombel"] == rombel_contoh for item in kelas), "penyaring rombel gagal"
+
+    # Siswa Lulus/Mutasi/Keluar/Non-aktif tidak boleh masuk antrean bot.
+    db.execute("UPDATE students SET status = 'Lulus' WHERE id = ?", (contoh[0]["id"],))
+    try:
+        assert nisn_a not in {str(item["nisn"]) for item in services.bot_antrean()}, \
+            "siswa berstatus Lulus masih masuk antrean bot"
+    finally:
+        db.execute("UPDATE students SET status = 'Aktif' WHERE id = ?", (contoh[0]["id"],))
+
+    # 4) Pengaturan bot: bawaan lengkap, simpan hanya kunci yang dikenal.
+    cfg = services.bot_setting()
+    assert set(cfg) == set(services.BOT_KEYS), "kunci pengaturan bot tidak lengkap"
+    for wajib, nilai in (("bot_url", "http://localhost:5774/"), ("bot_hobi", "Olah Raga"),
+                         ("bot_cita", "Pegawai Negeri Sipil / PNS"), ("bot_jawaban_ya", "1"),
+                         ("bot_headless", "1")):
+        assert cfg[wajib] == nilai, f"bawaan {wajib} berubah: {cfg[wajib]!r}"
+    assert services.simpan_bot_setting({"bukan_kunci_bot": "x"}) == [], "kunci asing ikut tersimpan"
+
+    # 5) Pekerjaan & item tercatat; mode uji coba (tanpa peramban) sampai tuntas.
+    services.simpan_bot_setting({"bot_simulasi": "1", "bot_url": "http://localhost:5774/",
+                                 "bot_username": "bot.uji@contoh.id", "bot_password": "rahasia",
+                                 "bot_hobi": "Olah Raga", "bot_cita": "Pegawai Negeri Sipil / PNS",
+                                 "bot_jeda": "0"})
+    assert services.bot_siap_pakai()[0], "mode uji coba seharusnya siap dipakai"
+    antrean = services.bot_antrean(nisn_manual=f"{nisn_a}\n{nisn_b}", limit=2)
+    job_id, _ = bot_dapodik.mulai_bot(antrean, services.bot_setting(), actor="cek")
+    try:
+        # Dua bot sekaligus akan berebut jendela Dapodik — harus ditolak.
+        bot_dapodik.mulai_bot(antrean, services.bot_setting(), actor="cek")
+        raise AssertionError("bot kedua seharusnya ditolak saat masih berjalan")
+    except bot_dapodik.BotBerjalanError:
+        pass
+    for _ in range(120):
+        if not bot_dapodik.status_bot():
+            break
+        time.sleep(0.25)
+    assert bot_dapodik.bot_berjalan() is None, "bot tidak berhenti setelah pekerjaan selesai"
+
+    items = services.items_bot(job_id)
+    assert len(items) == 2, f"item pekerjaan tidak tercatat: {len(items)}"
+    assert all(item["status"] == "sukses" for item in items), \
+        "mode uji coba seharusnya mencatat sukses: " + str([item["status"] for item in items])
+    ringkas = services.ringkas_bot()
+    assert (ringkas["job"] or {})["status"] == "sukses", "status pekerjaan bukan sukses"
+    assert (ringkas["job"] or {})["sukses_item"] == 2, "hitungan sukses pekerjaan salah"
+    assert ringkas["hitung"]["sukses"] == 2, "hitungan item sukses salah"
+    assert (ringkas["job"] or {})["log"], "catatan berjalan kosong"
+    assert {nisn_a, nisn_b} <= set(services.bot_nisn_sukses()), \
+        "NISN yang berhasil seharusnya tercatat untuk pelanjutan"
+    assert services.bot_antrean(nisn_manual=f"{nisn_a}\n{nisn_b}") == [], \
+        "pekerjaan lanjutan seharusnya melewati siswa yang sudah berhasil"
+    ulang = services.bot_antrean(nisn_manual=f"{nisn_a}\n{nisn_b}", lewati_sukses=False)
+    assert len(ulang) == 2, "pilihan 'diproses ulang semua' harus tetap bisa mengulang semua siswa"
+
+    # 6) Halaman & menu tersedia bagi admin, tidak bagi petugas.
+    admin = auth.SessionUser(id=1, username="admin", nama="Admin", role=auth.ROLE_ADMIN)
+    assert "/bot-dapodik" in {item["href"] for item in web.nav_items(admin)}, "menu Bot Dapodik hilang"
+    petugas = auth.SessionUser(id=None, username="petugas", nama="Petugas", role=auth.ROLE_OPERATOR)
+    assert "/bot-dapodik" not in {item["href"] for item in web.nav_items(petugas)}, \
+        "petugas seharusnya tidak melihat menu Bot Dapodik"
+    halaman = (pathlib.Path(__file__).resolve().parent.parent
+               / "app" / "templates" / "bot_dapodik.html").read_text(encoding="utf-8")
+    for penanda in ('action="/bot-dapodik/pengaturan"', 'action="/bot-dapodik/mulai"',
+                    "/bot-dapodik/hentikan", "/bot-dapodik/status.json", "bot-dapodik/log.csv",
+                    'action="/bot-dapodik/bersihkan"'):
+        assert penanda in halaman, f"halaman bot kehilangan {penanda}"
+
+    # 7) Bila bot dihentikan/gagal, siswa yang belum diproses ditandai jelas.
+    job_coba = services.buat_job_bot(3, {"url": "http://localhost:5774/"}, actor="cek")
+    item_coba = [services.isi_item_bot(job_coba, dict(siswa, urutan=no))
+                 for no, siswa in enumerate(services.bot_antrean(limit=3), start=1)]
+    services.catat_item_bot(item_coba[0], "sukses", "berhasil dikirim")
+    sisa = services.tandai_sisa_menunggu_bot(job_coba)
+    assert sisa == 2, f"sisa item yang ditandai salah: {sisa}"
+    status_coba = [item["status"] for item in services.items_bot(job_coba)]
+    assert status_coba == ["sukses", "dilewati", "dilewati"], status_coba
+    assert all(item["pesan"] for item in services.items_bot(job_coba)[1:]), \
+        "item yang belum diproses harus punya keterangan"
+
+    # 8) Riwayat dapat dibersihkan supaya semua siswa boleh didaftarkan ulang.
+    job_lama, item_lama = services.hapus_riwayat_bot()
+    assert (job_lama, item_lama) == (2, 5), f"hitungan riwayat terhapus salah: {job_lama}/{item_lama}"
+    assert services.items_bot(job_id) == [], "item pekerjaan masih ada setelah riwayat dihapus"
+    assert (services.ringkas_bot().get("job") or None) is None, "kepala pekerjaan masih ada"
+    assert services.bot_nisn_sukses() == [], "catatan NISN berhasil masih tersisa"
+    assert len(services.bot_antrean(nisn_manual=f"{nisn_a}\n{nisn_b}")) == 2, \
+        "setelah riwayat dibersihkan, siswa lama harus bisa didaftarkan ulang"
+
+    return (f"{len(kunci)} selector · antrean dari tabel students · uji coba 2 siswa sukses · "
+            f"siswa berstatus Lulus dilewati · sekarang {len(services.bot_nisn_sukses())} NISN berhasil")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -1645,6 +1795,7 @@ def main() -> int:
     cek_tabel()
     cek_pendaftaran_ekskul()
     cek_kualitas_data()
+    cek_bot_dapodik()
     if args.http:
         cek_http_pengajuan()
         cek_http()

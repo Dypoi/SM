@@ -312,6 +312,34 @@ def _migrasi_006(conn: sqlite3.Connection) -> None:
     )
     log.info("Tabel ekskul_pendaftaran siap (pendaftaran ekskul oleh siswa).")
 
+
+def _migrasi_007(conn: sqlite3.Connection) -> None:
+    """Rincian item pekerjaan bot Dapodik (satu baris = satu siswa).
+
+    Tabel ``dapodik_jobs`` sudah ada sebagai kepala pekerjaan (status, jumlah,
+    log). Yang ditambahkan di sini: rincian per siswa supaya kemajuan bot bisa
+    ditampilkan di aplikasi (dan bisa dilanjutkan tanpa mengulang yang sukses).
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS dapodik_job_items (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id     INTEGER NOT NULL,
+            student_id INTEGER,
+            nisn       TEXT,
+            nipd       TEXT,
+            nama       TEXT,
+            urutan     INTEGER DEFAULT 0,
+            status     TEXT NOT NULL DEFAULT 'menunggu',
+            pesan      TEXT,
+            waktu      TEXT DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_job_items_job ON dapodik_job_items(job_id, urutan);
+        CREATE INDEX IF NOT EXISTS idx_job_items_nisn ON dapodik_job_items(nisn, status);
+        """
+    )
+    log.info("Tabel dapodik_job_items siap (rincian bot Dapodik).")
+
 #: Setiap entri: (id_migrasi, skrip SQL) atau (id_migrasi, fungsi(conn)).
 Migrasi: Callable[[sqlite3.Connection], None]
 
@@ -592,6 +620,10 @@ MIGRATIONS: list[tuple[str, str | Callable[[sqlite3.Connection], None]]] = [
     (
         "006_pendaftaran_ekskul",
         _migrasi_006,
+    ),
+    (
+        "007_bot_dapodik_item",
+        _migrasi_007,
     ),
 ]
 

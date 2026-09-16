@@ -48,6 +48,7 @@ cd C:\SM
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
+pip install -r requirements-bot.txt   :: opsional, hanya bila memakai Bot Dapodik
 python run.py
 ```
 
@@ -380,6 +381,25 @@ ditambahkan lewat menu **Ekstrakurikuler**.
   * NISN ganda dihitung sebagai **jumlah siswa** (bukan jumlah nilai NISN) dan barisnya
     bisa diklik untuk melihat siswa pemakai NISN tersebut.
 
+### Bot Dapodik (khusus admin)
+- Menu **Bot Dapodik** mendaftarkan peserta didik ke aplikasi Dapodik lokal
+  otomatis, mengikuti alur: cari NISN → pilih baris → **Registrasi** → isi **NIS** →
+  centang semua jawaban «Ya» → **Hobi** → **Cita-cita** → **Simpan dan Tutup**.
+- **Antrean diambil dari data siswa aplikasi SM**, bukan dari berkas Excel:
+  pilih kelas/rombel, batasi jumlah siswa, atau tempel daftar NISN (bila ingin
+  meniru daftar Excel). Siswa berstatus *Lulus/Mutasi/Keluar/Non-aktif* tidak diikutkan.
+- Bot bekerja **di belakang layar** (Chrome tanpa jendela) sehingga aplikasi SM tetap
+  bisa dipakai petugas. Matikan pilihan itu bila ingin melihat prosesnya.
+- **Kemajuan tampil di aplikasi**: jumlah siswa, yang sudah diproses, berhasil, gagal,
+  siswa yang sedang diproses, kecepatan, dan perkiraan sisa waktu — diperbarui
+  otomatis setiap 2 detik. Rincian per siswa dapat diunduh sebagai **CSV/Excel**.
+- **Lanjut tanpa mengulang**: siswa yang sudah berhasil dilewati pada pekerjaan
+  berikutnya; tersedia juga pilihan «diproses ulang semua».
+- **Mode uji coba** (simulasi) mencatat antrean & kemajuan tanpa membuka peramban —
+  pakai ini untuk mencoba alur sebelum benar-benar mendaftar ke Dapodik.
+- Bila Dapodik berganti versi, tombol/lokasi kolom dapat disesuaikan lewat
+  *Peta tombol Dapodik (JSON)* pada halaman bot, tanpa mengubah program.
+
 ### Pengaturan (khusus admin)
 - Identitas sekolah (nama, NPSN, alamat, kepala sekolah, kontak).
 - Preferensi: tahun ajaran, semester, aturan login siswa, pengajuan perubahan data
@@ -395,10 +415,43 @@ ditambahkan lewat menu **Ekstrakurikuler**.
 
 ---
 
-## 4. Fondasi bot Dapodik (tahap berikutnya)
+## 4. Bot Dapodik
 
-Aplikasi sudah menyiapkan seluruh kontrak yang dibutuhkan bot agar tahap berikutnya
-tinggal menulis logika di sisi Python:
+Bot Dapodik **sudah aktif** di menu **Bot Dapodik** (khusus admin). Ringkasnya:
+
+1. **Pasang Chrome** di PC sekolah (bot memakai Chrome yang sudah terpasang).
+2. **Pasang pustaka bot sekali saja** — buka Command Prompt pada folder aplikasi:
+
+   ```bat
+   .venv\Scripts\pip install -r requirements-bot.txt
+   ```
+
+3. **Isi pengaturan bot**: alamat Dapodik (bawaan `http://localhost:5774/`), surel/NIK
+   akun Dapodik, kata sandi, Hobi, dan Cita-cita. Pilihan *Bekerja di belakang layar*
+   dibiarkan tercentang. Untuk percobaan pertama, centang **Mode uji coba (simulasi)**.
+4. **Susun antrean** dari data siswa SM: pilih kelas dan/atau batasi jumlah siswa,
+   lalu tekan *Tampilkan antrean* → *Mulai bot*.
+5. **Pantau kemajuan** pada kartu di atas — bot boleh ditinggal, halaman ini diperbarui
+   sendiri. Bila perlu berhenti, tekan *Hentikan bot* (siswa yang sedang diproses
+   diselesaikan lebih dulu).
+
+Catatan penting:
+
+- Bot memproses **satu pekerjaan sekaligus**; pekerjaan kedua ditolak selama bot bekerja.
+- Bila PC mati atau bot dihentikan di tengah jalan, jalankan lagi dengan pilihan
+  *«Dilewati (lanjutkan pekerjaan)»* — siswa yang sudah berhasil tidak didaftarkan dua kali.
+- Siswa tanpa NIPD/NIS dilewati (atau memakai NISN bila pilihan itu dicentang).
+- Bila Dapodik meminta verifikasi tambahan saat login, matikan *Bekerja di belakang
+  layar* supaya jendela Chrome terlihat dan dapat dibantu manual.
+- Bila muncul pesan *Google Chrome tidak dapat dibuka*, pasang Google Chrome di PC itu.
+  Selenium perlu mengunduh **driver** sekali saja, jadi sambungkan internet saat
+  percobaan pertama (pada PC tanpa internet, letakkan `chromedriver.exe` di folder
+  aplikasi lalu hubungi pengembang).
+- Kata sandi Dapodik hanya tersimpan di database lokal (`data/sm.sqlite3`) dan tidak
+  pernah dikirim ke internet.
+
+Selain menu tersebut, aplikasi tetap menyediakan **kontrak API** yang dipakai bot antar
+sistem (perubahan lewat `PATCH /api/siswa/{nisn}` tercatat sebagai `api_bot`):
 
 | Persiapan | Keterangan |
 | --- | --- |
@@ -437,6 +490,7 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 .
 ├── run.py                     # peluncur: python run.py
 ├── requirements.txt
+├── requirements-bot.txt      # selenium (hanya untuk bot Dapodik, opsional)
 ├── app/
 │   ├── main.py                # rakit FastAPI, penangan kesalahan, /health
 │   ├── config.py              # konfigurasi & path (dapat dioverride via env SM_*)
@@ -448,6 +502,7 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 │   ├── services.py            # logika bisnis: impor, siswa, ekskul, statistik, API
 │   ├── auth.py                # login petugas (user+sandi) & siswa (NISN)
 │   ├── updater.py             # pembaruan aplikasi: git pull, cadangan, muat ulang
+│   ├── bot_dapodik.py         # bot Dapodik: alur Selenium, headless, kemajuan
 │   ├── web.py                 # konfigurasi Jinja2, filter tanggal/angka, paginasi
 │   ├── routers/               # rute HTTP dipisah per modul
 │   │   ├── auth_routes.py     login/logout
@@ -459,13 +514,14 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 │   │   ├── approval_routes.py persetujuan pengajuan (khusus admin)
 │   │   ├── settings_routes.py pengaturan, pengguna, API key
 │   │   ├── update_routes.py   pembaruan aplikasi (khusus admin)
+│   │   ├── bot_routes.py      bot Dapodik: jalankan, hentikan, kemajuan, log
 │   │   └── api_routes.py      API JSON untuk bot Dapodik
 │   ├── templates/             # Jinja2 (server-side, tanpa CDN)
 │   │   ├── _macros.html, base.html, partials/
 │   │   └── students/, import/, ekskul/, portal/, approval/
 │   └── static/css/app.css, static/js/app.js
 ├── scripts/
-│   ├── cek_sistem.py          # pemeriksaan mandiri 17 titik uji
+│   ├── cek_sistem.py          # pemeriksaan mandiri 24 titik uji
 │   └── buat_template.py       # pembuat berkas template impor
 ├── template-import/           # contoh.xlsx berisi data fiktif (aman dibagikan)
 ├── sample-data/               # berkas Dapodik asli (tidak di-commit, berisi data pribadi)
@@ -591,7 +647,10 @@ Buka **Pengaturan → Sistem → Aman Online**, lalu benahi yang bertanda *perlu
 - [x] Perampingan kolom: 14 kolom Dapodik yang tidak dipakai dihapus
 - [x] Dropdown pekerjaan, penghasilan, & pendidikan serta aturan data ayah/ibu/wali
       (data wali dihapus otomatis oleh sistem)
-- [ ] **Bot Dapodik**: pembaca berkas Dapodik, pembanding data, dan pengirim koreksi otomatis
+- [x] **Bot Dapodik**: pendaftaran peserta didik otomatis dari antrean data siswa SM
+      (alur Selenium, bekerja di belakang layar, kemajuan tampil di aplikasi)
+- [ ] Bot Dapodik tahap lanjut: pembanding data & pengirim koreksi lewat API
+- [ ] Bot Dapodik: unggah berkas sebagai lampiran registrasi (bila Dapodik mewajibkan)
 - [ ] Riwayat kenaikan kelas & mutasi siswa antar tahun ajaran
 - [ ] Presensi harian dan rekap per kelas
 - [ ] Nilai rapor, legger, dan cetak rapor
