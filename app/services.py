@@ -1,4 +1,4 @@
-"""Lapisan layanan (business logic) SIMSEK.
+"""Lapisan layanan (business logic) SM.
 
 Semua akses data terpusat di sini supaya router HTTP tetap tipis dan logika
 mudah diuji maupun dipanggil ulang oleh bot Dapodik di tahap berikutnya.
@@ -26,7 +26,7 @@ from .dapodik import (
 )
 from .readers import SheetData, format_label, read_spreadsheet
 
-log = logging.getLogger("simsek.services")
+log = logging.getLogger("sm.services")
 
 # --------------------------------------------------------------------------- #
 # Kolom yang boleh ditulis ke tabel students
@@ -832,7 +832,7 @@ def export_students_xlsx(filters: StudentFilter) -> bytes:
     sheet["A1"].font = Font(size=14, bold=True)
     sheet["A2"] = profile["nama"]
     sheet["A3"] = f"Kecamatan {profile['kecamatan']}, {profile['kabupaten']}, {profile['provinsi']}".strip(", ")
-    sheet["A4"] = f"Tahun Ajaran {profile['tahun_ajaran']} | Diekspor dari SIMSEK pada {dt.datetime.now():%Y-%m-%d %H:%M}"
+    sheet["A4"] = f"Tahun Ajaran {profile['tahun_ajaran']} | Diekspor dari SM pada {dt.datetime.now():%Y-%m-%d %H:%M}"
 
     header = ["No", *[FIELD_BY_KEY[key].label for key in columns], "Status"]
     for col_index, label in enumerate(header, start=1):

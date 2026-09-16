@@ -14,7 +14,7 @@ from typing import Callable
 from . import db
 from .security import hash_password
 
-log = logging.getLogger("simsek.migrations")
+log = logging.getLogger("sm.migrations")
 
 # --------------------------------------------------------------------------- #
 # Daftar migrasi (urut, sekali jalan)

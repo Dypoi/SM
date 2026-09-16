@@ -1,4 +1,4 @@
-"""Pembaruan aplikasi langsung dari dalam SIMSEK (``git pull``).
+"""Pembaruan aplikasi langsung dari dalam SM (``git pull``).
 
 Modul ini dipakai halaman **Pengaturan → Pembaruan Aplikasi** agar admin dapat
 menarik pembaruan kode (``git pull``) tanpa membuka Command Prompt.
@@ -470,7 +470,7 @@ def periksa_kode_baru(timeout: int = 120) -> tuple[bool, str]:
         catatan = ((selesai.stdout or "") + (selesai.stderr or "")).strip().splitlines()
         return False, "Sintaks Python bermasalah: " + " | ".join(catatan[-3:])
 
-    sementara = tempfile.mkdtemp(prefix="simsek-uji-kode-")
+    sementara = tempfile.mkdtemp(prefix="sm-uji-kode-")
     lingkungan = os.environ.copy()
     lingkungan["SM_DATA_DIR"] = sementara
     lingkungan["SM_DB_PATH"] = str(Path(sementara) / "uji.sqlite3")
@@ -498,7 +498,7 @@ def cadangkan_database() -> Path | None:
         return None
     folder = config.DATA_DIR / "backup"
     folder.mkdir(parents=True, exist_ok=True)
-    target = folder / f"simsek-{datetime.now():%Y%m%d-%H%M%S}.sqlite3"
+    target = folder / f"sm-{datetime.now():%Y%m%d-%H%M%S}.sqlite3"
     try:
         sumber = sqlite3.connect(str(config.DB_PATH))
         tujuan = sqlite3.connect(str(target))
@@ -508,7 +508,10 @@ def cadangkan_database() -> Path | None:
         sumber.close()
     except sqlite3.Error:
         return None
-    cadangan = sorted(folder.glob("simsek-*.sqlite3"))
+    cadangan = sorted(
+        [*folder.glob("sm-*.sqlite3"), *folder.glob("simsek-*.sqlite3")],
+        key=lambda berkas: berkas.stat().st_mtime,
+    )
     for lama in cadangan[:-10]:  # simpan 10 cadangan terbaru saja
         try:
             lama.unlink()
@@ -713,7 +716,7 @@ def _mulai_ulang_windows() -> None:
         bendera |= int(getattr(subprocess, nama, 0))
     try:
         subprocess.Popen(
-            ["cmd", "/c", "start", "SIMSEK", "/D", str(BASE_DIR), "cmd", "/k", baris],
+            ["cmd", "/c", "start", "SM", "/D", str(BASE_DIR), "cmd", "/k", baris],
             cwd=str(BASE_DIR),
             creationflags=bendera,
             close_fds=True,

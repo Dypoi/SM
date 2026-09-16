@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pemeriksaan mandiri SIMSEK (tanpa perlu pytest).
+"""Pemeriksaan mandiri SM (tanpa perlu pytest).
 
 Skrip ini membuat database sementara di folder terpisah, menjalankan seluruh
 alur penting aplikasi, lalu melaporkan hasilnya. Berguna untuk memastikan
@@ -25,7 +25,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 # --- Database sementara: HARUS diatur sebelum mengimpor modul app ---
-_SEMENTARA = Path(tempfile.mkdtemp(prefix="simsek-cek-"))
+_SEMENTARA = Path(tempfile.mkdtemp(prefix="sm-cek-"))
 os.environ["SM_DATA_DIR"] = str(_SEMENTARA)
 os.environ["SM_DB_PATH"] = str(_SEMENTARA / "cek.sqlite3")
 os.environ["SM_AUTO_SEED"] = "0"
@@ -487,12 +487,12 @@ def cek_http():
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SIMSEK")
+    parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
     args = parser.parse_args()
 
     print("=" * 78)
-    print("  PEMERIKSAAN MANDIRI SIMSEK")
+    print("  PEMERIKSAAN MANDIRI SM")
     print(f"  Database sementara: {os.environ['SM_DB_PATH']}")
     print("=" * 78)
 

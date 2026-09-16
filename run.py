@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Skrip peluncur SIMSEK.
+"""Skrip peluncur SM.
 
 Contoh pemakaian::
 
@@ -21,7 +21,7 @@ if str(BASE_DIR) not in sys.path:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Jalankan server SIMSEK")
+    parser = argparse.ArgumentParser(description="Jalankan server SM")
     parser.add_argument("--host", default="0.0.0.0", help="Alamat bind (default 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8000, help="Port (default 8000)")
     parser.add_argument("--reload", action="store_true", help="Mode pengembangan")
@@ -32,6 +32,8 @@ def main() -> int:
     from app import config, migrations, services
 
     config.ensure_dirs()
+    if config.CATATAN_DB:
+        print(f"  {config.CATATAN_DB}")
     executed = migrations.run_migrations(verbose=True)
 
     if args.init_db:

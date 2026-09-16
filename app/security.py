@@ -51,7 +51,7 @@ def new_api_key(prefix: str = "smk") -> str:
 # --------------------------------------------------------------------------- #
 # Sesi (cookie bertanda tangan)
 # --------------------------------------------------------------------------- #
-_serializer = URLSafeTimedSerializer(config.SECRET_KEY, salt="simsek-session")
+_serializer = URLSafeTimedSerializer(config.SECRET_KEY, salt="sm-session")
 
 
 def create_session_token(payload: dict[str, Any]) -> str:

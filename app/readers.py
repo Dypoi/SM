@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
-log = logging.getLogger("simsek.readers")
+log = logging.getLogger("sm.readers")
 
 CellValue = Any
 Row = list[CellValue]

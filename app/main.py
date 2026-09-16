@@ -1,4 +1,4 @@
-"""Entry point aplikasi SIMSEK (FastAPI).
+"""Entry point aplikasi SM (FastAPI).
 
 Jalankan dengan::
 
@@ -41,7 +41,7 @@ logging.basicConfig(
     format="%(asctime)s  %(levelname)-7s %(name)s: %(message)s",
     datefmt="%H:%M:%S",
 )
-log = logging.getLogger("simsek")
+log = logging.getLogger("sm")
 
 
 async def _pemantau_latar() -> None:

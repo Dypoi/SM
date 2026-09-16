@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================================
-REM  SIMSEK - Sistem Informasi Manajemen Sekolah
+REM  SM - Sistem Informasi Manajemen Sekolah
 REM  Skrip peluncur untuk Windows. Cukup klik dua kali berkas ini,
 REM  atau jalankan dari Command Prompt:  run.bat
 REM ============================================================================
@@ -8,7 +8,7 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 
 echo ============================================================
-echo   SIMSEK - Sistem Informasi Manajemen Sekolah
+echo   SM - Sistem Informasi Manajemen Sekolah
 echo ============================================================
 echo.
 

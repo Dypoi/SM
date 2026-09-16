@@ -1,4 +1,4 @@
-# SIMSEK — Sistem Informasi Manajemen Sekolah
+# SM — Sistem Informasi Manajemen Sekolah
 
 Aplikasi manajemen sekolah yang **ringan**, **tanpa build step**, dan **siap dikembangkan**:
 membaca berkas Excel/CSV dalam banyak format, menampilkan data peserta didik lengkap
@@ -32,7 +32,7 @@ git checkout arena/01a0a87a-sm
 
 1. Buka <https://github.com/Dypoi/SM/tree/arena/01a0a87a-sm>
 2. Klik tombol hijau **Code → Download ZIP**
-3. Ekstrak, misalnya ke `C:\SIMSEK`
+3. Ekstrak, misalnya ke `C:\SM`
 
 ### Langkah B — jalankan
 
@@ -43,7 +43,7 @@ perlu internet), lalu menjalankan server.
 **Manual lewat Command Prompt:**
 
 ```cmd
-cd C:\SIMSEK
+cd C:\SM
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
@@ -106,7 +106,7 @@ Cara manual (bila aplikasi tidak dipasang lewat `git clone`, atau ingin lewat
 Command Prompt):
 
 ```cmd
-cd /d C:\SIMSEK
+cd /d C:\SM
 git pull origin arena/01a0a87a-sm
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 .venv\Scripts\python.exe run.py
@@ -142,7 +142,7 @@ kejadiannya tercatat di **Pengaturan → Audit** serta halaman Pembaruan.
 | Pembaruan dijalankan di komputer mana? | Di **komputer server** tempat aplikasi dijalankan. Bila dibuka dari browser komputer lain, penarikan tetap terjadi di server. |
 | Apakah data siswa hilang? | Tidak. `git pull` hanya mengganti berkas program; basis data dan unggahan ada di folder `data/` yang tidak ikut git. |
 | Bagaimana kalau ada perubahan kode lokal? | Penarikan otomatis dibatalkan agar tidak ada pekerjaan yang hilang. Jalankan `git status` untuk melihat berkasnya. |
-| Cadangan ada di mana? | `data/backup/simsek-YYYYmmdd-HHMMSS.sqlite3`, dibuat otomatis sebelum penarikan (10 terbaru disimpan). |
+| Cadangan ada di mana? | `data/backup/sm-YYYYmmdd-HHMMSS.sqlite3`, dibuat otomatis sebelum penarikan (10 terbaru disimpan). |
 | Komputer tanpa internet? | Matikan "Periksa pembaruan otomatis" pada halaman Pembaruan; aplikasi tetap berjalan normal. |
 
 ### Opsi lain
@@ -369,7 +369,7 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 - **Pembaruan kode tidak menyentuh data**: `git pull` hanya mengubah berkas program;
   `data/`, pengguna, pengaturan, dan kunci API tetap. Sebelum menarik pembaruan,
   aplikasi membuat cadangan basis data di `data/backup/`.
-- **Semua data disimpan lokal** di folder `data/` (`simsek.sqlite3`). Tidak ada
+- **Semua data disimpan lokal** di folder `data/` (`sm.sqlite3`). Tidak ada
   pengiriman data ke internet. Untuk mencadangkan aplikasi, cukup salin folder `data/`.
 - **Berkas bukti pengajuan** (akta kelahiran, KK, ijazah) tersimpan di
   `data/uploads/dokumen/<id siswa>/` dan hanya dapat dibuka siswa pemiliknya serta petugas.

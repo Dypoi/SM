@@ -1,4 +1,4 @@
-/* SIMSEK — skrip antarmuka ringan (tanpa dependensi). */
+/* SM — skrip antarmuka ringan (tanpa dependensi). */
 (function () {
   "use strict";
 

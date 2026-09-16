@@ -114,7 +114,7 @@ STUDENT_FIELDS: tuple[FieldSpec, ...] = (
 
 FIELD_BY_KEY: dict[str, FieldSpec] = {spec.key: spec for spec in STUDENT_FIELDS}
 
-#: Field Dapodik yang tidak dipakai lagi di SIMSEK (dihapus atas permintaan sekolah).
+#: Field Dapodik yang tidak dipakai lagi di SM (dihapus atas permintaan sekolah).
 #: Kolomnya tetap ada pada berkas Excel Dapodik, jadi saat impor hanya diabaikan.
 FIELD_DIHAPUS: tuple[str, ...] = (
     "dusun", "jenis_tinggal", "transportasi", "telepon", "email", "skhun",

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  SIMSEK - Sistem Informasi Manajemen Sekolah
+#  SM - Sistem Informasi Manajemen Sekolah
 #  Skrip peluncur untuk Linux / macOS.
 #
 #  Pemakaian:
@@ -12,7 +12,7 @@ set -e
 cd "$(dirname "$0")"
 
 echo "============================================================"
-echo "  SIMSEK - Sistem Informasi Manajemen Sekolah"
+echo "  SM - Sistem Informasi Manajemen Sekolah"
 echo "============================================================"
 
 if ! command -v python3 >/dev/null 2>&1; then

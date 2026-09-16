@@ -1,4 +1,4 @@
-# SIMSEK - Sistem Informasi Manajemen Sekolah
+# SM - Sistem Informasi Manajemen Sekolah
 # Stack sengaja dipilih ringan: web framework async ringan + template server-side.
 # Tidak ada Node.js, tidak ada build step, tidak ada CDN eksternal.
 
