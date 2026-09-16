@@ -58,11 +58,13 @@ JEDA_MUAT_ULANG = 3.0
 #: Selang pemeriksaan tanda muat ulang oleh pemantau latar belakang (detik).
 SELANG_PANTAU = 3.0
 
+#: Bawaan: aplikasi memeriksa & menarik pembaruan sendiri setiap 6 jam.
+#: Semua dapat dimatikan dari halaman Pembaruan (atau SM_GIT_UPDATE=0).
 SETTING_DEFAULT = {
     "update_auto_cek": "1",
     "update_interval_jam": "6",
-    "update_auto_tarik": "0",
-    "update_restart_otomatis": "0",
+    "update_auto_tarik": "1",
+    "update_restart_otomatis": "1",
     "update_remote": "origin",
     "update_cabang": "",
 }

@@ -187,12 +187,12 @@ git checkout -f -B {{ status.cabang }} origin/{{ status.cabang }}</div>
             </label>
             <label class="check">
               <input type="checkbox" name="update_auto_tarik" value="1"
-                     {{ 'checked' if settings.update_auto_tarik == '1' }}>
+                     {{ 'checked' if settings.update_auto_tarik != '0' }}>
               Tarik otomatis bila ada pembaruan baru dan tidak ada perubahan lokal
             </label>
             <label class="check">
               <input type="checkbox" name="update_restart_otomatis" value="1"
-                     {{ 'checked' if settings.update_restart_otomatis == '1' }}>
+                     {{ 'checked' if settings.update_restart_otomatis != '0' }}>
               Muat ulang server otomatis setelah penarikan otomatis
             </label>
             <p class="muted">Mematikan pilihan pertama membuat aplikasi tidak menghubungi GitHub
