@@ -2062,6 +2062,32 @@ def cek_bot_dapodik() -> str:
         assert any("belum terbuka (percobaan 1/" in baris for baris in jejak), jejak[-5:]
         assert any("berhasil dikirim" in baris for baris in jejak), jejak[-4:]
 
+        # (12) Popup pengumuman yang muncul tepat saat pencarian ditekan: selama popup terbuka
+        #      hasil pencarian belum tampil. Bot harus menutupnya & mencari lagi — bukan
+        #      menyimpulkan "Data NISN tidak ditemukan pada tabel Dapodik".
+        jejak.clear()
+        asli_waktu = bot_dapodik.time
+        jam_cari = _WaktuCepat(time)
+        bot_dapodik.time = jam_cari
+        try:
+            palsu_cari = peramban_palsu.buat("alur_penuh").pakai_jam(jam_cari.monotonic)
+            palsu_cari.popup_detik = None
+            palsu_cari.registrasi_otomatis = True
+            nisn_cari = "3137492869"
+            palsu_cari.siapkan_popup_setelah_cari(nisn_cari)
+            bot_cari = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                              kepala=jejak.append)
+            bot_cari._login(palsu_cari)
+            bot_cari._proses_satu(palsu_cari, {"nisn": nisn_cari, "nipd": "3140", "nama": "Uji"},
+                                  None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert palsu_cari.ditutup_popup >= 1, "popup yang muncul saat pencarian tidak ditutup bot"
+        assert not any("[LEWAT]" in baris for baris in jejak), \
+            "siswa salah dinyatakan dilewati karena popup menutupi hasil pencarian"
+        assert any("berhasil dikirim" in baris for baris in jejak), jejak[-4:]
+        assert palsu_cari.unsur_bernama("nipd").nilai == "3140", "NIS tidak terisi"
+
         assert not hasattr(bot_routes, "pakai_saran"), "rute saran selector masih ada"
         jejak.clear()
         services.set_setting(services.KUNCI_UJI_BOT, "")

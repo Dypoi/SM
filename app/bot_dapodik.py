@@ -1338,10 +1338,28 @@ class BotDapodik:
             xpath_baris = (f'//tr[contains(@class, "{BARIS_TABEL}") '
                            f'and .//td[contains(., "{nisn}")]]')
             batas = float(self.opsi.get("bot_timeout", "15") or 15)
-            try:
-                WebDriverWait(peramban, batas).until(
-                    EC.element_to_be_clickable((By.XPATH, xpath_baris)))
-            except TimeoutException:
+            # Popup pengumuman bisa muncul tepat saat Dapodik menampilkan hasil pencarian;
+            # kalau begitu hasilnya tidak jadi muncul. Jangan langsung menyimpulkan "data
+            # tidak ditemukan": tutup popupnya, ulangi pencarian sekali, lalu tunggu lagi.
+            terlihat = False
+            akhir = time.time() + batas
+            dicari_ulang = False
+            while not terlihat:
+                try:
+                    terlihat = any(unsur.is_displayed()
+                                   for unsur in peramban.find_elements(By.XPATH, xpath_baris))
+                except Exception:  # noqa: BLE001 — coba lagi sampai batas waktu
+                    terlihat = False
+                if terlihat or time.time() >= akhir:
+                    break
+                if self._singkirkan_popup(peramban, peta):
+                    self._siap_melanjutkan(peramban, "hasil pencarian NISN")
+                    if not dicari_ulang:
+                        self._kirim_enter(peramban, loc_cari)
+                        dicari_ulang = True
+                    akhir = time.time() + batas
+                time.sleep(0.5)
+            if not terlihat:
                 self._selesai_item(item_id, "dilewati",
                                    "Data NISN tidak ditemukan pada tabel Dapodik", nisn)
                 return

@@ -140,6 +140,9 @@ class UnsurPalsu:
                 kontrol = True
                 continue
             if bagian in (Keys.ENTER, Keys.RETURN, Keys.TAB):
+                if (bagian in (Keys.ENTER, Keys.RETURN) and self.name == "cari_text"
+                        and self.peramban._popup_setelah_cari):
+                    self.peramban.munculkan_popup()   # pengumuman muncul saat pencarian
                 kontrol = False
                 continue
             if kontrol and bagian.lower() in ("a", "x"):
@@ -189,6 +192,9 @@ class PerambanPalsu:
         self.registrasi_otomatis = False
         #: berapa klik Registrasi pertama yang diabaikan (meniru klik yang tertelan)
         self.tolak_klik_registrasi = 0
+        #: True = popup pengumuman muncul saat pencarian ditekan; hasilnya tampil setelah ditutup
+        self._popup_setelah_cari = False
+        self._nisn_tersembunyi = ""
         #: jam halaman — dapat diganti jam palsu saat pengujian agar cepat
         self.jam = time.monotonic
         self.skrip: list[str] = []
@@ -302,6 +308,21 @@ class PerambanPalsu:
         """Tutup popup pengumuman seperti tombol «Tutup» ditekan."""
         self._popup_tutup = True
         self.ditutup_popup += 1
+        if self._nisn_tersembunyi:
+            # Hasil pencarian yang tertahan popup baru muncul setelah popup ditutup.
+            self.nisn_dicari = self._nisn_tersembunyi
+            self._nisn_tersembunyi = ""
+
+    def siapkan_popup_setelah_cari(self, nisn: str) -> "PerambanPalsu":
+        """Popup pengumuman muncul ketika pencarian ditekan; hasilnya tampil setelah ditutup.
+
+        Meniru Dapodik yang menampilkan pengumuman versi tepat saat daftar peserta didik
+        selesai dimuat — hasil pencariannya jadi tidak terlihat sampai popup ditutup.
+        """
+        self._popup_setelah_cari = True
+        self._nisn_tersembunyi = nisn
+        self.nisn_dicari = ""
+        return self
 
     def siapkan_popup(self, detik: float = 0.0) -> "PerambanPalsu":
         """Atur popup pengumuman: muncul ``detik`` setelah menu tujuan dibuka.
