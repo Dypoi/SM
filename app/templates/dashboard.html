@@ -100,7 +100,7 @@
   </div>
 
   <aside>
-    <div class="card sticky-side">
+    <div class="card">
       <div class="card-head"><h3>Status Kelengkapan Data</h3></div>
       <div class="card-body">
         {% set persen = (kualitas.siap_sinkron / kualitas.total * 100) | round(0) if kualitas.total else 0 %}

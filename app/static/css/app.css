@@ -454,18 +454,11 @@ table.tabel-kecil th, table.tabel-kecil td { padding: .4rem .55rem; font-size: .
    setelah beberapa baris lalu ikut tergulir naik. */
 .split > aside { align-self: stretch; }
 
-/* Panel samping lengket yang menemani kolom panjang.
-   1) Jaraknya memakai tinggi bilah atas yang sebenarnya — angka tetap seperti
-      84px menyisakan celah di bawah bilah atas sehingga isi halaman terlihat
-      lewat di atas panel saat digulir (tampak "aneh").
-   2) Tingginya dibatasi ruang layar dan panel menggulung sendiri, supaya tombol
-      di bagian bawah panel tidak pernah terpotong dan tak terjangkau. */
-.sticky-side {
-  position: sticky;
-  top: var(--topbar-h);
-  max-height: calc(100vh - var(--topbar-h) - 18px);
-  overflow: auto;
-}
+/* Kartu samping TIDAK menempel saat halaman digulir (permintaan sekolah:
+   "Status Kelengkapan Data", "Anggota Terbanyak", dan kartu samping lain harus
+   ikut tergulir seperti isi lain). Dulu ada kelas .sticky-side dengan
+   position: sticky — jangan dihidupkan lagi; yang boleh lengket hanya bilah
+   samping, bilah atas, kepala tabel di kotak bergulir, dan bilah tombol form. */
 
 .avatar-lg {
   width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center;
@@ -506,7 +499,6 @@ table.tabel-kecil th, table.tabel-kecil td { padding: .4rem .55rem; font-size: .
 
 @media (max-width: 1100px) {
   .split { grid-template-columns: 1fr; }
-  .sticky-side { position: static; }
 }
 
 @media (max-width: 860px) {

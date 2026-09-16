@@ -1267,24 +1267,30 @@ def cek_tabel():
             nilai = jarak.group(1).strip()
             assert nilai in ("0", "0px") or "var(--topbar-h)" in nilai, (
                 f"jarak elemen lengket harus 0 atau var(--topbar-h): {sel} = {nilai}")
-    panel_lengket = next((isi for sel, isi in pasangan_aturan
-                          if sel == ".sticky-side" and "sticky" in isi), None)
-    assert panel_lengket, "aturan .sticky-side lengket hilang"
-    assert "max-height" in panel_lengket and "var(--topbar-h)" in panel_lengket, (
-        "panel samping lengket wajib mengikuti tinggi bilah atas & dibatasi tinggi layar")
-    assert ".split > aside" in css and "align-self: stretch" in css, (
-        "kolom samping harus setinggi barisnya agar panel lengket tidak setengah lengket")
+    # Permintaan sekolah (dua kali dilaporkan): kartu samping JANGAN menempel
+    # saat halaman digulir — "Status Kelengkapan Data" di dasbor, "Anggota
+    # Terbanyak" di daftar ekskul, dan semua kartu samping lain ikut tergulir
+    # seperti isi biasa. Hanya empat hal ini yang boleh lengket: bilah samping,
+    # bilah atas, kepala tabel di kotak bergulir, dan bilah tombol form.
+    css_pakai = re.sub(r"/\*.*?\*/", "", css, flags=re.S)  # abaikan komentar
+    assert ".sticky-side" not in css_pakai, "aturan .sticky-side jangan dihidupkan lagi"
+    lengket = [sel for sel, isi in pasangan_aturan if "position: sticky" in isi]
+    assert lengket, "bilah samping & bilah atas harus tetap lengket"
+    izin = (".sidebar", ".topbar", ".form-actions.sticky-actions")
+    for sel in lengket:
+        boleh = (sel in izin
+                 or ("thead" in sel and (".daftar" in sel or ".compact" in sel)))
+        assert boleh, f"elemen ini jangan lengket (kartu samping harus ikut tergulir): {sel}"
+    sisa_kelas = sorted({berkas.name for berkas in template
+                         if "sticky-side" in berkas.read_text(encoding="utf-8")})
+    assert not sisa_kelas, "kelas sticky-side masih dipakai: " + ", ".join(sisa_kelas)
 
     # Form tambah anggota ekskul harus berada di dalam kartu anggota (selalu
-    # terjangkau), bukan panel samping lengket yang harus dicari dengan gulir.
+    # terjangkau), bukan panel samping yang harus dicari dengan gulir.
     halaman_anggota = (BASE_DIR / "app" / "templates" / "ekskul" / "detail.html").read_text(encoding="utf-8")
-    assert "sticky-side" not in halaman_anggota and 'id="tambah-anggota"' in halaman_anggota, (
-        "form tambah anggota ekskul harus di atas daftar anggota, bukan panel samping lengket")
-    # Permintaan sekolah: kartu samping di halaman Ekstrakurikuler (Anggota
-    # Terbanyak) tidak boleh ikut "menempel" saat halaman digulir.
+    assert 'id="tambah-anggota"' in halaman_anggota, (
+        "form tambah anggota ekskul harus di atas daftar anggota")
     halaman_daftar = (BASE_DIR / "app" / "templates" / "ekskul" / "list.html").read_text(encoding="utf-8")
-    assert "sticky-side" not in halaman_daftar, (
-        "kartu samping daftar ekskul jangan lengket (harus ikut tergulir biasa)")
     # Tata letak halaman Ekstrakurikuler yang diminta sekolah: kartu
     # "Pendaftar Menunggu Persetujuan" ada di kolom utama (tengah), tepat
     # setelah kartu "Tambah ekstrakurikuler"; kartu "Anggota Terbanyak" dan
