@@ -8,6 +8,8 @@ Skenario yang tersedia: ``splash`` (halaman pembuka), ``kolom_tersembunyi`` (per
 laporan PC sekolah), ``siap``, ``mask`` (masih tertutup lapisan loading Ext JS),
 ``masuk`` (login berhasil setelah tombol ditekan), ``alur_penuh`` (halaman login,
 menu, tabel, dan formulir Registrasi persis skrip sekolah), ``xpath_bawaan``, ``kosong``.
+Panggil ``sibukkan()`` untuk menyalakan lapisan pemuatan yang tidak pernah hilang — klik
+biasa akan tertelan (``ElementClickInterceptedException``) seperti di PC sekolah.
 
 Kelas di sini meniru bagian API Selenium WebDriver yang dipakai ``app/bot_dapodik``
 secukupnya (``find_element``, ``find_elements``, ``execute_script``, ``is_displayed``,
@@ -20,7 +22,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from selenium.common.exceptions import (ElementNotInteractableException,
+from selenium.common.exceptions import (ElementClickInterceptedException,
+                                        ElementNotInteractableException,
                                         NoSuchElementException)
 
 
@@ -89,6 +92,11 @@ class UnsurPalsu:
     def click(self) -> None:
         if not self.is_displayed():
             raise ElementNotInteractableException("unsur tidak terlihat")
+        if self.peramban.mask_keras:
+            # Persis keluhan di PC sekolah: lapisan pemuatan Ext JS menutupi kolom,
+            # sehingga klik biasa ditelan (ElementClickInterceptedException).
+            raise ElementClickInterceptedException(
+                "element click intercepted: lapisan pemuatan menutupi unsur ini")
         self._klik_paksa()
 
     def send_keys(self, *tombol: Any) -> None:
@@ -140,6 +148,8 @@ class PerambanPalsu:
         self.nisn_dicari = ""
         #: berapa kali lapisan loading (div.x-mask) masih terlihat saat ditanya
         self.mask_sisa = 2 if skenario == "mask" else 0
+        #: True = lapisan pemuatan tidak pernah hilang (klik biasa selalu tertelan)
+        self.mask_keras = False
         self.skrip: list[str] = []
         self.unsur: list[UnsurPalsu] = []
         self.ditutup = False
@@ -352,6 +362,8 @@ class PerambanPalsu:
     def execute_script(self, skrip: str, *argumen: Any) -> Any:
         self.skrip.append(skrip)
         if "x-mask" in skrip and "querySelectorAll" in skrip:
+            if self.mask_keras:
+                return 1
             if self.mask_sisa > 0:
                 self.mask_sisa -= 1
                 return 1
@@ -410,6 +422,11 @@ class PerambanPalsu:
         self.ditutup = True
 
     # ------------------------------------------------------------ bantuan --- #
+    def sibukkan(self) -> "PerambanPalsu":
+        """Nyalakan lapisan pemuatan yang tidak pernah hilang (untuk menguji ketangguhan)."""
+        self.mask_keras = True
+        return self
+
     def unsur_bernama(self, nama: str) -> UnsurPalsu | None:
         for unsur in self.unsur:
             if unsur.name == nama:

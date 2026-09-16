@@ -204,6 +204,9 @@ class BotDapodik:
         self.diproses = 0
         self.sedang: dict[str, Any] | None = None
         self.peramban_tampak = opsi.get("bot_headless", "1") != "1"
+        #: True bila lapisan pemuatan Dapodik pernah tidak hilang — penantian berikutnya
+        #: dipersingkat supaya pekerjaan tidak lambat, langkah tetap memakai cara paksa.
+        self._lapisan_lengket = False
         self.simulasi = opsi.get("bot_simulasi", "0") == "1"
 
     # ---------------------------------------------------------------- jalan ---
@@ -426,20 +429,6 @@ class BotDapodik:
         except Exception:  # noqa: BLE001
             pass
 
-    def _tunggu_overlay(self, peramban) -> None:
-        """Tunggu mask/overlay loading Ext JS hilang (sama seperti skrip bot)."""
-        from selenium.common.exceptions import TimeoutException
-        from selenium.webdriver.common.by import By
-        from selenium.webdriver.support import expected_conditions as EC
-        from selenium.webdriver.support.ui import WebDriverWait
-
-        batas = float(self.opsi.get("bot_timeout", "15") or 15)
-        try:
-            WebDriverWait(peramban, batas).until(
-                EC.invisibility_of_element_located((By.CSS_SELECTOR, "div.x-mask")))
-        except TimeoutException as exc:
-            raise TimeoutException("Overlay loading masih aktif setelah timeout.") from exc
-
     def _tunggu_lapisan(self, peramban, detik: float | None = None) -> bool:
         """Tunggu lapisan pemuatan Ext JS (``div.x-mask``) hilang.
 
@@ -470,6 +459,53 @@ class BotDapodik:
                 return False
             time.sleep(0.4)
 
+    def _lapisan_hilang(self, peramban, batas: float | None = None) -> bool:
+        """Apakah lapisan pemuatan sudah hilang (penantian menyesuaikan keadaan sebelumnya)."""
+        if batas is None:
+            batas = 1.0 if self._lapisan_lengket else LAPISAN_TUNGGU_DETIK
+        return self._tunggu_lapisan(peramban, batas)
+
+    def _siap_melanjutkan(self, peramban, label: str = "") -> bool:
+        """Tunggu Dapodik selesai memuat sebelum langkah berikutnya (tidak pernah melempar).
+
+        Sama seperti ``wait_for_loading_to_finish()`` pada skrip sekolah, tetapi bila
+        lapisan pemuatan tetap ada, pekerjaan diteruskan dengan catatan — langkah
+        berikutnya akan memakai cara paksa/skrip.
+        """
+        selesai = self._lapisan_hilang(peramban)
+        if not selesai:
+            if not self._lapisan_lengket:
+                self._catat_kepala("[tunggu] lapisan pemuatan Dapodik masih terlihat" +
+                                   (f" sebelum {label}" if label else "") +
+                                   " — langkah dilanjutkan dengan cara paksa (klik lewat skrip).")
+            self._lapisan_lengket = True
+        else:
+            self._lapisan_lengket = False
+        return selesai
+
+    def _kirim_enter(self, peramban, locator) -> None:
+        """Tekan Enter pada sebuah kolom; bila tertelan lapisan pemuatan, kirim lewat skrip."""
+        from selenium.webdriver.common.keys import Keys
+
+        try:
+            peramban.find_element(*locator).send_keys(Keys.RETURN)
+            return
+        except Exception:  # noqa: BLE001 — lanjut ke cara skrip
+            pass
+        try:
+            peramban.execute_script(
+                """
+                const el = arguments[0];
+                for (const tipe of ['keydown', 'keypress', 'keyup']) {
+                    el.dispatchEvent(new KeyboardEvent(tipe, {key: 'Enter', code: 'Enter',
+                                                              keyCode: 13, which: 13,
+                                                              bubbles: true}));
+                }
+                """, peramban.find_element(*locator))
+            self._catat_kepala("[selector] tombol Enter dikirim lewat skrip")
+        except Exception:  # noqa: BLE001 — upaya terbaik
+            pass
+
     def _nilai_kolom(self, peramban, locator) -> str:
         """Isi kolom saat ini (dibaca ulang dari halaman) — '' bila tidak terbaca."""
         try:
@@ -484,7 +520,7 @@ class BotDapodik:
         (mis. kolom readonly/tertutup lapisan) — penyebab login gagal yang sulit dilihat.
         Nilai sandi tidak pernah dicatat, hanya panjangnya.
         """
-        self._tunggu_lapisan(peramban)
+        self._lapisan_hilang(peramban)
         self._isi(peramban, locator, nilai)
         isi = self._nilai_kolom(peramban, locator)
         if str(nilai).strip() and str(nilai).strip() not in isi:
@@ -566,13 +602,17 @@ class BotDapodik:
         galat = None
         for percobaan in range(1, ulang + 1):
             try:
-                self._tunggu_overlay(peramban)
+                # Skrip sekolah selalu menunggu lapisan pemuatan hilang sebelum mengklik;
+                # bila lapisan itu belum hilang juga, klik dilanjutkan lewat skrip (di bawah)
+                # supaya tidak menggantung — penyebab "element click intercepted" di PC sekolah.
+                if not self._lapisan_hilang(peramban, min(LAPISAN_TUNGGU_DETIK, batas)):
+                    raise TimeoutError("lapisan pemuatan Dapodik belum hilang")
                 elemen = WebDriverWait(peramban, batas).until(EC.element_to_be_clickable(locator))
                 peramban.execute_script("arguments[0].scrollIntoView({block: 'center'});", elemen)
                 elemen.click()
                 return
             except (ElementClickInterceptedException, StaleElementReferenceException,
-                    TimeoutException, ElementNotInteractableException) as exc:
+                    TimeoutException, TimeoutError, ElementNotInteractableException) as exc:
                 galat = exc
                 # Upaya terakhir pada percobaan ini: tampilkan elemen lalu klik lewat skrip.
                 try:
@@ -583,7 +623,8 @@ class BotDapodik:
                     return
                 except Exception:  # noqa: BLE001 — benar-benar gagal, ulangi
                     pass
-                self._catat_kepala(f"[ULANG {percobaan}/{ulang}] klik gagal: {type(exc).__name__}")
+                self._catat_kepala(f"[klik {percobaan}/{ulang}] belum berhasil ({type(exc).__name__}) — "
+                                   "mencoba lagi.")
                 time.sleep(1)
         raise galat if galat else RuntimeError("Klik gagal.")
 
@@ -611,7 +652,8 @@ class BotDapodik:
             except Exception as exc:  # noqa: BLE001 — coba cara berikutnya
                 if cara == "skrip":
                     raise
-                self._catat_kepala(f"[ULANG] isi kolom '{cara}' gagal: {type(exc).__name__}")
+                self._catat_kepala(f"[isi kolom] cara '{cara}' gagal ({type(exc).__name__}) — "
+                                   "mencoba cara lain.")
                 time.sleep(0.5)
         return elemen
 
@@ -634,6 +676,7 @@ class BotDapodik:
         nilai = str(nilai or "").strip()
         if not nilai:
             raise ValueError("Hobi/Cita-cita belum diisi pada pengaturan bot.")
+        self._siap_melanjutkan(peramban, "kolom pilihan")
         elemen = self._tunggu_elemen(peramban, locator)
 
         if (elemen.tag_name or "").lower() == "select":
@@ -650,26 +693,40 @@ class BotDapodik:
         kata = aman.split(" ")[0]
         try:
             elemen.click()
-        except Exception:  # noqa: BLE001 — input readonly: buka lewat tombol panah combo
-            try:
-                elemen.find_element(By.XPATH, "following::*[contains(@class, 'x-form-trigger')][1]").click()
-            except Exception as exc:  # noqa: BLE001
-                raise RuntimeError(f"Kolom pilihan tidak dapat dibuka: {exc}") from exc
+        except Exception:  # noqa: BLE001 — lapisan pemuatan bisa menelan klik
+            opened = False
+            try:     # buka lewat skrip (tahan lapisan pemuatan)
+                peramban.execute_script("arguments[0].click();", elemen)
+                opened = True
+            except Exception:  # noqa: BLE001
+                opened = False
+            if not opened:
+                try:  # input readonly: buka lewat tombol panah combo
+                    elemen.find_element(
+                        By.XPATH, "following::*[contains(@class, 'x-form-trigger')][1]").click()
+                except Exception as exc:  # noqa: BLE001
+                    raise RuntimeError(f"Kolom pilihan tidak dapat dibuka: {exc}") from exc
         try:
             elemen.send_keys(Keys.CONTROL, "a")
             elemen.send_keys(nilai)
         except Exception:  # noqa: BLE001 — sebagian combo readonly, cukup daftar dibuka
             pass
+        # Sama seperti skrip sekolah: beri waktu 2 detik supaya daftar pilihan muncul
+        # sebelum memilih/Enter — Dapodik kadang masih memuat daftarnya.
+        time.sleep(2)
         for xpath in (f'//li[contains(@class, "x-boundlist-item") and contains(normalize-space(), "{aman}")]',
                       f'//li[contains(@class, "x-boundlist-item") and starts-with(normalize-space(), "{kata}")]'):
             try:
                 item = WebDriverWait(peramban, PILIHAN_TUNGGU_DETIK).until(
                     EC.element_to_be_clickable((By.XPATH, xpath)))
-                item.click()
+                try:
+                    item.click()
+                except Exception:  # noqa: BLE001 — pilihan bisa tertutup lapisan pemuatan
+                    peramban.execute_script("arguments[0].click();", item)
                 return
             except Exception:  # noqa: BLE001 — coba cara berikutnya
                 continue
-        elemen.send_keys(Keys.RETURN)  # cara terakhir, sama seperti skrip asli
+        self._kirim_enter(peramban, locator)  # cara terakhir, sama seperti skrip asli
 
     def _pesan_dapodik(self, peramban) -> str:
         """Baca kotak pesan Dapodik yang menandakan penolakan/peringatan ('' bila tidak ada)."""
@@ -799,7 +856,7 @@ class BotDapodik:
                 from selenium.webdriver.common.keys import Keys
 
                 self._catat_kepala("[uji] tombol masuk tidak dikenali — formulir dikirim dengan Enter.")
-                peramban.find_element(*loc["login_password"]).send_keys(Keys.RETURN)
+                self._kirim_enter(peramban, loc["login_password"])
 
             berhasil = self._tunggu_formulir_hilang(peramban, batas)
             pesan_dapodik = "" if berhasil else self._pesan_dapodik(peramban)
@@ -892,21 +949,30 @@ class BotDapodik:
         loc_menu, _, _ = self._cari_dengan_cadangan(peramban, "menu_tujuan", peta)
         self._klik_aman(peramban, loc_menu)
         time.sleep(5)
+
+        # Tutup popup informasi bila muncul (skrip asli menunggu 5 detik, kalau tidak ada
+        # langsung lanjut). Kliknya memakai jalur tahan lapisan pemuatan.
         try:
             from selenium.webdriver.support import expected_conditions as EC
             from selenium.webdriver.support.ui import WebDriverWait
 
-            tutup = WebDriverWait(peramban, 5).until(
+            WebDriverWait(peramban, 5).until(
                 EC.element_to_be_clickable(self._locator("popup_tutup", peta)))
-            tutup.click()
         except Exception:  # noqa: BLE001 — popup memang sering tidak muncul
             self._catat_kepala("Popup tidak muncul, lanjut.")
+        else:
+            try:
+                self._klik_aman(peramban, self._locator("popup_tutup", peta), ulang=2)
+                self._catat_kepala("Popup Dapodik ditutup.")
+            except Exception:  # noqa: BLE001 — jangan batalkan login hanya karena popup
+                self._catat_kepala("Popup Dapodik tidak dapat ditutup — pekerjaan dilanjutkan.")
         time.sleep(2)
         loc_satu, _, _ = self._cari_dengan_cadangan(peramban, "menu_1", peta)
         self._klik_aman(peramban, loc_satu)
         loc_dua, _, _ = self._cari_dengan_cadangan(peramban, "menu_2", peta)
         self._klik_aman(peramban, loc_dua)
         time.sleep(2)
+        self._siap_melanjutkan(peramban, "daftar peserta didik")
         self._catat_kepala("Siap memproses antrean.")
 
     def _kandidat_selector(self, kunci: str, peta: dict[str, str]) -> list[str]:
@@ -1114,14 +1180,20 @@ class BotDapodik:
 
             peta = peta_selector()
 
-            # 1) cari NISN pada kotak pencarian
+            # 1) cari NISN pada kotak pencarian.
+            #    Panel daftar peserta didik harus selesai memuat lebih dulu: kalau belum,
+            #    klik pada kolomnya tertelan lapisan pemuatan Ext JS (klik lewat skrip
+            #    dipakai sebagai jalan keluar, sama seperti perilaku skrip sekolah).
+            self._siap_melanjutkan(peramban, "kotak pencarian peserta didik")
             loc_cari, _, _ = self._cari_dengan_cadangan(peramban, "cari_nisn", peta)
-            kotak = self._tunggu_elemen(peramban, loc_cari)
-            kotak.click()
-            kotak.send_keys(Keys.CONTROL, "a")
-            kotak.send_keys(nisn)
-            kotak.send_keys(Keys.RETURN)
-            self._tunggu_overlay(peramban)
+            isi_cari = self._isi_dan_periksa(peramban, loc_cari, nisn, "kotak pencarian NISN")
+            if not isi_cari["terisi"]:
+                self._catat_kepala("[cari] kotak pencarian belum berisi NISN — mengisi lewat skrip.")
+                elemen_cari = peramban.find_element(*loc_cari)
+                self._paksa_terlihat(peramban, elemen_cari)
+                self._isi_lewat_js(peramban, elemen_cari, nisn)
+            self._kirim_enter(peramban, loc_cari)
+            self._siap_melanjutkan(peramban, "hasil pencarian NISN")
 
             # 2) baris tabel yang memuat NISN
             xpath_baris = (f'//tr[contains(@class, "{BARIS_TABEL}") '
@@ -1142,9 +1214,10 @@ class BotDapodik:
             self._klik_aman(peramban, loc_daftar)
             time.sleep(2)
 
-            # 4) isi NIS
+            # 4) isi NIS (formulir Registrasi baru muncul — tunggu selesai memuat dulu)
+            self._siap_melanjutkan(peramban, "formulir Registrasi")
             loc_nis, _, _ = self._cari_dengan_cadangan(peramban, "input_nis", peta)
-            self._isi(peramban, loc_nis, nis)
+            self._isi_dan_periksa(peramban, loc_nis, nis, "NIS")
 
             # 5) centang semua pilihan "Ya"
             if self.opsi.get("bot_jawaban_ya", "1") == "1":
@@ -1163,7 +1236,9 @@ class BotDapodik:
                 self._catat_kepala(f"[registrasi] pilihan «Ya» dicentang: {dicentang} dari "
                                    f"{len(kotak_ya)}")
 
-            # 6) hobi & 7) cita-cita (kolom pilihan Dapodik)
+            # 6) hobi & 7) cita-cita (kolom pilihan Dapodik) — sama seperti skrip sekolah:
+            #    klik → Ctrl+A → tulis → tunggu → Enter
+            self._siap_melanjutkan(peramban, "kolom Hobi & Cita-cita")
             loc_hobi, _, _ = self._cari_dengan_cadangan(peramban, "hobi", peta)
             self._pilih_kolom_pilihan(peramban, loc_hobi, self.opsi.get("bot_hobi", ""))
             time.sleep(1)
@@ -1173,7 +1248,7 @@ class BotDapodik:
             # 8) simpan dan tutup
             loc_simpan, _, _ = self._cari_dengan_cadangan(peramban, "simpan", peta)
             self._klik_aman(peramban, loc_simpan)
-            self._tunggu_overlay(peramban)
+            self._siap_melanjutkan(peramban, "penyimpanan Dapodik")
             time.sleep(2)
 
             # Dapodik kadang menolak dengan kotak pesan — jangan dianggap berhasil.

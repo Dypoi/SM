@@ -495,6 +495,11 @@ Catatan penting:
   pekerjaan tidak langsung gagal.
 - Bot juga **menunggu lapisan pemuatan Ext JS** (`div.x-mask`) hilang sebelum mengisi &
   menekan tombol — sama seperti skrip manual — karena lapisan itu sering menelan klik.
+  Bila lapisan itu **tidak kunjung hilang** (Dapodik lambat/macet), langkah tetap
+  dilanjutkan dengan cara paksa: klik & pengetikan lewat skrip, lalu dicatat pada log
+  (`[tunggu] lapisan pemuatan Dapodik masih terlihat …`). Jadi keluhan
+  *“element click intercepted”* pada kolom pencarian NISN tidak lagi membuat siswa
+  itu gagal — dan pekerjaan tidak menunggu 10 detik di setiap langkah.
 - Setelah menekan tombol masuk, bot **memastikan halaman benar-benar berpindah**; bila
   masih di formulir login, pekerjaan dihentikan dengan pesan yang jelas (termasuk pesan
   penolakan dari Dapodik bila ada), bukan dibiarkan menggantung. Nilai kolom juga dibaca

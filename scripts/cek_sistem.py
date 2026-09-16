@@ -1814,9 +1814,10 @@ def cek_bot_dapodik() -> str:
     import peramban_palsu
 
     cepat = (bot_dapodik.SELEKTOR_UJI_DETIK, bot_dapodik.UJI_TUNGGU_PERTAMA,
-             bot_dapodik.UJI_TUNGGU_LAIN, bot_dapodik.PILIHAN_TUNGGU_DETIK)
-    (bot_dapodik.SELEKTOR_UJI_DETIK, bot_dapodik.UJI_TUNGGU_PERTAMA,
-     bot_dapodik.UJI_TUNGGU_LAIN, bot_dapodik.PILIHAN_TUNGGU_DETIK) = 0.2, 0.2, 0.1, 0.2
+             bot_dapodik.UJI_TUNGGU_LAIN, bot_dapodik.PILIHAN_TUNGGU_DETIK,
+             bot_dapodik.LAPISAN_TUNGGU_DETIK)
+    (bot_dapodik.SELEKTOR_UJI_DETIK, bot_dapodik.UJI_TUNGGU_PERTAMA, bot_dapodik.UJI_TUNGGU_LAIN,
+     bot_dapodik.PILIHAN_TUNGGU_DETIK, bot_dapodik.LAPISAN_TUNGGU_DETIK) = 0.2, 0.2, 0.1, 0.2, 0.3
     asli_buka = bot_dapodik.BotDapodik._buka_peramban
     simpan_setting = {kunci: services.bot_setting()[kunci] for kunci in
                       ("bot_username", "bot_password", "bot_timeout", "bot_jeda_muat",
@@ -1960,13 +1961,42 @@ def cek_bot_dapodik() -> str:
         assert terisi.get("id_cita") == "Pegawai Negeri Sipil / PNS", \
             f"kolom Cita-cita tidak diisi: {terisi}"
         assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
+
+        # (9) "ElementClickInterceptedException" pada kolom pencarian — persis log PC sekolah:
+        #     lapisan pemuatan Ext JS menutupi kolom sehingga klik biasa ditelan. Skrip sekolah
+        #     menunggu lapisan hilang lebih dulu; bot harus tetap berhasil walau lapisan itu
+        #     tidak kunjung hilang (klik & ketikan lewat skrip).
+        jejak.clear()
+        asli_waktu = bot_dapodik.time
+        bot_dapodik.time = _WaktuCepat(time)
+        try:
+            palsu_sibuk = peramban_palsu.buat("alur_penuh")
+            bot_sibuk = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                               kepala=jejak.append)
+            bot_sibuk._login(palsu_sibuk)
+            nisn_sibuk = "3137492866"
+            palsu_sibuk.tambah_baris_siswa(nisn_sibuk)
+            palsu_sibuk.nisn_dicari = nisn_sibuk
+            palsu_sibuk.tambah_formulir_registrasi(nisn_sibuk)
+            palsu_sibuk.sibukkan()          # lapisan pemuatan tidak pernah hilang
+            bot_sibuk._proses_satu(palsu_sibuk, {"nisn": nisn_sibuk, "nipd": "3137", "nama": "Uji"},
+                                   None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert palsu_sibuk.unsur_bernama("cari_text").nilai == nisn_sibuk, \
+            "kotak pencarian tidak terisi saat lapisan pemuatan menutupi (klik tertelan)"
+        assert palsu_sibuk.unsur_bernama("nipd").nilai == "3137", "NIS tidak terisi saat sibuk"
+        assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
+        assert any("[tunggu]" in baris for baris in jejak), \
+            "bot harus melaporkan lapisan pemuatan yang tidak hilang"
+
         assert not hasattr(bot_routes, "pakai_saran"), "rute saran selector masih ada"
         jejak.clear()
         services.set_setting(services.KUNCI_UJI_BOT, "")
     finally:
         bot_dapodik.SELECTOR_BAWAAN["login_username"] = galat_lama
-        (bot_dapodik.SELEKTOR_UJI_DETIK, bot_dapodik.UJI_TUNGGU_PERTAMA,
-         bot_dapodik.UJI_TUNGGU_LAIN, bot_dapodik.PILIHAN_TUNGGU_DETIK) = cepat
+        (bot_dapodik.SELEKTOR_UJI_DETIK, bot_dapodik.UJI_TUNGGU_PERTAMA, bot_dapodik.UJI_TUNGGU_LAIN,
+         bot_dapodik.PILIHAN_TUNGGU_DETIK, bot_dapodik.LAPISAN_TUNGGU_DETIK) = cepat
         services.simpan_bot_setting(simpan_setting)
 
     # 4c) Pemasangan pustaka bot dari dalam aplikasi memakai Python aplikasi ini.
@@ -2065,7 +2095,7 @@ def cek_bot_dapodik() -> str:
 
     return (f"{len(kunci)} selector · antrean dari tabel students · uji coba 2 siswa sukses · "
             f"siswa berstatus Lulus dilewati · alur skrip sekolah (masuk, menu, 1 siswa) "
-            f"berjalan di peramban palsu · "
+            f"berjalan di peramban palsu, tahan klik tertelan lapisan pemuatan · "
             f"sekarang {len(services.bot_nisn_sukses())} NISN berhasil")
 
 
