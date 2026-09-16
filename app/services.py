@@ -1617,7 +1617,7 @@ BOT_KEYS: tuple[str, ...] = (
     "bot_url", "bot_username", "bot_password", "bot_hobi", "bot_cita",
     "bot_jawaban_ya", "bot_headless", "bot_simulasi", "bot_timeout",
     "bot_max_retries", "bot_jeda", "bot_jeda_muat", "bot_selector_json",
-    "bot_pakai_nisn",
+    "bot_pakai_nisn", "bot_sekolah_asal",
 )
 
 BOT_BAWAAN: dict[str, str] = {
@@ -1636,6 +1636,7 @@ BOT_BAWAAN: dict[str, str] = {
     "bot_jeda_muat": "5",        # jeda tambahan setelah halaman selesai dimuat (detik)
     "bot_selector_json": "",     # kosong = pakai peta bawaan
     "bot_pakai_nisn": "0",       # 1 = isi NIS dengan NISN bila NIPD kosong
+    "bot_sekolah_asal": "1",     # 1 = isi kolom «Sekolah Asal» dari data siswa SM
 }
 
 #: Keadaan item bot.
@@ -1773,7 +1774,8 @@ def bot_antrean(rombel: str = "", limit: int = 0, nisn_manual: str = "",
         if hanya_tanpa_nipd:
             syarat.append("(s.nipd IS NULL OR TRIM(s.nipd) = '')")
     sql = (
-        "SELECT s.id, s.nama, s.nisn, s.nipd, s.rombel, s.tingkat, s.status FROM students s "
+        "SELECT s.id, s.nama, s.nisn, s.nipd, s.rombel, s.tingkat, s.status, "
+        "s.sekolah_asal FROM students s "
         "WHERE " + " AND ".join(syarat) +
         " ORDER BY s.rombel COLLATE NOCASE, s.nama COLLATE NOCASE"
     )

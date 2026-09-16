@@ -51,6 +51,9 @@ SELECTOR_BAWAAN: dict[str, str] = {
     "input_nis": "name:nipd",
     "radio_ya": '//div[contains(@class, "x-form-cb-wrap-inner")]'
                 '//label[normalize-space()="Ya"]/preceding-sibling::span/input',
+    # Dapodik menamai kolom ini berbeda-beda antar versi, jadi dicari lewat labelnya
+    # («Sekolah Asal») — lihat _cari_lewat_label. Bisa diganti di «Peta tombol Dapodik».
+    "sekolah_asal": "label:Sekolah Asal",
     "hobi": "name:id_hobby",
     "cita": "name:id_cita",
     "simpan": '//span[contains(@class, "x-btn-inner-default-small") '
@@ -126,6 +129,11 @@ SELECTOR_CADANGAN: dict[str, list[str]] = {
     ],
     "radio_ya": [
         'xpath://*[normalize-space()="Ya"]/preceding::input[@type="radio"][1]',
+    ],
+    "sekolah_asal": [
+        "css:input[name*=sekolah_asal]",
+        "css:input[name*=sekolahasal]",
+        "css:input[name*=asal]",
     ],
     "hobi": [
         "css:input[name*=hobby]",
@@ -859,6 +867,135 @@ class BotDapodik:
         return elemen
 
     # ------------------------------------------------------- kolom pilihan --- #
+    def _cari_lewat_label(self, peramban, teks: str):
+        """Cari kolom isian lewat **label** yang tertera di formulir Dapodik.
+
+        Dapodik menamai kolomnya berbeda-beda antar versi (mis. ``sekolah_asal`` atau
+        ``id_sekolah_asal``), sedangkan labelnya tetap «Sekolah Asal». Skrip ini mencari
+        teks label, lalu mengambil kolom isian di sebelahnya (lewat ``for`` atau wadah
+        formulirnya). Kembalikan elemen, atau ``None`` bila tidak ada.
+        """
+        try:
+            return peramban.execute_script(
+                """
+                const cari = String(arguments[0] || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                if (!cari) return null;
+                const rapi = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                const etiket = [...document.querySelectorAll('label')].find((l) => {
+                    const teks = rapi(l.textContent).replace(/\*$/, '').trim();
+                    return teks === cari || teks.startsWith(cari);
+                });
+                if (etiket) {
+                    let kotak = null;
+                    const id = etiket.htmlFor || etiket.getAttribute('for');
+                    if (id) kotak = document.getElementById(id);
+                    if (!kotak) {
+                        const wadah = etiket.closest('div.x-form-item, div.x-field, .form-group, div');
+                        if (wadah) {
+                            kotak = wadah.querySelector(
+                                'input:not([type=hidden]):not([type=button]):not([type=submit]), '
+                                + 'textarea, select');
+                        }
+                    }
+                    if (kotak) return kotak;
+                }
+                // Sebagian formulir Ext JS tidak memakai <label>: teks polos di sebelah kolom.
+                const semua = [...document.querySelectorAll('div, span, td')];
+                const pemilik = semua.find((d) => rapi(d.textContent).replace(/\*$/, '').trim() === cari);
+                if (pemilik) {
+                    return pemilik.parentElement
+                        ? pemilik.parentElement.querySelector('input:not([type=hidden]), textarea, select')
+                        : null;
+                }
+                return null;
+                """, str(teks))
+        except Exception:  # noqa: BLE001 — halaman belum siap: anggap tidak ada
+            return None
+
+    def _kolom_sekolah_asal(self, peramban, peta: dict[str, str]):
+        """Kolom «Sekolah Asal» pada formulir Registrasi (``None`` bila tidak ada)."""
+        kandidat = self._kandidat_selector("sekolah_asal", peta)
+        # Lewat label lebih dulu (paling tahan perbedaan versi Dapodik), lalu selector biasa.
+        for nilai in kandidat:
+            if nilai.lower().startswith("label:"):
+                unsur = self._cari_lewat_label(peramban, nilai.split(":", 1)[1])
+                if unsur is not None:
+                    return unsur
+        for nilai in kandidat:
+            if nilai.lower().startswith("label:"):
+                continue
+            try:
+                for unsur in peramban.find_elements(*self._locator_nilai(nilai)):
+                    return unsur
+            except Exception:  # noqa: BLE001 — coba kandidat berikutnya
+                continue
+        return None
+
+    def _isi_sekolah_asal(self, peramban, peta: dict[str, str], nilai: str) -> bool:
+        """Isi kolom «Sekolah Asal» dengan data siswa SM — bila formulirnya punya kolom itu.
+
+        Aman dipakai: kolom yang tidak ada atau data yang kosong hanya dicatat pada log,
+        pekerjaan siswa tetap diteruskan (seperti pilihan lain pada bot ini).
+        """
+        from selenium.webdriver.common.keys import Keys
+
+        nilai = str(nilai or "").strip()
+        if not nilai:
+            self._catat_kepala("[sekolah asal] data siswa belum memuat sekolah asal — dilewati.")
+            return False
+        unsur = self._kolom_sekolah_asal(peramban, peta)
+        if unsur is None:
+            self._catat_kepala("[sekolah asal] formulir Registrasi ini tidak punya kolom "
+                               "«Sekolah Asal» — dilewati.")
+            return False
+        try:
+            readonly = bool(unsur.get_attribute("readonly"))
+        except Exception:  # noqa: BLE001 — tidak terbaca: anggap dapat diketik
+            readonly = False
+        combo = (unsur.tag_name or "").lower() == "select" or readonly or self._ada_trigger(peramban, unsur)
+        try:
+            if combo:      # combo box Dapodik: klik → tulis → pilih dari daftar
+                self._pilih_kolom_pilihan(peramban, unsur, nilai)
+            else:          # kolom teks biasa
+                self._paksa_terlihat(peramban, unsur)
+                try:
+                    unsur.click()
+                except Exception:  # noqa: BLE001 — lapisan pemuatan bisa menelan klik
+                    pass
+                unsur.send_keys(Keys.CONTROL, "a")
+                unsur.send_keys(nilai)
+        except Exception as exc:  # noqa: BLE001 — jangan gagalkan siswa hanya karena kolom ini
+            self._catat_kepala(f"[sekolah asal] kolom tidak dapat diisi ({type(exc).__name__}) — "
+                               "dilanjutkan dengan cara skrip.")
+        isi = ""
+        try:
+            isi = str(unsur.get_attribute("value") or "")
+        except Exception:  # noqa: BLE001
+            isi = ""
+        if nilai.lower() not in isi.lower():
+            try:               # upaya terakhir: isi lewat skrip
+                self._isi_lewat_js(peramban, unsur, nilai)
+                isi = str(unsur.get_attribute("value") or "")
+            except Exception:  # noqa: BLE001
+                isi = ""
+        terisi = nilai.lower() in isi.lower()
+        if terisi:
+            self._catat_kepala(f"[sekolah asal] terisi: {isi}")
+        else:
+            self._catat_kepala("[sekolah asal] kolom belum berisi nilai yang benar — "
+                               "Dapodik bisa meminta kolom ini diisi manual.")
+        return terisi
+
+    def _ada_trigger(self, peramban, unsur) -> bool:
+        """Apakah unsur punya tombol combo Ext JS di sebelahnya (penanda combo box)."""
+        from selenium.webdriver.common.by import By
+
+        try:
+            return bool(unsur.find_elements(
+                By.XPATH, "following::*[contains(@class, 'x-form-trigger')][1]"))
+        except Exception:  # noqa: BLE001
+            return False
+
     def _pilih_kolom_pilihan(self, peramban, locator, nilai: str) -> None:
         """Isi kolom pilihan (Hobi / Cita-cita) yang aman untuk Dapodik.
 
@@ -878,7 +1015,7 @@ class BotDapodik:
         if not nilai:
             raise ValueError("Hobi/Cita-cita belum diisi pada pengaturan bot.")
         self._siap_melanjutkan(peramban, "kolom pilihan")
-        elemen = self._tunggu_elemen(peramban, locator)
+        elemen = locator if not isinstance(locator, tuple) else self._tunggu_elemen(peramban, locator)
 
         if (elemen.tag_name or "").lower() == "select":
             pilih = Select(elemen)
@@ -1463,6 +1600,13 @@ class BotDapodik:
             # 4) isi NIS
             loc_nis, _, _ = self._cari_dengan_cadangan(peramban, "input_nis", peta)
             self._isi_dan_periksa(peramban, loc_nis, nis, "NIS")
+
+            # 4b) Sekolah Asal — diambil dari data siswa di aplikasi SM (kolom
+            #     «Sekolah Asal»). Bila Dapodik sekolah tidak punya kolomnya atau
+            #     datanya kosong, langkah ini dilewati tanpa menggagalkan siswa.
+            if self.opsi.get("bot_sekolah_asal", "1") == "1":
+                self._siap_melanjutkan(peramban, "kolom Sekolah Asal")
+                self._isi_sekolah_asal(peramban, peta, siswa.get("sekolah_asal") or "")
 
             # 5) centang semua pilihan "Ya"
             if self.opsi.get("bot_jawaban_ya", "1") == "1":

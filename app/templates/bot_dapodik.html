@@ -311,7 +311,7 @@
       <div class="table-wrap compact">
         <table class="data tabel-kecil kartu">
           <caption class="sr-only">Siswa yang akan diproses bot</caption>
-          <thead><tr><th>#</th><th>NISN</th><th>Nama</th><th>Rombel</th><th>NIS/NIPD</th></tr></thead>
+          <thead><tr><th>#</th><th>NISN</th><th>Nama</th><th>Rombel</th><th>NIS/NIPD</th><th>Sekolah Asal</th></tr></thead>
           <tbody>
             {% for s in antrean %}
             <tr>
@@ -321,6 +321,9 @@
               <td data-label="Rombel">{{ s.rombel or '—' }}</td>
               <td class="mono" data-label="NIS/NIPD">
                 {% if s.nis %}{{ s.nis }}{% else %}<span class="badge badge-warning">belum ada NIS</span>{% endif %}
+              </td>
+              <td data-label="Sekolah Asal">
+                {% if s.sekolah_asal %}{{ s.sekolah_asal }}{% else %}<span class="muted">—</span>{% endif %}
               </td>
             </tr>
             {% endfor %}
@@ -474,6 +477,8 @@
             <span><strong>Centang semua jawaban «Ya»</strong><br><small>Sama seperti skrip bot asli.</small></span></label>
           <label class="cek-bot"><input type="checkbox" name="pakai_nisn" value="1" {{ 'checked' if cfg.bot_pakai_nisn == '1' }}>
             <span><strong>Pakai NISN bila NIPD/NIS kosong</strong><br><small>Bila tidak dicentang, siswa tanpa NIPD akan dilewati.</small></span></label>
+          <label class="cek-bot"><input type="checkbox" name="sekolah_asal" value="1" {{ 'checked' if cfg.bot_sekolah_asal == '1' }}>
+            <span><strong>Isi kolom «Sekolah Asal»</strong><br><small>Bot mengisi Sekolah Asal pada formulir Registrasi Dapodik dengan <em>kolom Sekolah Asal pada data siswa SM</em>. Bila Dapodik sekolah tidak punya kolom itu atau datanya kosong, langkah ini dilewati tanpa menggagalkan siswa.</small></span></label>
           <label class="cek-bot"><input type="checkbox" name="simulasi" value="1" {{ 'checked' if cfg.bot_simulasi == '1' }}>
             <span><strong>Mode uji coba (simulasi)</strong><br><small>Antrean &amp; kemajuan tetap dicatat, tetapi peramban/Dapodik tidak dibuka. Pakai untuk mencoba alur sebelum benar-benar mendaftar.</small></span></label>
         </div>

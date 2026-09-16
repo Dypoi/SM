@@ -2119,6 +2119,68 @@ def cek_bot_dapodik() -> str:
         assert palsu_baris.unsur_bernama("nipd").nilai == "3141", "NIS tidak terisi"
         assert any("berhasil dikirim" in baris for baris in jejak), jejak[-4:]
 
+        # (14) Sekolah Asal: bot mengisi kolom «Sekolah Asal» pada formulir Registrasi Dapodik
+        #      dengan **data siswa aplikasi SM**. Dapodik menamai kolomnya berbeda-beda antar
+        #      versi, jadi bot harus menemukannya lewat nama kolom maupun lewat labelnya.
+        #      Kolom yang tidak ada (atau data yang kosong) hanya dicatat pada log — siswa
+        #      tetap berhasil, pekerjaan tidak berhenti.
+        sekolah_asal_uji = "SD NEGERI UJI 1"
+        for nama_kolom, cara in (("sekolah_asal", "lewat nama kolom"), ("", "lewat label")):
+            jejak.clear()
+            asli_waktu = bot_dapodik.time
+            jam_asal = _WaktuCepat(time)
+            bot_dapodik.time = jam_asal
+            try:
+                palsu_asal = peramban_palsu.buat("alur_penuh").pakai_jam(jam_asal.monotonic)
+                palsu_asal.popup_detik = None
+                palsu_asal.registrasi_otomatis = True
+                nisn_asal = "3137492871"
+                palsu_asal.nisn_dicari = nisn_asal
+                palsu_asal.tambah_baris_siswa(nisn_asal)
+                palsu_asal.tambah_formulir_registrasi(nisn_asal, nama_kolom=nama_kolom)
+                bot_asal = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                                  kepala=jejak.append)
+                bot_asal._login(palsu_asal)
+                bot_asal._proses_satu(palsu_asal, {"nisn": nisn_asal, "nipd": "3142",
+                                                   "nama": "Uji",
+                                                   "sekolah_asal": sekolah_asal_uji}, None)
+            finally:
+                bot_dapodik.time = asli_waktu
+            kolom_asal = [unsur for unsur in palsu_asal.unsur if unsur.label == "Sekolah Asal"]
+            assert kolom_asal and kolom_asal[0].nilai == sekolah_asal_uji, \
+                f"kolom «Sekolah Asal» tidak terisi ({cara}): " + \
+                (kolom_asal[0].nilai if kolom_asal else "(kolom tidak ada)")
+            assert any("sekolah asal" in baris and "terisi" in baris for baris in jejak), jejak[-4:]
+            assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
+
+        # Data siswa yang belum memuat sekolah asal: dilewati dengan catatan, siswa tetap sukses.
+        jejak.clear()
+        asli_waktu = bot_dapodik.time
+        jam_kosong = _WaktuCepat(time)
+        bot_dapodik.time = jam_kosong
+        try:
+            palsu_kosong = peramban_palsu.buat("alur_penuh").pakai_jam(jam_kosong.monotonic)
+            palsu_kosong.popup_detik = None
+            palsu_kosong.registrasi_otomatis = True
+            nisn_kosong = "3137492872"
+            palsu_kosong.nisn_dicari = nisn_kosong
+            palsu_kosong.tambah_baris_siswa(nisn_kosong)
+            palsu_kosong.tambah_formulir_registrasi(nisn_kosong, nama_kolom="sekolah_asal")
+            bot_kosong = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                                kepala=jejak.append)
+            bot_kosong._login(palsu_kosong)
+            bot_kosong._proses_satu(palsu_kosong, {"nisn": nisn_kosong, "nipd": "3143",
+                                                   "nama": "Uji", "sekolah_asal": ""}, None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert any("belum memuat sekolah asal" in baris for baris in jejak), jejak[-4:]
+        assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
+
+        # Antrean bot membawa kolom sekolah asal dari data siswa (dipakai bot di atas).
+        contoh_antrean = services.bot_antrean(limit=1, lewati_sukses=False)
+        assert contoh_antrean and "sekolah_asal" in contoh_antrean[0], \
+            "antrean bot tidak membawa kolom sekolah asal"
+
         assert not hasattr(bot_routes, "pakai_saran"), "rute saran selector masih ada"
         jejak.clear()
         services.set_setting(services.KUNCI_UJI_BOT, "")
@@ -2225,7 +2287,7 @@ def cek_bot_dapodik() -> str:
     return (f"{len(kunci)} selector · antrean dari tabel students · uji coba 2 siswa sukses · "
             f"siswa berstatus Lulus dilewati · alur skrip sekolah (masuk, menu, 1 siswa) "
             f"berjalan di peramban palsu, tahan klik tertelan lapisan pemuatan & popup "
-            f"pengumuman Dapodik · "
+            f"pengumuman Dapodik · Sekolah Asal terisi dari data siswa · "
             f"sekarang {len(services.bot_nisn_sukses())} NISN berhasil")
 
 

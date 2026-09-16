@@ -462,8 +462,8 @@ menampilkan popup itu **lebih lambat daripada 5 detik** yang ditunggu skrip asli
 popup tampil, Dapodik mengabaikan klik di luarnya (akibatnya tombol *Registrasi* seolah
 tidak berpengaruh). Karena itu popup juga diperiksa lagi **sebelum setiap langkah**
 berikutnya. Per siswa: cari NISN →
-klik baris hasilnya → *Registrasi* → isi NIS → centang semua «Ya» → Hobi → Cita-cita →
-*Simpan dan Tutup*. Yang berbeda hanya sumber antreannya (data siswa SM, bukan Excel) dan
+klik baris hasilnya → *Registrasi* → isi NIS → isi **Sekolah Asal** (dari kolom Sekolah Asal
+pada data siswa SM) → centang semua «Ya» → Hobi → Cita-cita → *Simpan dan Tutup*. Yang berbeda hanya sumber antreannya (data siswa SM, bukan Excel) dan
 cara menampilkan kemajuannya (di halaman Bot Dapodik). Bawaan **Batas tunggu elemen 15
 detik** & **3 percobaan ulang** juga sama seperti skrip itu.
 
@@ -487,6 +487,7 @@ Ada dua pilihan pada tombol itu (boleh dipakai bersamaan):
 | Pilihan | Gunanya |
 | --- | --- |
 | **Coba masuk** | Bot benar-benar mengisi kolom login & menekan tombol masuk (seperti skrip manual), lalu melaporkan hasilnya: **BERHASIL** atau pesan Dapodik yang menolak. Jadi tidak perlu menebak lagi. Bisa memakan waktu sampai ±1 menit. |
+| **Isi kolom «Sekolah Asal»** (centang pada Pengaturan Bot) | Bot mengisi *Sekolah Asal* pada formulir Registrasi Dapodik dengan kolom **Sekolah Asal** milik siswa di aplikasi SM. Kolom itu dicari lewat namanya maupun lewat labelnya, jadi tetap jalan walau Dapodik menamai kolom berbeda antar versi. Bila Dapodik sekolah tidak punya kolom itu atau data siswanya kosong, langkah ini **dilewati dengan catatan pada log** — siswa tetap didaftarkan. |
 | **Jendela tampak** | Uji sekali ini dijalankan dengan jendela Chrome terlihat — berguna untuk membandingkan bila mode *di belakang layar* gagal. Pekerjaan bot yang sesungguhnya tetap di belakang layar. |
 
 Arti hasil yang paling sering muncul:

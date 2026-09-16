@@ -8,6 +8,9 @@ Skenario yang tersedia: ``splash`` (halaman pembuka), ``kolom_tersembunyi`` (per
 laporan PC sekolah), ``siap``, ``mask`` (masih tertutup lapisan loading Ext JS),
 ``masuk`` (login berhasil setelah tombol ditekan), ``alur_penuh`` (halaman login,
 menu, tabel, dan formulir Registrasi persis skrip sekolah), ``xpath_bawaan``, ``kosong``.
+Formulir Registrasi dapat diberi kolom «Sekolah Asal» (``tambah_formulir_registrasi(nisn,
+sekolah_asal="SD NEGERI …", nama_kolom="sekolah_asal")``) — kolom itu dicari bot lewat
+labelnya maupun lewat namanya, seperti di Dapodik.
 Panggil ``sibukkan()`` untuk menyalakan lapisan pemuatan yang tidak pernah hilang — klik
 biasa akan tertelan (``ElementClickInterceptedException``) seperti di PC sekolah.
 Popup pengumuman Dapodik ("Selamat Datang di Aplikasi Dapodik 2027.b") juga bisa ditirukan:
@@ -56,6 +59,8 @@ class UnsurPalsu:
         self.popup = bool(sifat.get("popup", False))
         #: True = baris tabel sudah terpilih (Dapodik: pilihan terjadi saat mousedown)
         self.terpilih = bool(sifat.get("terpilih", False))
+        #: Teks label di sebelah kolom (mis. "Sekolah Asal") — dipakai bot mencari lewat label
+        self.label = str(sifat.get("label", ""))
         #: XPath absolut skrip sekolah, mis. /html/body/div[5]/div[2]/form/input
         self.jalur = sifat.get("jalur", "")
 
@@ -63,7 +68,7 @@ class UnsurPalsu:
     def get_attribute(self, nama: str) -> str | None:
         peta = {"type": self.type, "name": self.name, "id": self.id,
                 "placeholder": self.placeholder, "aria-label": self.aria,
-                "value": self.nilai, "class": self.kelas}
+                "value": self.nilai, "class": self.kelas, "label": self.label}
         return peta.get(nama, self.nilai if nama == "value" else None)
 
     @property
@@ -379,13 +384,21 @@ class PerambanPalsu:
         """Tambahkan satu baris tabel Ext JS untuk NISN tertentu (skenario alur_penuh)."""
         self.unsur.append(UnsurPalsu(self, "tr", kelas="x-grid-row", teks=nisn))
 
-    def tambah_formulir_registrasi(self, nisn: str) -> None:
-        """Tambahkan unsur formulir Registrasi seperti pada Dapodik (skenario alur_penuh)."""
+    def tambah_formulir_registrasi(self, nisn: str, sekolah_asal: str = "",
+                                   nama_kolom: str = "") -> None:
+        """Tambahkan unsur formulir Registrasi seperti pada Dapodik (skenario alur_penuh).
+
+        ``sekolah_asal`` mengisi nilai awal kolomnya (kosong = kolom tetap ada, belum diisi).
+        ``nama_kolom`` menirukan Dapodik yang menamai kolomnya berbeda-beda
+        ('' = hanya berlabel, seperti versi yang tidak memakai atribut ``name``).
+        """
         if not any("x-btn-inner-soft-green-small" in (u.kelas or "") for u in self.unsur):
             self.unsur.append(UnsurPalsu(self, "span", kelas="x-btn-inner-soft-green-small",
                                          teks="Registrasi"))
         self.unsur.extend([
             UnsurPalsu(self, "input", type="text", name="nipd"),
+            UnsurPalsu(self, "input", type="text", name=nama_kolom, label="Sekolah Asal",
+                       nilai=sekolah_asal),
             UnsurPalsu(self, "input", type="text", name="id_hobby"),
             UnsurPalsu(self, "input", type="text", name="id_cita"),
             UnsurPalsu(self, "span", kelas="x-btn-inner-default-small", teks="Simpan dan Tutup"),
@@ -532,6 +545,13 @@ class PerambanPalsu:
     # ------------------------------------------------------------ skrip ----- #
     def execute_script(self, skrip: str, *argumen: Any) -> Any:
         self.skrip.append(skrip)
+        if "querySelectorAll('label')" in skrip:
+            # Bot mencari kolom isian lewat teks labelnya (mis. «Sekolah Asal»).
+            teks = str(argumen[0] if argumen else "").strip().lower()
+            for unsur in self.unsur:
+                if unsur.label and unsur.label.strip().lower().startswith(teks):
+                    return unsur
+            return None
         if "mousedown" in skrip and "dispatchEvent" in skrip:
             # Bot mengirim urutan tetikus lengkap (mousedown → mouseup → click):
             # inilah yang benar-benar memilih baris tabel Ext JS.
