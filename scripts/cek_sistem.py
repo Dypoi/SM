@@ -1670,6 +1670,19 @@ def cek_kualitas_data():
     return rincian
 
 
+class _WaktuCepat:
+    """Modul ``time`` tiruan untuk uji alur: ``sleep`` dipersingkat, sisanya apa adanya."""
+
+    def __init__(self, asli) -> None:
+        self._asli = asli
+
+    def __getattr__(self, nama: str):
+        return getattr(self._asli, nama)
+
+    def sleep(self, detik: float = 0) -> None:
+        self._asli.sleep(min(float(detik or 0), 0.02))
+
+
 @cek("24. Bot Dapodik (antrean dari data SM, kemajuan, lanjut tanpa mengulang)")
 def cek_bot_dapodik() -> str:
     """Bot Dapodik: antrean bersumber dari tabel students, berjalan tanpa peramban
@@ -1680,6 +1693,9 @@ def cek_bot_dapodik() -> str:
     from pathlib import Path
 
     from app import auth, bot_dapodik, db, services, web
+
+    #: catatan kepala bot pada peramban palsu (untuk memeriksa urutan langkahnya)
+    jejak: list[str] = []
 
     # 1) Peta tombol Dapodik = alur skrip bot pemilik aplikasi.
     kunci = list(bot_dapodik.SELECTOR_BAWAAN)
@@ -1773,8 +1789,10 @@ def cek_bot_dapodik() -> str:
     # 4b3) Jeda muat halaman dapat diatur (Dapodik sekolah lambat terbuka).
     assert "bot_jeda_muat" in services.BOT_KEYS and int(services.bot_setting()["bot_jeda_muat"]) >= 3, \
         "jeda muat halaman Dapodik harus ada & masuk akal"
-    assert int(services.bot_setting()["bot_timeout"]) >= 20, \
-        "batas tunggu bawaan terlalu pendek untuk Dapodik"
+    assert int(services.bot_setting()["bot_timeout"]) >= 15, \
+        "batas tunggu bawaan terlalu pendek untuk Dapodik (skrip sekolah memakai 15 detik)"
+    assert int(services.bot_setting()["bot_max_retries"]) >= 3, \
+        "percobaan ulang klik minimal 3 kali seperti skrip sekolah"
 
     # 4b4) Uji koneksi Dapodik selalu melapor (tidak melempar galat ke pengguna),
     #      termasuk ketika peramban tidak tersedia seperti di lingkungan uji ini.
@@ -1792,76 +1810,59 @@ def cek_bot_dapodik() -> str:
     assert services.laporan_uji_bot() == {}, "laporan uji koneksi rusak harus diabaikan"
     services.set_setting(services.KUNCI_UJI_BOT, "")
 
-    # 4d) Peramban palsu: skenario yang dialami di PC sekolah — kolom login sudah ada di
-    #     halaman tetapi belum terlihat (halaman Dapodik masih memuat / ada halaman pembuka).
-    #     Bot harus menunggu, mengenali kolomnya sendiri, dan tetap bisa mengisinya.
+    # 4d) Alur skrip sekolah diuji penuh dengan peramban palsu (tanpa Chrome).
     import peramban_palsu
 
     cepat = (bot_dapodik.SELEKTOR_UJI_DETIK, bot_dapodik.UJI_TUNGGU_PERTAMA,
-             bot_dapodik.UJI_TUNGGU_LAIN)
-    bot_dapodik.SELEKTOR_UJI_DETIK, bot_dapodik.UJI_TUNGGU_PERTAMA, bot_dapodik.UJI_TUNGGU_LAIN = 0.2, 0.2, 0.1
+             bot_dapodik.UJI_TUNGGU_LAIN, bot_dapodik.PILIHAN_TUNGGU_DETIK)
+    (bot_dapodik.SELEKTOR_UJI_DETIK, bot_dapodik.UJI_TUNGGU_PERTAMA,
+     bot_dapodik.UJI_TUNGGU_LAIN, bot_dapodik.PILIHAN_TUNGGU_DETIK) = 0.2, 0.2, 0.1, 0.2
     asli_buka = bot_dapodik.BotDapodik._buka_peramban
     simpan_setting = {kunci: services.bot_setting()[kunci] for kunci in
-                      ("bot_username", "bot_password", "bot_timeout", "bot_jeda_muat")}
+                      ("bot_username", "bot_password", "bot_timeout", "bot_jeda_muat",
+                       "bot_hobi", "bot_cita")}
     services.simpan_bot_setting({"bot_username": "bot.uji@contoh.id", "bot_password": "rahasia",
-                                 "bot_timeout": "1", "bot_jeda_muat": "0"})
+                                 "bot_timeout": "1", "bot_jeda_muat": "0",
+                                 "bot_hobi": "Olah Raga", "bot_cita": "Pegawai Negeri Sipil / PNS"})
     galat_lama = bot_dapodik.SELECTOR_BAWAAN["login_username"]
     bot_dapodik.SELECTOR_BAWAAN["login_username"] = "/html/body/div[9]/form/input"
     try:
         opsi_uji = dict(services.bot_setting(), bot_url="http://localhost:5774/", bot_timeout="1",
-                        bot_jeda_muat="0", bot_username="a@b.id", bot_password="rahasia")
+                        bot_jeda_muat="0", bot_username="bot.uji@contoh.id", bot_password="rahasia",
+                        bot_hobi="Olah Raga", bot_cita="Pegawai Negeri Sipil / PNS")
         bot_uji = bot_dapodik.BotDapodik(0, [], [], opsi_uji)
 
-        # (1) halaman pembuka: formulir baru muncul setelah tombol "Masuk" ditekan
-        palsu = peramban_palsu.buat("splash")
-        assert not bot_uji._formulir_terlihat(palsu), "kolom login splash seharusnya belum terlihat"
-        assert bot_uji._tunggu_formulir_login(palsu), "bot harus menunggu sampai formulir tampil"
-        assert "Masuk" in palsu.tombol_diklik(), "tombol pembuka halaman Dapodik tidak diklik"
+        # (1) XPath yang diawali satu garis miring ('/html/body/...', persis skrip sekolah)
+        #     harus dibaca sebagai XPath — dulu keliru dibaca sebagai nama elemen sehingga
+        #     kolom login bawaan tidak pernah ketemu.
+        for kunci_sel, nilai_sel in bot_dapodik.SELECTOR_BAWAAN.items():
+            if nilai_sel.startswith(("/", "(")):
+                assert bot_uji._locator_nilai(nilai_sel)[0] == "xpath", \
+                    f"selector {kunci_sel} harus dibaca sebagai XPath: {nilai_sel}"
 
-        # (2) kolom tersembunyi: penanda "ada tetapi belum terlihat" muncul pada laporan
+        # (2) kolom tersembunyi (laporan PC sekolah): penanda "ada tetapi belum terlihat"
         palsu = peramban_palsu.buat("kolom_tersembunyi")
-        assert not bot_uji._tunggu_formulir_login(palsu), "skenario ini memang tak pernah menampilkan"
         peta_uji = bot_dapodik.peta_selector()
         keadaan = bot_uji._keadaan_selector(palsu, "login_password", peta_uji)
         assert keadaan["keadaan"] in ("ada_tak_terlihat", "terlihat"), keadaan
-        kolom_palsu, tombol_palsu = bot_uji._deskripsi_unsur(palsu)
-        assert len(kolom_palsu) == 2 and kolom_palsu[1]["type"] == "password", kolom_palsu
-        kenal = bot_dapodik.pilih_kolom_login(kolom_palsu, tombol_palsu)
-        assert kenal["login_username"]["selector"] == 'css:input[name="email"]', kenal
-        assert kenal["login_password"]["selector"] == 'css:input[name="password"]', kenal
+        # Tanpa selector bawaan, cadangan berbasis CSS harus menemukan kolomnya.
+        loc_bawaan = bot_dapodik.SELECTOR_BAWAAN["login_password"]
+        bot_dapodik.SELECTOR_BAWAAN["login_password"] = "/html/body/div[9]/form/div/input"
+        try:
+            locator, nilai_cadangan, pakai_cadangan = bot_uji._cari_dengan_cadangan(
+                palsu, "login_password", peta_uji, wajib=False, boleh_tak_terlihat=True)
+        finally:
+            bot_dapodik.SELECTOR_BAWAAN["login_password"] = loc_bawaan
+        assert locator is not None and nilai_cadangan.startswith("css:input"), \
+            f"selector cadangan tidak dipakai: {nilai_cadangan!r}"
+        hasil_isi = bot_uji._isi_dan_periksa(palsu, locator, "rahasia", "kata sandi")
+        assert hasil_isi["terisi"], hasil_isi
 
-        # Bot tetap mengisi kolom walau belum terlihat (lewat JS), lalu menekan tombolnya.
-        for kunci, nilai in (("login_username", "a@b.id"), ("login_password", "rahasia")):
-            locator, _, _ = bot_uji._cari_dengan_cadangan(palsu, kunci, peta_uji, wajib=False,
-                                                          boleh_tak_terlihat=True)
-            assert locator is not None, f"bot harus menemukan kolom {kunci} walau belum terlihat"
-            bot_uji._isi(palsu, locator, nilai)
-        assert palsu.unsur_bernama("email").nilai == "a@b.id", "kolom email tidak terisi"
-        assert palsu.unsur_bernama("password").nilai == "rahasia", "kolom sandi tidak terisi"
-        bot_uji._klik_aman(palsu, bot_uji._locator_nilai(kenal["login_tombol"]["selector"]))
-        assert palsu.tombol_diklik(), "tombol masuk hasil pengenalan otomatis tidak diklik"
-
-        # (2b) lapisan pemuatan Ext JS (div.x-mask): bot menunggu sampai layar bersih dulu,
-        #      sama seperti skrip asli sekolah — kalau tidak, klik/ketikan bisa tertelan.
+        # (3) lapisan pemuatan Ext JS (div.x-mask) ditunggu hilang dulu, seperti skrip asli
         palsu = peramban_palsu.buat("mask")
         assert palsu.mask_sisa > 0, "skenario mask harus mulai dengan lapisan terlihat"
         assert bot_uji._tunggu_lapisan(palsu, 5), "bot harus menunggu lapisan pemuatan hilang"
         assert palsu.mask_sisa == 0, "lapisan tidak pernah ditunggu sampai hilang"
-        locator, _, _ = bot_uji._cari_dengan_cadangan(palsu, "login_username", peta_uji,
-                                                      wajib=False, boleh_tak_terlihat=True)
-        hasil_isi = bot_uji._isi_dan_periksa(palsu, locator, "a@b.id", "nama pengguna")
-        assert hasil_isi["terisi"] and hasil_isi["panjang"] == len("a@b.id"), hasil_isi
-        assert palsu.unsur_bernama("email").nilai == "a@b.id", "kolom tidak terisi setelah mask"
-
-        # (3) halaman normal: selector cadangan menemukan kolom & laporan menyarankannya
-        palsu = peramban_palsu.buat("siap")
-        assert bot_uji._tunggu_formulir_login(palsu), "halaman siap harus langsung terlihat"
-        locator, nilai, _ = bot_uji._cari_dengan_cadangan(palsu, "login_username", peta_uji,
-                                                          wajib=False, boleh_tak_terlihat=True)
-        assert nilai and nilai.startswith("css:input"), f"cadangan login tidak dipakai: {nilai!r}"
-        locator_tombol, nilai_tombol, _ = bot_uji._cari_dengan_cadangan(
-            palsu, "login_tombol", peta_uji, wajib=False, boleh_tak_terlihat=True)
-        assert nilai_tombol and "Masuk" in nilai_tombol, f"cadangan tombol masuk gagal: {nilai_tombol!r}"
 
         # (4) laporan "Uji koneksi Dapodik" memakai peramban palsu (tanpa Chrome)
         data_lama = bot_dapodik.config.DATA_DIR
@@ -1875,50 +1876,33 @@ def cek_bot_dapodik() -> str:
         assert not laporan.get("galat"), f"uji koneksi gagal: {laporan.get('galat')}"
         assert laporan["selector_status"]["login_password"]["keadaan"] == "ada_tak_terlihat", \
             laporan["selector_status"]
-        assert "login_password" in laporan["saran"], f"saran selector kosong: {laporan['saran']}"
-        assert json.loads(laporan["saran_json"])["login_password"].startswith("css:"), \
-            "saran_json harus JSON siap-tempel"
+        assert "saran" not in laporan and "saran_json" not in laporan, \
+            "saran selector sudah tidak dipakai lagi"
         assert any("belum terlihat" in baris for baris in laporan["catatan"]), \
             "laporan harus menjelaskan kolom yang belum terlihat"
+        halaman_bot = (Path(__file__).resolve().parent.parent
+                       / "app/templates/bot_dapodik.html").read_text(encoding="utf-8")
+        assert "Peta tombol Dapodik" in halaman_bot, \
+            "kartu hasil uji harus menunjuk cara memperbaiki selector"
+        assert "saran_json" not in halaman_bot and "pakai-saran" not in halaman_bot, \
+            "tampilan saran selector sudah tidak boleh ada"
         assert laporan["kolom"] and laporan["tombol"], "laporan harus memuat unsur halaman"
         assert Path(laporan["bukti"]).exists(), "tangkapan layar uji koneksi tidak tersimpan"
 
-        # (4b) "Sekalian coba masuk": bot benar-benar mengisi kolom, menekan tombol, lalu
-        #      memastikan halaman berpindah — bukan sekadar mencari selector.
+        # (5) "Coba masuk": bot benar-benar mengisi kolom, menekan tombol, lalu memastikan
+        #     halaman berpindah — bukan sekadar mencari selector.
         bot_dapodik.BotDapodik._buka_peramban = lambda self: peramban_palsu.buat("masuk")
         try:
             laporan_masuk = bot_dapodik.uji_dapodik(opsi_uji, coba_login=True)
         finally:
             bot_dapodik.BotDapodik._buka_peramban = asli_buka
-        assert not laporan_masuk.get("galat"), laporan_masuk.get("galat")
         masuk = laporan_masuk.get("masuk") or {}
         assert masuk.get("berhasil"), f"percobaan masuk harus berhasil: {masuk}"
         assert all(info["terisi"] for info in masuk["terisi"].values()), masuk["terisi"]
-        assert "berhasil" in masuk["pesan"].lower(), masuk["pesan"]
         assert any("Percobaan masuk" in baris for baris in laporan_masuk["catatan"]), \
             laporan_masuk["catatan"]
-        assert laporan_masuk["selector_cocok"].get("login_tombol"), "ringkasan selector lama harus tetap ada"
 
-        # (5) Tombol "Pakai saran selector" menyimpan usulan DAN langsung membuktikannya
-        #     dengan uji ulang memakai selector baru (termasuk percobaan masuk).
-        services.simpan_laporan_uji_bot(laporan)
-        services.simpan_bot_setting({"bot_selector_json": ""})
-        bot_dapodik.BotDapodik._buka_peramban = lambda self: peramban_palsu.buat("masuk")
-        try:
-            jawaban = bot_routes.pakai_saran(coba_login="1", user=admin_uji)
-        finally:
-            bot_dapodik.BotDapodik._buka_peramban = asli_buka
-        tersimpan = json.loads(services.bot_setting()["bot_selector_json"] or "{}")
-        assert tersimpan.get("login_password", "").startswith("css:input"), tersimpan
-        tautan = jawaban.headers.get("location", "")
-        assert "BERHASIL" in tautan.replace("+", " "), f"uji ulang tidak dilaporkan: {tautan}"
-        laporan_baru = services.laporan_uji_bot()
-        assert (laporan_baru.get("masuk") or {}).get("berhasil"), "laporan uji ulang tidak menyimpan hasil masuk"
-        services.simpan_bot_setting({"bot_selector_json": ""})  # bersihkan untuk uji berikutnya
-        services.set_setting(services.KUNCI_UJI_BOT, "")
-
-        # (5b) Kredensial belum diisi: uji harus menyarankan mengisi «Pengaturan», bukan
-        #      menyalahkan kolom/peramban.
+        # (6) Kredensial belum diisi: uji harus menunjuk «Pengaturan», bukan menyalahkan kolom.
         services.simpan_bot_setting({"bot_username": "", "bot_password": ""})
         bot_dapodik.BotDapodik._buka_peramban = lambda self: peramban_palsu.buat("masuk")
         try:
@@ -1926,11 +1910,11 @@ def cek_bot_dapodik() -> str:
         finally:
             bot_dapodik.BotDapodik._buka_peramban = asli_buka
         pesan_kosong = (laporan_kosong.get("masuk") or {}).get("pesan", "")
-        assert "Pengaturan" in pesan_kosong and not (laporan_kosong["masuk"]).get("berhasil"), pesan_kosong
+        assert "Pengaturan" in pesan_kosong and not (laporan_kosong["masuk"]).get("berhasil"), \
+            pesan_kosong
         services.simpan_bot_setting({"bot_username": "bot.uji@contoh.id", "bot_password": "rahasia"})
 
-        # (6) Tombol "Uji koneksi Dapodik" dari halaman meneruskan pilihan coba masuk /
-        #     jendela tampak, dan pesannya tidak lagi menyalahkan kredensial pengguna.
+        # (7) Rute "Uji koneksi Dapodik" meneruskan pilihan "coba masuk" & "jendela tampak".
         bot_dapodik.BotDapodik._buka_peramban = lambda self: peramban_palsu.buat("kolom_tersembunyi")
         try:
             jawaban = bot_routes.uji_koneksi(coba_login="1", tampak="0", user=admin_uji)
@@ -1939,11 +1923,50 @@ def cek_bot_dapodik() -> str:
         lokasi = jawaban.headers.get("location", "")
         assert "level=warn" in lokasi and "percobaan+masuk" in lokasi, \
             f"pesan uji harus menjelaskan percobaan masuk: {lokasi}"
+
+        # (8) Seluruh alur skrip sekolah berjalan di peramban palsu: masuk lewat XPath absolut,
+        #     klik menu tujuan, tutup popup, dua menu lanjutan, lalu satu siswa (cari NISN →
+        #     Registrasi → NIS → "Ya" → Hobi → Cita-cita → Simpan dan Tutup).
+        asli_waktu = bot_dapodik.time
+        bot_dapodik.time = _WaktuCepat(time)
+        try:
+            palsu = peramban_palsu.buat("alur_penuh")
+            bot_alur = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                              kepala=jejak.append)
+            bot_alur._login(palsu)
+            assert palsu.sudah_masuk, "bot belum berhasil masuk pada alur penuh"
+            assert palsu.unsur[0].nilai == "bot.uji@contoh.id", "kolom nama pengguna belum terisi"
+            assert palsu.unsur[1].nilai == "rahasia", "kolom kata sandi belum terisi"
+            for kunci_sel, nama in (("login_tombol", "tombol masuk"),
+                                    ("menu_tujuan", "menu tujuan"),
+                                    ("popup_tutup", "popup"),
+                                    ("menu_1", "menu pertama"),
+                                    ("menu_2", "menu kedua")):
+                nilai_sel = bot_dapodik.SELECTOR_BAWAAN[kunci_sel]
+                assert any(u.diklik for u in palsu.find_elements(*bot_alur._locator_nilai(nilai_sel))), \
+                    f"{nama} tidak diklik"
+
+            nisn_uji = "1234567890"
+            palsu.tambah_baris_siswa(nisn_uji)
+            palsu.nisn_dicari = nisn_uji
+            palsu.tambah_formulir_registrasi(nisn_uji)
+            bot_alur._proses_satu(palsu, {"nisn": nisn_uji, "nipd": "1234", "nama": "Uji"}, None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        terisi = {unsur.name: unsur.nilai for unsur in palsu.unsur if unsur.name}
+        assert terisi.get("cari_text") == nisn_uji, f"kotak pencarian NISN tidak diisi: {terisi}"
+        assert terisi.get("nipd") == "1234", f"kolom NIS tidak diisi: {terisi}"
+        assert terisi.get("id_hobby") == "Olah Raga", f"kolom Hobi tidak diisi: {terisi}"
+        assert terisi.get("id_cita") == "Pegawai Negeri Sipil / PNS", \
+            f"kolom Cita-cita tidak diisi: {terisi}"
+        assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
+        assert not hasattr(bot_routes, "pakai_saran"), "rute saran selector masih ada"
+        jejak.clear()
         services.set_setting(services.KUNCI_UJI_BOT, "")
     finally:
         bot_dapodik.SELECTOR_BAWAAN["login_username"] = galat_lama
         (bot_dapodik.SELEKTOR_UJI_DETIK, bot_dapodik.UJI_TUNGGU_PERTAMA,
-         bot_dapodik.UJI_TUNGGU_LAIN) = cepat
+         bot_dapodik.UJI_TUNGGU_LAIN, bot_dapodik.PILIHAN_TUNGGU_DETIK) = cepat
         services.simpan_bot_setting(simpan_setting)
 
     # 4c) Pemasangan pustaka bot dari dalam aplikasi memakai Python aplikasi ini.
@@ -2041,8 +2064,8 @@ def cek_bot_dapodik() -> str:
         "setelah riwayat dibersihkan, siswa lama harus bisa didaftarkan ulang"
 
     return (f"{len(kunci)} selector · antrean dari tabel students · uji coba 2 siswa sukses · "
-            f"siswa berstatus Lulus dilewati · tahan formulir login tersembunyi, lapisan pemuatan, "
-            f"& percobaan masuk sungguhan (peramban palsu) · "
+            f"siswa berstatus Lulus dilewati · alur skrip sekolah (masuk, menu, 1 siswa) "
+            f"berjalan di peramban palsu · "
             f"sekarang {len(services.bot_nisn_sukses())} NISN berhasil")
 
 

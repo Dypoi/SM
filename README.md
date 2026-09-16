@@ -450,13 +450,21 @@ Bot Dapodik **sudah aktif** di menu **Bot Dapodik** (khusus admin). Ringkasnya:
    sendiri. Bila perlu berhenti, tekan *Hentikan bot* (siswa yang sedang diproses
    diselesaikan lebih dulu).
 
+**Alur bot = alur skrip Selenium sekolah**, langkah demi langkah: buka alamat → tunggu
+kolom nama pengguna tampil → isi nama pengguna & kata sandi → tekan tombol masuk → tunggu
+2 detik → klik menu tujuan (mis. *Peserta Didik*) → tunggu 5 detik → tutup popup bila
+muncul → tunggu 2 detik → klik dua menu lanjutan → tunggu 2 detik. Per siswa: cari NISN →
+klik baris hasilnya → *Registrasi* → isi NIS → centang semua «Ya» → Hobi → Cita-cita →
+*Simpan dan Tutup*. Yang berbeda hanya sumber antreannya (data siswa SM, bukan Excel) dan
+cara menampilkan kemajuannya (di halaman Bot Dapodik). Bawaan **Batas tunggu elemen 15
+detik** & **3 percobaan ulang** juga sama seperti skrip itu.
+
 **Bila bot berhenti dengan pesan waktu habis / elemen tidak ditemukan** — tekan tombol
 **«Uji koneksi Dapodik»**. Bot membuka Dapodik sebentar lalu menampilkan apa yang
 sebenarnya terlihat: judul halaman, kesiapan halaman (readyState & overlay/lapisan
 pemuatan), daftar kolom isian dan tombol beserta status *terlihat/belum*, status tiap
 selector login (cocok bawaan / cocok cadangan / **ada tetapi belum terlihat** /
-tidak ditemukan), dan **usulan selector** siap pakai, plus **tangkapan layar**
-tersimpan di `data/bot/`.
+tidak ditemukan), plus **tangkapan layar** tersimpan di `data/bot/`.
 
 Ada dua pilihan pada tombol itu (boleh dipakai bersamaan):
 
@@ -470,7 +478,7 @@ Arti hasil yang paling sering muncul:
 | Hasil | Artinya | Tindakan |
 | --- | --- | --- |
 | Kolom login **“ada, belum terlihat”** | Halaman Dapodik belum selesai dimuat (atau memakai halaman pembuka) | Bot sekarang menunggu sendiri sampai kolom terlihat; kalau masih sering, naikkan *Jeda muat halaman Dapodik* ke 15–20 dan *Batas tunggu elemen* ke 60 |
-| **“tidak ditemukan”** pada satu selector | Tombol/kolom berganti nama pada versi Dapodik ini | Tekan **«Pakai saran selector & uji ulang»** pada kartu hasil uji — usulan tersimpan ke *Peta tombol Dapodik* (dipakai bot saat bekerja) dan bot langsung menguji ulang sebagai bukti |
+| **“tidak ditemukan”** pada satu selector | Tombol/kolom berganti nama pada versi Dapodik ini | Bandingkan dengan daftar *unsur yang terbaca pada halaman* di kartu yang sama, lalu sesuaikan nilainya di **«Peta tombol Dapodik»** (Pengaturan Bot) — cukup sekali, dan bot memakainya untuk semua pekerjaan berikutnya |
 | **Percobaan masuk belum berhasil** | Halaman belum berpindah setelah tombol masuk ditekan | Lihat pesan di bawahnya (mis. pesan penolakan Dapodik), lalu ulangi uji dengan centang **Jendela tampak** untuk melihat langsung apa yang terjadi |
 | **Tidak ada kolom sama sekali** | Alamat/port salah atau Dapodik belum berjalan | Buka `http://localhost:5774/` di Chrome biasa untuk memastikan |
 
@@ -478,11 +486,10 @@ Catatan penting:
 
 - Bot memproses **satu pekerjaan sekaligus**; pekerjaan kedua ditolak selama bot bekerja.
 - Bila Dapodik sekolah lambat terbuka, naikkan **Jeda muat halaman Dapodik** (bawaan
-  8 detik) dan **Batas tunggu elemen** (bawaan 30 detik) pada Pengaturan Bot.
+  5 detik) dan **Batas tunggu elemen** (bawaan 15 detik, sama seperti skrip sekolah).
 - Bila Dapodik berganti versi, bot masih mencoba **selector cadangan** (mis. mencari
-  tombol lewat tulisannya) bahkan **mengenali sendiri** kolom login dari halaman, lalu
-  menuliskan selector yang dipakainya pada catatan pekerjaan supaya bisa disalin ke
-  *Peta tombol Dapodik*.
+  tombol lewat tulisannya) dan menuliskan selector mana yang benar-benar dipakai pada
+  catatan pekerjaan, supaya bisa disalin ke *Peta tombol Dapodik*.
 - Bila kolom login sudah ada di halaman tetapi belum terlihat (Dapodik masih memuat),
   bot menunggu lebih dulu, dan sebagai jalan terakhir mengisi kolom lewat skrip supaya
   pekerjaan tidak langsung gagal.
@@ -576,7 +583,7 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 │   └── static/css/app.css, static/js/app.js
 ├── scripts/
 │   ├── cek_sistem.py          # pemeriksaan mandiri 24 titik uji
-│   ├── peramban_palsu.py      # peramban tiruan untuk menguji bot tanpa Chrome
+│   ├── peramban_palsu.py      # peramban tiruan (alur penuh bot) untuk uji tanpa Chrome
 │   └── buat_template.py       # pembuat berkas template impor
 ├── template-import/           # contoh.xlsx berisi data fiktif (aman dibagikan)
 ├── sample-data/               # berkas Dapodik asli (tidak di-commit, berisi data pribadi)

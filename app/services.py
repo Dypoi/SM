@@ -1630,10 +1630,10 @@ BOT_BAWAAN: dict[str, str] = {
     "bot_jawaban_ya": "1",       # centang semua pilihan "Ya"
     "bot_headless": "1",         # bekerja di belakang layar (tanpa jendela)
     "bot_simulasi": "0",         # 1 = uji coba tanpa membuka peramban
-    "bot_timeout": "30",         # batas tunggu elemen (Dapodik dimuat lambat)
+    "bot_timeout": "15",         # batas tunggu elemen — sama seperti skrip bot sekolah
     "bot_max_retries": "3",
     "bot_jeda": "1",             # jeda antar siswa (detik)
-    "bot_jeda_muat": "8",        # jeda tambahan setelah halaman selesai dimuat (detik)
+    "bot_jeda_muat": "5",        # jeda tambahan setelah halaman selesai dimuat (detik)
     "bot_selector_json": "",     # kosong = pakai peta bawaan
     "bot_pakai_nisn": "0",       # 1 = isi NIS dengan NISN bila NIPD kosong
 }

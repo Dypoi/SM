@@ -177,6 +177,12 @@
       {% endif %}
 
       <div class="section-title">Status selector login</div>
+      <p class="muted" style="font-size:.8rem; margin:.1rem 0 .4rem">
+        Bot memakai selector pada «Peta tombol Dapodik» (Pengaturan Bot). Bila ada yang
+        <strong>tidak ditemukan</strong> atau <strong>ada tetapi belum terlihat</strong>,
+        naikkan «Jeda muat halaman Dapodik» lalu uji lagi — atau sesuaikan nilainya di
+        «Peta tombol Dapodik».
+      </p>
       <div class="table-wrap compact">
         <table class="data tabel-kecil kartu">
           <caption class="sr-only">Status selector tombol Dapodik</caption>
@@ -200,17 +206,6 @@
           </tbody>
         </table>
       </div>
-
-      {% if laporan_uji.saran %}
-      <div class="section-title">Saran selector (dari halaman ini)</div>
-      <pre class="mono-blok" style="max-height:180px">{{ laporan_uji.saran_json }}</pre>
-      <form method="post" action="/bot-dapodik/pakai-saran" class="inline-form mt-1">
-        <input type="hidden" name="coba_login" value="1">
-        <input type="hidden" name="tampak" value="{{ '0' if laporan_uji.headless else '1' }}">
-        <button class="btn btn-primary btn-sm" type="submit">{{ icon('check') }} Pakai saran selector &amp; uji ulang</button>
-        <span class="hint">Selector yang tidak ketemu diganti usulan di atas (tersimpan di <em>Peta tombol Dapodik</em>, dipakai bot saat bekerja), lalu bot langsung mencoba masuk lagi sebagai bukti.</span>
-      </form>
-      {% endif %}
 
       <details class="filter-panel mt-2">
         <summary>Unsur yang terbaca pada halaman ({{ (laporan_uji.kolom | length) + (laporan_uji.tombol | length) }})</summary>
@@ -490,8 +485,11 @@
                         placeholder='{"cari_nisn": "name:cari_text"}' class="mono-blok">{{ cfg.bot_selector_json }}</textarea>
               <span class="hint">
                 Kosongkan untuk memakai bawaan. Isi hanya bila Dapodik berubah versi, mis.
-                <code>{"input_nis": "name:nipd_baru"}</code>. Nama yang boleh diubah:
-                {{ selector_kunci | join(', ') }}.
+                <code>{"input_nis": "name:nipd_baru"}</code>. Bentuk yang diterima:
+                <code>name:cari_text</code>, <code>css:input[name=nipd]</code>,
+                <code>xpath://*[@id="ext-element-66"]</code>, atau XPath apa adanya
+                (<code>//…</code> maupun <code>/html/body/…</code>).
+                Nama yang boleh diubah: {{ selector_kunci | join(', ') }}.
               </span>
             </div>
           </div>

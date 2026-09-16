@@ -6,7 +6,8 @@ kolom yang belum terlihat, dan mengenali selector sendiri.
 
 Skenario yang tersedia: ``splash`` (halaman pembuka), ``kolom_tersembunyi`` (persis
 laporan PC sekolah), ``siap``, ``mask`` (masih tertutup lapisan loading Ext JS),
-``masuk`` (login berhasil setelah tombol ditekan), ``xpath_bawaan``, ``kosong``.
+``masuk`` (login berhasil setelah tombol ditekan), ``alur_penuh`` (halaman login,
+menu, tabel, dan formulir Registrasi persis skrip sekolah), ``xpath_bawaan``, ``kosong``.
 
 Kelas di sini meniru bagian API Selenium WebDriver yang dipakai ``app/bot_dapodik``
 secukupnya (``find_element``, ``find_elements``, ``execute_script``, ``is_displayed``,
@@ -16,6 +17,7 @@ direproduksi. **Hanya untuk pengujian** — aplikasi tidak memakainya.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from selenium.common.exceptions import (ElementNotInteractableException,
@@ -42,6 +44,8 @@ class UnsurPalsu:
         self.diklik = 0
         self.diketik: list[str] = []
         self.kelas = sifat.get("kelas", "")
+        #: XPath absolut skrip sekolah, mis. /html/body/div[5]/div[2]/form/input
+        self.jalur = sifat.get("jalur", "")
 
     # ------------------------------------------------------------ atribut --- #
     def get_attribute(self, nama: str) -> str | None:
@@ -79,6 +83,8 @@ class UnsurPalsu:
             # Tombol kirim formulir login: halaman berpindah ke daftar peserta didik.
             self.peramban.sudah_masuk = True
             self.peramban.unsur.append(UnsurPalsu(self.peramban, "a", teks="Peserta Didik"))
+        if self.peramban.skenario == "alur_penuh" and self.teks.strip().lower() == "masuk":
+            self.peramban.buka_daftar_peserta_didik()
 
     def click(self) -> None:
         if not self.is_displayed():
@@ -131,6 +137,7 @@ class PerambanPalsu:
         self.judul = "Dapodik"
         self.buka_formulir = skenario != "splash"
         self.sudah_masuk = False
+        self.nisn_dicari = ""
         #: berapa kali lapisan loading (div.x-mask) masih terlihat saat ditanya
         self.mask_sisa = 2 if skenario == "mask" else 0
         self.skrip: list[str] = []
@@ -183,6 +190,13 @@ class PerambanPalsu:
             self.unsur.append(UnsurPalsu(self, "input", type="password", name="password",
                                          placeholder="Kata sandi"))
             self.unsur.append(UnsurPalsu(self, "button", teks="Masuk", id="form2"))
+        elif self.skenario == "alur_penuh":
+            # Halaman login persis selector bawaan skrip sekolah (XPath absolut).
+            self.unsur.append(UnsurPalsu(self, "input", type="text", name="",
+                                         jalur="/html/body/div[5]/div[2]/form/input"))
+            self.unsur.append(UnsurPalsu(self, "input", type="password", name="",
+                                         jalur="/html/body/div[5]/div[2]/form/div[1]/input"))
+            self.unsur.append(UnsurPalsu(self, "button", teks="Masuk", id="form2"))
         elif self.skenario == "xpath_bawaan":
             # Halaman yang cocok dengan skrip bot asli (selector bawaan semuanya tepat).
             self.unsur.append(UnsurPalsu(self, "input", type="text", name="username",
@@ -190,12 +204,52 @@ class PerambanPalsu:
             self.unsur.append(UnsurPalsu(self, "input", type="password", name="password"))
             self.unsur.append(UnsurPalsu(self, "button", teks="Masuk", id="form2"))
 
+    def buka_daftar_peserta_didik(self) -> None:
+        """Setelah login (skenario alur_penuh): tampilkan menu, pencarian, dan tabel siswa."""
+        if self.sudah_masuk:
+            return
+        self.sudah_masuk = True
+        self.judul = "Dapodik - Peserta Didik"
+        for unsur in self.unsur:
+            if unsur.jalur.startswith("/html/body/div[5]"):
+                unsur.terlihat = False      # formulir login ditinggalkan halaman
+        self.unsur.extend([
+            UnsurPalsu(self, "button", teks="", jalur="/html/body/div[1]/ul/li[2]/div/a/button"),
+            UnsurPalsu(self, "a", teks="Tutup", jalur="/html/body/div[11]/div[2]/div[2]/div/div/a[1]"),
+            UnsurPalsu(self, "span", teks="Pendaftaran", id="ext-element-76"),
+            UnsurPalsu(self, "span", teks="Peserta Didik", id="ext-element-66"),
+            UnsurPalsu(self, "input", type="text", name="cari_text"),
+        ])
+
+    def tambah_baris_siswa(self, nisn: str) -> None:
+        """Tambahkan satu baris tabel Ext JS untuk NISN tertentu (skenario alur_penuh)."""
+        self.unsur.append(UnsurPalsu(self, "tr", kelas="x-grid-row", teks=nisn))
+
+    def tambah_formulir_registrasi(self, nisn: str) -> None:
+        """Tambahkan unsur formulir Registrasi seperti pada Dapodik (skenario alur_penuh)."""
+        self.unsur.extend([
+            UnsurPalsu(self, "span", kelas="x-btn-inner-soft-green-small", teks="Registrasi"),
+            UnsurPalsu(self, "input", type="text", name="nipd"),
+            UnsurPalsu(self, "input", type="text", name="id_hobby"),
+            UnsurPalsu(self, "input", type="text", name="id_cita"),
+            UnsurPalsu(self, "span", kelas="x-btn-inner-default-small", teks="Simpan dan Tutup"),
+        ])
+
     def _terlihat_otomatis(self, unsur: UnsurPalsu) -> bool:
         """Skenario splash: kolom login baru terlihat setelah tombol pembuka diklik."""
         if self.skenario == "splash" and unsur.type in ("text", "password"):
             return self.buka_formulir
         if self.skenario == "masuk" and unsur.type in ("text", "password", "email"):
             return not self.sudah_masuk      # setelah login berhasil formulir hilang
+        if self.skenario == "alur_penuh" and (unsur.jalur.startswith("/html/body/div[5]") or
+                                              unsur.jalur.startswith("/html/body/div[1]") or
+                                              unsur.jalur.startswith("/html/body/div[11]")):
+            # formulir login hanya sebelum masuk; menu & popup hanya sesudah masuk
+            if unsur.jalur.startswith("/html/body/div[5]"):
+                return not self.sudah_masuk
+            return self.sudah_masuk
+        if self.skenario == "alur_penuh" and unsur.tag_name == "tr":
+            return self.sudah_masuk and unsur.teks == self.nisn_dicari
         return unsur.terlihat
 
     # ------------------------------------------------------------ pencarian - #
@@ -213,18 +267,28 @@ class PerambanPalsu:
         if bagian.startswith("xpath:"):
             bagian = bagian[6:]
         if bagian.startswith("//"):
-            if '@id="form2"' in bagian:
-                return unsur.id == "form2"
-            if "contains(normalize-space()" in bagian or "contains(., '" in bagian:
-                # cuplikan teks yang dicari, mis. contains(normalize-space(), 'Masuk')
-                for penanda in ("normalize-space(), ", "., "):
-                    if penanda in bagian:
-                        potongan = bagian.split(penanda, 1)[1]
-                        potongan = potongan.split(")")[0].strip().strip("'\"")
-                        return potongan.lower() in (unsur.teks or "").lower()
+            # Saringan berdasarkan @id (mis. //*[@id="ext-element-76"])
+            id_dicari = re.findall(r'@id\s*=\s*"([^"]+)"', bagian) + \
+                        re.findall(r"@id\s*=\s*'([^']+)'", bagian)
+            if id_dicari:
+                return all(unsur.id == satu for satu in id_dicari)
+            teks_unsur = " ".join([unsur.teks or "", unsur.nilai or ""]).lower()
+            for penanda in ("normalize-space(), ", "., "):
+                if penanda in bagian:
+                    # ambil teks di dalam tanda kutip pertama setelah penanda,
+                    # mis. contains(normalize-space(), "Simpan dan Tutup")
+                    sisa = bagian.split(penanda, 1)[1]
+                    cocok = re.search(r"['\"]([^'\"]+)['\"]", sisa)
+                    if not cocok:
+                        return False
+                    return cocok.group(1).lower() in teks_unsur
+            if "contains(@class" in bagian:
+                kelas = bagian.split("contains(@class", 1)[1]
+                kelas = kelas.split(",")[1].split(")")[0].strip().strip("'\"")
+                return kelas.lower() in (unsur.kelas or "").lower()
             return False
         if bagian.startswith("/html/") or bagian.startswith("/body"):
-            return False
+            return bool(unsur.jalur) and (unsur.jalur == bagian or unsur.jalur.startswith(bagian))
         sisa = bagian
         tag = ""
         for awal in ("input", "button", "select", "textarea", "a", "form", "*"):
@@ -294,9 +358,10 @@ class PerambanPalsu:
             return 0
         if "document.readyState" in skrip and "return" in skrip and "kolom" not in skrip:
             return "complete"
-        if "input[type=password], input[type=email], input[type=text]" in skrip:
-            return any(self._terlihat_otomatis(u) and u.tag_name == "input"
-                       and u.type in ("password", "email", "text") for u in self.unsur)
+        if "input[type=password]" in skrip:
+            # _formulir_terlihat: penanda formulir login = kolom sandi yang terlihat.
+            return any(self._terlihat_otomatis(u) and u.tag_name == "input" and u.type == "password"
+                       for u in self.unsur)
         if "p.style.display = 'block'" in skrip or "p.style.display" in skrip:
             # _paksa_terlihat: unsur jadi terlihat (dipakai bila kolom tersembunyi).
             if argumen:
@@ -355,7 +420,8 @@ class PerambanPalsu:
         return [u.teks or u.id for u in self.unsur if u.diklik]
 
 
-SKENARIO = ("splash", "kolom_tersembunyi", "siap", "mask", "masuk", "xpath_bawaan", "kosong")
+SKENARIO = ("splash", "kolom_tersembunyi", "siap", "mask", "masuk", "alur_penuh",
+            "xpath_bawaan", "kosong")
 
 
 def buat(skenario: str = "splash") -> PerambanPalsu:
