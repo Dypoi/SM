@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import pathlib
 import shutil
 import sys
 import tempfile
@@ -301,6 +302,38 @@ def cek_pembaruan():
         info_git = updater.informasi_git()
         assert info_git["cabang"], "nama cabang git tidak terbaca"
         assert updater.cabang_target() == (updater.services.get_setting("update_cabang") or info_git["cabang"])
+
+    # Perintah buka jendela server baru (Windows) harus aman: judul jendela
+    # ditulis "" supaya cmd tidak mengira judul itu nama program.
+    baris_windows = updater.perintah_windows()
+    assert 'start ""' in baris_windows, f"judul jendela start harus kosong: {baris_windows}"
+    assert baris_windows.index('start ""') < baris_windows.index("/D"), "urutan start /D salah"
+    assert f'/D "{updater.BASE_DIR}"' in baris_windows, "folder aplikasi belum dipakai sebagai /D"
+    berkas_bat = updater.tulis_berkas_jalankan_ulang()
+    assert berkas_bat.exists(), "berkas peluncur ulang tidak dibuat"
+    assert str(berkas_bat) in baris_windows, "perintah tidak menunjuk berkas peluncur ulang"
+    isi_bat = berkas_bat.read_bytes().decode("utf-8")
+    assert isi_bat.startswith("@echo off"), "berkas peluncur ulang tidak diawali @echo off"
+    assert "\r\n" in isi_bat, "berkas .bat harus memakai akhir baris Windows (CRLF)"
+    import subprocess as _subprocess
+    baris_perintah = _subprocess.list2cmdline(updater.perintah_restart())
+    assert baris_perintah in isi_bat, "berkas peluncur ulang tidak memuat perintah server"
+    assert f'cd /d "{updater.BASE_DIR}"' in isi_bat, "berkas peluncur ulang tidak pindah folder"
+    assert "ping -n 3" in isi_bat, "berkas peluncur ulang tidak menunggu server lama berhenti"
+    # Peluncur cadangan SM.cmd: dipakai saat kode lama masih berjalan (transisi).
+    launcher = updater.BASE_DIR / "SM.cmd"
+    if launcher.exists():
+        isi_cmd = launcher.read_bytes().decode("utf-8")
+        assert "run.py" in isi_cmd, "SM.cmd tidak menjalankan run.py"
+        assert "\r\n" in isi_cmd, "SM.cmd harus memakai CRLF"
+    # Di Linux/macOS fungsi ini harus gagal dengan baik (mengembalikan False, tanpa
+    # mematikan proses). Di Windows TIDAK dipanggil di sini agar tidak membuka
+    # jendela server kedua saat pemeriksaan berjalan.
+    if os.name != "nt":
+        assert updater._mulai_ulang_windows() is False, "jalur gagal harus mengembalikan False"
+    kode_updater = pathlib.Path(updater.__file__).read_text(encoding="utf-8")
+    assert '["cmd", "/c", "start"' not in kode_updater, \
+        "jangan memakai bentuk list untuk start (judul tanpa kutip dianggap nama program)"
 
     # Tanda muat ulang: dibuat, belum dijalankan seketika, lalu bisa dibatalkan.
     updater.batalkan_muat_ulang()

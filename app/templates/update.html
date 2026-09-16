@@ -74,7 +74,8 @@
           </form>
           {% endif %}
           {% if status.butuh_muat_ulang %}
-          <form method="post" action="/pembaruan/muat-ulang">
+          <form method="post" action="/pembaruan/muat-ulang"
+                data-confirm="Muat ulang server sekarang? Halaman ini terputus beberapa detik. Di Windows akan terbuka jendela konsol baru untuk server.">
             <button class="btn btn-success" type="submit">{{ icon('refresh') }} Muat ulang server sekarang</button>
           </form>
           <form method="post" action="/pembaruan/batalkan-muat-ulang">
@@ -83,6 +84,13 @@
           {% endif %}
         </div>
       </div>
+    </div>
+
+    <div class="note mt-3">
+      <strong>Bila halaman ini tidak dapat dibuka lagi setelah muat ulang</strong>, berarti server
+      sedang tidak berjalan. Buka folder aplikasi, lalu klik dua kali berkas
+      <span class="mono">run.bat</span> (Windows) untuk menyalakannya kembali — data siswa tidak
+      terpengaruh.
     </div>
 
     {% if status.butuh_muat_ulang %}

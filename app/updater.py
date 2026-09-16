@@ -702,30 +702,99 @@ def perlu_muat_ulang() -> bool:
     return umur >= JEDA_MUAT_ULANG
 
 
-def _mulai_ulang_windows() -> None:
+def berkas_jalankan_ulang() -> Path:
+    """Berkas .bat yang dipakai untuk menyalakan server kembali di Windows."""
+    return config.DATA_DIR / "jalankan-ulang.bat"
+
+
+def tulis_berkas_jalankan_ulang() -> Path:
+    """Tulis berkas .bat peluncur ulang.
+
+    Perintah dijalankan dari berkas supaya tidak ada masalah tanda kutip saat
+    Windows membuka jendela konsol baru (mis. folder aplikasi yang mengandung
+    spasi).
+    """
+    config.ensure_dirs()
+    target = berkas_jalankan_ulang()
+    baris_perintah = subprocess.list2cmdline(perintah_restart())
+    isi = [
+        "@echo off",
+        "rem Berkas ini dibuat otomatis oleh aplikasi saat memuat ulang server.",
+        "rem Jendela ini menjalankan server SM; tutup jendela untuk mematikannya.",
+        "chcp 65001 >nul",
+        "title SM - Sistem Informasi Manajemen Sekolah",
+        f'cd /d "{BASE_DIR}"',
+        "set PYTHONIOENCODING=utf-8",
+        "set PYTHONUTF8=1",
+        "rem Tunggu sebentar supaya server lama sempat melepas port.",
+        "ping -n 3 127.0.0.1 >nul 2>&1",
+        baris_perintah,
+        "echo.",
+        "echo Server berhenti. Periksa pesan di atas, lalu jalankan run.bat lagi.",
+    ]
+    target.write_text("\r\n".join(isi) + "\r\n", encoding="utf-8", newline="")
+    return target
+
+
+def perintah_windows() -> str:
+    """Baris perintah (cmd) untuk membuka jendela server baru di Windows.
+
+    Judul jendela ditulis sebagai ``""`` — inilah kunci perbaikannya: perintah
+    ``start`` hanya memperlakukan argumen pertama sebagai judul bila diberi tanda
+    kutip. Tanpa tanda kutip, Windows malah mengira itu nama program ("Windows
+    cannot find 'SM'").
+    """
+    comspec = os.environ.get("COMSPEC") or "cmd.exe"
+    komando = os.environ.get("COMSPEC") or "cmd"
+    return f'{comspec} /c start "" /D "{BASE_DIR}" {komando} /k "{berkas_jalankan_ulang()}"'
+
+
+def _mulai_ulang_windows() -> bool:
     """Buka jendela konsol baru yang menjalankan server (khusus Windows).
 
-    ``os.execv`` di Windows membuat proses baru ber-PID berbeda sehingga jendela
-    ``run.bat`` yang ber-``pause`` bisa ikut tertutup dan mematikan server. Karena
-    itu server dijalankan di jendela konsol baru yang terpisah.
+    ``os.execv`` di Windows membuat proses ber-PID berbeda sehingga jendela
+    ``run.bat`` yang ber-``pause`` bisa ikut tertutup dan mematikan server.
+    Karena itu server dijalankan di jendela konsol baru yang terpisah.
+
+    Mengembalikan ``False`` bila jendela baru gagal dibuka — pemanggil harus
+    tetap mempertahankan server yang sedang berjalan.
     """
-    perintah = perintah_restart()
-    baris = subprocess.list2cmdline(perintah)
+    try:
+        tulis_berkas_jalankan_ulang()
+    except OSError as exc:  # pragma: no cover - folder data tidak bisa ditulis
+        print(f"Gagal menyiapkan berkas peluncur ulang: {exc}")
+
     bendera = 0
     for nama in ("DETACHED_PROCESS", "CREATE_NEW_PROCESS_GROUP"):
         bendera |= int(getattr(subprocess, nama, 0))
+
+    # Cara 1: buka jendela konsol baru lewat cmd + start (baris perintah utuh,
+    # tanpa list2cmdline, supaya tanda kutipnya persis seperti yang dibutuhkan).
     try:
         subprocess.Popen(
-            ["cmd", "/c", "start", "SM", "/D", str(BASE_DIR), "cmd", "/k", baris],
+            perintah_windows(),
             cwd=str(BASE_DIR),
             creationflags=bendera,
             close_fds=True,
             stdin=subprocess.DEVNULL,
         )
         print("Jendela server baru dibuka. Jendela ini dapat ditutup.")
+        return True
     except OSError as exc:  # pragma: no cover - Windows tanpa cmd?
         print(f"Gagal membuka jendela server baru: {exc}")
-        print("Tutup jendela ini, lalu jalankan run.bat kembali.")
+
+    # Cara 2 & 3: minta Windows membukanya langsung (berkas .bat selalu dibuka
+    # di jendela konsol baru oleh Windows).
+    if hasattr(os, "startfile"):  # pragma: no cover - hanya Windows
+        for kandidat in (berkas_jalankan_ulang(), BASE_DIR / "run.bat"):
+            try:
+                os.startfile(str(kandidat))  # type: ignore[attr-defined]
+                print(f"Server dijalankan ulang lewat {kandidat.name}.")
+                return True
+            except OSError as exc:
+                print(f"Gagal menjalankan {kandidat.name}: {exc}")
+
+    return False
 
 
 def muat_ulang_sekarang() -> None:
@@ -742,8 +811,16 @@ def muat_ulang_sekarang() -> None:
     sys.stderr.flush()
 
     if os.name == "nt":
-        _mulai_ulang_windows()
-        os._exit(0)
+        if _mulai_ulang_windows():
+            os._exit(0)
+        # Jendela baru tidak bisa dibuka: jangan matikan server supaya aplikasi
+        # tetap dapat dipakai (lebih baik daripada halaman jadi "connection refused").
+        _catat_status(
+            aksi="muat_ulang", hasil="gagal_menyalakan_ulang", revisi=_rev("HEAD"),
+            perintah=" ".join(perintah_restart()),
+        )
+        print("Muat ulang dibatalkan. Tutup jendela ini, lalu jalankan run.bat kembali.")
+        return
 
     os.execv(perintah_restart()[0], perintah_restart())
 

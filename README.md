@@ -144,6 +144,9 @@ kejadiannya tercatat di **Pengaturan → Audit** serta halaman Pembaruan.
 | Bagaimana kalau ada perubahan kode lokal? | Penarikan otomatis dibatalkan agar tidak ada pekerjaan yang hilang. Jalankan `git status` untuk melihat berkasnya. |
 | Cadangan ada di mana? | `data/backup/sm-YYYYmmdd-HHMMSS.sqlite3`, dibuat otomatis sebelum penarikan (10 terbaru disimpan). |
 | Komputer tanpa internet? | Matikan "Periksa pembaruan otomatis" pada halaman Pembaruan; aplikasi tetap berjalan normal. |
+| Di Windows, apa yang terjadi saat "Muat ulang server sekarang"? | Aplikasi menulis berkas `data/jalankan-ulang.bat`, lalu membuka **jendela konsol baru** yang menjalankannya. Jendela lama (server sebelum pembaruan) otomatis berhenti dan boleh ditutup. Tunggu 5–10 detik, lalu muat ulang halaman di browser. |
+| Ada peluncur lain selain `run.bat`? | Ya, `SM.cmd` — sama seperti `run.bat` tetapi tanpa memasang dependensi (lebih cepat dipakai sehari-hari bila `.venv` sudah ada). |
+| Setelah muat ulang halaman malah "tidak dapat diakses"? | Berarti server sedang tidak berjalan. Buka folder aplikasi dan klik dua kali **`run.bat`**. Data siswa tidak terpengaruh. Bila jendela konsol baru memang tidak muncul, jalankan `run.bat` secara manual sekali, lalu coba lagi. |
 
 ### Opsi lain
 
