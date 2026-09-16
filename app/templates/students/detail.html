@@ -113,7 +113,11 @@
               <li>
                 <strong>{{ item.nama }}</strong>
                 <div class="muted" style="font-size:.78rem">
-                  {{ item.kategori or '-' }} · {{ item.jabatan }}{% if item.hari %} · {{ item.hari }}{% endif %}
+                  {{ item.jabatan }}{% if item.hari %} · {{ item.hari }}{% endif %}
+                  {% if item.pembina %} · Pembina {{ item.pembina }}{% endif %}
+                  {% if item.pelatih %} · Pelatih {{ item.pelatih }}{% endif %}
+                  {% if item.predikat %} · Nilai {{ item.predikat }}{% endif %}
+                  {% if item.catatan %}<div class="muted" style="font-size:.76rem">Catatan: {{ item.catatan }}</div>{% endif %}
                   {% if item.predikat %} · Predikat {{ item.predikat }}{% endif %}
                 </div>
               </li>

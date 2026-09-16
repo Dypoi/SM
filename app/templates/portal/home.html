@@ -89,14 +89,17 @@
         <div class="card card-tight">
           <div class="card-body">
             <strong>{{ item.nama }}</strong>
-            <div class="muted" style="font-size:.78rem">{{ item.kategori or 'Lainnya' }} · {{ item.jabatan }}</div>
+            <div class="muted" style="font-size:.78rem">{{ item.jabatan }}</div>
             <div class="muted" style="font-size:.78rem">
               {% if item.hari %}{{ item.hari }}{% endif %}
-              {% if item.jam_mulai %} {{ item.jam_mulai }}–{{ item.jam_selesai }}{% endif %}
-              {% if item.tempat %} · {{ item.tempat }}{% endif %}
+              {% if item.jam_mulai %} {{ item.jam_mulai }}{% if item.jam_selesai %}–{{ item.jam_selesai }}{% endif %}{% endif %}
             </div>
-            {% if item.pembina %}<div class="muted" style="font-size:.78rem">Pembina: {{ item.pembina }}</div>{% endif %}
-            {% if item.predikat %}<span class="badge badge-success mt-1">Predikat {{ item.predikat }}</span>{% endif %}
+            <div class="muted" style="font-size:.78rem">
+              {% if item.pembina %}Pembina: {{ item.pembina }}{% endif %}
+              {% if item.pelatih %}{% if item.pembina %} · {% endif %}Pelatih: {{ item.pelatih }}{% endif %}
+            </div>
+            {% if item.predikat %}<span class="badge badge-success mt-1">Nilai {{ item.predikat }}</span>{% endif %}
+            {% if item.catatan %}<div class="muted" style="font-size:.76rem">Catatan: {{ item.catatan }}</div>{% endif %}
           </div>
         </div>
         {% endfor %}

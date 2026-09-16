@@ -20,14 +20,18 @@
         {% for item in diikuti %}
         <tr>
           <td><strong>{{ item.nama }}</strong></td>
-          <td><span class="chip chip-muted">{{ item.kategori or 'Lainnya' }}</span></td>
+          <td>
+            {% if item.hari %}
+              {{ item.hari }}{% if item.jam_mulai %} {{ item.jam_mulai }}{% if item.jam_selesai %}–{{ item.jam_selesai }}{% endif %}{% endif %}
+            {% else %}—{% endif %}
+          </td>
           <td class="nowrap">
             {% if item.hari %}{{ item.hari }}{% endif %}
             {% if item.jam_mulai %}, {{ item.jam_mulai }}{% if item.jam_selesai %}–{{ item.jam_selesai }}{% endif %}{% endif %}
             {% if not item.hari and not item.jam_mulai %}—{% endif %}
           </td>
-          <td>{{ item.tempat or '—' }}</td>
           <td>{{ item.pembina or '—' }}</td>
+          <td>{{ item.pelatih or '—' }}</td>
           <td>{{ item.jabatan }}</td>
           <td>{% if item.predikat %}<span class="badge badge-success">{{ item.predikat }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
         </tr>
@@ -53,15 +57,20 @@
         <div class="card-body">
           <div class="flex between">
             <strong>{{ item.nama }}</strong>
-            {% if item.kuota %}<span class="badge badge-muted">{{ item.jumlah_anggota }}/{{ item.kuota }}</span>{% endif %}
+            <span class="badge badge-muted">{{ item.jumlah_anggota }} anggota</span>
           </div>
-          <div class="muted" style="font-size:.79rem">{{ item.kategori or 'Lainnya' }}</div>
+          <div class="muted" style="font-size:.79rem">
+            {{ item.hari or 'jadwal belum diisi' }}{% if item.jam_mulai %} {{ item.jam_mulai }}{% endif %}
+          </div>
           <div class="soft" style="font-size:.82rem">
             {% if item.hari %}{{ item.hari }}{% endif %}
             {% if item.jam_mulai %} {{ item.jam_mulai }}–{{ item.jam_selesai }}{% endif %}
-            {% if item.tempat %} · {{ item.tempat }}{% endif %}
           </div>
-          {% if item.pembina %}<div class="muted" style="font-size:.78rem">Pembina: {{ item.pembina }}</div>{% endif %}
+          <div class="muted" style="font-size:.78rem">
+            {% if item.pembina %}Pembina: {{ item.pembina }}{% endif %}
+            {% if item.pembina and item.pelatih %} · {% endif %}
+            {% if item.pelatih %}Pelatih: {{ item.pelatih }}{% endif %}
+          </div>
         </div>
       </div>
       {% else %}

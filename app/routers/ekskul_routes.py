@@ -6,13 +6,22 @@ import csv
 import io
 from urllib.parse import quote_plus
 
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font
+
+from .. import config
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse, Response
 
 from .. import auth, services
+from ..pdf import buat_pdf_tabel
 from ..web import render
 
 router = APIRouter()
+
+#: Jabatan yang biasa dipakai dalam ekstrakurikuler.
+JABATAN_OPTIONS = ("Anggota", "Ketua", "Wakil Ketua", "Sekretaris", "Bendahara", "Pelatih")
 
 
 def _redirect(pesan: str, level: str = "ok", target: str = "/ekstrakurikuler"):
@@ -46,10 +55,11 @@ def daftar_ekskul(request: Request, user: auth.SessionUser = Depends(auth.requir
             "page_title": "Ekstrakurikuler",
             "daftar": services.list_ekskul(),
             "stats": services.ekskul_stats(),
-            "kategori_options": services.EKSKUL_KATEGORI,
             "hari_options": services.HARI_OPTIONS,
             "edit_item": edit_item,
-            "kategori": services.ekskul_by_kategori(),
+            "ringkasan": services.ekskul_ringkas(limit=8),
+            "jumlah_akun": {baris["id"]: services.akun_ekskul_ekskul(int(baris["id"]))
+                            for baris in services.list_ekskul()},
         },
     )
 
@@ -58,29 +68,23 @@ def daftar_ekskul(request: Request, user: auth.SessionUser = Depends(auth.requir
 def simpan_ekskul(
     request: Request,
     ekskul_id: str = Form(""),
-    kode: str = Form(""),
     nama: str = Form(""),
-    kategori: str = Form("Lainnya"),
     pembina: str = Form(""),
+    pelatih: str = Form(""),
     hari: str = Form(""),
     jam_mulai: str = Form(""),
     jam_selesai: str = Form(""),
-    tempat: str = Form(""),
-    kuota: str = Form(""),
     deskripsi: str = Form(""),
     aktif: str = Form("0"),
     user: auth.SessionUser = Depends(auth.require_staff),
 ):
     data = {
-        "kode": kode.strip().upper() or None,
         "nama": nama.strip(),
-        "kategori": kategori or "Lainnya",
         "pembina": pembina.strip() or None,
+        "pelatih": pelatih.strip() or None,
         "hari": hari or None,
         "jam_mulai": jam_mulai or None,
         "jam_selesai": jam_selesai or None,
-        "tempat": tempat.strip() or None,
-        "kuota": int(kuota) if str(kuota).strip().isdigit() else None,
         "deskripsi": deskripsi.strip() or None,
         "aktif": 1 if aktif in {"1", "on", "true"} else 0,
     }
@@ -109,11 +113,13 @@ def detail_ekskul(request: Request, ekskul_id: int, user: auth.SessionUser = Dep
             "page_title": ekskul["nama"],
             "ekskul": ekskul,
             "anggota": services.ekskul_members(ekskul_id),
-            "kategori_options": services.EKSKUL_KATEGORI,
             "hari_options": services.HARI_OPTIONS,
             "opsi_rombel": services.distinct_values("rombel"),
             "akun_ekskul": services.akun_ekskul_ekskul(ekskul_id),
             "boleh_ubah": user.is_staff,
+            "pilihan_siswa": services.pilihan_siswa_ekskul(),
+            "nilai_options": services.EKSKUL_NILAI,
+            "jabatan_options": JABATAN_OPTIONS,
         },
     )
 
@@ -140,17 +146,20 @@ def tambah_anggota(
     siswa = None
     if student_id.isdigit():
         siswa = services.get_student(int(student_id))
-    elif nisn.strip():
-        siswa = services.get_student_by_nisn(nisn.strip())
+    if siswa is None and nisn.strip():
+        # Menerima NISN maupun nama siswa (nama yang kembar harus memakai NISN).
+        siswa, galat = services.cari_siswa_ekskul(nisn)
 
     if siswa is None:
-        return _redirect("Siswa tidak ditemukan. Masukkan NISN yang benar.", level="err", target=target)
+        return _redirect(galat or "Siswa tidak ditemukan. Masukkan NISN yang benar.", level="err",
+                         target=target)
 
     member_id = services.add_ekskul_member(ekskul_id, siswa["id"], jabatan=jabatan or "Anggota",
                                            actor=user.username)
     if member_id is None:
         return _redirect(f"{siswa['nama']} sudah terdaftar di ekstrakurikuler ini.", level="warn", target=target)
-    return _redirect(f"{siswa['nama']} ditambahkan ke ekstrakurikuler.", target=target)
+    return _redirect(f"{siswa['nama']} ({siswa.get('rombel') or '-'}) masuk ke ekstrakurikuler.",
+                     target=target)
 
 
 @router.post("/ekstrakurikuler/anggota/{member_id}/hapus")
@@ -170,17 +179,20 @@ def perbarui_anggota(
     member_id: int,
     jabatan: str = Form("Anggota"),
     nilai: str = Form(""),
-    predikat: str = Form(""),
+    catatan: str = Form(""),
     status: str = Form("aktif"),
     user: auth.SessionUser = Depends(auth.require_user),
 ):
     row = services.db.query_one("SELECT ekskul_id FROM ekskul_members WHERE id = ?", (member_id,))
     if row and not _boleh_kelola(user, int(row["ekskul_id"])):
         return _tolak_kelola(user)
+    nilai_bersih = (nilai or "").strip().upper()[:1]
     data = {
         "jabatan": jabatan or "Anggota",
-        "nilai": float(nilai) if str(nilai).replace(".", "", 1).isdigit() else None,
-        "predikat": predikat or None,
+        # Nilai ekstrakurikuler memakai huruf A-D (sesuai permintaan sekolah);
+        # kolom angka lama tetap dibiarkan kosong agar tidak menyesatkan.
+        "predikat": nilai_bersih if nilai_bersih in services.EKSKUL_NILAI else None,
+        "catatan": (catatan or "").strip() or None,
         "status": status or "aktif",
     }
     services.update_ekskul_member(member_id, data, actor=user.username)
@@ -188,25 +200,134 @@ def perbarui_anggota(
     return _redirect("Data anggota diperbarui.", target=target)
 
 
+#: Kolom daftar anggota untuk semua bentuk ekspor (CSV/Excel/PDF).
+KOLOM_ANGGOTA: tuple[tuple[str, int], ...] = (
+    ("No", 30), ("Nama", 150), ("NISN", 72), ("Rombel", 45),
+    ("JK", 28), ("Jabatan", 70), ("Nilai", 32), ("Catatan", 96),
+)
+
+
+def _data_anggota(ekskul_id: int) -> tuple[dict, list[list[object]]]:
+    """(ekskul, baris) untuk keperluan ekspor."""
+    ekskul = services.get_ekskul(ekskul_id) or {}
+    baris: list[list[object]] = []
+    for index, member in enumerate(services.ekskul_members(ekskul_id), start=1):
+        baris.append([
+            index, member["nama"], member["nisn"] or "", member["rombel"] or "",
+            member["jk"] or "", member["jabatan"] or "Anggota",
+            member.get("predikat") or "", member.get("catatan") or "",
+        ])
+    return ekskul, baris
+
+
+def _subjudul_ekspor(ekskul: dict) -> list[str]:
+    profil = services.school_profile()
+    jadwal = ""
+    if ekskul.get("hari"):
+        jadwal = f" · {ekskul['hari']}"
+        if ekskul.get("jam_mulai"):
+            jadwal += f" {ekskul['jam_mulai']}"
+            if ekskul.get("jam_selesai"):
+                jadwal += f"-{ekskul['jam_selesai']}"
+    baris = [
+        str(profil.get("nama") or ""),
+        f"Ekstrakurikuler {ekskul.get('nama') or ''}{jadwal}",
+    ]
+    pendamping = []
+    if ekskul.get("pembina"):
+        pendamping.append(f"Pembina: {ekskul['pembina']}")
+    if ekskul.get("pelatih"):
+        pendamping.append(f"Pelatih: {ekskul['pelatih']}")
+    if pendamping:
+        baris.append(" · ".join(pendamping))
+    baris.append(f"Tahun ajaran {services.school_profile().get('tahun_ajaran', '-')}"
+                 f" · semester {services.school_profile().get('semester', '-')}")
+    return baris
+
+
+def _berkas_aman(teks: str) -> str:
+    return "".join(karakter if karakter.isalnum() else "-" for karakter in (teks or "ekskul")).strip("-")
+
+
 @router.get("/ekstrakurikuler/{ekskul_id}/anggota.csv")
-def ekspor_anggota(request: Request, ekskul_id: int, user: auth.SessionUser = Depends(auth.require_user)):
+def ekspor_anggota_csv(request: Request, ekskul_id: int,
+                       user: auth.SessionUser = Depends(auth.require_user)):
     ekskul = services.get_ekskul(ekskul_id)
     if ekskul is None:
         return RedirectResponse("/ekstrakurikuler", status_code=303)
     if not _boleh_kelola(user, ekskul_id):
         return _tolak_kelola(user)
+    _, baris = _data_anggota(ekskul_id)
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
-    writer.writerow(["No", "Nama", "NISN", "Rombel", "JK", "Jabatan", "Nilai", "Predikat", "Status", "Tahun Ajaran"])
-    for index, member in enumerate(services.ekskul_members(ekskul_id), start=1):
-        writer.writerow([
-            index, member["nama"], member["nisn"], member["rombel"], member["jk"],
-            member["jabatan"], member["nilai"] if member["nilai"] is not None else "",
-            member["predikat"] or "", member["status"], member["tahun_ajaran"] or "",
-        ])
-    nama_berkas = f"anggota-{(ekskul['kode'] or ekskul['id'])}.csv"
+    writer.writerow([label for label, _ in KOLOM_ANGGOTA])
+    writer.writerows(baris)
+    nama_berkas = f"anggota-{_berkas_aman(ekskul['nama'])}.csv"
     return Response(
         content=buffer.getvalue().encode("utf-8-sig"),
         media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{nama_berkas}"'},
+    )
+
+
+@router.get("/ekstrakurikuler/{ekskul_id}/anggota.xlsx")
+def ekspor_anggota_xlsx(request: Request, ekskul_id: int,
+                        user: auth.SessionUser = Depends(auth.require_user)):
+    ekskul = services.get_ekskul(ekskul_id)
+    if ekskul is None:
+        return RedirectResponse("/ekstrakurikuler", status_code=303)
+    if not _boleh_kelola(user, ekskul_id):
+        return _tolak_kelola(user)
+    _, baris = _data_anggota(ekskul_id)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Anggota"
+    ws.append([f"Daftar Anggota Ekstrakurikuler {ekskul['nama']}"])
+    ws["A1"].font = Font(bold=True, size=13)
+    for baris_sub in _subjudul_ekspor(ekskul)[1:]:
+        ws.append([baris_sub])
+    ws.append([])
+    ws.append([label for label, _ in KOLOM_ANGGOTA])
+    for sel in ws[ws.max_row]:
+        sel.font = Font(bold=True)
+        sel.alignment = Alignment(horizontal="center")
+    for item in baris:
+        ws.append(item)
+    for urutan, (label, lebar) in enumerate(KOLOM_ANGGOTA, start=1):
+        ws.column_dimensions[ws.cell(row=1, column=urutan).column_letter].width = max(9, lebar // 7)
+    ws.freeze_panes = ws.cell(row=ws.max_row - len(baris) + 1, column=1)
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    nama_berkas = f"anggota-{_berkas_aman(ekskul['nama'])}.xlsx"
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nama_berkas}"'},
+    )
+
+
+@router.get("/ekstrakurikuler/{ekskul_id}/anggota.pdf")
+def ekspor_anggota_pdf(request: Request, ekskul_id: int,
+                       user: auth.SessionUser = Depends(auth.require_user)):
+    ekskul = services.get_ekskul(ekskul_id)
+    if ekskul is None:
+        return RedirectResponse("/ekstrakurikuler", status_code=303)
+    if not _boleh_kelola(user, ekskul_id):
+        return _tolak_kelola(user)
+    _, baris = _data_anggota(ekskul_id)
+    pdf = buat_pdf_tabel(
+        judul=f"Daftar Anggota Ekstrakurikuler {ekskul['nama']}",
+        subjudul=_subjudul_ekspor(ekskul),
+        kolom=[(label, float(lebar)) for label, lebar in KOLOM_ANGGOTA],
+        baris=baris,
+        catatan_kaki=[f"{config.APP_NAME} · {services.school_profile().get('nama', '')}",
+                      "Tanda tangan pembina/pelatih: ____________________"],
+    )
+    nama_berkas = f"anggota-{_berkas_aman(ekskul['nama'])}.pdf"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{nama_berkas}"'},
     )

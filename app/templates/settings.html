@@ -238,7 +238,9 @@
           <tr>
             <td>
               <strong>{{ baris.ekskul.nama }}</strong>
-              <div class="muted" style="font-size:.76rem">{{ baris.ekskul.kategori or 'Lainnya' }}</div>
+              <div class="muted" style="font-size:.76rem">
+                {% if baris.ekskul.hari %}{{ baris.ekskul.hari }}{% if baris.ekskul.jam_mulai %} {{ baris.ekskul.jam_mulai }}{% endif %}{% else %}jadwal belum diisi{% endif %}
+              </div>
             </td>
             {% for peran in ['pembina', 'pelatih'] %}
             <td>
@@ -415,7 +417,7 @@
       </div>
       {% endif %}
       <div class="table-wrap mt-2">
-        <table class="table">
+        <table class="data kartu">
           <thead>
             <tr><th>Periksa</th><th>Keadaan</th><th>Catatan</th></tr>
           </thead>

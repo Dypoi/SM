@@ -292,7 +292,7 @@ input[type="file"] { padding: .45rem; background: #fbfdff; }
 .form-actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1rem; }
 
 /* ---------------------------------------------------------------- Tabel --- */
-.table-wrap { overflow-x: auto; }
+.table-wrap { overflow-x: auto; border-radius: 0 0 var(--radius) var(--radius); }
 table.data {
   width: 100%; border-collapse: collapse; font-size: .87rem;
 }
@@ -316,7 +316,14 @@ table.data tbody tr.row-error:hover { background: var(--danger-50); }
   overflow: auto;
   overscroll-behavior-x: contain;
 }
-.table-wrap.daftar table.data thead th { top: 0; box-shadow: 0 1px 0 var(--border); }
+/* Di dalam kotak yang menggulung sendiri, kepala tabel menempel di tepi kotak
+   (bukan di bawah bilah atas halaman) — kalau tidak, baris tampak menumpuk. */
+.table-wrap.daftar table.data thead th,
+.table-wrap.compact table.data thead th {
+  top: 0;
+  box-shadow: 0 1px 0 var(--border);
+}
+.table-wrap.compact { overscroll-behavior-x: contain; }
 table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
 table.data td.mono { font-family: var(--mono); font-size: .82rem; }
 table.data tbody tr.row-error { background: var(--danger-50); }
@@ -770,6 +777,11 @@ input.input-nisn {
   font-size: 1.15rem; font-weight: 600; letter-spacing: .12em;
   font-variant-numeric: tabular-nums; padding: .7rem .8rem;
 }
+
+/* Baris nilai anggota ekskul: jabatan, nilai, catatan, status dalam satu baris. */
+.baris-nilai { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.baris-nilai select { flex: 0 0 auto; max-width: 150px; }
+.baris-nilai input[type="text"] { flex: 1 1 180px; min-width: 140px; }
 
 /* NIK: 16 angka, mudah dibaca satu per satu */
 input.input-nik {

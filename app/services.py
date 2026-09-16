@@ -981,7 +981,7 @@ HARI_OPTIONS = ("Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu")
 # --------------------------------------------------------------------------- #
 def _akun_ekskul_sql() -> str:
     return """
-        SELECT a.*, e.nama AS ekskul_nama, e.kode AS ekskul_kode, e.kategori AS ekskul_kategori
+        SELECT a.*, e.nama AS ekskul_nama, e.pembina AS ekskul_pembina, e.pelatih AS ekskul_pelatih
           FROM ekskul_akun a JOIN extracurriculars e ON e.id = a.ekskul_id
     """
 
@@ -1036,9 +1036,38 @@ def klaim_akun_ekskul(ekskul_id: int, peran: str, nik: str, nama: str | None = N
         "INSERT INTO ekskul_akun(ekskul_id, peran, nik, nama) VALUES(?,?,?,?)",
         (ekskul_id, peran, nik, (nama or "").strip() or None),
     )
+    _sinkron_pendamping(ekskul_id, peran, nama)
     log_audit(actor or nik, "ekskul", "klaim_akun_ekskul", "ekskul_akun", akun_id,
               f"{PERAN_LABEL[peran]} {ekskul['nama']} (NIK {nik})")
     return akun_id
+
+
+def _sinkron_pendamping(ekskul_id: int, peran: str, nama: str | None) -> None:
+    """Salin nama pembina/pelatih yang masuk lewat NIK ke kolom ekskulnya.
+
+    Kolom ``pembina``/``pelatih`` tetap bisa diisi manual oleh admin, tetapi
+    begitu pendamping masuk memakai NIK, namanya otomatis mengisi kolom itu.
+    """
+    kolom = peran if peran in EKSKUL_PERAN else None
+    if not kolom:
+        return
+    nama = (nama or "").strip()
+    if not nama:
+        return
+    db.execute(
+        f"UPDATE extracurriculars SET {kolom} = ?, updated_at = datetime('now','localtime') WHERE id = ?",
+        (nama, ekskul_id),
+    )
+
+
+def lepas_pendamping(ekskul_id: int, peran: str) -> None:
+    """Kosongkan nama pembina/pelatih pada ekskul (dipakai saat akun dilepas)."""
+    if peran not in EKSKUL_PERAN:
+        return
+    db.execute(
+        f"UPDATE extracurriculars SET {peran} = NULL, updated_at = datetime('now','localtime') WHERE id = ?",
+        (ekskul_id,),
+    )
 
 
 def perbarui_nama_akun_ekskul(akun_id: int, nama: str | None) -> None:
@@ -1046,6 +1075,9 @@ def perbarui_nama_akun_ekskul(akun_id: int, nama: str | None) -> None:
     if not nama:
         return
     db.execute("UPDATE ekskul_akun SET nama = ? WHERE id = ?", (nama, akun_id))
+    baris = db.query_one("SELECT ekskul_id, peran FROM ekskul_akun WHERE id = ?", (akun_id,))
+    if baris is not None:
+        _sinkron_pendamping(int(baris["ekskul_id"]), baris["peran"], nama)
 
 
 def catat_login_akun_ekskul(akun_id: int) -> None:
@@ -1062,6 +1094,7 @@ def lepas_akun_ekskul(akun_id: int, actor: str | None = None) -> dict[str, Any] 
         return None
     data = dict(baris)
     db.execute("DELETE FROM ekskul_akun WHERE id = ?", (akun_id,))
+    lepas_pendamping(int(data["ekskul_id"]), data["peran"])
     log_audit(actor, "admin", "lepas_akun_ekskul", "ekskul_akun", akun_id,
               f"{PERAN_LABEL.get(data['peran'], data['peran'])} {data['ekskul_nama']} (NIK {data['nik']})")
     return data
@@ -1087,8 +1120,7 @@ def get_ekskul(ekskul_id: int) -> dict[str, Any] | None:
 
 
 def save_ekskul(data: dict[str, Any], ekskul_id: int | None = None, actor: str | None = None) -> int:
-    fields = ("kode", "nama", "kategori", "pembina", "hari", "jam_mulai", "jam_selesai",
-              "tempat", "kuota", "deskripsi", "aktif")
+    fields = ("nama", "pembina", "pelatih", "hari", "jam_mulai", "jam_selesai", "deskripsi", "aktif")
     values = {key: data.get(key) for key in fields if key in data}
     if not values.get("nama"):
         raise ValueError("Nama ekstrakurikuler wajib diisi.")
@@ -1119,11 +1151,55 @@ def delete_ekskul(ekskul_id: int, actor: str | None = None) -> None:
         log_audit(actor, None, "hapus_ekskul", "extracurriculars", ekskul_id, ekskul.get("nama"))
 
 
+#: Pilihan nilai ekstrakurikuler (huruf) sesuai permintaan sekolah.
+EKSKUL_NILAI = ("A", "B", "C", "D")
+
+
+def cari_siswa_ekskul(teks: str) -> tuple[dict[str, Any] | None, str]:
+    """Cari siswa untuk dimasukkan ke ekskul.
+
+    Menerima **NISN** (angka) atau **nama** siswa. Bila nama yang diketik cocok
+    dengan lebih dari satu siswa, kembalikan pesan agar NISN yang dipakai.
+    """
+    teks = (teks or "").strip()
+    if not teks:
+        return None, "Masukkan NISN atau nama siswa."
+    angka = "".join(karakter for karakter in teks if karakter.isdigit())
+    if len(angka) >= 8:
+        siswa = get_student_by_nisn(angka)
+        if siswa is None:
+            return None, f"NISN {angka} tidak terdaftar di sekolah ini."
+        return siswa, ""
+    baris = db.rows_to_dicts(
+        db.query_all(
+            "SELECT * FROM students WHERE LOWER(nama) LIKE ? ORDER BY nama COLLATE NOCASE LIMIT 6",
+            (f"%{teks.lower()}%",),
+        )
+    )
+    if not baris:
+        return None, f"Siswa dengan nama \"{teks}\" tidak ditemukan. Gunakan NISN bila ada nama kembar."
+    if len(baris) > 1:
+        daftar = ", ".join(f"{item['nama']} ({item['nisn']})" for item in baris[:3])
+        return None, f"Ada {len(baris)} siswa bernama serupa: {daftar}. Tuliskan NISN-nya."
+    return baris[0], ""
+
+
+def pilihan_siswa_ekskul(limit: int = 1200) -> list[dict[str, Any]]:
+    """Daftar siswa untuk saran isian (datalist) di halaman ekskul."""
+    return db.rows_to_dicts(
+        db.query_all(
+            "SELECT nisn, nama, rombel FROM students WHERE nisn IS NOT NULL AND nisn <> '' "
+            "ORDER BY nama COLLATE NOCASE LIMIT ?",
+            (limit,),
+        )
+    )
+
+
 def ekskul_members(ekskul_id: int) -> list[dict[str, Any]]:
     return db.rows_to_dicts(
         db.query_all(
             """
-            SELECT m.*, s.nama, s.nisn, s.rombel, s.tingkat, s.jk
+            SELECT m.*, COALESCE(m.catatan, '') AS catatan, s.nama, s.nisn, s.rombel, s.tingkat, s.jk
               FROM ekskul_members m
               JOIN students s ON s.id = m.student_id
              WHERE m.ekskul_id = ?
@@ -1163,7 +1239,10 @@ def remove_ekskul_member(member_id: int, actor: str | None = None) -> None:
 
 
 def update_ekskul_member(member_id: int, data: dict[str, Any], actor: str | None = None) -> None:
-    allowed = {key: value for key, value in data.items() if key in {"jabatan", "nilai", "predikat", "status"}}
+    allowed = {
+        key: value for key, value in data.items()
+        if key in {"jabatan", "nilai", "predikat", "status", "catatan"}
+    }
     if not allowed:
         return
     set_clause = ", ".join(f"{key} = ?" for key in allowed)
@@ -1175,8 +1254,8 @@ def student_ekskul(student_id: int) -> list[dict[str, Any]]:
     return db.rows_to_dicts(
         db.query_all(
             """
-            SELECT e.nama, e.kategori, e.hari, e.jam_mulai, e.jam_selesai, e.tempat, e.pembina,
-                   m.jabatan, m.status, m.predikat, m.nilai, m.tahun_ajaran
+            SELECT e.nama, e.hari, e.jam_mulai, e.jam_selesai, e.pembina, e.pelatih,
+                   m.jabatan, m.status, m.predikat, m.nilai, m.catatan, m.tahun_ajaran
               FROM ekskul_members m
               JOIN extracurriculars e ON e.id = m.ekskul_id
              WHERE m.student_id = ?
@@ -1192,17 +1271,28 @@ def ekskul_stats() -> dict[str, Any]:
     aktif = int(db.query_value("SELECT COUNT(*) FROM extracurriculars WHERE aktif = 1") or 0)
     anggota = int(db.query_value("SELECT COUNT(*) FROM ekskul_members WHERE status = 'aktif'") or 0)
     siswa_ikut = int(db.query_value("SELECT COUNT(DISTINCT student_id) FROM ekskul_members") or 0)
-    return {"total": total, "aktif": aktif, "anggota": anggota, "siswa_ikut": siswa_ikut}
+    tanpa_pendamping = int(db.query_value(
+        "SELECT COUNT(*) FROM extracurriculars WHERE COALESCE(pembina,'') = '' "
+        "AND COALESCE(pelatih,'') = ''"
+    ) or 0)
+    return {"total": total, "aktif": aktif, "anggota": anggota, "siswa_ikut": siswa_ikut,
+            "tanpa_pendamping": tanpa_pendamping}
 
 
-def ekskul_by_kategori() -> list[dict[str, Any]]:
+def ekskul_ringkas(limit: int = 6) -> list[dict[str, Any]]:
+    """Ekskul dengan anggota terbanyak (dipakai dasbor & laporan)."""
     return db.rows_to_dicts(
         db.query_all(
             """
-            SELECT COALESCE(NULLIF(kategori,''),'Lainnya') AS label, COUNT(*) AS jumlah
-              FROM extracurriculars GROUP BY COALESCE(NULLIF(kategori,''),'Lainnya')
-             ORDER BY jumlah DESC
-            """
+            SELECT e.id, e.nama, e.pembina, e.pelatih, e.hari,
+                   (SELECT COUNT(*) FROM ekskul_members m
+                     WHERE m.ekskul_id = e.id AND m.status = 'aktif') AS jumlah_anggota
+              FROM extracurriculars e
+             WHERE e.aktif = 1
+             ORDER BY jumlah_anggota DESC, e.nama COLLATE NOCASE
+             LIMIT ?
+            """,
+            (limit,),
         )
     )
 
@@ -1242,17 +1332,15 @@ def dapodik_readiness() -> dict[str, Any]:
 # =========================================================================== #
 # SEED DATA CONTOH
 # =========================================================================== #
+#: Contoh kegiatan untuk pemasangan baru yang belum punya data ekskul sama sekali.
+#: Nama pembina/pelatih di bawah ini contoh — dapat diganti di menu Ekstrakurikuler.
 EKSKUL_SEED = [
-    ("PKS", "Pasukan Khusus Sekolah", "Kepemimpinan", "Budiman, S.Pd", "Sabtu", "08:00", "10:00", "Lapangan"),
-    ("PMR", "Palang Merah Remaja", "Kepemimpinan", "Siti Rohmah, S.Pd", "Jumat", "14:00", "16:00", "Ruang UKS"),
-    ("FUTSAL", "Futsal", "Olahraga", "Agus Setiawan, S.Pd", "Selasa", "15:00", "17:00", "Lapangan Futsal"),
-    ("BASKET", "Bola Basket", "Olahraga", "Rina Marlina, S.Pd", "Rabu", "15:00", "17:00", "Lapangan Basket"),
-    ("PRAMUKA", "Pramuka", "Kepemimpinan", "Hendra Gunawan, S.Pd", "Jumat", "14:00", "16:30", "Lapangan"),
-    ("ROHIS", "Rohani Islam", "Keagamaan", "Ustadz Ahmad Fauzi", "Kamis", "14:00", "15:30", "Musala"),
-    ("ENGLISH", "English Club", "Akademik", "Dewi Lestari, S.Pd", "Senin", "14:00", "15:30", "Ruang 9A"),
-    ("TARI", "Seni Tari", "Seni", "Wulan Sari, S.Pd", "Sabtu", "09:00", "11:00", "Aula"),
-    ("BAND", "Band & Musik", "Seni", "Rizky Pratama, S.Pd", "Rabu", "14:00", "16:00", "Ruang Musik"),
-    ("CODING", "Klub Coding", "Teknologi", "Bayu Nugroho, S.Kom", "Selasa", "14:00", "16:00", "Lab Komputer"),
+    ("OSIS", "Budi Hartono, S.Pd", "Rina Puspita, S.Pd", "Sabtu", "08:00", "10:00"),
+    ("PRAMUKA", "Hendra Gunawan, S.Pd", "Agus Setiawan", "Jumat", "14:00", "16:30"),
+    ("PMR", "Siti Rohmah, S.Pd", "Dewi Lestari, A.Md.Kep", "Jumat", "14:00", "16:00"),
+    ("FUTSAL", "Agus Setiawan, S.Pd", "Bayu Nugroho", "Selasa", "15:00", "17:00"),
+    ("BASKET", "Rina Marlina, S.Pd", "Rizky Pratama", "Rabu", "15:00", "17:00"),
+    ("ROHIS", "Ahmad Fauzi, S.Ag", "Umar Hakim", "Kamis", "14:00", "15:30"),
 ]
 
 
@@ -1261,13 +1349,13 @@ def seed_ekskul_if_empty() -> int:
     if existing:
         return 0
     count = 0
-    for kode, nama, kategori, pembina, hari, mulai, selesai, tempat in EKSKUL_SEED:
+    for nama, pembina, pelatih, hari, mulai, selesai in EKSKUL_SEED:
         db.execute(
             """
-            INSERT INTO extracurriculars(kode, nama, kategori, pembina, hari, jam_mulai, jam_selesai, tempat, kuota, deskripsi)
-            VALUES(?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO extracurriculars(nama, pembina, pelatih, hari, jam_mulai, jam_selesai, deskripsi)
+            VALUES(?,?,?,?,?,?,?)
             """,
-            (kode, nama, kategori, pembina, hari, mulai, selesai, tempat, 40, f"Ekstrakurikuler {nama}"),
+            (nama, pembina, pelatih, hari, mulai, selesai, f"Ekstrakurikuler {nama}"),
         )
         count += 1
     return count

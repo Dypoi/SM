@@ -11,23 +11,35 @@
   </div>
 </div>
 {% endif %}
+
 <div class="card">
   <div class="card-body">
     <div class="flex between flex-wrap" style="gap:1rem">
       <div style="min-width:260px">
         <h2 style="margin-bottom:.2rem">{{ ekskul.nama }}</h2>
         <div class="flex flex-wrap gap-1">
-          {% if ekskul.kode %}<span class="chip">{{ ekskul.kode }}</span>{% endif %}
-          <span class="chip chip-muted">{{ ekskul.kategori or 'Lainnya' }}</span>
           <span class="badge badge-{{ 'success' if ekskul.aktif else 'muted' }} badge-lg">
             {{ 'Aktif' if ekskul.aktif else 'Nonaktif' }}
           </span>
+          {% if ekskul.hari %}
+          <span class="chip chip-muted">
+            {{ ekskul.hari }}{% if ekskul.jam_mulai %} {{ ekskul.jam_mulai }}{% if ekskul.jam_selesai %}–{{ ekskul.jam_selesai }}{% endif %}{% endif %}
+          </span>
+          {% endif %}
+          <span class="chip chip-muted">{{ anggota | length }} anggota</span>
         </div>
-        <p class="muted mt-1" style="font-size:.83rem">
-          Pembina {{ ekskul.pembina or '—' }}
-          {% if ekskul.hari %} · {{ ekskul.hari }}{% if ekskul.jam_mulai %} {{ ekskul.jam_mulai }}{% if ekskul.jam_selesai %}–{{ ekskul.jam_selesai }}{% endif %}{% endif %}{% endif %}
-          {% if ekskul.tempat %} · {{ ekskul.tempat }}{% endif %}
+        <p class="muted mt-1" style="font-size:.85rem">
+          <strong>Pembina:</strong> {{ ekskul.pembina or 'belum diisi' }} ·
+          <strong>Pelatih:</strong> {{ ekskul.pelatih or 'belum diisi' }}
         </p>
+        {% if akun_ekskul is defined and (akun_ekskul.pembina or akun_ekskul.pelatih) %}
+        <p class="muted" style="font-size:.79rem">
+          Akun NIK terdaftar:
+          {% if akun_ekskul.pembina %}{{ akun_ekskul.pembina.nama or 'Pembina' }} ({{ akun_ekskul.pembina.nik }}){% endif %}
+          {% if akun_ekskul.pembina and akun_ekskul.pelatih %} · {% endif %}
+          {% if akun_ekskul.pelatih %}{{ akun_ekskul.pelatih.nama or 'Pelatih' }} ({{ akun_ekskul.pelatih.nik }}){% endif %}
+        </p>
+        {% endif %}
         {% if ekskul.deskripsi %}<p class="soft" style="font-size:.86rem">{{ ekskul.deskripsi }}</p>{% endif %}
       </div>
       <div class="btn-group">
@@ -35,7 +47,9 @@
         <a class="btn btn-outline btn-sm" href="/ekstrakurikuler">{{ icon('flag') }} Semua ekskul</a>
         <a class="btn btn-outline btn-sm" href="/ekstrakurikuler?edit={{ ekskul.id }}#form-ekskul">{{ icon('edit') }} Ubah</a>
         {% endif %}
-        <a class="btn btn-outline btn-sm" href="/ekstrakurikuler/{{ ekskul.id }}/anggota.csv">{{ icon('download') }} Ekspor anggota</a>
+        <a class="btn btn-outline btn-sm" href="/ekstrakurikuler/{{ ekskul.id }}/anggota.xlsx">{{ icon('download') }} Excel</a>
+        <a class="btn btn-outline btn-sm" href="/ekstrakurikuler/{{ ekskul.id }}/anggota.csv">{{ icon('download') }} CSV</a>
+        <a class="btn btn-outline btn-sm" href="/ekstrakurikuler/{{ ekskul.id }}/anggota.pdf">{{ icon('file') }} PDF</a>
         {% if user.is_staff %}
         <form method="post" action="/ekstrakurikuler/{{ ekskul.id }}/hapus"
               data-confirm="Hapus {{ ekskul.nama }} beserta seluruh anggotanya?">
@@ -52,13 +66,20 @@
     <div class="card-head">
       <div>
         <h3>Anggota ({{ anggota | length }})</h3>
-        <p>Jabatan, nilai, dan predikat dapat diperbarui langsung dari tabel ini.</p>
+        <p>
+          Nilai memakai huruf <strong>A, B, C, D</strong>; catatan diisi per siswa.
+          Perubahan disimpan dengan tombol <em>Simpan</em> di barisnya.
+        </p>
       </div>
     </div>
     <div class="card-body p-0 table-wrap">
-      <table class="data">
+      <table class="data kartu">
+        <caption class="sr-only">Daftar anggota ekstrakurikuler beserta jabatan, nilai, dan catatan</caption>
         <thead>
-          <tr><th>#</th><th>Nama</th><th>NISN</th><th>Rombel</th><th>Jabatan &amp; nilai</th><th class="text-right">Aksi</th></tr>
+          <tr>
+            <th style="width:44px">#</th><th>Nama</th><th>NISN</th><th>Rombel</th>
+            <th>Jabatan</th><th>Nilai</th><th>Catatan</th><th class="text-right">Aksi</th>
+          </tr>
         </thead>
         <tbody>
           {% for m in anggota %}
@@ -70,38 +91,41 @@
             </td>
             <td class="mono">{{ nilai(m.nisn) }}</td>
             <td>{% if m.rombel %}<span class="badge badge-primary">{{ m.rombel }}</span>{% else %}—{% endif %}</td>
-            <td>
-              <form method="post" action="/ekstrakurikuler/anggota/{{ m.id }}" class="flex gap-1 flex-wrap">
-                <select name="jabatan" style="max-width:120px">
-                  {% for jab in ['Anggota', 'Ketua', 'Wakil Ketua', 'Sekretaris', 'Bendahara', 'Pelatih'] %}
+            <td colspan="4">
+              <form method="post" action="/ekstrakurikuler/anggota/{{ m.id }}" class="baris-nilai">
+                <select name="jabatan" aria-label="Jabatan {{ m.nama }}">
+                  {% for jab in jabatan_options %}
                     <option value="{{ jab }}" {{ 'selected' if m.jabatan == jab }}>{{ jab }}</option>
                   {% endfor %}
                 </select>
-                <input type="number" step="0.01" name="nilai" value="{{ m.nilai if m.nilai is not none else '' }}"
-                       placeholder="Nilai" style="max-width:90px">
-                <select name="predikat" style="max-width:120px">
-                  <option value="">Predikat</option>
-                  {% for pred in ['A', 'B', 'C', 'D', 'Sangat Baik', 'Baik', 'Cukup'] %}
-                    <option value="{{ pred }}" {{ 'selected' if m.predikat == pred }}>{{ pred }}</option>
+                <select name="nilai" aria-label="Nilai {{ m.nama }}">
+                  <option value="">— nilai —</option>
+                  {% for huruf in nilai_options %}
+                    <option value="{{ huruf }}" {{ 'selected' if m.predikat == huruf }}>{{ huruf }}</option>
                   {% endfor %}
+                  {% if m.predikat and m.predikat not in nilai_options %}
+                    <option value="{{ m.predikat }}" selected>{{ m.predikat }} (nilai lama)</option>
+                  {% endif %}
                 </select>
-                <select name="status" style="max-width:110px">
+                <input type="text" name="catatan" value="{{ m.catatan or '' }}" maxlength="160"
+                       placeholder="Catatan untuk siswa ini" aria-label="Catatan {{ m.nama }}">
+                <select name="status" aria-label="Status {{ m.nama }}">
                   <option value="aktif" {{ 'selected' if m.status == 'aktif' }}>aktif</option>
                   <option value="nonaktif" {{ 'selected' if m.status == 'nonaktif' }}>nonaktif</option>
                   <option value="keluar" {{ 'selected' if m.status == 'keluar' }}>keluar</option>
                 </select>
-                <button class="btn btn-outline btn-sm" type="submit">{{ icon('check') }}</button>
+                <button class="btn btn-outline btn-sm" type="submit">{{ icon('check') }} Simpan</button>
               </form>
             </td>
             <td class="text-right">
               <form method="post" action="/ekstrakurikuler/anggota/{{ m.id }}/hapus"
                     data-confirm="Keluarkan {{ m.nama }} dari {{ ekskul.nama }}?">
-                <button class="btn btn-outline btn-sm" type="submit">{{ icon('trash') }}</button>
+                <button class="btn btn-outline btn-sm" type="submit" title="Keluarkan dari ekskul">{{ icon('trash') }}</button>
               </form>
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="6" class="empty">Belum ada anggota. Tambahkan siswa lewat panel di samping.</td></tr>
+          <tr><td colspan="8" class="empty-cell"><p class="empty">Belum ada anggota. Tambahkan siswa lewat panel di samping.</p></td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -110,54 +134,42 @@
 
   <aside>
     <div class="card sticky-side">
-      <div class="card-head"><h3>Tambah Anggota</h3></div>
+      <div class="card-head">
+        <div>
+          <h3>Tambah Anggota</h3>
+          <p>Ketik NISN atau nama siswa — saran nama akan muncul.</p>
+        </div>
+      </div>
       <div class="card-body">
         <form method="post" action="/ekstrakurikuler/{{ ekskul.id }}/anggota">
           <div class="field">
-            <label for="nisn">NISN siswa</label>
-            <input type="text" id="nisn" name="nisn" inputmode="numeric" placeholder="0113374384" required>
-            <span class="hint">Masukkan NISN, atau tempel dari daftar siswa.</span>
+            <label for="nisn">NISN atau nama siswa</label>
+            <input type="text" id="nisn" name="nisn" list="daftar-siswa" placeholder="0113374384 atau Ahmad Fauzi"
+                   autocomplete="off" required>
+            <datalist id="daftar-siswa">
+              {% for s in pilihan_siswa or [] %}
+              <option value="{{ s.nisn }}">{{ s.nama }}{% if s.rombel %} · {{ s.rombel }}{% endif %}</option>
+              {% endfor %}
+            </datalist>
+            <span class="hint">Bila ada nama kembar, tuliskan NISN-nya.</span>
           </div>
           <div class="field mt-2">
             <label for="jabatan">Jabatan</label>
             <select id="jabatan" name="jabatan">
-              <option value="Anggota">Anggota</option>
-              <option value="Ketua">Ketua</option>
-              <option value="Wakil Ketua">Wakil Ketua</option>
-              <option value="Sekretaris">Sekretaris</option>
-              <option value="Bendahara">Bendahara</option>
+              {% for jab in jabatan_options %}
+                <option value="{{ jab }}">{{ jab }}</option>
+              {% endfor %}
             </select>
           </div>
-          <button class="btn btn-primary btn-block mt-2" type="submit">{{ icon('plus') }} Tambahkan</button>
+          <button class="btn btn-primary btn-block mt-2" type="submit">{{ icon('plus') }} Masukkan ke ekskul</button>
         </form>
-
-        <div class="section-title">Pendamping</div>
-        <dl class="kv" style="grid-template-columns:1fr">
-          <dt>Pembina</dt>
-          <dd>
-            {% if akun_ekskul is defined and akun_ekskul.pembina %}
-              {{ akun_ekskul.pembina.nama or 'Terdaftar' }}
-              <div class="mono muted" style="font-size:.76rem">NIK {{ akun_ekskul.pembina.nik }}</div>
-            {% else %}
-              <span class="badge badge-muted">belum masuk</span>
-            {% endif %}
-          </dd>
-          <dt>Pelatih</dt>
-          <dd>
-            {% if akun_ekskul is defined and akun_ekskul.pelatih %}
-              {{ akun_ekskul.pelatih.nama or 'Terdaftar' }}
-              <div class="mono muted" style="font-size:.76rem">NIK {{ akun_ekskul.pelatih.nik }}</div>
-            {% else %}
-              <span class="badge badge-muted">belum masuk</span>
-            {% endif %}
-          </dd>
-        </dl>
 
         <div class="section-title">Ringkasan</div>
         <dl class="kv" style="grid-template-columns:1fr">
           <dt>Jumlah anggota</dt><dd>{{ anggota | length }}</dd>
-          <dt>Kuota</dt><dd>{{ ekskul.kuota or 'tidak dibatasi' }}</dd>
           <dt>Status</dt><dd>{{ 'Aktif' if ekskul.aktif else 'Nonaktif' }}</dd>
+          <dt>Pembina</dt><dd>{{ ekskul.pembina or '—' }}</dd>
+          <dt>Pelatih</dt><dd>{{ ekskul.pelatih or '—' }}</dd>
         </dl>
       </div>
     </div>
@@ -167,7 +179,7 @@
       <div class="card-head"><h3>Cari cepat</h3></div>
       <div class="card-body">
         <p class="soft" style="font-size:.83rem">
-          Buka daftar siswa per rombel, salin NISN, lalu tambahkan di sini.
+          Buka daftar siswa per rombel, salin NISN atau namanya, lalu tambahkan di sini.
         </p>
         <div class="tag-list">
           {% for rombel in opsi_rombel %}

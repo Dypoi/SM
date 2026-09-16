@@ -212,25 +212,111 @@ def cek_ekspor():
     return f"CSV {len(csv_bytes) / 1024:.1f} KB, XLSX {len(xlsx_bytes) / 1024:.1f} KB"
 
 
-@cek("10. Ekstrakurikuler: kegiatan, anggota, dan nilai")
+@cek("10. Ekstrakurikuler: kegiatan, anggota, nilai A-D, catatan, dan ekspor")
 def cek_ekskul():
-    from app import db, services
+    import asyncio
+
+    import httpx
+
+    from app import auth, db, migrations, services
+    from app.main import app
+
+    # --- Kolom sesuai permintaan sekolah: tanpa kode/kategori/tempat/kuota ---- #
+    kolom = {baris["name"] for baris in db.rows_to_dicts(db.query_all("PRAGMA table_info(extracurriculars)"))}
+    for dibuang in ("kode", "kategori", "tempat", "kuota"):
+        assert dibuang not in kolom, f"kolom {dibuang} seharusnya sudah dihapus"
+    assert {"pembina", "pelatih"} <= kolom, "kolom pembina & pelatih harus ada"
+    kolom_anggota = {baris["name"] for baris in db.rows_to_dicts(db.query_all("PRAGMA table_info(ekskul_members)"))}
+    assert "catatan" in kolom_anggota, "kolom catatan belum ada pada daftar anggota"
 
     jumlah_seed = services.seed_ekskul_if_empty()
-    ekskul_id = services.save_ekskul({"nama": "Klub Uji", "kategori": "Teknologi",
-                                      "hari": "Senin", "aktif": 1}, actor="cek")
-    siswa = db.query_one("SELECT id FROM students LIMIT 1")
+    ekskul_id = services.save_ekskul({"nama": "Klub Uji", "pembina": "Bu Rina, S.Pd",
+                                      "pelatih": "Pak Agus", "hari": "Senin", "aktif": 1}, actor="cek")
+    tersimpan = services.get_ekskul(ekskul_id)
+    assert tersimpan["pelatih"] == "Pak Agus", tersimpan
+    assert services.EKSKUL_NILAI == ("A", "B", "C", "D"), services.EKSKUL_NILAI
+
+    # --- Tambah & hapus anggota, nilai huruf + catatan ---------------------- #
+    siswa = db.query_one("SELECT id, nisn, nama FROM students LIMIT 1")
     member_id = services.add_ekskul_member(ekskul_id, int(siswa["id"]), jabatan="Ketua", actor="cek")
     assert member_id, "gagal menambah anggota"
-    duplikat = services.add_ekskul_member(ekskul_id, int(siswa["id"]), actor="cek")
-    assert duplikat is None, "anggota ganda seharusnya ditolak"
-    services.update_ekskul_member(member_id, {"nilai": 90, "predikat": "A"}, actor="cek")
+    assert services.add_ekskul_member(ekskul_id, int(siswa["id"]), actor="cek") is None, \
+        "anggota ganda seharusnya ditolak"
+
+    cari, galat = services.cari_siswa_ekskul(str(siswa["nisn"]))
+    assert cari and int(cari["id"]) == int(siswa["id"]), galat
+    cari_nama, galat = services.cari_siswa_ekskul(str(siswa["nama"]))
+    assert cari_nama is not None or "serupa" in galat, galat
+    kosong, galat = services.cari_siswa_ekskul("")
+    assert kosong is None and galat
+
+    services.update_ekskul_member(member_id, {"predikat": "A", "catatan": "Aktif latihan",
+                                              "jabatan": "Ketua", "status": "aktif"}, actor="cek")
     anggota = services.ekskul_members(ekskul_id)
-    stats = services.ekskul_stats()
-    assert anggota and anggota[0]["nilai"] == 90
+    assert anggota and anggota[0]["predikat"] == "A", anggota
+    assert anggota[0]["catatan"] == "Aktif latihan", anggota
+    assert len(services.pilihan_siswa_ekskul(limit=5)) == 5
+
+    # --- Ekspor CSV, Excel, dan PDF ---------------------------------------- #
+    akun = auth.authenticate_ekskul("3204123456780001", "pembina", ekskul_id, "Bu Rina")[0]
+    assert akun is not None
+    transport = httpx.ASGITransport(app=app)
+
+    async def jalankan() -> str:
+        async with httpx.AsyncClient(transport=transport, base_url="http://cek",
+                                     follow_redirects=False) as klien:
+            masuk = await klien.post("/login", data={"mode": "ekskul", "peran": "pembina",
+                                                     "ekskul_id": ekskul_id,
+                                                     "nik": "3204123456780001"})
+            assert masuk.status_code == 303, masuk.status_code
+
+            halaman = await klien.get(f"/ekstrakurikuler/{ekskul_id}")
+            assert halaman.status_code == 200
+            assert 'value="A"' in halaman.text and 'name="catatan"' in halaman.text, \
+                "dropdown nilai A-D & kolom catatan harus ada di halaman ekskul"
+            assert "Aktif latihan" in halaman.text
+
+            # nilai huruf & catatan lewat HTTP (seperti yang dilakukan pembina)
+            simpan = await klien.post(f"/ekstrakurikuler/anggota/{member_id}",
+                                     data={"jabatan": "Ketua", "nilai": "B",
+                                           "catatan": "Perlu latihan tambahan", "status": "aktif"})
+            assert simpan.status_code == 303, simpan.status_code
+            assert db.query_value("SELECT predikat FROM ekskul_members WHERE id = ?", (member_id,)) == "B"
+            assert db.query_value("SELECT catatan FROM ekskul_members WHERE id = ?", (member_id,)) == \
+                "Perlu latihan tambahan"
+
+            # nilai di luar A-D tidak diterima (dikosongkan, bukan disimpan mentah)
+            await klien.post(f"/ekstrakurikuler/anggota/{member_id}",
+                             data={"jabatan": "Ketua", "nilai": "Z", "catatan": "", "status": "aktif"})
+            assert db.query_value("SELECT predikat FROM ekskul_members WHERE id = ?", (member_id,)) is None
+
+            hasil = {}
+            for ekstensi, tipe in (("csv", "text/csv"), ("xlsx", "spreadsheet"), ("pdf", "pdf")):
+                balasan = await klien.get(f"/ekstrakurikuler/{ekskul_id}/anggota.{ekstensi}")
+                assert balasan.status_code == 200, f"{ekstensi}: {balasan.status_code}"
+                assert tipe in balasan.headers.get("content-type", ""), balasan.headers
+                isi = balasan.content
+                minimum = {"csv": 40, "xlsx": 2000, "pdf": 800}[ekstensi]
+                assert len(isi) > minimum, f"{ekstensi} terlalu kecil ({len(isi)} bita)"
+                if ekstensi == "pdf":
+                    assert isi.startswith(b"%PDF-1.4"), "berkas PDF tidak sah"
+                    assert b"%%EOF" in isi[-20:], "PDF tidak lengkap"
+                    assert b"/Type /Page" in isi, "PDF tanpa halaman"
+                hasil[ekstensi] = len(isi)
+            return ("; ".join(f"{k} {v} bita" for k, v in hasil.items()))
+
+    rincian = asyncio.run(jalankan())
+
+    # tambah & hapus lewat HTTP sudah diuji UI; di sini dipastikan hapus bekerja
     services.remove_ekskul_member(member_id, actor="cek")
-    return (f"{jumlah_seed} contoh kegiatan dibuat, {len(anggota)} anggota teruji, "
-            f"total kegiatan {stats['total']}")
+    assert services.ekskul_members(ekskul_id) == [], "anggota belum terhapus"
+    assert db.query_value("SELECT COUNT(*) FROM ekskul_members WHERE ekskul_id = ?", (ekskul_id,)) == 0
+    db.execute("DELETE FROM ekskul_akun WHERE ekskul_id = ?", (ekskul_id,))
+    db.execute("DELETE FROM extracurriculars WHERE id = ?", (ekskul_id,))
+
+    stats = services.ekskul_stats()
+    return (f"{jumlah_seed} contoh dibuat; kolom kode/kategori/tempat/kuota terhapus; "
+            f"nilai A-D + catatan; tambah/hapus anggota; ekspor {rincian}; total {stats['total']} kegiatan")
 
 
 @cek("11. Keamanan: hash sandi, sesi, dan kunci API")
@@ -991,7 +1077,10 @@ def cek_akun_ekskul():
     # Satu NIK boleh mendampingi ekskul lain (posisi berbeda).
     lain, galat, _ = auth.authenticate_ekskul("3204123456780001", "pembina", basket["id"])
     assert lain is not None, galat
-    assert db.query_value("SELECT COUNT(*) FROM ekskul_akun WHERE nik = ?", ("3204123456780001",)) == 2
+    assert db.query_value(
+        "SELECT COUNT(*) FROM ekskul_akun WHERE nik = ? AND ekskul_id IN (?, ?)",
+        ("3204123456780001", osis["id"], basket["id"]),
+    ) == 2
 
     # --- Admin bisa melepas posisi yang salah orang ----------------------- #
     posisi = services.akun_ekskul_posisi(basket["id"], "pembina")
@@ -1044,6 +1133,99 @@ def cek_akun_ekskul():
     return asyncio.run(jalankan())
 
 
+@cek("21. Kerapian tabel (kelas ber-CSS, terbungkus, jumlah sel seragam)")
+def cek_tabel():
+    """Cegah tabel tampil polos/aneh: kelas yang dipakai harus punya gaya di CSS."""
+    import asyncio
+    import re
+    from html.parser import HTMLParser
+
+    import httpx
+
+    from app.main import app
+
+    css = (BASE_DIR / "app" / "static" / "css" / "app.css").read_text(encoding="utf-8")
+    kelas_css = set(re.findall(r"table\.([a-zA-Z0-9_-]+)", css)) | {"kartu", "tabel-kecil", "preview-table"}
+    assert "data" in kelas_css, "kelas dasar tabel (table.data) hilang dari CSS"
+
+    template = sorted((BASE_DIR / "app" / "templates").rglob("*.html"))
+    keliru: list[str] = []
+    tanpa_wrap: list[str] = []
+    for berkas in template:
+        isi = berkas.read_text(encoding="utf-8")
+        for kelas in re.findall(r'<table class="([^"]+)"', isi):
+            for nama_kelas in kelas.split():
+                if nama_kelas not in kelas_css:
+                    keliru.append(f"{berkas.name}: kelas '{nama_kelas}' tanpa gaya CSS")
+        for potong in re.findall(r"<table[^>]*>", isi):
+            if 'class="' not in potong:
+                keliru.append(f"{berkas.name}: tabel tanpa kelas")
+
+    # Kepala tabel lengket hanya boleh menempel di tepi kotak bergulir.
+    assert ".table-wrap.compact table.data thead th" in css, \
+        "kepala tabel di kotak bergulir harus menempel di tepi (top: 0)"
+    assert re.search(r"--topbar-h:\s*\d+px", css), "variabel --topbar-h harus punya nilai awal"
+
+    class PeriksaTabel(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__(convert_charrefs=True)
+            self.tabel: list[dict] = []
+            self.tumpukan: list[int] = []
+            self.di_wrap = 0
+
+        def handle_starttag(self, tag, attrs):
+            a = dict(attrs)
+            if tag == "div" and "table-wrap" in (a.get("class") or ""):
+                self.di_wrap += 1
+            if tag == "div":
+                self.tumpukan.append(1)
+            elif tag == "table":
+                self.tabel.append({"kelas": (a.get("class") or ""), "wrap": self.di_wrap > 0, "lebar": None})
+            if tag == "tr" and self.tabel:
+                self.tumpukan.append(0)
+            elif tag in ("td", "th") and self.tumpukan:
+                self.tumpukan[-1] += int(a.get("colspan") or 1)
+
+        def handle_endtag(self, tag):
+            if tag == "tr" and self.tumpukan and self.tabel:
+                lebar = self.tumpukan.pop()
+                data = self.tabel[-1]
+                if data["lebar"] is None:
+                    data["lebar"] = lebar
+                elif lebar != data["lebar"] and lebar > 1:
+                    tanpa_wrap.append(f"baris {lebar} sel (kepala {data['lebar']})")
+            elif tag == "div" and self.tumpukan:
+                self.tumpukan.pop()
+
+    transport = httpx.ASGITransport(app=app)
+
+    async def jalankan() -> str:
+        jumlah_tabel = 0
+        async with httpx.AsyncClient(transport=transport, base_url="http://cek",
+                                     follow_redirects=True) as klien:
+            await klien.post("/login", data={"mode": "staff", "username": "admin", "password": "admin123"})
+            for path in ("/", "/data-siswa", "/data-siswa/1", "/statistik", "/kualitas-data",
+                         "/ekstrakurikuler", "/ekstrakurikuler/1", "/impor", "/pengaturan",
+                         "/pembaruan", "/pengajuan", "/profil-akun"):
+                balasan = await klien.get(path)
+                assert balasan.status_code == 200, f"{path} -> {balasan.status_code}"
+                pemeriksa = PeriksaTabel()
+                pemeriksa.feed(balasan.text)
+                jumlah_tabel += len(pemeriksa.tabel)
+                for indeks, data in enumerate(pemeriksa.tabel, start=1):
+                    if not data["wrap"]:
+                        tanpa_wrap.append(f"{path} tabel#{indeks} tidak dibungkus .table-wrap")
+                    for nama_kelas in data["kelas"].split():
+                        if nama_kelas and nama_kelas not in kelas_css:
+                            keliru.append(f"{path} tabel#{indeks}: kelas '{nama_kelas}' tanpa gaya")
+        return f"{jumlah_tabel} tabel pada 12 halaman diperiksa"
+
+    rincian = asyncio.run(jalankan())
+    assert not keliru, "; ".join(sorted(set(keliru))[:4])
+    assert not tanpa_wrap, "; ".join(sorted(set(tanpa_wrap))[:4])
+    return f"{rincian}; kelas tabel ber-CSS; semua terbungkus .table-wrap; jumlah sel seragam"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -1072,6 +1254,7 @@ def main() -> int:
     cek_pengaman_online()
     cek_peluncur_online()
     cek_akun_ekskul()
+    cek_tabel()
     if args.http:
         cek_http_pengajuan()
         cek_http()

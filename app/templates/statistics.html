@@ -83,14 +83,14 @@
         <dt>Keanggotaan tercatat</dt><dd>{{ ekskul.anggota | angka_id }}</dd>
         <dt>Siswa terlibat</dt><dd>{{ ekskul.siswa_ikut | angka_id }}</dd>
       </dl>
-      {% if ekskul_kategori %}
-        {% set maks = ekskul_kategori | map(attribute='jumlah') | max %}
+      {% if ekskul_ringkas %}
+        {% set maks = ekskul_ringkas | map(attribute='jumlah_anggota') | max %}
         <ul class="bar-list mt-2">
-          {% for item in ekskul_kategori %}
+          {% for item in ekskul_ringkas %}
           <li>
-            <span class="bar-label">{{ item.label }}</span>
-            <span class="bar-track"><span class="bar-fill bar-teal" style="width: {{ (item.jumlah / maks * 100) | round(1) if maks else 0 }}%"></span></span>
-            <span class="bar-value">{{ item.jumlah }}</span>
+            <span class="bar-label">{{ item.nama }}</span>
+            <span class="bar-track"><span class="bar-fill bar-teal" style="width: {{ (item.jumlah_anggota / maks * 100) | round(1) if maks else 0 }}%"></span></span>
+            <span class="bar-value">{{ item.jumlah_anggota }}</span>
           </li>
           {% endfor %}
         </ul>

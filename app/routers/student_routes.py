@@ -256,7 +256,7 @@ def halaman_statistik(request: Request, user: auth.SessionUser = Depends(auth.re
             "kecamatan": services.stats_by("kecamatan", limit=12),
             "sekolah_asal": services.stats_by("sekolah_asal", limit=12),
             "ekskul": services.ekskul_stats(),
-            "ekskul_kategori": services.ekskul_by_kategori(),
+            "ekskul_ringkas": services.ekskul_ringkas(limit=6),
         },
     )
 

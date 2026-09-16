@@ -46,7 +46,7 @@ def dasbor(request: Request, user: auth.SessionUser = Depends(auth.require_user)
             "agama": services.stats_by("agama", limit=6),
             "kecamatan": services.stats_by("kecamatan", limit=6),
             "ekskul": ekskul,
-            "ekskul_kategori": services.ekskul_by_kategori(),
+            "ekskul_ringkas": services.ekskul_ringkas(limit=6),
             "kualitas": quality,
             "total_temuan": total_issue,
             "pengajuan": services.statistik_pengajuan(),

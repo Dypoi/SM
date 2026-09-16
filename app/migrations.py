@@ -102,6 +102,67 @@ def _migrasi_004(conn: sqlite3.Connection) -> None:
     log.info("Daftar ekskul resmi sekolah disiapkan (%s kegiatan).", len(EKSKUL_SEKOLAH))
 
 
+def _migrasi_005(conn: sqlite3.Connection) -> None:
+    """Sederhanakan modul ekstrakurikuler sesuai permintaan sekolah.
+
+    * Kolom **kode, kategori, tempat, kuota** dibuang (tidak dipakai).
+    * Kolom **pelatih** ditambahkan (sebelumnya hanya ada pembina).
+    * Kolom **catatan** ditambahkan pada daftar anggota (catatan per siswa).
+
+    Tabel ``extracurriculars`` dibuat ulang karena kolom ``kode`` memakai
+    batasan UNIQUE sehingga tidak bisa dibuang langsung oleh SQLite. Kunci asing
+    dimatikan sesaat agar data anggota & akun ekskul tetap utuh.
+    """
+    kolom_member = _kolom_tabel(conn, "ekskul_members")
+    if "catatan" not in kolom_member:
+        conn.execute("ALTER TABLE ekskul_members ADD COLUMN catatan TEXT")
+        log.info("Kolom catatan ditambahkan pada tabel ekskul_members.")
+
+    kolom = _kolom_tabel(conn, "extracurriculars")
+    dibuang = [nama for nama in ("kode", "kategori", "tempat", "kuota") if nama in kolom]
+    if not dibuang and "pelatih" in kolom:
+        return
+
+    conn.commit()
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS extracurriculars_baru (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                nama        TEXT NOT NULL,
+                pembina     TEXT,
+                pelatih     TEXT,
+                hari        TEXT,
+                jam_mulai   TEXT,
+                jam_selesai TEXT,
+                deskripsi   TEXT,
+                aktif       INTEGER NOT NULL DEFAULT 1,
+                created_at  TEXT DEFAULT (datetime('now','localtime')),
+                updated_at  TEXT DEFAULT (datetime('now','localtime'))
+            );
+            """
+        )
+        asal = [nama for nama in ("id", "nama", "pembina", "pelatih", "hari", "jam_mulai",
+                                  "jam_selesai", "deskripsi", "aktif", "created_at", "updated_at")
+                if nama in kolom]
+        tujuan = ", ".join(asal)
+        conn.execute(
+            f"INSERT INTO extracurriculars_baru ({tujuan}) SELECT {tujuan} FROM extracurriculars"
+        )
+        sebelum = conn.execute("SELECT COUNT(*) FROM extracurriculars").fetchone()[0]
+        sesudah = conn.execute("SELECT COUNT(*) FROM extracurriculars_baru").fetchone()[0]
+        if sebelum != sesudah:
+            raise RuntimeError(f"jumlah ekskul berubah saat disalin ({sebelum} -> {sesudah})")
+        conn.execute("DROP TABLE extracurriculars")
+        conn.execute("ALTER TABLE extracurriculars_baru RENAME TO extracurriculars")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ekskul_nama ON extracurriculars(nama COLLATE NOCASE)")
+    finally:
+        conn.commit()
+        conn.execute("PRAGMA foreign_keys = ON")
+    log.info("Kolom ekskul dibuang (%s); kolom pelatih & catatan disiapkan.", ", ".join(dibuang) or "-")
+
+
 # --------------------------------------------------------------------------- #
 # Daftar migrasi (urut, sekali jalan)
 # --------------------------------------------------------------------------- #
@@ -491,6 +552,10 @@ MIGRATIONS: list[tuple[str, str | Callable[[sqlite3.Connection], None]]] = [
     (
         "004_akun_ekskul",
         _migrasi_004,
+    ),
+    (
+        "005_ekskul_sederhana",
+        _migrasi_005,
     ),
 ]
 

@@ -253,9 +253,14 @@ akta lahir, kesehatan, sampai koordinat rumah.
   sebagai "tidak lagi dipakai" pada halaman pratinjau impor.
 
 ### Ekstrakurikuler
-- Kelola kegiatan: kode, kategori, pembina, hari, jam, tempat, kuota, deskripsi, status.
-- Anggota dengan jabatan, nilai, predikat, dan status, plus ekspor daftar anggota CSV.
-- Statistik sebaran kategori dan jumlah siswa terlibat.
+- Kelola kegiatan: **nama, pembina, pelatih**, hari & jam, deskripsi, dan status.
+  (Kolom kode, kategori, tempat, dan kuota sudah dihapus sesuai permintaan sekolah.)
+- Anggota dengan jabatan, **nilai A/B/C/D**, **catatan per siswa**, dan status.
+- Pembina/pelatih dapat **memasukkan & mengeluarkan siswa** (dengan NISN atau nama siswa),
+  lalu menyimpan nilai + catatan langsung dari tabel anggota.
+- **Ekspor daftar anggota: Excel (.xlsx), CSV, dan PDF** — lengkap dengan nama sekolah,
+  pembina, pelatih, tahun ajaran, dan kolom tanda tangan pada berkas PDF.
+- Statistik: jumlah kegiatan, keanggotaan, siswa terlibat, dan ekskul yang belum berpendamping.
 
 ### Portal siswa
 - Siswa masuk hanya dengan **NISN** (opsional ditambah tanggal lahir, diatur di Pengaturan).
@@ -323,9 +328,11 @@ Aturan yang berlaku:
 * Salah orang atau salah pilih peran/ekskul? Admin membukanya di
   **Pengaturan → Pengguna → Akun Ekstrakurikuler** lalu menekan **Lepaskan**; posisi itu bisa diisi lagi
   oleh NIK berikutnya.
-* Akun ekskul hanya dapat membuka ekskulnya sendiri: mengelola anggota, jabatan, nilai, dan predikat,
-  serta mengunduh daftar anggota (CSV). Halaman data siswa, impor, statistik, dan pengaturan tetap
-  khusus petugas sekolah.
+* Akun ekskul hanya dapat membuka ekskulnya sendiri: **memasukkan & mengeluarkan siswa**,
+  mengisi **jabatan**, **nilai A/B/C/D**, **catatan**, dan status anggota, serta mengunduh
+  daftar anggota dalam **Excel, CSV, atau PDF**. Halaman data siswa, impor, statistik, dan
+  pengaturan tetap khusus petugas sekolah.
+* Nama pembina/pelatih otomatis terisi pada data ekskul begitu yang bersangkutan masuk memakai NIK.
 
 Daftar ekstrakurikuler yang disiapkan aplikasi: OSIS, BASKET, FUTSAL, HADROH, MADING, PADUAN SUARA,
 PASKIBRA, PENCAK SILAT, PMR, PRAMUKA, ROHIS, TARI, VOLLY, dan WUSHU. Ekskul lain tetap bisa
