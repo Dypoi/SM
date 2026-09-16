@@ -60,6 +60,18 @@ SELECTOR_BAWAAN: dict[str, str] = {
 #: Penanda kelas baris tabel Ext JS tempat hasil pencarian muncul.
 BARIS_TABEL = 'x-grid-row'
 
+#: Jendela popup Dapodik yang harus ditutup sebelum langkah berikutnya. Dapodik
+#: menampilkan pengumuman versi ("Selamat Datang di Aplikasi Dapodik 2027.b") sebagai
+#: jendela Ext JS; selama jendela itu (beserta lapisan modalnya) tampil, semua klik di
+#: luarnya diabaikan aplikasi — persis penyebab kegagalan "input_nis tidak ditemukan".
+XPATH_POPUP: tuple[str, ...] = (
+    '//div[contains(@class, "x-window") or contains(@class, "x-message-box")]'
+    '[contains(., "Selamat Datang") or contains(., "Jangan Tampilkan") '
+    'or contains(., "Riwayat Versi")]',
+    '//div[contains(@class, "x-window") or contains(@class, "x-message-box")]'
+    '[.//*[self::a or self::span or self::button][normalize-space()="Tutup"]]',
+)
+
 #: Nama kunci yang boleh ditimpa lewat pengaturan (agar salah ketik terdeteksi).
 SELECTOR_DIIZINKAN = tuple(SELECTOR_BAWAAN)
 
@@ -87,6 +99,7 @@ SELECTOR_CADANGAN: dict[str, list[str]] = {
         "xpath://*[self::a or self::button or self::li][contains(normalize-space(), 'Peserta Didik')]",
     ],
     "popup_tutup": [
+        'xpath://*[self::a or self::span or self::button][normalize-space()="Tutup"]',
         "css:div.x-window a.x-tool-close",
         "css:div.x-window .x-tool-close",
         "css:a.x-tool-close",
@@ -471,7 +484,11 @@ class BotDapodik:
         Sama seperti ``wait_for_loading_to_finish()`` pada skrip sekolah, tetapi bila
         lapisan pemuatan tetap ada, pekerjaan diteruskan dengan catatan — langkah
         berikutnya akan memakai cara paksa/skrip.
+
+        Popup pengumuman Dapodik (mis. "Selamat Datang di Aplikasi Dapodik 2027.b") juga
+        diperiksa lebih dulu: selama popup itu tampil, klik di luarnya diabaikan Dapodik.
         """
+        self._singkirkan_popup(peramban)
         selesai = self._lapisan_hilang(peramban)
         if not selesai:
             if not self._lapisan_lengket:
@@ -552,6 +569,122 @@ class BotDapodik:
         batas = float(self.opsi.get("bot_timeout", "15") or 15)
         return WebDriverWait(peramban, batas).until(EC.presence_of_element_located(locator))
 
+    # ------------------------------------------------- popup pengumuman --- #
+    def _boleh_ditutup(self, peramban, unsur) -> bool:
+        """Apakah unsur ini benar-benar popup pengumuman — bukan jendela formulir Registrasi.
+
+        Pengaman penting: kalau jendela itu (atau jendela induknya) memuat kolom NIS
+        ``input[name=nipd]``, bot tidak boleh menutupnya — itu formulir yang sedang diisi.
+        """
+        from selenium.webdriver.common.by import By
+
+        try:
+            if unsur.find_elements(By.NAME, "nipd"):
+                return False
+            return not unsur.find_elements(
+                By.XPATH, "ancestor-or-self::div[contains(@class, 'x-window') "
+                          "or contains(@class, 'x-message-box')][.//input[@name='nipd']]")
+        except Exception:  # noqa: BLE001 — tidak dapat diperiksa: aman untuk ditutup
+            return True
+
+    def _unsur_popup(self, peramban, peta: dict[str, str] | None = None):
+        """Jendela popup pengumuman Dapodik yang sedang tampil (``None`` bila tidak ada)."""
+        from selenium.webdriver.common.by import By
+
+        peta = peta or peta_selector()
+        cara = [(By.XPATH, nilai) for nilai in XPATH_POPUP]
+        cara.extend(self._locator_nilai(nilai)
+                    for nilai in self._kandidat_selector("popup_tutup", peta))
+        for by, nilai in cara:
+            try:
+                for unsur in peramban.find_elements(by, nilai):
+                    if not unsur.is_displayed():
+                        continue
+                    if not self._boleh_ditutup(peramban, unsur):
+                        continue
+                    return unsur
+            except Exception:  # noqa: BLE001 — coba cara berikutnya
+                continue
+        return None
+
+    def _tunggu_popup_hilang(self, peramban, peta: dict[str, str] | None = None,
+                             batas: float = 3.0) -> bool:
+        """Tunggu popup yang sudah ditutup benar-benar hilang dari halaman."""
+        akhir = time.time() + batas
+        while self._unsur_popup(peramban, peta) is not None:
+            if time.time() >= akhir:
+                return False
+            time.sleep(0.4)
+        return True
+
+    def _tutup_popup(self, peramban, unsur_popup, peta: dict[str, str] | None = None) -> bool:
+        """Tutup popup pengumuman: tombol «Tutup» (beberapa cara), lalu buang dari halaman."""
+        peta = peta or peta_selector()
+        for nilai in (self._kandidat_selector("popup_tutup", peta) + [
+                'xpath://*[self::a or self::span or self::button][normalize-space()="Tutup"]']):
+            try:
+                for tombol in peramban.find_elements(*self._locator_nilai(nilai)):
+                    if not tombol.is_displayed() or not self._boleh_ditutup(peramban, tombol):
+                        continue
+                    try:
+                        tombol.click()
+                    except Exception:  # noqa: BLE001 — tertelan lapisan modal: klik lewat skrip
+                        peramban.execute_script("arguments[0].click();", tombol)
+                    if self._tunggu_popup_hilang(peramban, peta, 3):
+                        return True
+                    self._catat_kepala("[popup] tombol «Tutup» sudah diklik, popup masih "
+                                       "tampil — mencoba cara lain.")
+            except Exception:  # noqa: BLE001 — coba kandidat berikutnya
+                continue
+        try:  # jalan keluar terakhir: Dapodik tidak menanggapi klik pada popupnya
+            peramban.execute_script(
+                """
+                arguments[0].remove();
+                document.querySelectorAll('div.x-mask').forEach((lapisan) => lapisan.remove());
+                """, unsur_popup)
+            if self._tunggu_popup_hilang(peramban, peta, 2):
+                self._catat_kepala("[popup] popup pengumuman Dapodik dibuang dari halaman "
+                                   "(tombolnya tidak menanggapi klik).")
+                return True
+        except Exception:  # noqa: BLE001 — upaya terbaik
+            pass
+        return False
+
+    def _singkirkan_popup(self, peramban, peta: dict[str, str] | None = None,
+                          batas: float = 0.0) -> bool:
+        """Tutup popup pengumuman bila tampil; ``batas`` menunggunya muncul lebih dulu.
+
+        Dipakai sebelum langkah penting. Bila tidak ada popup, pemeriksaan ini singkat.
+        """
+        peta = peta or peta_selector()
+        unsur = self._unsur_popup(peramban, peta)
+        akhir = time.time() + max(0.0, batas)
+        while unsur is None and time.time() < akhir:
+            time.sleep(0.5)
+            unsur = self._unsur_popup(peramban, peta)
+        if unsur is None:
+            return False
+        self._catat_kepala("Popup pengumuman Dapodik tampil — menutupnya …")
+        if self._tutup_popup(peramban, unsur, peta):
+            self._lapisan_hilang(peramban, 3)
+            return True
+        self._catat_kepala("Popup pengumuman Dapodik belum dapat ditutup — langkah "
+                           "diteruskan dengan cara paksa.")
+        return False
+
+    def _formulir_registrasi_terbuka(self, peramban, peta: dict[str, str] | None = None) -> bool:
+        """Apakah formulir Registrasi sudah terbuka (kolom NIS atau Hobi sudah terlihat)."""
+        peta = peta or peta_selector()
+        for kunci in ("input_nis", "hobi"):
+            for nilai in self._kandidat_selector(kunci, peta):
+                try:
+                    for unsur in peramban.find_elements(*self._locator_nilai(nilai)):
+                        if unsur.is_displayed():
+                            return True
+                except Exception:  # noqa: BLE001 — coba kandidat berikutnya
+                    continue
+        return False
+
     def _paksa_terlihat(self, peramban, elemen) -> None:
         """Tampilkan elemen & pembungkus yang menyembunyikannya (mis. formulir belum dibuka)."""
         try:
@@ -614,6 +747,11 @@ class BotDapodik:
             except (ElementClickInterceptedException, StaleElementReferenceException,
                     TimeoutException, TimeoutError, ElementNotInteractableException) as exc:
                 galat = exc
+                # Klik bisa tertelan popup pengumuman yang muncul belakangan: tutup dulu
+                # popupnya, lalu ulangi percobaan ini (elemen yang sama, klik sungguhan).
+                if self._singkirkan_popup(peramban):
+                    time.sleep(1)
+                    continue
                 # Upaya terakhir pada percobaan ini: tampilkan elemen lalu klik lewat skrip.
                 try:
                     elemen = peramban.find_element(*locator)
@@ -950,29 +1088,27 @@ class BotDapodik:
         self._klik_aman(peramban, loc_menu)
         time.sleep(5)
 
-        # Tutup popup informasi bila muncul (skrip asli menunggu 5 detik, kalau tidak ada
-        # langsung lanjut). Kliknya memakai jalur tahan lapisan pemuatan.
-        try:
-            from selenium.webdriver.support import expected_conditions as EC
-            from selenium.webdriver.support.ui import WebDriverWait
-
-            WebDriverWait(peramban, 5).until(
-                EC.element_to_be_clickable(self._locator("popup_tutup", peta)))
-        except Exception:  # noqa: BLE001 — popup memang sering tidak muncul
-            self._catat_kepala("Popup tidak muncul, lanjut.")
+        # Tutup popup informasi bila muncul — sama seperti skrip sekolah (menunggu 5 detik
+        # lalu lanjut). Bedanya, di PC sekolah popup «Selamat Datang di Aplikasi Dapodik
+        # 2027.b» muncul **lebih lambat** daripada 5 detik itu, lalu menutupi halaman dan
+        # menelan klik berikutnya (akibatnya formulir Registrasi tidak pernah terbuka).
+        # Karena itu popup ditunggu selama jeda muat, dan tetap diperiksa lagi sebelum
+        # setiap langkah berikutnya.
+        if self._singkirkan_popup(peramban, peta,
+                                  batas=float(self.opsi.get("bot_jeda_muat", "5") or 5)):
+            self._catat_kepala("Popup Dapodik ditutup.")
         else:
-            try:
-                self._klik_aman(peramban, self._locator("popup_tutup", peta), ulang=2)
-                self._catat_kepala("Popup Dapodik ditutup.")
-            except Exception:  # noqa: BLE001 — jangan batalkan login hanya karena popup
-                self._catat_kepala("Popup Dapodik tidak dapat ditutup — pekerjaan dilanjutkan.")
+            self._catat_kepala("Popup tidak muncul, lanjut.")
         time.sleep(2)
+        self._singkirkan_popup(peramban, peta)
         loc_satu, _, _ = self._cari_dengan_cadangan(peramban, "menu_1", peta)
         self._klik_aman(peramban, loc_satu)
+        self._singkirkan_popup(peramban, peta)
         loc_dua, _, _ = self._cari_dengan_cadangan(peramban, "menu_2", peta)
         self._klik_aman(peramban, loc_dua)
         time.sleep(2)
         self._siap_melanjutkan(peramban, "daftar peserta didik")
+        self._singkirkan_popup(peramban, peta)
         self._catat_kepala("Siap memproses antrean.")
 
     def _kandidat_selector(self, kunci: str, peta: dict[str, str]) -> list[str]:
@@ -1179,6 +1315,9 @@ class BotDapodik:
             from selenium.webdriver.support.ui import WebDriverWait
 
             peta = peta_selector()
+            # Popup pengumuman bisa muncul kapan saja (mis. saat antrean sudah berjalan);
+            # selama popup itu tampil, klik di halaman diabaikan Dapodik.
+            self._singkirkan_popup(peramban, peta)
 
             # 1) cari NISN pada kotak pencarian.
             #    Panel daftar peserta didik harus selesai memuat lebih dulu: kalau belum,
@@ -1209,13 +1348,32 @@ class BotDapodik:
             self._klik_aman(peramban, (By.XPATH, xpath_baris))
             time.sleep(2)
 
-            # 3) tombol Registrasi
+            # 3) tombol Registrasi → formulir Registrasi. Formulir baru terbuka setelah
+            #    tombolnya benar-benar diproses Dapodik; kalau kliknya tertelan (popup
+            #    pengumuman / lapisan modal), tombol diklik ulang — bot tidak langsung
+            #    menyerah dengan "input_nis tidak ditemukan".
             loc_daftar, _, _ = self._cari_dengan_cadangan(peramban, "tombol_registrasi", peta)
-            self._klik_aman(peramban, loc_daftar)
-            time.sleep(2)
+            ulang_form = int(self.opsi.get("bot_max_retries", "3") or 3)
+            terbuka = False
+            for percobaan in range(1, ulang_form + 1):
+                self._singkirkan_popup(peramban, peta)
+                self._klik_aman(peramban, loc_daftar)
+                time.sleep(2)
+                self._siap_melanjutkan(peramban, "formulir Registrasi")
+                terbuka = self._formulir_registrasi_terbuka(peramban, peta)
+                if terbuka:
+                    break
+                self._catat_kepala(f"[registrasi] formulir Registrasi belum terbuka (percobaan "
+                                   f"{percobaan}/{ulang_form}) — memeriksa popup & mengklik tombol "
+                                   "Registrasi sekali lagi.")
+            if not terbuka:
+                raise RuntimeError(
+                    "Formulir Registrasi Dapodik tidak terbuka setelah tombol Registrasi "
+                    f"ditekan {ulang_form} kali. Dapodik biasanya menampilkan popup "
+                    "(mis. «Selamat Datang di Aplikasi Dapodik») yang menutupi halaman — "
+                    "tutup popup itu dengan tombol «Tutup», lalu jalankan bot sekali lagi.")
 
-            # 4) isi NIS (formulir Registrasi baru muncul — tunggu selesai memuat dulu)
-            self._siap_melanjutkan(peramban, "formulir Registrasi")
+            # 4) isi NIS
             loc_nis, _, _ = self._cari_dengan_cadangan(peramban, "input_nis", peta)
             self._isi_dan_periksa(peramban, loc_nis, nis, "NIS")
 

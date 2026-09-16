@@ -453,11 +453,23 @@ Bot Dapodik **sudah aktif** di menu **Bot Dapodik** (khusus admin). Ringkasnya:
 **Alur bot = alur skrip Selenium sekolah**, langkah demi langkah: buka alamat → tunggu
 kolom nama pengguna tampil → isi nama pengguna & kata sandi → tekan tombol masuk → tunggu
 2 detik → klik menu tujuan (mis. *Peserta Didik*) → tunggu 5 detik → tutup popup bila
-muncul → tunggu 2 detik → klik dua menu lanjutan → tunggu 2 detik. Per siswa: cari NISN →
+muncul → tunggu 2 detik → klik dua menu lanjutan → tunggu 2 detik.
+
+**Popup pengumuman Dapodik** (mis. «Selamat Datang di Aplikasi Dapodik 2027.b») ditunggu
+sampai benar-benar tampil, lalu ditutup lewat tombol **Tutup** — kalau perlu lewat klik
+skrip atau membuang jendelanya dari halaman. Ini penting karena Dapodik di PC sekolah
+menampilkan popup itu **lebih lambat daripada 5 detik** yang ditunggu skrip asli; selama
+popup tampil, Dapodik mengabaikan klik di luarnya (akibatnya tombol *Registrasi* seolah
+tidak berpengaruh). Karena itu popup juga diperiksa lagi **sebelum setiap langkah**
+berikutnya. Per siswa: cari NISN →
 klik baris hasilnya → *Registrasi* → isi NIS → centang semua «Ya» → Hobi → Cita-cita →
 *Simpan dan Tutup*. Yang berbeda hanya sumber antreannya (data siswa SM, bukan Excel) dan
 cara menampilkan kemajuannya (di halaman Bot Dapodik). Bawaan **Batas tunggu elemen 15
 detik** & **3 percobaan ulang** juga sama seperti skrip itu.
+
+**Bila formulir Registrasi tidak terbuka**, bot **mengklik tombol Registrasi ulang**
+(3× seperti batas percobaan ulang) sambil memeriksa popup yang mungkin menutupi halaman —
+jadi pekerjaan tidak berhenti hanya karena satu klik tertelan.
 
 **Bila bot berhenti dengan pesan waktu habis / elemen tidak ditemukan** — tekan tombol
 **«Uji koneksi Dapodik»**. Bot membuka Dapodik sebentar lalu menampilkan apa yang

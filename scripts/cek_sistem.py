@@ -1671,15 +1671,30 @@ def cek_kualitas_data():
 
 
 class _WaktuCepat:
-    """Modul ``time`` tiruan untuk uji alur: ``sleep`` dipersingkat, sisanya apa adanya."""
+    """Modul ``time`` tiruan untuk uji alur: ``sleep`` dipersingkat dan **jamnya virtual**.
+
+    Setiap ``sleep`` memajukan jam tiruan, sehingga batas waktu bot (lapisan pemuatan,
+    penantian popup) terukur dan pasti tanpa benar-benar menunggu detikan asli.
+    """
 
     def __init__(self, asli) -> None:
         self._asli = asli
+        self.maju = 0.0
 
     def __getattr__(self, nama: str):
         return getattr(self._asli, nama)
 
+    def time(self) -> float:
+        return self.maju
+
+    def monotonic(self) -> float:
+        return self.maju
+
+    def perf_counter(self) -> float:
+        return self.maju
+
     def sleep(self, detik: float = 0) -> None:
+        self.maju += float(detik or 0)
         self._asli.sleep(min(float(detik or 0), 0.02))
 
 
@@ -1990,6 +2005,63 @@ def cek_bot_dapodik() -> str:
         assert any("[tunggu]" in baris for baris in jejak), \
             "bot harus melaporkan lapisan pemuatan yang tidak hilang"
 
+        # (10) Popup pengumuman «Selamat Datang di Aplikasi Dapodik 2027.b» — bukti screenshot
+        #      PC sekolah. Popup itu muncul LEBIH LAMBAT daripada 5 detik yang ditunggu skrip
+        #      sekolah, lalu menutupi halaman sehingga klik tombol Registrasi tidak diproses;
+        #      bot lama berhenti dengan "Tidak menemukan elemen 'input_nis'". Bot harus
+        #      menunggu popupnya, menutupnya, lalu melanjutkan sampai siswa selesai.
+        jejak.clear()
+        asli_waktu = bot_dapodik.time
+        jam_telat = _WaktuCepat(time)
+        bot_dapodik.time = jam_telat
+        try:
+            palsu_telat = peramban_palsu.buat("alur_penuh").pakai_jam(jam_telat.monotonic)
+            palsu_telat.siapkan_popup(8)        # popup baru muncul 8 detik setelah menu dibuka
+            palsu_telat.registrasi_otomatis = True   # formulir terbuka setelah tombol diklik
+            bot_telat = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                               kepala=jejak.append)
+            bot_telat._login(palsu_telat)
+            nisn_telat = "3137492867"
+            palsu_telat.nisn_dicari = nisn_telat
+            palsu_telat.tambah_baris_siswa(nisn_telat)
+            bot_telat._proses_satu(palsu_telat, {"nisn": nisn_telat, "nipd": "3138", "nama": "Uji"},
+                                   None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert palsu_telat.ditutup_popup >= 1, "popup pengumuman tidak ditutup bot"
+        assert palsu_telat.klik_terblokir == 0, \
+            "masih ada klik yang tertelan popup — popup belum ditutup sebelum langkah berikutnya"
+        assert palsu_telat.unsur_bernama("nipd").nilai == "3138", "NIS tidak terisi saat popup muncul"
+        assert any("berhasil dikirim" in baris for baris in jejak), jejak[-4:]
+        assert any("Popup" in baris for baris in jejak), "penutupan popup tidak dilaporkan"
+
+        # (11) Klik tombol Registrasi yang tertelan: formulir Registrasi baru terbuka pada
+        #      percobaan berikutnya — bot harus mengklik ulang tombolnya, bukan berhenti dengan
+        #      "Tidak menemukan elemen 'input_nis'".
+        jejak.clear()
+        asli_waktu = bot_dapodik.time
+        jam_ulang = _WaktuCepat(time)
+        bot_dapodik.time = jam_ulang
+        try:
+            palsu_ulang = peramban_palsu.buat("alur_penuh").pakai_jam(jam_ulang.monotonic)
+            palsu_ulang.popup_detik = None            # halaman ini tanpa popup
+            palsu_ulang.registrasi_otomatis = True
+            palsu_ulang.tolak_klik_registrasi = 1     # klik Registrasi pertama tertelan
+            bot_ulang = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                               kepala=jejak.append)
+            bot_ulang._login(palsu_ulang)
+            nisn_ulang = "3137492868"
+            palsu_ulang.nisn_dicari = nisn_ulang
+            palsu_ulang.tambah_baris_siswa(nisn_ulang)
+            bot_ulang._proses_satu(palsu_ulang, {"nisn": nisn_ulang, "nipd": "3139", "nama": "Uji"},
+                                   None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert palsu_ulang.unsur_bernama("nipd").nilai == "3139", \
+            "NIS tidak terisi setelah tombol Registrasi diklik ulang"
+        assert any("belum terbuka (percobaan 1/" in baris for baris in jejak), jejak[-5:]
+        assert any("berhasil dikirim" in baris for baris in jejak), jejak[-4:]
+
         assert not hasattr(bot_routes, "pakai_saran"), "rute saran selector masih ada"
         jejak.clear()
         services.set_setting(services.KUNCI_UJI_BOT, "")
@@ -2095,7 +2167,8 @@ def cek_bot_dapodik() -> str:
 
     return (f"{len(kunci)} selector · antrean dari tabel students · uji coba 2 siswa sukses · "
             f"siswa berstatus Lulus dilewati · alur skrip sekolah (masuk, menu, 1 siswa) "
-            f"berjalan di peramban palsu, tahan klik tertelan lapisan pemuatan · "
+            f"berjalan di peramban palsu, tahan klik tertelan lapisan pemuatan & popup "
+            f"pengumuman Dapodik · "
             f"sekarang {len(services.bot_nisn_sukses())} NISN berhasil")
 
 

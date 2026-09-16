@@ -10,6 +10,10 @@ laporan PC sekolah), ``siap``, ``mask`` (masih tertutup lapisan loading Ext JS),
 menu, tabel, dan formulir Registrasi persis skrip sekolah), ``xpath_bawaan``, ``kosong``.
 Panggil ``sibukkan()`` untuk menyalakan lapisan pemuatan yang tidak pernah hilang — klik
 biasa akan tertelan (``ElementClickInterceptedException``) seperti di PC sekolah.
+Popup pengumuman Dapodik ("Selamat Datang di Aplikasi Dapodik 2027.b") juga bisa ditirukan:
+``siapkan_popup(detik)`` mengaturnya muncul beberapa detik setelah menu dibuka — selagi popup
+itu tampil, aplikasi mengabaikan klik di luarnya (persis laporan PC sekolah yang gagal di
+tahap siswa karena popup menutupi halaman).
 
 Kelas di sini meniru bagian API Selenium WebDriver yang dipakai ``app/bot_dapodik``
 secukupnya (``find_element``, ``find_elements``, ``execute_script``, ``is_displayed``,
@@ -20,6 +24,7 @@ direproduksi. **Hanya untuk pengujian** — aplikasi tidak memakainya.
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
 
 from selenium.common.exceptions import (ElementClickInterceptedException,
@@ -47,6 +52,8 @@ class UnsurPalsu:
         self.diklik = 0
         self.diketik: list[str] = []
         self.kelas = sifat.get("kelas", "")
+        #: True = unsur milik popup pengumuman (tombol Tutup & isi jendelanya)
+        self.popup = bool(sifat.get("popup", False))
         #: XPath absolut skrip sekolah, mis. /html/body/div[5]/div[2]/form/input
         self.jalur = sifat.get("jalur", "")
 
@@ -80,7 +87,22 @@ class UnsurPalsu:
 
     def _klik_paksa(self) -> None:
         """Klik seperti lewat skrip: tetap bekerja walau unsur tidak terlihat."""
+        if self.peramban.popup_terbuka() and not self.popup:
+            # Selagi popup pengumuman tampil, aplikasi mengabaikan klik di luarnya —
+            # inilah yang membuat formulir Registrasi tidak pernah terbuka di PC sekolah.
+            self.peramban.klik_terblokir += 1
+            return
         self.diklik += 1
+        if self.popup and (self.teks.strip().lower() == "tutup" or
+                           "x-tool-close" in (self.kelas or "")):
+            self.peramban.tutup_popup()
+            return
+        if self.name == "tombol_registrasi" or \
+                "x-btn-inner-soft-green-small" in (self.kelas or ""):
+            self.peramban.buka_formulir_registrasi()
+        if self.jalur == "/html/body/div[1]/ul/li[2]/div/a/button":
+            # Menu Peserta Didik dibuka → Dapodik menampilkan popup pengumuman versi.
+            self.peramban._menu_tujuan_diklik()
         self._buka_formulir_bila_pembuka()
         if self.peramban.skenario == "masuk" and self.teks.strip().lower() in ("masuk", "login"):
             # Tombol kirim formulir login: halaman berpindah ke daftar peserta didik.
@@ -92,6 +114,10 @@ class UnsurPalsu:
     def click(self) -> None:
         if not self.is_displayed():
             raise ElementNotInteractableException("unsur tidak terlihat")
+        if self.peramban.popup_terbuka() and not self.popup:
+            # Popup pengumuman (beserta lapisan modalnya) menutupi halaman ini.
+            raise ElementClickInterceptedException(
+                "element click intercepted: popup pengumuman Dapodik menutupi unsur ini")
         if self.peramban.mask_keras:
             # Persis keluhan di PC sekolah: lapisan pemuatan Ext JS menutupi kolom,
             # sehingga klik biasa ditelan (ElementClickInterceptedException).
@@ -150,6 +176,21 @@ class PerambanPalsu:
         self.mask_sisa = 2 if skenario == "mask" else 0
         #: True = lapisan pemuatan tidak pernah hilang (klik biasa selalu tertelan)
         self.mask_keras = False
+        #: detik (jam halaman) setelah menu tujuan diklik sebelum popup pengumuman muncul
+        self.popup_detik: float | None = 0.0
+        self._popup_muncul = False
+        self._popup_mulai = 0.0
+        self._popup_tutup = False
+        #: berapa klik di luar popup yang diabaikan aplikasi (bukti penutupan salah waktu)
+        self.klik_terblokir = 0
+        #: berapa kali popup pengumuman berhasil ditutup
+        self.ditutup_popup = 0
+        #: True = formulir Registrasi baru muncul setelah tombol Registrasi ditekan
+        self.registrasi_otomatis = False
+        #: berapa klik Registrasi pertama yang diabaikan (meniru klik yang tertelan)
+        self.tolak_klik_registrasi = 0
+        #: jam halaman — dapat diganti jam palsu saat pengujian agar cepat
+        self.jam = time.monotonic
         self.skrip: list[str] = []
         self.unsur: list[UnsurPalsu] = []
         self.ditutup = False
@@ -214,6 +255,11 @@ class PerambanPalsu:
             self.unsur.append(UnsurPalsu(self, "input", type="password", name="password"))
             self.unsur.append(UnsurPalsu(self, "button", teks="Masuk", id="form2"))
 
+    def _menu_tujuan_diklik(self) -> None:
+        """Menu tujuan dibuka: Dapodik menampilkan popup pengumuman versi."""
+        if self.popup_detik is not None:
+            self.munculkan_popup(self.popup_detik)
+
     def buka_daftar_peserta_didik(self) -> None:
         """Setelah login (skenario alur_penuh): tampilkan menu, pencarian, dan tabel siswa."""
         if self.sudah_masuk:
@@ -225,11 +271,59 @@ class PerambanPalsu:
                 unsur.terlihat = False      # formulir login ditinggalkan halaman
         self.unsur.extend([
             UnsurPalsu(self, "button", teks="", jalur="/html/body/div[1]/ul/li[2]/div/a/button"),
-            UnsurPalsu(self, "a", teks="Tutup", jalur="/html/body/div[11]/div[2]/div[2]/div/div/a[1]"),
+            # Popup pengumuman versi Dapodik — sudah ada di DOM, tampil setelah menu dibuka.
+            UnsurPalsu(self, "div", kelas="x-window", popup=True,
+                       teks="Selamat Datang di Aplikasi Dapodik 2027.b"),
+            UnsurPalsu(self, "a", teks="Tutup", popup=True,
+                       jalur="/html/body/div[11]/div[2]/div[2]/div/div/a[1]"),
+            UnsurPalsu(self, "a", teks="Jangan Tampilkan Log ini", popup=True),
             UnsurPalsu(self, "span", teks="Pendaftaran", id="ext-element-76"),
             UnsurPalsu(self, "span", teks="Peserta Didik", id="ext-element-66"),
             UnsurPalsu(self, "input", type="text", name="cari_text"),
+            # Tombol Registrasi pada toolbar — sudah ada sebelum formulirnya dibuka.
+            UnsurPalsu(self, "span", kelas="x-btn-inner-soft-green-small", teks="Registrasi"),
         ])
+        self.judul = "Dapodik - Peserta Didik"
+
+    def popup_terbuka(self) -> bool:
+        """Apakah popup pengumuman sedang tampil (dan belum ditutup)."""
+        if not self._popup_muncul or self._popup_tutup:
+            return False
+        return (self.jam() - self._popup_mulai) >= float(self.popup_detik or 0)
+
+    def munculkan_popup(self, detik: float = 0.0) -> None:
+        """Tampilkan popup pengumuman (mis. karena menu tujuan baru saja dibuka)."""
+        self._popup_muncul = True
+        self._popup_tutup = False
+        self._popup_mulai = self.jam()
+        self.popup_detik = float(detik)
+
+    def tutup_popup(self) -> None:
+        """Tutup popup pengumuman seperti tombol «Tutup» ditekan."""
+        self._popup_tutup = True
+        self.ditutup_popup += 1
+
+    def siapkan_popup(self, detik: float = 0.0) -> "PerambanPalsu":
+        """Atur popup pengumuman: muncul ``detik`` setelah menu tujuan dibuka.
+
+        ``detik=0`` (bawaan) = muncul seketika seperti Dapodik; angka lebih besar meniru
+        popup yang muncul **belakangan** (persis PC sekolah yang menunggu hanya 5 detik).
+        """
+        self.popup_detik = float(detik)
+        return self
+
+    def pakai_jam(self, jam) -> "PerambanPalsu":
+        """Ganti jam halaman (mis. dengan jam palsu pada pengujian agar cepat)."""
+        self.jam = jam
+        return self
+
+    def buka_formulir_registrasi(self) -> None:
+        """Formulir Registrasi terbuka (dipicu tombol Registrasi, seperti Dapodik)."""
+        if self.tolak_klik_registrasi > 0:
+            self.tolak_klik_registrasi -= 1      # klik pertama tertelan lapisan/popup
+            return
+        if self.registrasi_otomatis and not any(u.name == "nipd" for u in self.unsur):
+            self.tambah_formulir_registrasi(self.nisn_dicari)
 
     def tambah_baris_siswa(self, nisn: str) -> None:
         """Tambahkan satu baris tabel Ext JS untuk NISN tertentu (skenario alur_penuh)."""
@@ -237,8 +331,10 @@ class PerambanPalsu:
 
     def tambah_formulir_registrasi(self, nisn: str) -> None:
         """Tambahkan unsur formulir Registrasi seperti pada Dapodik (skenario alur_penuh)."""
+        if not any("x-btn-inner-soft-green-small" in (u.kelas or "") for u in self.unsur):
+            self.unsur.append(UnsurPalsu(self, "span", kelas="x-btn-inner-soft-green-small",
+                                         teks="Registrasi"))
         self.unsur.extend([
-            UnsurPalsu(self, "span", kelas="x-btn-inner-soft-green-small", teks="Registrasi"),
             UnsurPalsu(self, "input", type="text", name="nipd"),
             UnsurPalsu(self, "input", type="text", name="id_hobby"),
             UnsurPalsu(self, "input", type="text", name="id_cita"),
@@ -247,6 +343,9 @@ class PerambanPalsu:
 
     def _terlihat_otomatis(self, unsur: UnsurPalsu) -> bool:
         """Skenario splash: kolom login baru terlihat setelah tombol pembuka diklik."""
+        if unsur.popup:
+            # Unsur popup ada di DOM, tetapi baru terlihat saat popupnya benar-benar tampil.
+            return self.popup_terbuka()
         if self.skenario == "splash" and unsur.type in ("text", "password"):
             return self.buka_formulir
         if self.skenario == "masuk" and unsur.type in ("text", "password", "email"):
@@ -361,9 +460,13 @@ class PerambanPalsu:
     # ------------------------------------------------------------ skrip ----- #
     def execute_script(self, skrip: str, *argumen: Any) -> Any:
         self.skrip.append(skrip)
+        if ".remove()" in skrip or "removeChild" in skrip:
+            # Jalan keluar terakhir bot: membuang jendela popup dari halaman.
+            self.tutup_popup()
+            return None
         if "x-mask" in skrip and "querySelectorAll" in skrip:
-            if self.mask_keras:
-                return 1
+            if self.mask_keras or self.popup_terbuka():
+                return 1      # popup modal Ext JS juga memakai lapisan penutup
             if self.mask_sisa > 0:
                 self.mask_sisa -= 1
                 return 1
