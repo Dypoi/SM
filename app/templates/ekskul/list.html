@@ -142,56 +142,56 @@
         </div>
       </form>
     </div>
-  </div>
 
-  <div class="card mt-2" id="daftar-pendaftar">
-    <div class="card-head">
-      <div>
-        <h3>Pendaftar Menunggu Persetujuan ({{ pendaftar_menunggu | length }})</h3>
-        <p>
-          Siswa mendaftar sendiri dari portalnya. Persetujuan pembina/pelatih ekskul
-          terkait langsung menjadikan siswa itu anggota; petugas sekolah juga dapat memutuskan di sini.
-        </p>
+    <div class="card mt-2" id="daftar-pendaftar">
+      <div class="card-head">
+        <div>
+          <h3>Pendaftar Menunggu Persetujuan ({{ pendaftar_menunggu | length }})</h3>
+          <p>
+            Siswa mendaftar sendiri dari portalnya. Persetujuan pembina/pelatih ekskul
+            terkait langsung menjadikan siswa itu anggota; petugas sekolah juga dapat memutuskan di sini.
+          </p>
+        </div>
       </div>
-    </div>
-    <div class="card-body p-0 table-wrap">
-      <table class="data kartu">
-        <caption class="sr-only">Pendaftar ekstrakurikuler yang menunggu persetujuan</caption>
-        <thead>
-          <tr>
-            <th>Nama</th><th>NISN</th><th>Rombel</th><th>Ekskul</th><th>Catatan siswa</th>
-            <th>Didaftarkan</th><th class="text-right">Keputusan</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for p in pendaftar_menunggu %}
-          <tr>
-            <td data-label="Nama"><strong>{{ p.nama }}</strong></td>
-            <td class="mono" data-label="NISN">{{ p.nisn or '—' }}</td>
-            <td data-label="Rombel">{{ p.rombel or '—' }}</td>
-            <td data-label="Ekskul"><a href="/ekstrakurikuler/{{ p.ekskul_id }}">{{ p.nama_ekskul }}</a></td>
-            <td data-label="Catatan siswa">{{ p.catatan_siswa or '—' }}</td>
-            <td data-label="Didaftarkan" class="nowrap muted" style="font-size:.78rem">{{ p.created_at or '—' }}</td>
-            <td class="text-right nowrap" data-label="Keputusan">
-              <form method="post" action="/ekstrakurikuler/pendaftaran/{{ p.id }}/putuskan" style="display:inline">
-                <input type="hidden" name="keputusan" value="setujui">
-                <button class="btn btn-primary btn-sm" type="submit">{{ icon('check') }} Setujui</button>
-              </form>
-              <form method="post" action="/ekstrakurikuler/pendaftaran/{{ p.id }}/putuskan" style="display:inline"
-                    data-confirm="Tolak pendaftaran {{ p.nama }} ke {{ p.nama_ekskul }}?">
-                <input type="hidden" name="keputusan" value="tolak">
-                <button class="btn btn-outline btn-sm" type="submit">{{ icon('x') }} Tolak</button>
-              </form>
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="7" class="empty-cell">
-            <p class="empty">Belum ada pendaftar yang menunggu. Siswa dapat mendaftar dari
-              halaman Ekstrakurikuler di portalnya.</p>
-          </td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="card-body p-0 table-wrap">
+        <table class="data kartu">
+          <caption class="sr-only">Pendaftar ekstrakurikuler yang menunggu persetujuan</caption>
+          <thead>
+            <tr>
+              <th>Nama</th><th>NISN</th><th>Rombel</th><th>Ekskul</th><th>Catatan siswa</th>
+              <th>Didaftarkan</th><th class="text-right">Keputusan</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in pendaftar_menunggu %}
+            <tr>
+              <td data-label="Nama"><strong>{{ p.nama }}</strong></td>
+              <td class="mono" data-label="NISN">{{ p.nisn or '—' }}</td>
+              <td data-label="Rombel">{{ p.rombel or '—' }}</td>
+              <td data-label="Ekskul"><a href="/ekstrakurikuler/{{ p.ekskul_id }}">{{ p.nama_ekskul }}</a></td>
+              <td data-label="Catatan siswa">{{ p.catatan_siswa or '—' }}</td>
+              <td data-label="Didaftarkan" class="nowrap muted" style="font-size:.78rem">{{ p.created_at or '—' }}</td>
+              <td class="text-right nowrap" data-label="Keputusan">
+                <form method="post" action="/ekstrakurikuler/pendaftaran/{{ p.id }}/putuskan" style="display:inline">
+                  <input type="hidden" name="keputusan" value="setujui">
+                  <button class="btn btn-primary btn-sm" type="submit">{{ icon('check') }} Setujui</button>
+                </form>
+                <form method="post" action="/ekstrakurikuler/pendaftaran/{{ p.id }}/putuskan" style="display:inline"
+                      data-confirm="Tolak pendaftaran {{ p.nama }} ke {{ p.nama_ekskul }}?">
+                  <input type="hidden" name="keputusan" value="tolak">
+                  <button class="btn btn-outline btn-sm" type="submit">{{ icon('x') }} Tolak</button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="empty-cell">
+              <p class="empty">Belum ada pendaftar yang menunggu. Siswa dapat mendaftar dari
+                halaman Ekstrakurikuler di portalnya.</p>
+            </td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 

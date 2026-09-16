@@ -1285,6 +1285,20 @@ def cek_tabel():
     halaman_daftar = (BASE_DIR / "app" / "templates" / "ekskul" / "list.html").read_text(encoding="utf-8")
     assert "sticky-side" not in halaman_daftar, (
         "kartu samping daftar ekskul jangan lengket (harus ikut tergulir biasa)")
+    # Tata letak halaman Ekstrakurikuler yang diminta sekolah: kartu
+    # "Pendaftar Menunggu Persetujuan" ada di kolom utama (tengah), tepat
+    # setelah kartu "Tambah ekstrakurikuler"; kartu "Anggota Terbanyak" dan
+    # "Masuk sebagai Pembina/Pelatih" di kolom samping (kanan).
+    urutan_daftar = [halaman_daftar.find(kunci) for kunci in
+                     ('id="form-ekskul"', 'id="daftar-pendaftar"', "<aside>",
+                      "Anggota Terbanyak", "Masuk sebagai Pembina/Pelatih")]
+    assert all(posisi > 0 for posisi in urutan_daftar), (
+        "kartu halaman Ekstrakurikuler tidak lengkap: " + str(urutan_daftar))
+    assert urutan_daftar == sorted(urutan_daftar), (
+        "urutan kartu halaman Ekstrakurikuler salah (harus: daftar/tambah di tengah, "
+        "pendaftar setelah kartu Tambah, kartu samping di kanan)")
+    assert urutan_daftar[1] < urutan_daftar[2], (
+        "kartu Pendaftar Menunggu harus di kolom utama, bukan di luar grid/samping")
 
     class PeriksaTabel(HTMLParser):
         def __init__(self) -> None:
