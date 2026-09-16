@@ -969,7 +969,106 @@ def export_students_xlsx(filters: StudentFilter) -> bytes:
 # EKSTRAKURIKULER
 # =========================================================================== #
 EKSKUL_KATEGORI = ("Olahraga", "Seni", "Akademik", "Keagamaan", "Kepemimpinan", "Teknologi", "Lainnya")
+
+#: Peran akun ekstrakurikuler. Satu ekskul hanya punya satu pembina & satu pelatih.
+EKSKUL_PERAN = ("pembina", "pelatih")
+PERAN_LABEL = {"pembina": "Pembina", "pelatih": "Pelatih"}
 HARI_OPTIONS = ("Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu")
+
+
+# --------------------------------------------------------------------------- #
+# Akun ekstrakurikuler (pembina & pelatih, masuk memakai NIK 16 digit)
+# --------------------------------------------------------------------------- #
+def _akun_ekskul_sql() -> str:
+    return """
+        SELECT a.*, e.nama AS ekskul_nama, e.kode AS ekskul_kode, e.kategori AS ekskul_kategori
+          FROM ekskul_akun a JOIN extracurriculars e ON e.id = a.ekskul_id
+    """
+
+
+def akun_ekskul(nik: str) -> list[dict[str, Any]]:
+    """Semua pendaftaran milik satu NIK (satu orang bisa mendampingi >1 ekskul)."""
+    return db.rows_to_dicts(
+        db.query_all(_akun_ekskul_sql() + " WHERE a.nik = ? ORDER BY e.nama COLLATE NOCASE", (nik,))
+    )
+
+
+def akun_ekskul_ekskul(ekskul_id: int) -> dict[str, dict[str, Any] | None]:
+    """Isi posisi pembina & pelatih sebuah ekskul."""
+    hasil: dict[str, dict[str, Any] | None] = {"pembina": None, "pelatih": None}
+    for baris in db.rows_to_dicts(
+        db.query_all(_akun_ekskul_sql() + " WHERE a.ekskul_id = ?", (ekskul_id,))
+    ):
+        if baris["peran"] in hasil:
+            hasil[baris["peran"]] = baris
+    return hasil
+
+
+def akun_ekskul_posisi(ekskul_id: int, peran: str) -> dict[str, Any] | None:
+    baris = db.query_one(_akun_ekskul_sql() + " WHERE a.ekskul_id = ? AND a.peran = ?", (ekskul_id, peran))
+    return dict(baris) if baris is not None else None
+
+
+def semua_akun_ekskul() -> list[dict[str, Any]]:
+    """Daftar seluruh akun ekskul (untuk halaman Pengaturan)."""
+    return db.rows_to_dicts(
+        db.query_all(_akun_ekskul_sql() + " ORDER BY e.nama COLLATE NOCASE, a.peran")
+    )
+
+
+def klaim_akun_ekskul(ekskul_id: int, peran: str, nik: str, nama: str | None = None,
+                      actor: str | None = None) -> int:
+    """Daftarkan NIK pada posisi (ekskul, peran) yang masih kosong."""
+    if peran not in EKSKUL_PERAN:
+        raise ValueError("Peran harus Pembina atau Pelatih.")
+    ekskul = get_ekskul(ekskul_id)
+    if ekskul is None:
+        raise ValueError("Ekstrakurikuler tidak ditemukan.")
+    terisi = akun_ekskul_posisi(ekskul_id, peran)
+    if terisi is not None:
+        if terisi["nik"] == nik:
+            return int(terisi["id"])
+        raise ValueError(
+            f"{PERAN_LABEL[peran]} {ekskul['nama']} sudah terdaftar. "
+            "Hubungi admin sekolah bila memang perlu diganti."
+        )
+    akun_id = db.insert_returning_id(
+        "INSERT INTO ekskul_akun(ekskul_id, peran, nik, nama) VALUES(?,?,?,?)",
+        (ekskul_id, peran, nik, (nama or "").strip() or None),
+    )
+    log_audit(actor or nik, "ekskul", "klaim_akun_ekskul", "ekskul_akun", akun_id,
+              f"{PERAN_LABEL[peran]} {ekskul['nama']} (NIK {nik})")
+    return akun_id
+
+
+def perbarui_nama_akun_ekskul(akun_id: int, nama: str | None) -> None:
+    nama = (nama or "").strip()
+    if not nama:
+        return
+    db.execute("UPDATE ekskul_akun SET nama = ? WHERE id = ?", (nama, akun_id))
+
+
+def catat_login_akun_ekskul(akun_id: int) -> None:
+    db.execute(
+        "UPDATE ekskul_akun SET login_terakhir = datetime('now','localtime') WHERE id = ?",
+        (akun_id,),
+    )
+
+
+def lepas_akun_ekskul(akun_id: int, actor: str | None = None) -> dict[str, Any] | None:
+    """Lepaskan NIK dari posisi ekskul (dipakai admin bila salah orang)."""
+    baris = db.query_one(_akun_ekskul_sql() + " WHERE a.id = ?", (akun_id,))
+    if baris is None:
+        return None
+    data = dict(baris)
+    db.execute("DELETE FROM ekskul_akun WHERE id = ?", (akun_id,))
+    log_audit(actor, "admin", "lepas_akun_ekskul", "ekskul_akun", akun_id,
+              f"{PERAN_LABEL.get(data['peran'], data['peran'])} {data['ekskul_nama']} (NIK {data['nik']})")
+    return data
+
+
+def hitung_akun_ekskul() -> int:
+    return int(db.query_value("SELECT COUNT(*) FROM ekskul_akun") or 0)
 
 
 def list_ekskul(aktif_only: bool = False) -> list[dict[str, Any]]:

@@ -333,6 +333,10 @@ templates.env.filters.update(
 def nav_items(user: auth.SessionUser | None) -> list[dict[str, str]]:
     if user is None:
         return []
+    if user.role == auth.ROLE_EKSKUL:
+        return [
+            {"href": user.halaman_ekskul, "label": user.ekskul_nama or "Ekstrakurikuler", "icon": "flag"},
+        ]
     if user.role == auth.ROLE_SISWA:
         return [
             {"href": "/portal", "label": "Beranda Saya", "icon": "home"},

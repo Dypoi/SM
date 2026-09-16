@@ -215,6 +215,59 @@
       </div>
     </form>
   </div>
+
+  <div class="card mt-2" id="akun-ekskul">
+    <div class="card-head">
+      <div>
+        <h3>Akun Ekstrakurikuler</h3>
+        <p>
+          Pembina &amp; pelatih masuk memakai <strong>NIK 16 angka</strong> pada halaman login.
+          NIK yang masuk pertama kali untuk sebuah posisi langsung terdaftar di posisi itu;
+          satu ekskul hanya punya satu pembina dan satu pelatih.
+        </p>
+      </div>
+      <span class="badge badge-muted">{{ jumlah_akun_ekskul }} NIK terdaftar</span>
+    </div>
+    <div class="card-body p-0 table-wrap">
+      <table class="data">
+        <thead>
+          <tr><th>Ekstrakurikuler</th><th>Pembina</th><th>Pelatih</th></tr>
+        </thead>
+        <tbody>
+          {% for baris in ekskul_akun_daftar %}
+          <tr>
+            <td>
+              <strong>{{ baris.ekskul.nama }}</strong>
+              <div class="muted" style="font-size:.76rem">{{ baris.ekskul.kategori or 'Lainnya' }}</div>
+            </td>
+            {% for peran in ['pembina', 'pelatih'] %}
+            <td>
+              {% set akun = baris.peran.get(peran) %}
+              {% if akun %}
+                <strong>{{ akun.nama or 'Terdaftar' }}</strong>
+                <div class="mono muted" style="font-size:.76rem">NIK {{ akun.nik }}</div>
+                <div class="muted" style="font-size:.74rem">Masuk terakhir: {{ akun.login_terakhir or 'belum pernah' }}</div>
+                <form method="post" action="/pengaturan/ekskul-akun" class="mt-1"
+                      data-confirm="Lepaskan NIK {{ akun.nik }} dari posisi {{ peran }} {{ baris.ekskul.nama }}?">
+                  <input type="hidden" name="aksi" value="lepas">
+                  <input type="hidden" name="akun_id" value="{{ akun.id }}">
+                  <button class="btn btn-outline btn-sm" type="submit">{{ icon('trash') }} Lepaskan</button>
+                </form>
+              {% else %}
+                <span class="badge badge-muted">belum diisi</span>
+              {% endif %}
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-foot muted" style="font-size:.8rem">
+      Posisi yang bertanda <em>belum diisi</em> akan terisi otomatis oleh NIK yang pertama kali masuk
+      pada posisi tersebut.
+    </div>
+  </div>
 </section>
 
 <!-- ============================== Integrasi & API ============================ -->

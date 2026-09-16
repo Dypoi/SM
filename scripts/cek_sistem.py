@@ -933,6 +933,117 @@ def cek_peluncur_online():
     return "pola alamat cloudflared, mode lokal, SM-online.bat CRLF, panduan README"
 
 
+@cek("20. Akun ekstrakurikuler (NIK 16 digit, 1 pembina + 1 pelatih per ekskul)")
+def cek_akun_ekskul():
+    """Uji aturan akun pembina/pelatih: NIK 16 angka, klaim posisi, izin akses."""
+    import asyncio
+
+    import httpx
+
+    from app import auth, db, migrations, services
+    from app.main import app
+
+    # --- Daftar ekskul resmi sekolah tersedia ------------------------------ #
+    diharapkan = [nama for nama, _ in migrations.EKSKUL_SEKOLAH]
+    tersedia = {baris["nama"]: baris for baris in services.list_ekskul()}
+    kurang = [nama for nama in diharapkan if nama not in tersedia]
+    assert not kurang, f"ekskul belum ada: {kurang}"
+    assert len(diharapkan) == 14, len(diharapkan)
+    osis = tersedia["OSIS"]
+    basket = tersedia["BASKET"]
+    assert osis["aktif"] and basket["aktif"]
+
+    # --- Validasi NIK: harus tepat 16 angka -------------------------------- #
+    assert auth.PANJANG_NIK == 16
+    assert auth.bersihkan_nik("3204 1234 5678 0001") == "3204123456780001"
+    assert auth.validasi_nik("3204123456780001")[1] == ""
+    assert "tepat 16" in auth.validasi_nik("320412345678000")[1], "NIK 15 angka harus ditolak"
+    assert "tepat 16" in auth.validasi_nik("32041234567800012")[1], "NIK 17 angka harus ditolak"
+    assert "wajib" in auth.validasi_nik("  ")[1]
+    assert auth.validasi_nik("3204-1234-5678-0001")[0] == "3204123456780001"
+
+    # --- Peran & ekskul wajib sah ------------------------------------------ #
+    user, galat, _ = auth.authenticate_ekskul("3204123456780001", "ketua", osis["id"])
+    assert user is None and "Pembina atau Pelatih" in galat, galat
+    user, galat, _ = auth.authenticate_ekskul("3204123456780001", "pembina", 99999)
+    assert user is None and "ekstrakurikuler" in galat.lower(), galat
+
+    # --- NIK pertama mengunci posisi; NIK lain ditolak --------------------- #
+    pembina, galat, info = auth.authenticate_ekskul("3204123456780001", "pembina", osis["id"],
+                                                    "Budi Santoso")
+    assert pembina is not None, galat
+    assert pembina.role == auth.ROLE_EKSKUL and pembina.ekskul_id == osis["id"]
+    assert pembina.role_label == "Pembina OSIS", pembina.role_label
+    assert "terdaftar sebagai Pembina OSIS" in info, info
+
+    pelatih, galat, _ = auth.authenticate_ekskul("3204123456780003", "pelatih", osis["id"], "Sri Wahyuni")
+    assert pelatih is not None, galat
+    assert pelatih.role_label == "Pelatih OSIS", pelatih.role_label
+
+    ditolak, galat, _ = auth.authenticate_ekskul("3204123456780002", "pembina", osis["id"])
+    assert ditolak is None and "sudah terdaftar" in galat, galat
+
+    lagi, galat, info = auth.authenticate_ekskul("3204123456780001", "pembina", osis["id"])
+    assert lagi is not None, galat
+    assert db.query_value("SELECT COUNT(*) FROM ekskul_akun WHERE ekskul_id = ?", (osis["id"],)) == 2, \
+        "satu ekskul hanya boleh punya 1 pembina + 1 pelatih"
+
+    # Satu NIK boleh mendampingi ekskul lain (posisi berbeda).
+    lain, galat, _ = auth.authenticate_ekskul("3204123456780001", "pembina", basket["id"])
+    assert lain is not None, galat
+    assert db.query_value("SELECT COUNT(*) FROM ekskul_akun WHERE nik = ?", ("3204123456780001",)) == 2
+
+    # --- Admin bisa melepas posisi yang salah orang ----------------------- #
+    posisi = services.akun_ekskul_posisi(basket["id"], "pembina")
+    assert posisi and posisi["nik"] == "3204123456780001"
+    data = services.lepas_akun_ekskul(int(posisi["id"]), actor="admin")
+    assert data and data["ekskul_nama"] == "BASKET"
+    assert services.akun_ekskul_posisi(basket["id"], "pembina") is None
+    pengganti, galat, _ = auth.authenticate_ekskul("3204123456780009", "pembina", basket["id"], "Rina Marlina")
+    assert pengganti is not None, galat
+
+    # --- Perilaku HTTP: halaman sendiri boleh, halaman petugas dialihkan --- #
+    transport = httpx.ASGITransport(app=app)
+
+    async def jalankan() -> str:
+        async with httpx.AsyncClient(transport=transport, base_url="http://cek",
+                                     follow_redirects=False) as klien:
+            halaman = await klien.get("/login?mode=ekskul")
+            assert halaman.status_code == 200
+            assert 'pattern="[0-9]{16}"' in halaman.text, "isian NIK harus dibatasi 16 angka"
+            assert ">OSIS<" in halaman.text and "Pembina" in halaman.text
+            assert 'data-panel="ekskul"' in halaman.text
+
+            masuk = await klien.post("/login", data={"mode": "ekskul", "peran": "pembina",
+                                                     "ekskul_id": osis["id"],
+                                                     "nik": "3204123456780001"})
+            assert masuk.status_code == 303, masuk.status_code
+            assert masuk.headers["location"].startswith(f"/ekstrakurikuler/{osis['id']}")
+
+            sendiri = await klien.get(f"/ekstrakurikuler/{osis['id']}")
+            assert sendiri.status_code == 200
+            assert "Pembina OSIS" in sendiri.text
+            petugas = await klien.get("/data-siswa")
+            assert petugas.status_code == 303 and petugas.headers["location"].startswith("/ekstrakurikuler/")
+            admin_area = await klien.get("/pengaturan")
+            assert admin_area.status_code == 303
+
+            gagal_nik = await klien.post("/login", data={"mode": "ekskul", "peran": "pelatih",
+                                                        "ekskul_id": basket["id"], "nik": "123"})
+            assert gagal_nik.status_code == 400 and "tepat 16 angka" in gagal_nik.text
+
+        # Admin melihat kartu akun ekskul di Pengaturan.
+        async with httpx.AsyncClient(transport=transport, base_url="http://cek") as admin:
+            await admin.post("/login", data={"mode": "staff", "username": "admin", "password": "admin123"})
+            pengaturan = await admin.get("/pengaturan")
+            assert pengaturan.status_code == 200
+            assert "Akun Ekstrakurikuler" in pengaturan.text
+            assert "3204123456780001" in pengaturan.text, "NIK pembina harus tampil di Pengaturan"
+        return "14 ekskul resmi; NIK 16 angka; klaim pembina & pelatih; tolak NIK lain; lepas oleh admin"
+
+    return asyncio.run(jalankan())
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -960,6 +1071,7 @@ def main() -> int:
     cek_keluarga()
     cek_pengaman_online()
     cek_peluncur_online()
+    cek_akun_ekskul()
     if args.http:
         cek_http_pengajuan()
         cek_http()

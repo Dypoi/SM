@@ -304,6 +304,33 @@ akta lahir, kesehatan, sampai koordinat rumah.
   Impor berkas sendiri tetap menampilkan isi berkas apa adanya (tidak dipangkas
   saat diunggah).
 
+### Masuk sebagai pembina / pelatih ekstrakurikuler
+
+Ekstrakurikuler dikelola oleh **pembina** (guru pendamping) dan **pelatih** kegiatan, dan keduanya
+masuk ke aplikasi memakai **NIK 16 angka** — tanpa kata sandi.
+
+1. Buka halaman **login**, pilih kartu **Ekstrakurikuler**.
+2. Pilih peran (**Pembina** atau **Pelatih**) dan nama ekstrakurikuler.
+3. Masukkan **NIK 16 angka** (angka saja; spasi/tanda hubung diabaikan).
+4. **Nama Bapak/Ibu** (opsional) dipakai sebagai nama tampilan saat NIK itu pertama kali masuk.
+
+Aturan yang berlaku:
+
+* Satu ekskul hanya punya **satu pembina** dan **satu pelatih**.
+* NIK yang masuk **pertama kali** untuk sebuah posisi langsung **terdaftar (dikunci)** pada posisi itu —
+  jadi tinggal dipakai masuk berikutnya.
+* Posisi yang sudah terisi **tidak bisa diklaim** orang lain; pesannya menyebutkan NIK yang terdaftar.
+* Salah orang atau salah pilih peran/ekskul? Admin membukanya di
+  **Pengaturan → Pengguna → Akun Ekstrakurikuler** lalu menekan **Lepaskan**; posisi itu bisa diisi lagi
+  oleh NIK berikutnya.
+* Akun ekskul hanya dapat membuka ekskulnya sendiri: mengelola anggota, jabatan, nilai, dan predikat,
+  serta mengunduh daftar anggota (CSV). Halaman data siswa, impor, statistik, dan pengaturan tetap
+  khusus petugas sekolah.
+
+Daftar ekstrakurikuler yang disiapkan aplikasi: OSIS, BASKET, FUTSAL, HADROH, MADING, PADUAN SUARA,
+PASKIBRA, PENCAK SILAT, PMR, PRAMUKA, ROHIS, TARI, VOLLY, dan WUSHU. Ekskul lain tetap bisa
+ditambahkan lewat menu **Ekstrakurikuler**.
+
 ### Persetujuan data siswa (khusus admin)
 - Menu **Persetujuan Data** menampilkan antrean pengajuan siswa (yang menunggu di atas)
   beserta jumlah berkas dan statistiknya.
@@ -525,6 +552,8 @@ Buka **Pengaturan → Sistem → Aman Online**, lalu benahi yang bertanda *perlu
 - [x] Data peserta didik lengkap dengan pencarian, filter, ekspor, dan audit perubahan
 - [x] Login admin (`admin`/`admin123`) dan login siswa (NISN)
 - [x] Modul ekstrakurikuler (kegiatan, anggota, nilai, predikat)
+- [x] Akun ekstrakurikuler: pembina & pelatih masuk dengan NIK 16 angka
+      (satu ekskul = satu pembina + satu pelatih, terisi saat login pertama)
 - [x] Laporan kualitas data & panel kesiapan sinkronisasi
 - [x] API JSON + kunci akses sebagai fondasi integrasi
 - [x] Fitur pembaruan aplikasi dari dalam web (git pull, cadangan, muat ulang)

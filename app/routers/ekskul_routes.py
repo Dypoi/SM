@@ -19,6 +19,22 @@ def _redirect(pesan: str, level: str = "ok", target: str = "/ekstrakurikuler"):
     return RedirectResponse(f"{target}?level={level}&msg={quote_plus(pesan)}", status_code=303)
 
 
+def _boleh_kelola(user: auth.SessionUser, ekskul_id: int) -> bool:
+    """Petugas sekolah bebas; akun ekskul hanya untuk ekskulnya sendiri."""
+    if user.is_staff:
+        return True
+    return bool(user.is_ekskul and user.ekskul_id == ekskul_id)
+
+
+def _tolak_kelola(user: auth.SessionUser):
+    """Akun ekskul yang membuka ekskul lain diarahkan ke ekskulnya sendiri."""
+    return _redirect(
+        "Akun Anda hanya dapat mengelola ekstrakurikuler sendiri.",
+        level="warn",
+        target=user.halaman_ekskul,
+    )
+
+
 @router.get("/ekstrakurikuler")
 def daftar_ekskul(request: Request, user: auth.SessionUser = Depends(auth.require_staff)):
     edit_id = request.query_params.get("edit", "")
@@ -80,10 +96,12 @@ def simpan_ekskul(
 
 
 @router.get("/ekstrakurikuler/{ekskul_id}")
-def detail_ekskul(request: Request, ekskul_id: int, user: auth.SessionUser = Depends(auth.require_staff)):
+def detail_ekskul(request: Request, ekskul_id: int, user: auth.SessionUser = Depends(auth.require_user)):
     ekskul = services.get_ekskul(ekskul_id)
     if ekskul is None:
         return render(request, "error.html", {"kode": 404, "pesan": "Ekstrakurikuler tidak ditemukan."}, status_code=404)
+    if not _boleh_kelola(user, ekskul_id):
+        return _tolak_kelola(user)
     return render(
         request,
         "ekskul/detail.html",
@@ -94,6 +112,8 @@ def detail_ekskul(request: Request, ekskul_id: int, user: auth.SessionUser = Dep
             "kategori_options": services.EKSKUL_KATEGORI,
             "hari_options": services.HARI_OPTIONS,
             "opsi_rombel": services.distinct_values("rombel"),
+            "akun_ekskul": services.akun_ekskul_ekskul(ekskul_id),
+            "boleh_ubah": user.is_staff,
         },
     )
 
@@ -112,8 +132,10 @@ def tambah_anggota(
     student_id: str = Form(""),
     nisn: str = Form(""),
     jabatan: str = Form("Anggota"),
-    user: auth.SessionUser = Depends(auth.require_staff),
+    user: auth.SessionUser = Depends(auth.require_user),
 ):
+    if not _boleh_kelola(user, ekskul_id):
+        return _tolak_kelola(user)
     target = f"/ekstrakurikuler/{ekskul_id}"
     siswa = None
     if student_id.isdigit():
@@ -133,8 +155,10 @@ def tambah_anggota(
 
 @router.post("/ekstrakurikuler/anggota/{member_id}/hapus")
 def hapus_anggota(request: Request, member_id: int,
-                  user: auth.SessionUser = Depends(auth.require_staff)):
+                  user: auth.SessionUser = Depends(auth.require_user)):
     row = services.db.query_one("SELECT ekskul_id FROM ekskul_members WHERE id = ?", (member_id,))
+    if row and not _boleh_kelola(user, int(row["ekskul_id"])):
+        return _tolak_kelola(user)
     services.remove_ekskul_member(member_id, actor=user.username)
     target = f"/ekstrakurikuler/{row['ekskul_id']}" if row else "/ekstrakurikuler"
     return _redirect("Anggota dikeluarkan dari ekstrakurikuler.", target=target)
@@ -148,9 +172,11 @@ def perbarui_anggota(
     nilai: str = Form(""),
     predikat: str = Form(""),
     status: str = Form("aktif"),
-    user: auth.SessionUser = Depends(auth.require_staff),
+    user: auth.SessionUser = Depends(auth.require_user),
 ):
     row = services.db.query_one("SELECT ekskul_id FROM ekskul_members WHERE id = ?", (member_id,))
+    if row and not _boleh_kelola(user, int(row["ekskul_id"])):
+        return _tolak_kelola(user)
     data = {
         "jabatan": jabatan or "Anggota",
         "nilai": float(nilai) if str(nilai).replace(".", "", 1).isdigit() else None,
@@ -163,10 +189,12 @@ def perbarui_anggota(
 
 
 @router.get("/ekstrakurikuler/{ekskul_id}/anggota.csv")
-def ekspor_anggota(request: Request, ekskul_id: int, user: auth.SessionUser = Depends(auth.require_staff)):
+def ekspor_anggota(request: Request, ekskul_id: int, user: auth.SessionUser = Depends(auth.require_user)):
     ekskul = services.get_ekskul(ekskul_id)
     if ekskul is None:
         return RedirectResponse("/ekstrakurikuler", status_code=303)
+    if not _boleh_kelola(user, ekskul_id):
+        return _tolak_kelola(user)
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
     writer.writerow(["No", "Nama", "NISN", "Rombel", "JK", "Jabatan", "Nilai", "Predikat", "Status", "Tahun Ajaran"])

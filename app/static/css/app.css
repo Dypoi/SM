@@ -734,8 +734,9 @@ td.empty-cell { padding: 0; }
 .login-peran-kartu strong { display: block; color: #fff; font-size: .95rem; margin-bottom: .12rem; }
 .login-peran-kartu span { color: #cbd5e1; font-size: .84rem; line-height: 1.45; }
 
-/* Dua pilihan peran di panel kanan — sasaran sentuh besar dan jelas. */
-.switch { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; background: none; padding: 0; }
+/* Pilihan peran di panel kanan (admin/guru, siswa, ekstrakurikuler) —
+   sasaran sentuh besar, rapi walau kartunya sempit. */
+.switch { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: .5rem; background: none; padding: 0; }
 .switch button {
   display: flex; align-items: center; gap: .6rem; text-align: left;
   background: #fff; border: 1.5px solid var(--border); border-radius: 13px;
@@ -769,6 +770,24 @@ input.input-nisn {
   font-size: 1.15rem; font-weight: 600; letter-spacing: .12em;
   font-variant-numeric: tabular-nums; padding: .7rem .8rem;
 }
+
+/* NIK: 16 angka, mudah dibaca satu per satu */
+input.input-nik {
+  font-size: 1.1rem; font-weight: 600; letter-spacing: .14em;
+  font-variant-numeric: tabular-nums; padding: .7rem .8rem;
+}
+
+/* Pilihan Pembina / Pelatih berbentuk kartu radio */
+.pilih-peran { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.pilih-peran label {
+  display: flex; gap: .5rem; align-items: flex-start; cursor: pointer;
+  background: #fff; border: 1.5px solid var(--border); border-radius: 12px; padding: .6rem .7rem;
+}
+.pilih-peran label:hover { border-color: var(--primary-100); background: #f8fbff; }
+.pilih-peran label:has(input:checked) { border-color: var(--primary); background: var(--primary-50); }
+.pilih-peran input { margin: .2rem 0 0; accent-color: var(--primary); width: 16px; height: 16px; }
+.pilih-peran strong { display: block; font-size: .86rem; color: var(--text); }
+.pilih-peran small { display: block; font-size: .74rem; color: var(--muted); }
 
 /* Kotak bantuan & langkah */
 .login-bantuan {

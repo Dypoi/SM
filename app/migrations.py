@@ -17,6 +17,92 @@ from .security import hash_password
 log = logging.getLogger("sm.migrations")
 
 # --------------------------------------------------------------------------- #
+# Daftar ekstrakurikuler yang dipakai sekolah (nama resmi + kategori)
+# --------------------------------------------------------------------------- #
+EKSKUL_SEKOLAH: tuple[tuple[str, str], ...] = (
+    ("OSIS", "Kepemimpinan"),
+    ("BASKET", "Olahraga"),
+    ("FUTSAL", "Olahraga"),
+    ("HADROH", "Keagamaan"),
+    ("MADING", "Akademik"),
+    ("PADUAN SUARA", "Seni"),
+    ("PASKIBRA", "Kepemimpinan"),
+    ("PENCAK SILAT", "Olahraga"),
+    ("PMR", "Kepemimpinan"),
+    ("PRAMUKA", "Kepemimpinan"),
+    ("ROHIS", "Keagamaan"),
+    ("TARI", "Seni"),
+    ("VOLLY", "Olahraga"),
+    ("WUSHU", "Olahraga"),
+)
+
+
+def _kode_ekskul(nama: str) -> str:
+    """Kode ringkas dari nama ekskul (maksimal 20 huruf/angka)."""
+    return "".join(karakter for karakter in nama.upper() if karakter.isalnum())[:20]
+
+
+def _migrasi_004(conn: sqlite3.Connection) -> None:
+    """Akun ekstrakurikuler (pembina/pelatih dengan NIK 16 digit) + daftar ekskul resmi.
+
+    Satu ekskul hanya boleh punya **satu pembina** dan **satu pelatih**; NIK yang
+    masuk pertama kali untuk sebuah posisi langsung terdaftar (dikunci) di posisi
+    itu. Admin dapat melepaskannya dari halaman Pengaturan.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS ekskul_akun (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            ekskul_id       INTEGER NOT NULL REFERENCES extracurriculars(id) ON DELETE CASCADE,
+            peran           TEXT NOT NULL,
+            nik             TEXT NOT NULL,
+            nama            TEXT,
+            aktif           INTEGER NOT NULL DEFAULT 1,
+            login_terakhir  TEXT,
+            created_at      TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE (ekskul_id, peran),
+            UNIQUE (ekskul_id, nik)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ekskul_akun_ekskul ON ekskul_akun(ekskul_id);
+        CREATE INDEX IF NOT EXISTS idx_ekskul_akun_nik ON ekskul_akun(nik);
+        """
+    )
+
+    # Rapikan/masukkan nama ekskul resmi sekolah tanpa mengganggu ekskul lain
+    # yang sudah ada (mis. tambahan dari sekolah).
+    for nama, kategori in EKSKUL_SEKOLAH:
+        baris = conn.execute(
+            """
+            SELECT id FROM extracurriculars
+             WHERE UPPER(TRIM(nama)) = ?
+                OR UPPER(TRIM(COALESCE(kode, ''))) = ?
+                OR UPPER(REPLACE(TRIM(COALESCE(kode, '')), ' ', '')) = ?
+             ORDER BY id LIMIT 1
+            """,
+            (nama, nama, nama.replace(" ", "")),
+        ).fetchone()
+        kode = _kode_ekskul(nama)
+        if baris is not None:
+            conn.execute(
+                "UPDATE extracurriculars SET nama = ?, kode = ?, kategori = COALESCE(NULLIF(kategori, ''), ?),"
+                " aktif = 1, updated_at = datetime('now','localtime') WHERE id = ?",
+                (nama, kode, kategori, baris[0]),
+            )
+            continue
+        try:
+            conn.execute(
+                "INSERT INTO extracurriculars (kode, nama, kategori, aktif) VALUES (?, ?, ?, 1)",
+                (kode, nama, kategori),
+            )
+        except sqlite3.IntegrityError:  # kode sudah dipakai baris lain
+            conn.execute(
+                "INSERT INTO extracurriculars (kode, nama, kategori, aktif) VALUES (NULL, ?, ?, 1)",
+                (nama, kategori),
+            )
+    log.info("Daftar ekskul resmi sekolah disiapkan (%s kegiatan).", len(EKSKUL_SEKOLAH))
+
+
+# --------------------------------------------------------------------------- #
 # Daftar migrasi (urut, sekali jalan)
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -401,6 +487,10 @@ MIGRATIONS: list[tuple[str, str | Callable[[sqlite3.Connection], None]]] = [
     (
         "003_hapus_kolom_tidak_dipakai",
         _bersihkan_kolom_tidak_dipakai,
+    ),
+    (
+        "004_akun_ekskul",
+        _migrasi_004,
     ),
 ]
 

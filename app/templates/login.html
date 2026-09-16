@@ -47,6 +47,13 @@
           <span>Impor berkas Excel/CSV dari Dapodik, kelola data peserta didik, dan setujui pengajuan perubahan.</span>
         </div>
       </div>
+      <div class="login-peran-kartu">
+        <div class="ikon">{{ icon('flag') }}</div>
+        <div>
+          <strong>Untuk pembina &amp; pelatih ekskul</strong>
+          <span>Masuk dengan NIK 16 angka, pilih Pembina atau Pelatih, lalu kelola anggota ekskul Anda.</span>
+        </div>
+      </div>
     </div>
 
     <div class="login-features">
@@ -81,20 +88,26 @@
         <div class="alert alert-err">{{ icon('warning') }} <span>{{ pesan_error }}</span></div>
       {% endif %}
 
+      {% set mode_aktif = form_mode if form_mode in ['staff', 'siswa', 'ekskul'] else 'staff' %}
       <div class="switch" role="tablist">
-        <button type="button" role="tab" class="{{ 'active' if form_mode != 'siswa' }}"
-                aria-selected="{{ 'true' if form_mode != 'siswa' else 'false' }}" data-tab="staff">
+        <button type="button" role="tab" class="{{ 'active' if mode_aktif == 'staff' }}"
+                aria-selected="{{ 'true' if mode_aktif == 'staff' else 'false' }}" data-tab="staff">
           {{ icon('users') }}
           <span><strong>Admin / Guru</strong><small>Pengelola data</small></span>
         </button>
-        <button type="button" role="tab" class="{{ 'active' if form_mode == 'siswa' }}"
-                aria-selected="{{ 'true' if form_mode == 'siswa' else 'false' }}" data-tab="siswa">
+        <button type="button" role="tab" class="{{ 'active' if mode_aktif == 'siswa' }}"
+                aria-selected="{{ 'true' if mode_aktif == 'siswa' else 'false' }}" data-tab="siswa">
           {{ icon('user') }}
           <span><strong>Siswa</strong><small>Cukup NISN</small></span>
         </button>
+        <button type="button" role="tab" class="{{ 'active' if mode_aktif == 'ekskul' }}"
+                aria-selected="{{ 'true' if mode_aktif == 'ekskul' else 'false' }}" data-tab="ekskul">
+          {{ icon('flag') }}
+          <span><strong>Ekstrakurikuler</strong><small>Pembina / Pelatih</small></span>
+        </button>
       </div>
 
-      <form method="post" action="/login" class="tab-panel {{ 'active' if form_mode != 'siswa' }}" data-panel="staff">
+      <form method="post" action="/login" class="tab-panel {{ 'active' if mode_aktif == 'staff' }}" data-panel="staff">
         <input type="hidden" name="mode" value="staff">
         <input type="hidden" name="next" value="{{ next }}">
         <div class="field">
@@ -111,7 +124,7 @@
         <p class="login-hint">Akun awal: <code>admin</code> / <code>admin123</code> — segera ubah dari menu Pengaturan.</p>
       </form>
 
-      <form method="post" action="/login" class="tab-panel {{ 'active' if form_mode == 'siswa' }}" data-panel="siswa">
+      <form method="post" action="/login" class="tab-panel {{ 'active' if mode_aktif == 'siswa' }}" data-panel="siswa">
         <input type="hidden" name="mode" value="siswa">
         <input type="hidden" name="next" value="{{ next }}">
 
@@ -147,6 +160,70 @@
             <li>Tanyakan NISN kepada wali kelas atau tata usaha sekolah.</li>
             <li>Masuk kembali, lalu buka menu <strong>Ajukan Perubahan</strong> untuk memperbaiki data.</li>
             <li>Perbaikan diperiksa admin sebelum disimpan.</li>
+          </ol>
+        </div>
+      </form>
+
+      <form method="post" action="/login" class="tab-panel {{ 'active' if mode_aktif == 'ekskul' }}" data-panel="ekskul">
+        <input type="hidden" name="mode" value="ekskul">
+        <input type="hidden" name="next" value="{{ next }}">
+
+        <div class="login-siswa-head">
+          <div class="ikon">{{ icon('flag') }}</div>
+          <div>
+            <h3>Masuk sebagai pembina / pelatih</h3>
+            <p>Pilih peran dan ekstrakurikuler, lalu masukkan NIK 16 angka — tanpa kata sandi.</p>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Masuk sebagai</label>
+          <div class="pilih-peran">
+            <label>
+              <input type="radio" name="peran" value="pembina"
+                     {{ 'checked' if (form_peran or 'pembina') != 'pelatih' }}>
+              <span><strong>Pembina</strong><small>Guru pendamping ekskul</small></span>
+            </label>
+            <label>
+              <input type="radio" name="peran" value="pelatih" {{ 'checked' if form_peran == 'pelatih' }}>
+              <span><strong>Pelatih</strong><small>Pelatih kegiatan</small></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="field mt-2">
+          <label for="ekskul_id">Ekstrakurikuler</label>
+          <select id="ekskul_id" name="ekskul_id" required>
+            <option value="">— pilih ekstrakurikuler —</option>
+            {% for e in ekskul_options or [] %}
+            <option value="{{ e.id }}" {{ 'selected' if form_ekskul_id == e.id | string }}>{{ e.nama }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="field mt-2">
+          <label for="nik">NIK (16 angka)</label>
+          <input class="input-nik" type="text" id="nik" name="nik" value="{{ form_nik or '' }}"
+                 inputmode="numeric" pattern="[0-9]{16}" minlength="16" maxlength="16"
+                 placeholder="3204123456780001" autocomplete="off" required>
+          <span class="hint">Tertulis pada KTP/KK. Angka saja, tepat 16 digit.</span>
+        </div>
+
+        <div class="field mt-2">
+          <label for="nama_ekskul">Nama Bapak/Ibu (opsional)</label>
+          <input type="text" id="nama_ekskul" name="nama" value="{{ form_nama or '' }}"
+                 placeholder="cth: Budi Santoso, S.Pd" autocomplete="name" maxlength="80">
+          <span class="hint">Dipakai sebagai nama tampilan bila NIK ini baru pertama kali masuk.</span>
+        </div>
+
+        <button class="btn btn-primary btn-block btn-lg mt-3" type="submit">{{ icon('logout') }} Masuk sebagai ekskul</button>
+
+        <div class="login-bantuan">
+          <strong>Aturan akun ekstrakurikuler</strong>
+          <ol>
+            <li>Satu ekskul hanya punya <strong>1 pembina</strong> dan <strong>1 pelatih</strong>.</li>
+            <li>NIK yang masuk <strong>pertama kali</strong> untuk sebuah ekskul langsung terdaftar pada posisi yang dipilih.</li>
+            <li>Posisi yang sudah terisi tidak bisa diklaim orang lain — hubungi admin sekolah bila perlu diganti.</li>
           </ol>
         </div>
       </form>

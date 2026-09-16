@@ -2,6 +2,15 @@
 {% from "_macros.html" import icon, nilai %}
 
 {% block content %}
+{% if user.is_ekskul %}
+<div class="alert alert-info" role="status">
+  <span class="alert-icon">{{ icon('flag') }}</span>
+  <div>
+    Anda masuk sebagai <strong>{{ user.role_label }}</strong>. Halaman ini hanya memuat
+    ekstrakurikuler Anda; tombol pengelolaan ekskul lain hanya untuk petugas sekolah.
+  </div>
+</div>
+{% endif %}
 <div class="card">
   <div class="card-body">
     <div class="flex between flex-wrap" style="gap:1rem">
@@ -22,8 +31,10 @@
         {% if ekskul.deskripsi %}<p class="soft" style="font-size:.86rem">{{ ekskul.deskripsi }}</p>{% endif %}
       </div>
       <div class="btn-group">
+        {% if boleh_ubah is defined and boleh_ubah %}
         <a class="btn btn-outline btn-sm" href="/ekstrakurikuler">{{ icon('flag') }} Semua ekskul</a>
         <a class="btn btn-outline btn-sm" href="/ekstrakurikuler?edit={{ ekskul.id }}#form-ekskul">{{ icon('edit') }} Ubah</a>
+        {% endif %}
         <a class="btn btn-outline btn-sm" href="/ekstrakurikuler/{{ ekskul.id }}/anggota.csv">{{ icon('download') }} Ekspor anggota</a>
         {% if user.is_staff %}
         <form method="post" action="/ekstrakurikuler/{{ ekskul.id }}/hapus"
@@ -119,6 +130,28 @@
           </div>
           <button class="btn btn-primary btn-block mt-2" type="submit">{{ icon('plus') }} Tambahkan</button>
         </form>
+
+        <div class="section-title">Pendamping</div>
+        <dl class="kv" style="grid-template-columns:1fr">
+          <dt>Pembina</dt>
+          <dd>
+            {% if akun_ekskul is defined and akun_ekskul.pembina %}
+              {{ akun_ekskul.pembina.nama or 'Terdaftar' }}
+              <div class="mono muted" style="font-size:.76rem">NIK {{ akun_ekskul.pembina.nik }}</div>
+            {% else %}
+              <span class="badge badge-muted">belum masuk</span>
+            {% endif %}
+          </dd>
+          <dt>Pelatih</dt>
+          <dd>
+            {% if akun_ekskul is defined and akun_ekskul.pelatih %}
+              {{ akun_ekskul.pelatih.nama or 'Terdaftar' }}
+              <div class="mono muted" style="font-size:.76rem">NIK {{ akun_ekskul.pelatih.nik }}</div>
+            {% else %}
+              <span class="badge badge-muted">belum masuk</span>
+            {% endif %}
+          </dd>
+        </dl>
 
         <div class="section-title">Ringkasan</div>
         <dl class="kv" style="grid-template-columns:1fr">

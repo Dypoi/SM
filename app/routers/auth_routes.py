@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import quote_plus
+
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 
@@ -25,7 +27,8 @@ def _pesan_tunggu(sisa: int) -> str:
 
 
 def _halaman_login(request: Request, *, pesan_error: str, mode: str, next: str,
-                   nisn: str = "", username: str = "", status: int = 400):
+                   nisn: str = "", username: str = "", status: int = 400,
+                   nik: str = "", ekskul_id: str = "", peran: str = "", nama: str = ""):
     return render(
         request,
         "login.html",
@@ -36,6 +39,11 @@ def _halaman_login(request: Request, *, pesan_error: str, mode: str, next: str,
             "form_mode": mode,
             "form_nisn": nisn,
             "form_username": username,
+            "form_nik": nik,
+            "form_ekskul_id": ekskul_id,
+            "form_peran": peran,
+            "form_nama": nama,
+            "ekskul_options": services.list_ekskul(aktif_only=True),
         },
         status_code=status,
     )
@@ -52,9 +60,10 @@ def halaman_login(request: Request):
         {
             "next": request.query_params.get("next", ""),
             "keluar": request.query_params.get("keluar") == "1",
-            # /login?mode=siswa membuka langsung tab siswa.
+            # /login?mode=siswa membuka langsung tab siswa; ?mode=ekskul tab ekskul.
             "form_mode": request.query_params.get("mode", ""),
             "pakai_tanggal_lahir": auth.student_requires_birthdate(),
+            "ekskul_options": services.list_ekskul(aktif_only=True),
         },
     )
 
@@ -67,11 +76,20 @@ def proses_login(
     password: str = Form(""),
     nisn: str = Form(""),
     tanggal_lahir: str = Form(""),
+    nik: str = Form(""),
+    peran: str = Form("pembina"),
+    ekskul_id: str = Form(""),
+    nama: str = Form(""),
     next: str = Form(""),
 ):
     ip = request.client.host if request.client else None
     tujuan = _safe_next(next)
-    identitas = (nisn or "").strip() if mode == "siswa" else (username or "").strip().lower()
+    if mode == "ekskul":
+        identitas = auth.bersihkan_nik(nik)
+    elif mode == "siswa":
+        identitas = (nisn or "").strip()
+    else:
+        identitas = (username or "").strip().lower()
 
     # Pengaman 1: penangguhan sementara setelah percobaan gagal berulang.
     sisa = auth.tunggu_sebelum_login(mode, identitas, ip)
@@ -82,6 +100,25 @@ def proses_login(
                                  nisn=nisn, username=username, status=429)
         respons.headers["Retry-After"] = str(sisa)
         return respons
+
+    if mode == "ekskul":
+        user, error, info = auth.authenticate_ekskul(
+            nik, peran, int(ekskul_id) if str(ekskul_id).strip().isdigit() else 0, nama
+        )
+        if user is None:
+            auth.catat_login_gagal(mode, identitas, ip)
+            services.log_audit(identitas or None, "ekskul", "login_ekskul_gagal", None, None, error, ip)
+            return _halaman_login(
+                request, pesan_error=error, mode="ekskul", next=next,
+                nik=auth.bersihkan_nik(nik), ekskul_id=str(ekskul_id), peran=peran, nama=nama,
+            )
+        auth.catat_login_berhasil(mode, identitas, ip)
+        tujuan_ekskul = tujuan or f"/ekstrakurikuler/{user.ekskul_id}"
+        pemisah = "&" if "?" in tujuan_ekskul else "?"
+        response = RedirectResponse(f"{tujuan_ekskul}{pemisah}level=ok&msg={quote_plus(info)}",
+                                    status_code=303)
+        auth.start_session(response, user, request)
+        return response
 
     if mode == "siswa":
         nisn_bersih = (nisn or "").strip()

@@ -26,8 +26,17 @@ from .security import create_session_token, read_session_token, verify_password
 ROLE_ADMIN = "admin"
 ROLE_OPERATOR = "operator"
 ROLE_SISWA = "siswa"
+ROLE_EKSKUL = "ekskul"
 
-ROLE_LABELS = {ROLE_ADMIN: "Administrator", ROLE_OPERATOR: "Operator/Guru", ROLE_SISWA: "Siswa"}
+ROLE_LABELS = {
+    ROLE_ADMIN: "Administrator",
+    ROLE_OPERATOR: "Operator/Guru",
+    ROLE_SISWA: "Siswa",
+    ROLE_EKSKUL: "Pembina/Pelatih Ekstrakurikuler",
+}
+
+#: NIK harus tepat 16 angka (aturan Dukcapil, sesuai permintaan sekolah).
+PANJANG_NIK = 16
 
 # Path yang bisa diakses tanpa login
 PUBLIC_PATHS = ("/login", "/logout", "/static", "/health", "/api/health")
@@ -42,10 +51,23 @@ class SessionUser:
     student_id: int | None = None
     nisn: str | None = None
     rombel: str | None = None
+    # Akun ekstrakurikuler (pembina/pelatih)
+    ekskul_id: int | None = None
+    ekskul_nama: str | None = None
+    ekskul_peran: str | None = None
 
     @property
     def is_admin(self) -> bool:
         return self.role == ROLE_ADMIN
+
+    @property
+    def is_ekskul(self) -> bool:
+        return self.role == ROLE_EKSKUL
+
+    @property
+    def halaman_ekskul(self) -> str:
+        """Halaman yang boleh dibuka akun ekstrakurikuler."""
+        return f"/ekstrakurikuler/{self.ekskul_id}" if self.ekskul_id else "/login"
 
     @property
     def is_staff(self) -> bool:
@@ -53,6 +75,9 @@ class SessionUser:
 
     @property
     def role_label(self) -> str:
+        if self.role == ROLE_EKSKUL and self.ekskul_nama:
+            peran = services.PERAN_LABEL.get(self.ekskul_peran or "", "Pengurus")
+            return f"{peran} {self.ekskul_nama}"
         return ROLE_LABELS.get(self.role, self.role)
 
     @property
@@ -89,6 +114,9 @@ def start_session(response: Response, user: SessionUser, request: Request | None
             "student_id": user.student_id,
             "nisn": user.nisn,
             "rombel": user.rombel,
+            "ekskul_id": user.ekskul_id,
+            "ekskul_nama": user.ekskul_nama,
+            "ekskul_peran": user.ekskul_peran,
             "ts": dt.datetime.now().isoformat(timespec="seconds"),
         }
     )
@@ -120,6 +148,9 @@ def current_user(request: Request) -> SessionUser | None:
         student_id=data.get("student_id"),
         nisn=data.get("nisn"),
         rombel=data.get("rombel"),
+        ekskul_id=data.get("ekskul_id"),
+        ekskul_nama=data.get("ekskul_nama"),
+        ekskul_peran=data.get("ekskul_peran"),
     )
 
 
@@ -143,10 +174,23 @@ def _arahkan_siswa_ke_portal() -> HTTPException:
     )
 
 
+def _arahkan_ekskul_ke_halamannya(user: SessionUser, pesan: str) -> HTTPException:
+    """Akun pembina/pelatih hanya memegang ekskulnya sendiri."""
+    from urllib.parse import quote_plus
+
+    return HTTPException(
+        status_code=status.HTTP_303_SEE_OTHER,
+        headers={"Location": f"{user.halaman_ekskul}?level=info&msg={quote_plus(pesan)}"},
+        detail=pesan,
+    )
+
+
 def require_staff(request: Request) -> SessionUser:
     user = require_user(request)
     if user.role == ROLE_SISWA:
         raise _arahkan_siswa_ke_portal()
+    if user.role == ROLE_EKSKUL:
+        raise _arahkan_ekskul_ke_halamannya(user, "Halaman tersebut khusus petugas sekolah.")
     if not user.is_staff:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Akses ditolak.")
     return user
@@ -156,6 +200,8 @@ def require_admin(request: Request) -> SessionUser:
     user = require_user(request)
     if user.role == ROLE_SISWA:
         raise _arahkan_siswa_ke_portal()
+    if user.role == ROLE_EKSKUL:
+        raise _arahkan_ekskul_ke_halamannya(user, "Halaman tersebut khusus administrator sekolah.")
     if not user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -303,6 +349,85 @@ def authenticate_student(nisn: str) -> tuple[SessionUser | None, str]:
     )
     services.log_audit(nisn, ROLE_SISWA, "login_siswa", "students", student["id"])
     return user, ""
+
+
+# --------------------------------------------------------------------------- #
+# Login ekstrakurikuler (NIK 16 digit + pilih peran & ekskul)
+# --------------------------------------------------------------------------- #
+def bersihkan_nik(teks: str | None) -> str:
+    """Ambil angka saja dari NIK (spasi, titik, dan tanda hubung diabaikan)."""
+    return "".join(karakter for karakter in (teks or "") if karakter.isdigit())
+
+
+def validasi_nik(teks: str | None) -> tuple[str, str]:
+    """Kembalikan (NIK bersih, pesan galat) — pesan kosong berarti sah."""
+    nik = bersihkan_nik(teks)
+    if not nik:
+        return "", "NIK wajib diisi (16 angka sesuai KTP/KK)."
+    if len(nik) != PANJANG_NIK:
+        return nik, f"NIK harus tepat {PANJANG_NIK} angka — yang dimasukkan {len(nik)} angka."
+    return nik, ""
+
+
+def authenticate_ekskul(
+    nik: str, peran: str, ekskul_id: int, nama: str = ""
+) -> tuple[SessionUser | None, str, str]:
+    """Masuk sebagai pembina/pelatih ekskul.
+
+    Mengembalikan (pengguna, pesan_galat, pesan_info). Aturannya:
+
+    * satu ekskul hanya boleh punya satu pembina dan satu pelatih;
+    * posisi yang masih kosong langsung dikunci oleh NIK yang masuk pertama kali;
+    * NIK yang sudah terdaftar pada posisi itu cukup masuk seperti biasa.
+    """
+    peran = (peran or "").strip().lower()
+    if peran not in services.EKSKUL_PERAN:
+        return None, "Pilih dulu apakah Anda Pembina atau Pelatih.", ""
+
+    nik_bersih, galat = validasi_nik(nik)
+    if galat:
+        return None, galat, ""
+
+    ekskul = services.get_ekskul(int(ekskul_id)) if int(ekskul_id or 0) else None
+    if ekskul is None:
+        return None, "Pilih ekstrakurikuler yang Anda dampingi.", ""
+    if not ekskul.get("aktif"):
+        return None, f"Ekstrakurikuler {ekskul['nama']} sedang nonaktif — hubungi admin sekolah.", ""
+
+    posisi = services.akun_ekskul_posisi(int(ekskul_id), peran)
+    info = ""
+    if posisi is not None and posisi["nik"] != nik_bersih:
+        lain = services.PERAN_LABEL.get(peran, peran)
+        return (None,
+                f"{lain} {ekskul['nama']} sudah terdaftar oleh NIK {posisi['nik']}. "
+                "Hubungi admin sekolah bila memang perlu diganti.", "")
+
+    if posisi is None:
+        akun_id = services.klaim_akun_ekskul(int(ekskul_id), peran, nik_bersih, nama, actor=nik_bersih)
+        peran_label = services.PERAN_LABEL.get(peran, peran)
+        info = (f"Selamat datang! NIK Anda terdaftar sebagai {peran_label} {ekskul['nama']}. "
+                "Bila ini keliru, hubungi admin sekolah untuk melepaskannya.")
+    else:
+        akun_id = int(posisi["id"])
+        if nama:
+            services.perbarui_nama_akun_ekskul(akun_id, nama)
+        peran_label = services.PERAN_LABEL.get(peran, peran)
+        info = f"Anda masuk sebagai {peran_label} {ekskul['nama']}."
+
+    services.catat_login_akun_ekskul(akun_id)
+    akun = services.akun_ekskul_posisi(int(ekskul_id), peran) or {}
+    user = SessionUser(
+        id=akun_id,
+        username=f"ekskul:{akun.get('nik', nik_bersih)}",
+        nama=(nama or akun.get("nama") or f"{peran_label} {ekskul['nama']}").strip(),
+        role=ROLE_EKSKUL,
+        ekskul_id=int(ekskul["id"]),
+        ekskul_nama=ekskul["nama"],
+        ekskul_peran=peran,
+    )
+    services.log_audit(user.username, ROLE_EKSKUL, "login_ekskul", "ekskul_akun", akun_id,
+                       f"{peran_label} {ekskul['nama']}")
+    return user, "", info
 
 
 def student_requires_birthdate() -> bool:

@@ -43,7 +43,33 @@ def halaman_pengaturan(request: Request, user: auth.SessionUser = Depends(auth.r
             "readiness": services.dapodik_readiness(),
             "online": online.baca_status(),
             "catatan_keamanan": online.pemeriksaan_keamanan(),
+            "ekskul_akun_daftar": [
+                {"ekskul": ekskul, "peran": services.akun_ekskul_ekskul(int(ekskul["id"]))}
+                for ekskul in services.list_ekskul()
+            ],
+            "jumlah_akun_ekskul": services.hitung_akun_ekskul(),
         },
+    )
+
+
+@router.post("/pengaturan/ekskul-akun")
+def kelola_akun_ekskul(
+    request: Request,
+    user: auth.SessionUser = Depends(auth.require_admin),
+    aksi: str = Form(""),
+    akun_id: str = Form(""),
+):
+    """Lepaskan NIK dari posisi pembina/pelatih (mis. salah orang saat pertama masuk)."""
+    if aksi != "lepas" or not akun_id.isdigit():
+        return _redirect("Aksi akun ekstrakurikuler tidak dikenal.", "err", "#akun-ekskul")
+    data = services.lepas_akun_ekskul(int(akun_id), actor=user.username)
+    if data is None:
+        return _redirect("Akun ekstrakurikuler tidak ditemukan.", "err", "#akun-ekskul")
+    peran = services.PERAN_LABEL.get(data["peran"], data["peran"])
+    return _redirect(
+        f"NIK {data['nik']} dilepaskan dari posisi {peran} {data['ekskul_nama']}. "
+        "Posisi itu bisa dipakai orang lain saat masuk berikutnya.",
+        "ok", "#akun-ekskul",
     )
 
 
