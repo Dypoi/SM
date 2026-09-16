@@ -36,7 +36,10 @@
   // login). Dulu penyorot hanya dilepas dari elemen berkelas .tab di dalam
   // .tabs, sehingga pada halaman login tombol lama tetap tersorot dan dua kartu
   // peran tampak aktif bersamaan (warna tidak sesuai).
-  document.querySelectorAll("[data-tab]").forEach(function (button) {
+  // Hanya tombol tab yang sesungguhnya (di dalam .tabs/.switch atau berkelas .tab),
+  // supaya penanda lain — mis. tombol "Tambah" pada halaman ekstrakurikuler yang
+  // memakai data-tab untuk menggulir — tidak ikut diperlakukan sebagai tab.
+  document.querySelectorAll(".tabs [data-tab], .switch [data-tab], .tab[data-tab]").forEach(function (button) {
     button.addEventListener("click", function (event) {
       var target = button.getAttribute("data-tab");
       var grup = button.closest(".tabs, .switch") || button.parentElement;
