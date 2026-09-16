@@ -112,6 +112,16 @@ git pull origin arena/01a0a87a-sm
 > ada di komputer server, halaman Pembaruan tetap menampilkan langkah manualnya.
 > Untuk mematikan fitur ini: set `SM_GIT_UPDATE=0`.
 
+### Tanya jawab pembaruan
+
+| Pertanyaan | Jawaban |
+| --- | --- |
+| Pembaruan dijalankan di komputer mana? | Di **komputer server** tempat aplikasi dijalankan. Bila dibuka dari browser komputer lain, penarikan tetap terjadi di server. |
+| Apakah data siswa hilang? | Tidak. `git pull` hanya mengganti berkas program; basis data dan unggahan ada di folder `data/` yang tidak ikut git. |
+| Bagaimana kalau ada perubahan kode lokal? | Penarikan otomatis dibatalkan agar tidak ada pekerjaan yang hilang. Jalankan `git status` untuk melihat berkasnya. |
+| Cadangan ada di mana? | `data/backup/simsek-YYYYmmdd-HHMMSS.sqlite3`, dibuat otomatis sebelum penarikan (10 terbaru disimpan). |
+| Komputer tanpa internet? | Matikan "Periksa pembaruan otomatis" pada halaman Pembaruan; aplikasi tetap berjalan normal. |
+
 ### Opsi lain
 
 ```cmd
