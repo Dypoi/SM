@@ -13,6 +13,8 @@ penyimpanan sesi di server.
 from __future__ import annotations
 
 import datetime as dt
+import threading
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -62,7 +64,22 @@ class SessionUser:
 # --------------------------------------------------------------------------- #
 # Sesi
 # --------------------------------------------------------------------------- #
-def start_session(response: Response, user: SessionUser) -> None:
+def _lewat_https(request: Request | None) -> bool:
+    """True bila permintaan sampai ke aplikasi lewat HTTPS.
+
+    Terowongan (Tailscale Funnel / Cloudflare) meneruskan keterangan ini pada
+    header ``X-Forwarded-Proto``. Di jaringan sekolah nilainya ``http``,
+    sehingga cookie sesi tidak diberi tanda ``Secure`` dan login tetap bisa.
+    """
+    if request is None:
+        return False
+    if request.url.scheme == "https":
+        return True
+    diteruskan = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    return diteruskan == "https"
+
+
+def start_session(response: Response, user: SessionUser, request: Request | None = None) -> None:
     token = create_session_token(
         {
             "uid": user.id,
@@ -81,6 +98,7 @@ def start_session(response: Response, user: SessionUser) -> None:
         max_age=config.SESSION_MAX_AGE,
         httponly=True,
         samesite="lax",
+        secure=_lewat_https(request),
         path="/",
     )
 
@@ -144,6 +162,92 @@ def require_admin(request: Request) -> SessionUser:
             detail="Hanya administrator yang boleh membuka halaman Pengaturan.",
         )
     return user
+
+
+# --------------------------------------------------------------------------- #
+# Pembatasan percobaan login (anti tebak NISN / kata sandi)
+# --------------------------------------------------------------------------- #
+@dataclass
+class _CatatanPercobaan:
+    gagal: int = 0
+    sampai: float = 0.0
+
+
+_percobaan: dict[str, _CatatanPercobaan] = {}
+_percobaan_lock = threading.Lock()
+
+
+def _kunci_percobaan(mode: str, identitas: str | None, ip: str | None) -> tuple[str, str]:
+    akun = f"{mode}:{(identitas or '').strip().lower() or '-'}"
+    return akun, f"ip:{ip or '-'}"
+
+
+def _batas_ip(ip: str | None) -> int:
+    from .online import dari_luar
+
+    return config.LOGIN_MAKS_GAGAL_IP_PUBLIK if dari_luar(ip) else config.LOGIN_MAKS_GAGAL_IP_LOKAL
+
+
+def _catatan_percobaan(kunci: str, sekarang: float) -> _CatatanPercobaan:
+    data = _percobaan.get(kunci)
+    if data is None:
+        data = _CatatanPercobaan()
+        _percobaan[kunci] = data
+    if data.sampai and data.sampai <= sekarang:  # masa penangguhan sudah lewat
+        data.gagal = 0
+        data.sampai = 0.0
+    return data
+
+
+def tunggu_sebelum_login(mode: str, identitas: str | None, ip: str | None) -> int:
+    """Sisa detik penangguhan login (0 = boleh mencoba sekarang)."""
+    akun, jaringan = _kunci_percobaan(mode, identitas, ip)
+    sekarang = time.monotonic()
+    with _percobaan_lock:
+        for kunci, batas in ((akun, config.LOGIN_MAKS_GAGAL_AKUN), (jaringan, _batas_ip(ip))):
+            data = _catatan_percobaan(kunci, sekarang)
+            if data.sampai > sekarang:
+                return max(1, int(data.sampai - sekarang) + 1)
+    return 0
+
+
+def catat_login_gagal(mode: str, identitas: str | None, ip: str | None) -> None:
+    """Tambah hitungan gagal; begitu melewati batas, tahan sementara."""
+    akun, jaringan = _kunci_percobaan(mode, identitas, ip)
+    sekarang = time.monotonic()
+    with _percobaan_lock:
+        for kunci, batas in ((akun, config.LOGIN_MAKS_GAGAL_AKUN), (jaringan, _batas_ip(ip))):
+            data = _catatan_percobaan(kunci, sekarang)
+            data.gagal += 1
+            if data.gagal >= batas:
+                data.sampai = sekarang + config.LOGIN_JEDA_DETIK
+                data.gagal = 0
+
+
+def catat_login_berhasil(mode: str, identitas: str | None, ip: str | None) -> None:
+    """Bersihkan hitungan gagal setelah login berhasil."""
+    akun, jaringan = _kunci_percobaan(mode, identitas, ip)
+    with _percobaan_lock:
+        _percobaan.pop(akun, None)
+        data = _percobaan.get(jaringan)
+        if data is not None:
+            data.gagal = max(0, data.gagal - 1)
+
+
+def ringkasan_penangguhan() -> list[dict[str, Any]]:
+    """Kunci yang sedang ditangguhkan (dipakai halaman Pengaturan)."""
+    sekarang = time.monotonic()
+    with _percobaan_lock:
+        return [
+            {"kunci": kunci, "sisa_detik": int(data.sampai - sekarang) + 1}
+            for kunci, data in _percobaan.items()
+            if data.sampai > sekarang
+        ]
+
+
+def bersihkan_penangguhan() -> None:
+    with _percobaan_lock:
+        _percobaan.clear()
 
 
 # --------------------------------------------------------------------------- #

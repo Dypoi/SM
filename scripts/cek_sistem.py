@@ -759,6 +759,180 @@ def cek_http():
     return asyncio.run(jalankan())
 
 
+@cek("18. Pengaman mode online (header, asal permintaan, penangguhan login)")
+def cek_pengaman_online():
+    """Uji pengaman yang menyala saat aplikasi terjangkau dari internet."""
+    import asyncio
+
+    import httpx
+
+    from app import auth, config, online
+    from app.main import app
+
+    # --- Bagian 1: pengenalan alamat & berkas penanda ---------------------- #
+    assert online.ip_privat("127.0.0.1") and online.ip_privat("192.168.1.10")
+    assert online.ip_privat("10.0.0.5") and not online.ip_privat("8.8.8.8")
+    assert online.dari_luar("8.8.8.8")
+    assert not online.dari_luar("192.168.1.10")
+
+    lama_publik = config.PUBLIK
+    try:
+        online.simpan_status("https://sm-uji.tailnet.ts.net", "Tailscale Funnel (uji)", 8000)
+        status = online.baca_status()
+        assert status["aktif"] and status["alamat"] == "https://sm-uji.tailnet.ts.net"
+        assert config.ALAMAT_FILE.read_text(encoding="utf-8").strip() == status["alamat"]
+        assert online.peringatan_aman(None) == [], "pengunjung anonim tidak perlu spanduk"
+        catatan = online.pemeriksaan_keamanan()
+        assert {"label", "ok", "pesan"} <= set(catatan[0])
+        assert any(baris["ok"] is False for baris in catatan), "sandi bawaan & NISN saja harus ditandai"
+
+        # --- Bagian 2: perilaku HTTP (ASGI in-process) --------------------- #
+        transport = httpx.ASGITransport(app=app)
+        header_luar = {"X-Forwarded-For": "8.8.8.8"}
+
+        async def jalankan() -> str:
+            config.PUBLIK = True  # meniru pengunjung dari internet
+            try:
+                async with httpx.AsyncClient(transport=transport, base_url="http://cek") as klien:
+                    luar = await klien.get("/", headers=header_luar)
+                    for nama in ("x-frame-options", "x-content-type-options", "referrer-policy",
+                                 "content-security-policy", "permissions-policy"):
+                        assert nama in luar.headers, f"header {nama} tidak dipasang"
+
+                    lintas = await klien.post(
+                        "/login",
+                        data={"mode": "staff", "username": "admin", "password": "admin123"},
+                        headers={**header_luar, "Origin": "https://situs-jahat.example"},
+                    )
+                    assert lintas.status_code == 403, "POST dari situs lain harus ditolak"
+
+                    sendiri = await klien.post(
+                        "/login",
+                        data={"mode": "staff", "username": "admin", "password": "admin123"},
+                        headers={**header_luar, "Origin": "http://cek"},
+                    )
+                    assert sendiri.status_code == 303
+
+                # Tamu (tanpa sesi) tidak boleh membuka dokumentasi API.
+                async with httpx.AsyncClient(transport=transport, base_url="http://cek") as tamu:
+                    terkunci = await tamu.get("/api/docs", headers=header_luar)
+                    assert terkunci.status_code == 303, terkunci.status_code
+                    assert terkunci.headers["location"].startswith("/login")
+
+                    # Penangguhan: 8 percobaan gagal, percobaan ke-9 ditahan.
+                    auth.bersihkan_penangguhan()
+                    for _ in range(config.LOGIN_MAKS_GAGAL_AKUN):
+                        ulang = await tamu.post("/login", data={"mode": "siswa", "nisn": "3999000099"},
+                                                headers=header_luar)
+                        assert ulang.status_code == 400, ulang.status_code
+                    tahan = await tamu.post("/login", data={"mode": "siswa", "nisn": "3999000099"},
+                                            headers=header_luar)
+                    assert tahan.status_code == 429, tahan.status_code
+                    assert "Terlalu banyak" in tahan.text
+                    assert tahan.headers.get("retry-after")
+                    assert auth.tunggu_sebelum_login("siswa", "3999000099", "8.8.8.8") > 0
+                    auth.bersihkan_penangguhan()
+            finally:
+                config.PUBLIK = lama_publik
+
+        asyncio.run(jalankan())
+
+        # --- Bagian 3: cookie Secure hanya saat HTTPS ---------------------- #
+        config.PUBLIK = False
+        try:
+            async def uji_cookie() -> None:
+                async with httpx.AsyncClient(transport=transport, base_url="https://cek") as aman:
+                    jawab = await aman.get("/", headers=header_luar)
+                    assert jawab.headers.get("strict-transport-security"), "HSTS tidak ada saat HTTPS"
+                    masuk = await aman.post(
+                        "/login",
+                        data={"mode": "staff", "username": "admin", "password": "admin123"},
+                        headers={**header_luar, "Origin": "https://cek"},
+                    )
+                    assert masuk.status_code == 303
+                    assert "secure" in (masuk.headers.get("set-cookie") or "").lower(),                         "cookie sesi harus Secure saat lewat HTTPS"
+
+                async with httpx.AsyncClient(transport=transport, base_url="http://cek") as lokal:
+                    masuk = await lokal.post(
+                        "/login",
+                        data={"mode": "staff", "username": "admin", "password": "admin123"},
+                    )
+                    assert masuk.status_code == 303
+                    assert "secure" not in (masuk.headers.get("set-cookie") or "").lower(),                         "di jaringan sekolah (HTTP) cookie tidak boleh Secure agar tetap bisa login"
+
+            asyncio.run(uji_cookie())
+        finally:
+            config.PUBLIK = lama_publik
+            online.hapus_status()
+            auth.bersihkan_penangguhan()
+
+        return ("header keamanan + CSP, penolakan POST lintas situs, dokumentasi API terkunci, "
+                "penangguhan login ke-9, cookie Secure hanya via HTTPS")
+    finally:
+        config.PUBLIK = lama_publik
+
+
+@cek("19. Peluncur online (SM-online.py & SM-online.bat)")
+def cek_peluncur_online():
+    """Uji peluncur mode online tanpa benar-benar membuka terowongan."""
+    import importlib.util
+    import subprocess
+    import time
+
+    jalur = BASE_DIR / "SM-online.py"
+    spek = importlib.util.spec_from_file_location("sm_online", jalur)
+    modul = importlib.util.module_from_spec(spek)
+    spek.loader.exec_module(modul)
+
+    contoh = "2024-05-01T10:00:00Z INF |  https://sepi-biru-laut.trycloudflare.com  |"
+    ketemu = modul.POLA_CLOUDFLARE.search(contoh)
+    assert ketemu and ketemu.group(0) == "https://sepi-biru-laut.trycloudflare.com"
+    assert modul.POLA_CLOUDFLARE.search("https://contoh.example.com") is None
+    assert modul.alamat_lokal().count(".") == 3, modul.alamat_lokal()
+    assert isinstance(modul.alat_tersedia(), dict)
+    assert modul.port_siap(1) is False  # port yang pasti kosong
+
+    # Mode lokal berjalan sampai dihentikan (tanpa terowongan, tanpa server).
+    # Keluaran ditulis ke berkas (bukan pipa) supaya tidak menggantung karena
+    # penyangga proses anak, dan selalu ada batas waktu.
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="sm-online-") as ruang:
+        berkas = pathlib.Path(ruang) / "keluaran.txt"
+        with berkas.open("w+", encoding="utf-8") as pegangan:
+            proses = subprocess.Popen(
+                [sys.executable, "-u", str(jalur), "--lokal", "--tanpa-server", "--port", "8099"],
+                cwd=str(BASE_DIR), stdout=pegangan, stderr=subprocess.STDOUT,
+                env={**os.environ, "SM_PUBLIK": "1", "PYTHONUNBUFFERED": "1"},
+            )
+            batas = time.time() + 40
+            try:
+                while time.time() < batas and proses.poll() is None:
+                    pegangan.flush()
+                    if "jaringan sekolah" in berkas.read_text(encoding="utf-8", errors="replace"):
+                        break
+                    time.sleep(0.5)
+            finally:
+                proses.terminate()
+                try:
+                    proses.wait(timeout=10)
+                except subprocess.TimeoutExpired:  # pragma: no cover
+                    proses.kill()
+            pegangan.flush()
+        keluaran = berkas.read_text(encoding="utf-8", errors="replace")
+    assert "Aplikasi SM berjalan" in keluaran, keluaran[-400:]
+
+    bat = (BASE_DIR / "SM-online.bat").read_bytes()
+    assert bat.count(b"\r\n") >= 40, "SM-online.bat harus berakhir CRLF"
+    assert bat.count(b"\n") == bat.count(b"\r\n"), "SM-online.bat masih punya baris LF"
+    assert b".venv\\Scripts\\python.exe" in bat, "SM-online.bat harus memakai .venv lebih dulu"
+    assert b"SM-online.py" in bat
+    assert (BASE_DIR / "scripts" / "buat_peluncur_online.py").exists()
+    readme = (BASE_DIR / "README.md").read_text(encoding="utf-8")
+    assert "Menjalankan online" in readme, "README belum memuat panduan online"
+    return "pola alamat cloudflared, mode lokal, SM-online.bat CRLF, panduan README"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -784,6 +958,8 @@ def main() -> int:
     cek_pembaruan()
     cek_pengajuan()
     cek_keluarga()
+    cek_pengaman_online()
+    cek_peluncur_online()
     if args.http:
         cek_http_pengajuan()
         cek_http()

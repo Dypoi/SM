@@ -332,6 +332,82 @@
     {{ stat_card('Versi Aplikasi', app_version, 'info', 'violet', app_name) }}
   </div>
 
+  <div class="card mt-2" id="aman-online">
+    <div class="card-head">
+      <div>
+        <h3>Aman Online</h3>
+        <p>Daftar periksa sebelum aplikasi dibuka dari internet (mis. lewat SM-online.bat).</p>
+      </div>
+      {% if online.aktif %}
+      <span class="badge badge-warning">{{ icon('warning') }} Terjangkau dari internet</span>
+      {% else %}
+      <span class="badge badge-muted">{{ icon('home') }} Jaringan sekolah</span>
+      {% endif %}
+    </div>
+    <div class="card-body">
+      {% if online.aktif %}
+      <dl class="kv">
+        {% if online.alamat %}
+        <dt>Alamat publik</dt>
+        <dd><a class="mono" href="{{ online.alamat }}" target="_blank" rel="noopener">{{ online.alamat }}</a></dd>
+        {% endif %}
+        <dt>Cara dibuka</dt><dd>{{ online.alat or 'terdeteksi otomatis' }}</dd>
+        {% if online.diperbarui %}<dt>Ditandai sejak</dt><dd>{{ online.diperbarui }}</dd>{% endif %}
+      </dl>
+      {% else %}
+      <div class="note">
+        Aplikasi belum ditandai dibuka dari internet. Untuk memakai mode online jalankan
+        <code>SM-online.bat</code> (Windows) — petunjuknya ada di README bagian
+        <em>Menjalankan online</em>.
+      </div>
+      {% endif %}
+      <div class="table-wrap mt-2">
+        <table class="table">
+          <thead>
+            <tr><th>Periksa</th><th>Keadaan</th><th>Catatan</th></tr>
+          </thead>
+          <tbody>
+            {% for item in catatan_keamanan %}
+            <tr>
+              <td><strong>{{ item.label }}</strong></td>
+              <td>
+                {% if item.ok is none %}
+                <span class="badge badge-muted">info</span>
+                {% elif item.ok %}
+                <span class="badge badge-success">{{ icon('check') }} aman</span>
+                {% else %}
+                <span class="badge badge-warning">{{ icon('warning') }} perlu dibenahi</span>
+                {% endif %}
+              </td>
+              <td class="muted">
+                {{ item.pesan }}
+                {% if item.aksi %}
+                <form method="post" action="/pengaturan/aman-online" class="inline-form">
+                  <input type="hidden" name="aksi" value="{{ item.aksi }}">
+                  <button class="btn btn-outline btn-sm" type="submit">{{ item.tombol }}</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="form-actions mt-2">
+        <form method="post" action="/pengaturan/aman-online">
+          <input type="hidden" name="aksi" value="bersihkan-penangguhan">
+          <button class="btn btn-outline btn-sm" type="submit">{{ icon('refresh') }} Bersihkan penangguhan login</button>
+        </form>
+        {% if online.aktif %}
+        <form method="post" action="/pengaturan/aman-online">
+          <input type="hidden" name="aksi" value="lupakan-penanda">
+          <button class="btn btn-outline btn-sm" type="submit">{{ icon('logout') }} Lupakan penanda online</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
   <div class="card mt-2">
     <div class="card-head">
       <div>

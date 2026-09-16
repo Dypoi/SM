@@ -65,6 +65,11 @@ def main() -> int:
         port=args.port,
         reload=args.reload,
         log_level="info",
+        # Terowongan (Tailscale Funnel / cloudflared) berjalan di komputer yang
+        # sama dan meneruskan alamat asli pengunjung lewat X-Forwarded-*. Tanpa
+        # ini seluruh pengunjung tampak berasal dari 127.0.0.1.
+        proxy_headers=True,
+        forwarded_allow_ips=config.FORWARDED_ALLOW,
     )
     return 0
 

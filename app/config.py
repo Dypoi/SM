@@ -96,6 +96,36 @@ APP_LONG_NAME = "Sistem Informasi Manajemen Sekolah"
 APP_VERSION = "0.1.0"
 
 # --------------------------------------------------------------------------- #
+# Mode online (aplikasi dibuka dari luar jaringan sekolah)
+# --------------------------------------------------------------------------- #
+def _env_bool(nama: str, bawaan: bool = False) -> bool:
+    """Baca saklar lingkungan; 1/ya/on dianggap menyala."""
+    nilai = os.getenv(nama)
+    if nilai is None:
+        return bawaan
+    return nilai.strip().lower() not in {"", "0", "false", "no", "off", "tidak"}
+
+
+#: ``SM_PUBLIK=1`` memaksa pengaman mode online menyala walaupun pengunjung
+#: datang dari jaringan lokal (mis. saat diuji lewat terowongan).
+PUBLIK = _env_bool("SM_PUBLIK")
+
+#: Batas percobaan login gagal sebelum ditangguhkan sementara.
+#: Per akun/NISN dijaga ketat; per alamat IP lebih longgar karena satu sekolah
+#: umumnya keluar lewat satu alamat IP (NAT) sehingga siswa tidak saling blokir.
+LOGIN_MAKS_GAGAL_AKUN = int(os.getenv("SM_LOGIN_MAKS_GAGAL_AKUN", "8"))
+LOGIN_MAKS_GAGAL_IP_PUBLIK = int(os.getenv("SM_LOGIN_MAKS_GAGAL_IP_PUBLIK", "40"))
+LOGIN_MAKS_GAGAL_IP_LOKAL = int(os.getenv("SM_LOGIN_MAKS_GAGAL_IP_LOKAL", "200"))
+LOGIN_JEDA_DETIK = int(os.getenv("SM_LOGIN_JEDA_DETIK", "600"))
+
+#: Penanda bahwa aplikasi sedang dipakai online (ditulis peluncur/otomatis).
+ONLINE_FILE = DATA_DIR / "online.json"
+ALAMAT_FILE = DATA_DIR / "alamat-publik.txt"
+
+#: Proxy lokal yang boleh dipercaya meneruskan header X-Forwarded-*.
+FORWARDED_ALLOW = os.getenv("SM_FORWARDED_ALLOW", "127.0.0.1")
+
+# --------------------------------------------------------------------------- #
 # Sesi & keamanan
 # --------------------------------------------------------------------------- #
 SESSION_COOKIE = "sm_session"

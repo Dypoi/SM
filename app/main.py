@@ -15,6 +15,7 @@ import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager, suppress
+from urllib.parse import quote, urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -22,7 +23,7 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import config, db, migrations, services, updater
+from . import auth, config, db, migrations, online, services, updater
 from .routers import (
     api_routes,
     approval_routes,
@@ -92,6 +93,64 @@ app = FastAPI(
 )
 
 app.mount("/static", StaticFiles(directory=str(config.STATIC_DIR)), name="static")
+
+# --------------------------------------------------------------------------- #
+# Pengaman permintaan (menyala otomatis bila ada pengunjung dari internet)
+# --------------------------------------------------------------------------- #
+METODE_AMAN = {"GET", "HEAD", "OPTIONS"}
+CSP_DASAR = (
+    "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+    "script-src 'self' 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
+)
+DOKUMENTASI_API = {"/api/docs", "/api/openapi.json", "/api/redoc"}
+
+
+def _host_asal(request: Request) -> str:
+    return (urlparse(request.headers.get("origin") or "").netloc or "").lower()
+
+
+@app.middleware("http")
+async def pengaman_permintaan(request: Request, call_next):
+    """Pengaman tambahan saat aplikasi terjangkau dari internet.
+
+    * menolak permintaan tulis yang berasal dari situs lain (penjaga CSRF),
+    * menyembunyikan dokumentasi API di balik login,
+    * memasang header keamanan + CSP, serta HSTS bila lewat HTTPS,
+    * menandai aplikasi sebagai "online" bila ada akses dari alamat IP publik.
+    """
+    ip = request.client.host if request.client else None
+    publik = online.dari_luar(ip)
+    if not online.ip_privat(ip):
+        online.tandai_akses_luar(ip)
+
+    if publik and request.method not in METODE_AMAN:
+        asal = _host_asal(request)
+        tujuan = (request.headers.get("host") or "").lower()
+        if asal and tujuan and asal != tujuan:
+            services.log_audit(None, None, "tolak_asal_luar", "http", request.url.path, asal, ip)
+            return render(
+                request,
+                "error.html",
+                {"kode": 403, "pesan": "Permintaan dari situs lain ditolak demi keamanan data."},
+                status_code=403,
+            )
+
+    if publik and request.url.path in DOKUMENTASI_API and auth.current_user(request) is None:
+        return RedirectResponse(f"/login?next={quote(request.url.path)}", status_code=303)
+
+    respons = await call_next(request)
+    kepala = respons.headers
+    kepala.setdefault("X-Content-Type-Options", "nosniff")
+    kepala.setdefault("X-Frame-Options", "DENY")
+    kepala.setdefault("Referrer-Policy", "same-origin")
+    kepala.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    if publik or request.url.scheme == "https":
+        kepala.setdefault("Content-Security-Policy", CSP_DASAR)
+    if request.url.scheme == "https":
+        kepala.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    if request.url.path in {"/login", "/portal"} or request.url.path.startswith("/portal/"):
+        kepala["Cache-Control"] = "no-store"
+    return respons
 
 app.include_router(auth_routes.router)
 app.include_router(dashboard_routes.router)

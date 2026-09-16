@@ -7,7 +7,7 @@ from urllib.parse import quote_plus
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 
-from .. import auth, config, db, services
+from .. import auth, config, db, online, services
 from ..security import new_api_key
 from ..web import render
 
@@ -41,8 +41,39 @@ def halaman_pengaturan(request: Request, user: auth.SessionUser = Depends(auth.r
             "jumlah_siswa": int(db.query_value("SELECT COUNT(*) FROM students") or 0),
             "jumlah_ekskul": int(db.query_value("SELECT COUNT(*) FROM extracurriculars") or 0),
             "readiness": services.dapodik_readiness(),
+            "online": online.baca_status(),
+            "catatan_keamanan": online.pemeriksaan_keamanan(),
         },
     )
+
+
+@router.post("/pengaturan/aman-online")
+def simpan_aman_online(
+    request: Request,
+    user: auth.SessionUser = Depends(auth.require_admin),
+    aksi: str = Form(""),
+):
+    """Aksi cepat dari kartu "Aman Online" pada halaman Pengaturan."""
+    if aksi == "nyalakan-tanggal-lahir":
+        services.set_setting("login_siswa_pakai_tanggal_lahir", "1")
+        services.log_audit(user.username, user.role, "nyalakan_pengaman_login_siswa",
+                           "settings", "login_siswa_pakai_tanggal_lahir")
+        return _redirect("Pengaman login siswa (tanggal lahir) dinyalakan.", anchor="#aman-online")
+    if aksi == "matikan-tanggal-lahir":
+        services.set_setting("login_siswa_pakai_tanggal_lahir", "0")
+        services.log_audit(user.username, user.role, "matikan_pengaman_login_siswa",
+                           "settings", "login_siswa_pakai_tanggal_lahir")
+        return _redirect("Pengaman login siswa dimatikan lagi.", "info", "#aman-online")
+    if aksi == "lupakan-penanda":
+        online.hapus_status()
+        services.log_audit(user.username, user.role, "lupakan_penanda_online")
+        return _redirect("Penanda online dihapus; aplikasi dianggap hanya dipakai lokal.",
+                         "info", "#aman-online")
+    if aksi == "bersihkan-penangguhan":
+        auth.bersihkan_penangguhan()
+        services.log_audit(user.username, user.role, "bersihkan_penangguhan_login")
+        return _redirect("Penangguhan percobaan login dibersihkan.", "info", "#aman-online")
+    return _redirect("Aksi tidak dikenal.", "err", "#aman-online")
 
 
 @router.post("/pengaturan/sekolah")

@@ -157,6 +157,7 @@ kejadiannya tercatat di **Pengaturan → Audit** serta halaman Pembaruan.
 ```cmd
 run.bat                              ← Windows: klik dua kali
 SM.cmd                               ← Windows: mulai cepat (tanpa pasang dependensi)
+SM-online.bat                        ← Windows: jalankan + akses internet (bagian 8)
 SM-diagnosa.bat                      ← Windows: laporan kondisi bila ada masalah
 python run.py --port 9000            # ganti port
 python run.py --reload               # mode pengembangan (auto-restart)
@@ -452,7 +453,73 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 
 ---
 
-## 8. Rencana pengembangan berikutnya
+## 8. Menjalankan online (gratis)
+
+Aplikasi ini bisa dibuka dari internet **tanpa biaya, tanpa IP publik, dan tanpa membuka port
+router**. Caranya: server tetap berjalan di komputer sekolah seperti biasa, lalu sebuah
+*terowongan* gratis membuatkan alamat publik ber-HTTPS yang menuju komputer itu.
+
+### Cara tercepat (Windows)
+
+1. Klik dua kali **`SM-online.bat`**.
+2. Jendela konsol menampilkan alamat publik yang bisa dibagikan ke petugas/siswa.
+3. Alamat itu juga tersimpan di `data/alamat-publik.txt` dan tampil di
+   **Pengaturan → Sistem → Aman Online**, lengkap dengan daftar periksa keamanan.
+
+Bila Tailscale/cloudflared belum terpasang, aplikasi **tetap berjalan untuk jaringan sekolah**
+dan petunjuk pemasangannya ditampilkan di jendela konsol.
+
+### Pilihan terowongan
+
+| Cara | Perlu akun? | Alamat | Catatan |
+| --- | --- | --- | --- |
+| **Tailscale Funnel** (disarankan) | akun Tailscale gratis | tetap: `https://<nama>.<tautan>.ts.net` | HTTPS otomatis, tanpa kartu kredit, tanpa buka port router |
+| **Cloudflare quick tunnel** | tidak | berubah setiap dijalankan: `https://xxxx.trycloudflare.com` | praktis untuk uji coba atau berbagi sesaat |
+
+Langkah **Tailscale**: unduh dari <https://tailscale.com/download>, pasang, lalu masuk; aktifkan
+**HTTPS** dan **Funnel** untuk perangkat itu di konsol admin Tailscale, kemudian jalankan
+`SM-online.bat` sekali lagi.
+Langkah **cloudflared**: unduh `cloudflared-windows-amd64.exe` dari halaman rilis Cloudflare,
+simpan sebagai `C:\cloudflared\cloudflared.exe`, lalu jalankan `SM-online.bat` lagi.
+
+### Yang dinyalakan otomatis saat online
+
+Begitu ada permintaan dari alamat IP publik (atau bila `SM_PUBLIK=1`), aplikasi memasang sendiri:
+
+* **Header keamanan**: `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy`,
+  `Permissions-Policy`, dan `Content-Security-Policy` dasar.
+* **HSTS** dan **cookie sesi `Secure`** bila permintaan lewat HTTPS. Di jaringan sekolah (HTTP)
+  cookie tetap tanpa `Secure` supaya login tidak gagal.
+* **Penjaga CSRF**: permintaan tulis (POST) yang datang dari situs lain ditolak.
+* **Pembatasan percobaan login**: 8 percobaan gagal per akun/NISN dan 40 per alamat IP
+  (dapat diubah lewat `SM_LOGIN_MAKS_GAGAL_AKUN`, `SM_LOGIN_MAKS_GAGAL_IP_PUBLIK`,
+  `SM_LOGIN_JEDA_DETIK`).
+* **Dokumentasi API** (`/api/docs`) hanya terbuka setelah login.
+* Halaman **login** dan **portal** tidak disimpan di cache peramban.
+
+### Sebelum dibuka luas
+
+Buka **Pengaturan → Sistem → Aman Online**, lalu benahi yang bertanda *perlu dibenahi*:
+
+1. Ganti kata sandi admin bawaan `admin123` (tab **Pengguna**).
+2. Nyalakan **pengaman login siswa** (tersedia tombol satu klik di kartu itu). Dengan NISN saja,
+   siapa pun yang tahu NISN seorang siswa dapat melihat data pribadinya (NIK, No. KK, alamat,
+   nama orang tua).
+3. Salin folder `data/` sebagai cadangan berkala.
+
+### Tanya jawab online
+
+| Pertanyaan | Jawaban |
+| --- | --- |
+| Bisa dipakai di sekolah dan internet sekaligus? | Bisa. Di sekolah lewat `http://<ip-komputer>:8000`; dari luar lewat alamat `https://…` dari terowongan. |
+| Apakah data siswa dikirim ke pihak ketiga? | Tidak. Terowongan hanya meneruskan koneksi; basis data dan berkas tetap di komputer sekolah. |
+| Ke mana alamat publik dibagikan? | Cukup kepada petugas dan siswa. Pembatasan percobaan login serta audit login tetap berjalan. |
+| Bagaimana mematikan mode online? | Tekan `Ctrl+C` di jendela `SM-online.bat`, atau matikan Funnel di konsol admin Tailscale; penanda di aplikasi dibersihkan lewat tombol **Lupakan penanda online**. |
+| Parameter lain? | `python SM-online.py --port 9000`, `--lokal` (tanpa terowongan), `--tanpa-server` (server sudah jalan), `--buka` (buka peramban). |
+
+---
+
+## 9. Rencana pengembangan berikutnya
 
 - [x] Pembaca Excel/CSV multi-format & pemetaan kolom Dapodik otomatis
 - [x] Data peserta didik lengkap dengan pencarian, filter, ekspor, dan audit perubahan

@@ -12,7 +12,7 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from . import auth, config, services
+from . import auth, config, online, services
 from .dapodik import FIELD_BY_KEY, GROUP_LABELS, fields_by_group
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
@@ -423,6 +423,7 @@ def render(request: Request, template: str, context: dict[str, Any] | None = Non
         "msg": request.query_params.get("msg", ""),
         "msg_level": request.query_params.get("level", "ok"),
         "page_title": PAGE_TITLES.get(request.url.path, config.APP_NAME),
+        "peringatan_online": online.peringatan_aman(user),
     }
     if context:
         ctx.update(context)

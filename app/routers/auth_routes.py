@@ -18,6 +18,29 @@ def _safe_next(target: str | None) -> str:
     return target
 
 
+def _pesan_tunggu(sisa: int) -> str:
+    menit = max(1, (sisa + 59) // 60)
+    return (f"Terlalu banyak percobaan masuk dari perangkat ini. Coba lagi dalam {menit} menit, "
+            "atau minta bantuan petugas sekolah.")
+
+
+def _halaman_login(request: Request, *, pesan_error: str, mode: str, next: str,
+                   nisn: str = "", username: str = "", status: int = 400):
+    return render(
+        request,
+        "login.html",
+        {
+            "pesan_error": pesan_error,
+            "next": next,
+            "pakai_tanggal_lahir": auth.student_requires_birthdate(),
+            "form_mode": mode,
+            "form_nisn": nisn,
+            "form_username": username,
+        },
+        status_code=status,
+    )
+
+
 @router.get("/login", include_in_schema=False)
 def halaman_login(request: Request):
     user = auth.current_user(request)
@@ -48,67 +71,56 @@ def proses_login(
 ):
     ip = request.client.host if request.client else None
     tujuan = _safe_next(next)
+    identitas = (nisn or "").strip() if mode == "siswa" else (username or "").strip().lower()
+
+    # Pengaman 1: penangguhan sementara setelah percobaan gagal berulang.
+    sisa = auth.tunggu_sebelum_login(mode, identitas, ip)
+    if sisa > 0:
+        services.log_audit(identitas or None, mode, "login_ditangguhkan", None, None,
+                           f"percobaan berlebih; ditahan {sisa} detik", ip)
+        respons = _halaman_login(request, pesan_error=_pesan_tunggu(sisa), mode=mode, next=next,
+                                 nisn=nisn, username=username, status=429)
+        respons.headers["Retry-After"] = str(sisa)
+        return respons
 
     if mode == "siswa":
         nisn_bersih = (nisn or "").strip()
         if not nisn_bersih and username:
             # Toleransi: pengguna mengetik NISN di kolom username.
             nisn_bersih = username.strip()
+        identitas = nisn_bersih
         student = services.get_student_by_nisn(nisn_bersih) if nisn_bersih else None
 
         if student is not None and auth.student_requires_birthdate():
             if not auth.verify_student_birthdate(student, tanggal_lahir):
+                auth.catat_login_gagal(mode, identitas, ip)
                 services.log_audit(nisn_bersih, "siswa", "login_siswa_gagal", "students",
                                    student["id"], "tanggal lahir tidak cocok", ip)
-                return render(
+                return _halaman_login(
                     request,
-                    "login.html",
-                    {
-                        "pesan_error": "Tanggal lahir tidak cocok dengan data sekolah.",
-                        "next": next,
-                        "pakai_tanggal_lahir": True,
-                        "form_mode": "siswa",
-                        "form_nisn": nisn_bersih,
-                    },
-                    status_code=400,
+                    pesan_error="Tanggal lahir tidak cocok dengan data sekolah.",
+                    mode="siswa", next=next, nisn=nisn_bersih,
                 )
 
         user, error = auth.authenticate_student(nisn_bersih)
         if user is None:
+            auth.catat_login_gagal(mode, identitas, ip)
             services.log_audit(nisn_bersih, "siswa", "login_siswa_gagal", None, None, error, ip)
-            return render(
-                request,
-                "login.html",
-                {
-                    "pesan_error": error,
-                    "next": next,
-                    "pakai_tanggal_lahir": auth.student_requires_birthdate(),
-                    "form_mode": "siswa",
-                    "form_nisn": nisn_bersih,
-                },
-                status_code=400,
-            )
+            return _halaman_login(request, pesan_error=error, mode="siswa", next=next, nisn=nisn_bersih)
+        auth.catat_login_berhasil(mode, identitas, ip)
         response = RedirectResponse(tujuan or "/portal", status_code=303)
-        auth.start_session(response, user)
+        auth.start_session(response, user, request)
         return response
 
     user, error = auth.authenticate_staff(username, password)
     if user is None:
+        auth.catat_login_gagal(mode, identitas, ip)
         services.log_audit(username, None, "login_staff_gagal", None, None, error, ip)
-        return render(
-            request,
-            "login.html",
-            {
-                "pesan_error": error,
-                "next": next,
-                "pakai_tanggal_lahir": auth.student_requires_birthdate(),
-                "form_mode": "staff",
-                "form_username": username,
-            },
-            status_code=400,
-        )
-    response = RedirectResponse(tujuan or ("/portal" if user.role == auth.ROLE_SISWA else "/"), status_code=303)
-    auth.start_session(response, user)
+        return _halaman_login(request, pesan_error=error, mode="staff", next=next, username=username)
+    auth.catat_login_berhasil(mode, identitas, ip)
+    response = RedirectResponse(tujuan or ("/portal" if user.role == auth.ROLE_SISWA else "/"),
+                                status_code=303)
+    auth.start_session(response, user, request)
     return response
 
 
