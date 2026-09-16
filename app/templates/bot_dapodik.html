@@ -21,15 +21,22 @@
             <span class="badge badge-muted badge-lg" id="badge-keadaan">Menganggur</span>
           {% endif %}
         </h2>
-        <p class="soft" style="margin:0">
-          Mendaftarkan peserta didik ke aplikasi Dapodik lewat peramban
-          {% if cfg.bot_headless == '1' %}<strong>di belakang layar</strong> (tanpa jendela){% else %}<strong>dengan jendela Chrome tampak</strong>{% endif %}
-          —
+        <p class="soft" style="margin:0 0 .3rem">
+          <strong>Memperbarui data Dapodik dari data aplikasi SM.</strong>
+          Bot mengambil antrean siswa dari aplikasi ini, membuka Dapodik lewat peramban
+          {% if cfg.bot_headless == '1' %}<strong>di belakang layar</strong> (tanpa jendela){% else %}<strong>dengan jendela Chrome tampak</strong>{% endif %},
+          lalu menyelaraskan datanya siswa demi siswa
           {% if cfg.bot_simulasi == '1' %}
-            <strong>mode uji coba</strong>: peramban &amp; Dapodik tidak dibuka.
+            — sedang <strong>mode uji coba</strong>, jadi peramban &amp; Dapodik tidak dibuka.
           {% else %}
-            memakai Chrome yang terpasang di PC ini.
+            (memakai Chrome yang terpasang di PC ini).
           {% endif %}
+        </p>
+        <p class="muted" style="margin:0; font-size:.83rem">
+          Tahap yang sudah dikerjakan bot sekarang: <strong>pendaftaran peserta didik (Registrasi)</strong>
+          bagi siswa yang belum ada di Dapodik, sekaligus mengisi <strong>NIS</strong> dari kolom NIPD,
+          jawaban «Ya», Hobi, dan Cita-cita. Selanjutnya kolom lain (NIK, alamat, ayah/ibu, dan
+          seterusnya) dapat ditambahkan dengan pola yang sama.
         </p>
       </div>
       <div class="btn-group">
@@ -39,6 +46,10 @@
           <button class="btn btn-danger btn-sm" type="submit">{{ icon('x') }} Hentikan bot</button>
         </form>
         {% endif %}
+        <form method="post" action="/bot-dapodik/uji" class="inline-form"
+              data-confirm="Buka Dapodik sebentar untuk memeriksa halaman & selector? Bot perlu berhenti dan Chrome akan dibuka lalu ditutup.">
+          <button class="btn btn-outline btn-sm" type="submit">{{ icon('search') }} Uji koneksi Dapodik</button>
+        </form>
         <a class="btn btn-outline btn-sm" href="/bot-dapodik/log.csv">{{ icon('download') }} Log CSV</a>
         <a class="btn btn-outline btn-sm" href="/bot-dapodik/log.xlsx">{{ icon('download') }} Log Excel</a>
       </div>
@@ -95,6 +106,52 @@
     </div>
   </div>
 </div>
+
+{# ------------------------------------------------------- hasil uji koneksi -- #}
+{% if laporan_uji %}
+<div class="card mt-2" id="catatan-uji">
+  <div class="card-head">
+    <div>
+      <h3>Hasil Uji Koneksi Dapodik</h3>
+      <p>{{ laporan_uji.waktu }} · {{ laporan_uji.url }}{{ ' · jendela tampak' if not laporan_uji.headless else ' · di belakang layar' }}</p>
+    </div>
+  </div>
+  <div class="card-body">
+    {% if laporan_uji.galat %}
+      <div class="alert alert-warning" role="status">
+        <span class="alert-icon">{{ icon('warning') }}</span>
+        <div>{{ laporan_uji.galat }}</div>
+      </div>
+    {% else %}
+      <div class="grid grid-3">
+        <div><div class="muted" style="font-size:.78rem">Judul halaman</div><strong>{{ laporan_uji.judul or '(tanpa judul)' }}</strong></div>
+        <div><div class="muted" style="font-size:.78rem">Alamat akhir</div><span class="mono" style="font-size:.8rem">{{ laporan_uji.url or '—' }}</span></div>
+        <div><div class="muted" style="font-size:.78rem">Kolom kata sandi</div><strong>{{ 'ada' if laporan_uji.isian_sandi else 'tidak ada' }}</strong></div>
+      </div>
+      <div class="section-title">Selector login</div>
+      <ul class="langkah-bot">
+        {% for kunci, keadaan in (laporan_uji.selector_cocok or {}).items() %}
+        <li><code>{{ kunci }}</code>:
+          {% if keadaan == 'bawaan' %}<span class="badge badge-success">cocok dengan bawaan</span>
+          {% elif keadaan == 'cadangan' %}<span class="badge badge-warning">memakai cadangan (boleh disalin ke "Peta tombol Dapodik")</span>
+          {% else %}<span class="badge badge-danger">tidak ditemukan</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      <details class="filter-panel mt-2">
+        <summary>Yang terlihat pada halaman</summary>
+        <div class="filter-body">
+          <p><strong>Isian teks:</strong> {{ laporan_uji.isian_teks | join(' · ') or 'tidak ada' }}</p>
+          <p><strong>Tombol:</strong> {{ laporan_uji.tombol | join(' · ') or 'tidak ada' }}</p>
+          <p><strong>Menu:</strong> {{ laporan_uji.menu | join(' · ') or 'tidak ada' }}</p>
+          <p><strong>Judul kotak/panel:</strong> {{ laporan_uji.judul_kotak | join(' · ') or 'tidak ada' }}</p>
+          {% if laporan_uji.bukti %}<p class="muted">Tangkapan layar &amp; HTML tersimpan: <code>{{ laporan_uji.bukti }}</code></p>{% endif %}
+        </div>
+      </details>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
 
 {# --------------------------------------------------------------- menjalankan -- #}
 <div class="card mt-2" id="jalankan">
@@ -306,6 +363,11 @@
             <label for="jeda">Jeda antar siswa (detik)</label>
             <input type="number" id="jeda" name="jeda" min="0" max="60" value="{{ cfg.bot_jeda }}">
           </div>
+          <div class="field">
+            <label for="jeda_muat">Jeda muat halaman Dapodik (detik)</label>
+            <input type="number" id="jeda_muat" name="jeda_muat" min="0" max="120" value="{{ cfg.bot_jeda_muat }}">
+            <span class="hint">Naikkan bila Dapodik sekolah lambat terbuka (bawaan 8 detik; skrip asli 15 detik).</span>
+          </div>
         </div>
 
         <div class="section-title">Pilihan</div>
@@ -348,11 +410,13 @@
       <div class="card-head"><h3>Cara Kerja Bot</h3></div>
       <div class="card-body">
         <ol class="langkah-bot">
-          <li>Antrean diambil dari <strong>data siswa SM</strong>: NISN untuk mencari, NIPD/NIS untuk mengisi NIS.</li>
+          <li>Antrean diambil dari <strong>data siswa SM</strong> (NISN sebagai kunci pencarian, NIPD sebagai NIS) — jadi Dapodik selalu mengikuti data yang ada di aplikasi ini.</li>
           <li>Bot membuka Dapodik, masuk memakai akun di samping, lalu membuka daftar peserta didik.</li>
           <li>Untuk setiap siswa: cari NISN → pilih baris → <em>Registrasi</em> → isi NIS → centang «Ya» → Hobi &amp; Cita-cita → <em>Simpan dan Tutup</em>.</li>
+          <li>Siswa yang NISN-nya <strong>tidak ada di Dapodik</strong> dicatat “tidak ditemukan”, sehingga mudah ditindaklanjuti (mis. NISN salah di data SM).</li>
           <li>Setiap langkah dicatat di tabel di atas, dan bisa diunduh sebagai CSV/Excel.</li>
           <li>Bila pekerjaan terputus, jalankan lagi dengan pilihan <em>“dilewati”</em> — siswa yang sudah berhasil tidak diulang.</li>
+          <li>Bila bot berhenti dengan pesan waktu habis, tekan <strong>Uji koneksi Dapodik</strong> untuk melihat halaman apa yang sebenarnya terbuka.</li>
         </ol>
         <p class="soft" style="font-size:.83rem">
           Dapodik harus berjalan di PC ini (biasanya <code>{{ cfg.bot_url }}</code>).

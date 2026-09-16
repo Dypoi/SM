@@ -26,9 +26,10 @@ from __future__ import annotations
 import json
 import threading
 import time
+from pathlib import Path
 from typing import Any, Callable
 
-from . import services
+from . import config, services
 
 # --------------------------------------------------------------------------- #
 # Peta tombol (selector) — bawaan sama dengan skrip bot sekolah.
@@ -60,6 +61,78 @@ BARIS_TABEL = 'x-grid-row'
 
 #: Nama kunci yang boleh ditimpa lewat pengaturan (agar salah ketik terdeteksi).
 SELECTOR_DIIZINKAN = tuple(SELECTOR_BAWAAN)
+
+#: Selector cadangan yang dicoba bila selector bawaan tidak menemukan elemen.
+#: Penting karena Dapodik sering diperbarui: XPath absolut dan id ``ext-element-*``
+#: berubah setiap versi, sedangkan pencarian berbasis teks jauh lebih tahan lama.
+SELECTOR_CADANGAN: dict[str, list[str]] = {
+    "login_username": [
+        "css:input[name=username]",
+        "css:input[name=user]",
+        "css:input[name=email]",
+        "css:input[type=text]",
+    ],
+    "login_password": [
+        "css:input[name=password]",
+        "css:input[name=sandi]",
+        "css:input[type=password]",
+    ],
+    "login_tombol": [
+        "xpath://button[contains(normalize-space(), 'Masuk') or contains(normalize-space(), 'Login')]",
+        "css:button[type=submit]",
+        "css:form button",
+    ],
+    "menu_tujuan": [
+        "xpath://*[self::a or self::button or self::li][contains(normalize-space(), 'Peserta Didik')]",
+    ],
+    "popup_tutup": [
+        "css:div.x-window a.x-tool-close",
+        "css:div.x-window .x-tool-close",
+        "css:a.x-tool-close",
+    ],
+    "menu_1": [
+        "xpath://*[self::a or self::span or self::li][contains(normalize-space(), 'Pendaftaran')]",
+        "xpath://*[self::a or self::span or self::li][contains(normalize-space(), 'Registrasi')]",
+    ],
+    "menu_2": [
+        "xpath://*[self::a or self::span or self::li][contains(normalize-space(), 'Peserta Didik')]",
+    ],
+    "cari_nisn": [
+        "css:input[name*=cari]",
+        "css:input[name*=search]",
+        "css:input[name*=nisn]",
+    ],
+    "tombol_registrasi": [
+        "xpath://*[self::span or self::a or self::button][contains(normalize-space(), 'Registrasi')]",
+        "xpath://*[self::span or self::a or self::button][contains(normalize-space(), 'Daftar')]",
+    ],
+    "input_nis": [
+        "css:input[name*=nipd]",
+        "css:input[name*=nis]",
+    ],
+    "radio_ya": [
+        'xpath://*[normalize-space()="Ya"]/preceding::input[@type="radio"][1]',
+    ],
+    "hobi": [
+        "css:input[name*=hobby]",
+        "css:input[name*=hobi]",
+        "css:select[name*=hobby]",
+    ],
+    "cita": [
+        "css:input[name*=cita]",
+        "css:select[name*=cita]",
+    ],
+    "simpan": [
+        "xpath://*[self::span or self::a or self::button][contains(normalize-space(), 'Simpan dan Tutup')]",
+        "xpath://*[self::span or self::a or self::button][contains(normalize-space(), 'Simpan')]",
+    ],
+}
+
+#: Batas waktu singkat untuk menguji satu kandidat selector (detik).
+SELEKTOR_UJI_DETIK = 6
+
+#: Batas jumlah berkas bukti (screenshot/HTML) yang disimpan agar tidak menumpuk.
+BUKTI_MAKSIMAL = 40
 
 
 def peta_selector() -> dict[str, str]:
@@ -205,8 +278,13 @@ class BotDapodik:
 
     # ------------------------------------------------------------- peramban ---
     def _buka_peramban(self):
-        from selenium import webdriver
-        from selenium.webdriver.chrome.options import Options
+        try:
+            from selenium import webdriver
+            from selenium.webdriver.chrome.options import Options
+        except ImportError as exc:  # noqa: BLE001 — pustaka belum terpasang
+            raise RuntimeError(
+                "Pustaka selenium belum terpasang pada Python aplikasi ini. Buka halaman "
+                "Bot Dapodik lalu tekan «Pasang pustaka bot».") from exc
 
         opsi = Options()
         opsi.add_experimental_option("prefs", {
@@ -224,7 +302,10 @@ class BotDapodik:
             opsi.add_argument("--start-maximized")
         opsi.add_argument("--log-level=3")
         try:
-            return webdriver.Chrome(options=opsi)
+            peramban = webdriver.Chrome(options=opsi)
+            # Dapodik dimuat lambat pada PC sekolah: beri waktu halaman selesai.
+            peramban.set_page_load_timeout(max(60.0, float(self.opsi.get("bot_timeout", "30") or 30)))
+            return peramban
         except Exception as exc:  # noqa: BLE001 — beri pesan yang bisa ditindaklanjuti
             raise RuntimeError(
                 "Google Chrome tidak dapat dibuka. Pastikan Chrome sudah terpasang di PC ini; "
@@ -233,6 +314,106 @@ class BotDapodik:
 
     def _tunggu(self, peramban, detik: float) -> None:
         time.sleep(detik)
+
+    # -------------------------------------------------- tunggu & kenali halaman --- #
+    def _tunggu_halaman(self, peramban) -> None:
+        """Tunggu halaman benar-benar selesai dimuat, lalu beri jeda tambahan.
+
+        Dapodik memakai Ext JS: DOM baru lengkap beberapa detik sesudah
+        ``document.readyState`` selesai. Skrip bot sekolah memakai jeda 15 detik;
+        di sini jeda dapat diatur lewat pengaturan ``bot_jeda_muat``.
+        """
+        batas = float(self.opsi.get("bot_timeout", "30") or 30)
+        try:
+            from selenium.webdriver.support.ui import WebDriverWait
+
+            WebDriverWait(peramban, batas).until(
+                lambda d: d.execute_script("return document.readyState") == "complete")
+        except Exception:  # noqa: BLE001 — tetap lanjut, jeda di bawah jadi penyelamat
+            pass
+        time.sleep(float(self.opsi.get("bot_jeda_muat", "8") or 8))
+
+    def _galat_halaman(self, peramban) -> str:
+        """Pesan bantuan bila halaman yang terbuka ternyata halaman galat Chrome."""
+        try:
+            judul = (peramban.title or "").strip()
+            sumber = (peramban.page_source or "")[:4000]
+        except Exception:  # noqa: BLE001
+            return ""
+        tanda = ("ERR_CONNECTION_REFUSED", "ERR_CONNECTION_RESET", "ERR_NAME_NOT_RESOLVED",
+                 "ERR_CONNECTION_TIMED_OUT", "ERR_ADDRESS_UNREACHABLE", "ERR_EMPTY_RESPONSE")
+        if any(kode in sumber for kode in tanda):
+            kode = next(kode for kode in tanda if kode in sumber)
+            return (f"Halaman Dapodik tidak dapat dibuka ({kode}). Pastikan aplikasi Dapodik "
+                    f"sedang berjalan di PC ini dan alamatnya benar ({self.opsi.get('bot_url', '')}).")
+        if "can't be reached" in judul.lower() or "tidak dapat dijangkau" in judul.lower() \
+                or "tidak dapat diakses" in judul.lower():
+            return (f"Halaman Dapodik tidak dapat dijangkau dari peramban. Periksa apakah aplikasi "
+                    f"Dapodik sedang berjalan dan alamat {self.opsi.get('bot_url', '')} sudah benar.")
+        return ""
+
+    def _ringkas_halaman(self, peramban) -> dict[str, Any]:
+        """Apa yang terlihat pada halaman saat ini (untuk pesan galat & alat uji)."""
+        from selenium.webdriver.common.by import By
+
+        def kumpul_teks(css: str, batas: int = 10) -> list[str]:
+            hasil: list[str] = []
+            try:
+                elemen = peramban.find_elements(By.CSS_SELECTOR, css)
+            except Exception:  # noqa: BLE001
+                return hasil
+            for el in elemen:
+                try:
+                    if not el.is_displayed():
+                        continue
+                    teks = " ".join((el.text or el.get_attribute("value") or "").split())
+                except Exception:  # noqa: BLE001
+                    continue
+                if teks:
+                    hasil.append(teks[:45])
+                if len(hasil) >= batas:
+                    break
+            return hasil
+
+        ringkas: dict[str, Any] = {"judul": "", "url": "", "galat_halaman": ""}
+        try:
+            ringkas["judul"] = (peramban.title or "").strip()[:120]
+            ringkas["url"] = (peramban.current_url or "").strip()[:200]
+            ringkas["galat_halaman"] = self._galat_halaman(peramban)
+            ringkas["isian_teks"] = kumpul_teks("input[type=text], input[type=email], input:not([type])")
+            ringkas["isian_sandi"] = len(peramban.find_elements(By.CSS_SELECTOR, "input[type=password]"))
+            ringkas["tombol"] = kumpul_teks("button, input[type=submit], a.x-btn")
+            ringkas["menu"] = kumpul_teks("ul li a, ul li button, .x-menu-item-text")
+            ringkas["judul_kotak"] = kumpul_teks(".x-window-header-text, .x-panel-header-text, h1, h2")
+        except Exception as exc:  # noqa: BLE001
+            ringkas["galat_ringkas"] = f"{type(exc).__name__}: {str(exc)[:150]}"
+        return ringkas
+
+    def _bukti(self, peramban, label: str) -> str:
+        """Simpan tangkapan layar + HTML halaman sebagai bukti pemeriksaan ('' bila gagal)."""
+        stempel = time.strftime("%Y%m%d-%H%M%S")
+        aman = "".join(c if c.isalnum() or c in "-_" else "-" for c in label)[:40]
+        folder = config.DATA_DIR / "bot"
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            gambar = folder / f"{aman}-{stempel}.png"
+            halaman = folder / f"{aman}-{stempel}.html"
+            peramban.save_screenshot(str(gambar))
+            halaman.write_text(peramban.page_source or "", encoding="utf-8", errors="replace")
+            self._bersihkan_bukti(folder)
+            return str(gambar)
+        except Exception:  # noqa: BLE001 — bukti hanya alat bantu
+            return ""
+
+    @staticmethod
+    def _bersihkan_bukti(folder: Path) -> None:
+        """Sisakan sejumlah berkas bukti terbaru saja."""
+        try:
+            berkas = sorted(folder.glob("*.*"), key=lambda f: f.stat().st_mtime, reverse=True)
+            for usang in berkas[BUKTI_MAKSIMAL:]:
+                usang.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _tunggu_overlay(self, peramban) -> None:
         """Tunggu mask/overlay loading Ext JS hilang (sama seperti skrip bot)."""
@@ -388,22 +569,59 @@ class BotDapodik:
 
     # ---------------------------------------------------------------- login --- #
     def _login(self, peramban) -> None:
+        """Masuk ke Dapodik dan buka daftar peserta didik.
+
+        Dibuat tahan perbedaan versi: menunggu halaman selesai dimuat lebih dulu,
+        mengenali halaman galat Chrome, dan memakai selector cadangan bila tombol
+        bawaan tidak ketemu — semuanya dilaporkan pada catatan pekerjaan.
+        """
         url = (self.opsi.get("bot_url") or "").strip()
         if not url:
             raise ValueError("Alamat Dapodik belum diisi pada pengaturan bot.")
         self._catat_kepala(f"Membuka {url} …")
-        peramban.get(url)
+        try:
+            peramban.get(url)
+        except Exception as exc:  # noqa: BLE001 — halaman gagal dimuat sama sekali
+            raise RuntimeError(
+                f"Halaman {url} tidak dapat dibuka dalam batas waktu. Pastikan aplikasi "
+                f"Dapodik sedang berjalan (Rincian: {type(exc).__name__}).") from exc
+        self._tunggu_halaman(peramban)
+
+        galat_halaman = self._galat_halaman(peramban)
+        if galat_halaman:
+            raise RuntimeError(galat_halaman)
 
         peta = peta_selector()
-        nama_input = self._tunggu_elemen(peramban, (self._locator("login_username", peta)))
-        sandi_input = self._tunggu_elemen(peramban, (self._locator("login_password", peta)))
+        try:
+            loc_nama, nilai_nama, _ = self._cari_dengan_cadangan(peramban, "login_username", peta)
+            loc_sandi, _, _ = self._cari_dengan_cadangan(peramban, "login_password", peta)
+        except TimeoutError:
+            ringkas = self._ringkas_halaman(peramban)
+            bukti = self._bukti(peramban, "gagal-login")
+            pesan = (f"Formulir masuk tidak ditemukan pada halaman "
+                     f"'{ringkas.get('judul') or '(tanpa judul)'}'. ")
+            if not ringkas.get("isian_sandi"):
+                pesan += ("Halaman tidak memuat kolom kata sandi — kemungkinan masih memuat, "
+                          "alamat salah, atau Dapodik belum siap. ")
+            pesan += (f"Isian teks terlihat: {ringkas.get('isian_teks') or 'tidak ada'}. "
+                      f"Bukti pemeriksaan: {bukti or 'tidak tersimpan'}. "
+                      "Bila Dapodik memang sudah tampil, sesuaikan selector lewat "
+                      "«Peta tombol Dapodik» (atau pakai tombol Uji koneksi Dapodik).")
+            raise RuntimeError(pesan) from None
+        nama_input = self._tunggu_elemen(peramban, loc_nama)
+        sandi_input = self._tunggu_elemen(peramban, loc_sandi)
         nama_input.send_keys(self.opsi.get("bot_username", ""))
         sandi_input.send_keys(self.opsi.get("bot_password", ""))
-        self._klik_aman(peramban, self._locator("login_tombol", peta))
+        loc_tombol, _, _ = self._cari_dengan_cadangan(peramban, "login_tombol", peta)
+        self._klik_aman(peramban, loc_tombol)
         time.sleep(2)
+        self._tunggu_halaman(peramban)
+        if self._galat_halaman(peramban):
+            raise RuntimeError(self._galat_halaman(peramban))
 
         # menu tujuan (mis. Peserta Didik) lalu dua menu lanjutan seperti skrip asli
-        self._klik_aman(peramban, self._locator("menu_tujuan", peta))
+        loc_menu, _, _ = self._cari_dengan_cadangan(peramban, "menu_tujuan", peta)
+        self._klik_aman(peramban, loc_menu)
         time.sleep(5)
         try:
             from selenium.webdriver.support import expected_conditions as EC
@@ -415,17 +633,56 @@ class BotDapodik:
         except Exception:  # noqa: BLE001 — popup memang sering tidak muncul
             self._catat_kepala("Popup tidak muncul, lanjut.")
         time.sleep(2)
-        self._klik_aman(peramban, self._locator("menu_1", peta))
-        self._klik_aman(peramban, self._locator("menu_2", peta))
+        loc_satu, nilai_satu, _ = self._cari_dengan_cadangan(peramban, "menu_1", peta)
+        self._klik_aman(peramban, loc_satu)
+        loc_dua, nilai_dua, _ = self._cari_dengan_cadangan(peramban, "menu_2", peta)
+        self._klik_aman(peramban, loc_dua)
         time.sleep(2)
         self._catat_kepala("Siap memproses antrean.")
 
-    def _locator(self, kunci: str, peta: dict[str, str]):
+    def _cari_dengan_cadangan(self, peramban, kunci: str, peta: dict[str, str],
+                              wajib: bool = True, batas: float | None = None) -> tuple[Any, str, bool]:
+        """Cari elemen memakai selector terpasang, lalu selector cadangan.
+
+        Kembalikan ``(locator, nilai_selector, memakai_cadangan)``. Dapodik sering
+        diperbarui sehingga XPath/id berubah; cadangan berbasis teks membuat bot tetap
+        jalan dan pesan pada log memberi tahu selector mana yang benar-benar dipakai
+        (agar bisa disalin ke *Peta tombol Dapodik*).
+        """
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.webdriver.support.ui import WebDriverWait
+
+        terpasang = (peta.get(kunci) or "").strip()
+        kandidat: list[str] = []
+        for nilai in [terpasang, *SELECTOR_CADANGAN.get(kunci, [])]:
+            nilai = (nilai or "").strip()
+            if nilai and nilai not in kandidat:
+                kandidat.append(nilai)
+        if not kandidat:
+            raise ValueError(f"Selector '{kunci}' belum diisi.")
+        batas = batas or float(self.opsi.get("bot_timeout", "30") or 30)
+        galat: Exception | None = None
+        for indeks, nilai in enumerate(kandidat):
+            try:
+                locator = self._locator_nilai(nilai)
+                WebDriverWait(peramban, batas if indeks == 0 else SELEKTOR_UJI_DETIK).until(
+                    EC.visibility_of_element_located(locator))
+                if indeks > 0:
+                    self._catat_kepala(f"[selector] '{kunci}' memakai cadangan: {nilai}")
+                return locator, nilai, indeks > 0
+            except Exception as exc:  # noqa: BLE001 — coba kandidat berikutnya
+                galat = exc
+        pesan = (f"Tidak menemukan elemen '{kunci}' setelah mencoba "
+                 f"{len(kandidat)} selector (terakhir gagal: {type(galat).__name__}).")
+        if wajib:
+            raise TimeoutError(pesan)
+        return None, "", False
+
+    def _locator_nilai(self, nilai: str):
         from selenium.webdriver.common.by import By
 
-        nilai = peta.get(kunci, "")
         if not nilai:
-            raise ValueError(f"Selector '{kunci}' belum diisi.")
+            raise ValueError("Selector kosong.")
         if nilai.startswith("name:"):
             return (By.NAME, nilai[5:])
         if nilai.startswith("css:"):
@@ -437,6 +694,13 @@ class BotDapodik:
         if nilai.startswith("[") or nilai.startswith(".") or nilai.startswith("#"):
             return (By.CSS_SELECTOR, nilai)
         return (By.NAME, nilai)
+
+    def _locator(self, kunci: str, peta: dict[str, str]):
+        """Selector terpasang untuk sebuah kunci (tanpa cadangan)."""
+        nilai = peta.get(kunci, "")
+        if not nilai:
+            raise ValueError(f"Selector '{kunci}' belum diisi.")
+        return self._locator_nilai(nilai)
 
     # ------------------------------------------------------- satu siswa ----- #
     def _aturan_lewati(self, siswa: dict[str, Any]) -> str:
@@ -479,7 +743,8 @@ class BotDapodik:
             peta = peta_selector()
 
             # 1) cari NISN pada kotak pencarian
-            kotak = self._tunggu_elemen(peramban, self._locator("cari_nisn", peta))
+            loc_cari, _, _ = self._cari_dengan_cadangan(peramban, "cari_nisn", peta)
+            kotak = self._tunggu_elemen(peramban, loc_cari)
             kotak.click()
             kotak.send_keys(Keys.CONTROL, "a")
             kotak.send_keys(nisn)
@@ -501,28 +766,37 @@ class BotDapodik:
             time.sleep(2)
 
             # 3) tombol Registrasi
-            self._klik_aman(peramban, self._locator("tombol_registrasi", peta))
+            loc_daftar, _, _ = self._cari_dengan_cadangan(peramban, "tombol_registrasi", peta)
+            self._klik_aman(peramban, loc_daftar)
             time.sleep(2)
 
             # 4) isi NIS
-            self._isi(peramban, self._locator("input_nis", peta), nis)
+            loc_nis, _, _ = self._cari_dengan_cadangan(peramban, "input_nis", peta)
+            self._isi(peramban, loc_nis, nis)
 
             # 5) centang semua pilihan "Ya"
             if self.opsi.get("bot_jawaban_ya", "1") == "1":
-                kotak_ya = peramban.find_elements(*self._locator("radio_ya", peta))
+                loc_ya = self._locator("radio_ya", peta)
+                kotak_ya = peramban.find_elements(*loc_ya)
+                if not kotak_ya:
+                    for kandidat in SELECTOR_CADANGAN.get("radio_ya", []):
+                        kotak_ya = peramban.find_elements(*self._locator_nilai(kandidat))
+                        if kotak_ya:
+                            break
                 for elemen in kotak_ya:
                     if not elemen.is_selected():
                         peramban.execute_script("arguments[0].click();", elemen)
 
             # 6) hobi & 7) cita-cita (kolom pilihan Dapodik)
-            self._pilih_kolom_pilihan(peramban, self._locator("hobi", peta),
-                                      self.opsi.get("bot_hobi", ""))
+            loc_hobi, _, _ = self._cari_dengan_cadangan(peramban, "hobi", peta)
+            self._pilih_kolom_pilihan(peramban, loc_hobi, self.opsi.get("bot_hobi", ""))
             time.sleep(1)
-            self._pilih_kolom_pilihan(peramban, self._locator("cita", peta),
-                                      self.opsi.get("bot_cita", ""))
+            loc_cita, _, _ = self._cari_dengan_cadangan(peramban, "cita", peta)
+            self._pilih_kolom_pilihan(peramban, loc_cita, self.opsi.get("bot_cita", ""))
 
             # 8) simpan dan tutup
-            self._klik_aman(peramban, self._locator("simpan", peta))
+            loc_simpan, _, _ = self._cari_dengan_cadangan(peramban, "simpan", peta)
+            self._klik_aman(peramban, loc_simpan)
             self._tunggu_overlay(peramban)
             time.sleep(2)
 
@@ -533,7 +807,12 @@ class BotDapodik:
                 return
             self._selesai_item(item_id, "sukses", f"Registrasi NIS {nis} berhasil dikirim", nisn)
         except Exception as exc:  # noqa: BLE001 — satu siswa gagal, lanjut ke berikutnya
-            self._selesai_item(item_id, "gagal", f"{type(exc).__name__}: {str(exc)[:300]}", nisn)
+            pesan = f"{type(exc).__name__}: {str(exc)[:300]}"
+            if peramban is not None:
+                bukti = self._bukti(peramban, f"gagal-{nisn}")
+                if bukti:
+                    pesan = f"{pesan} · bukti: {bukti}"
+            self._selesai_item(item_id, "gagal", pesan, nisn)
 
     def _selesai_item(self, item_id: int | None, status: str, pesan: str, nisn: str) -> None:
         if item_id:
@@ -595,6 +874,56 @@ def hentikan_bot() -> bool:
         return False
     dengan.hentikan()
     return True
+
+
+def uji_dapodik(opsi: dict[str, str] | None = None) -> dict[str, Any]:
+    """Buka Dapodik sebentar lalu laporkan apa yang terlihat.
+
+    Alat bantu bila bot berhenti dengan TimeoutException: hasilnya menunjukkan
+    judul halaman, alamat akhir, kolom/tombol/menu yang tampak, serta selector
+    mana yang cocok. Bekerja juga saat selectornya meleset (tidak melempar galat),
+    sehingga pengguna bisa menyalin selector yang benar ke «Peta tombol Dapodik».
+    """
+    opsi = dict(opsi or services.bot_setting())
+    bot = BotDapodik(0, [], [], opsi)
+    laporan: dict[str, Any] = {
+        "waktu": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "url": (opsi.get("bot_url") or "").strip(),
+        "headless": opsi.get("bot_headless", "1") == "1",
+        "simulasi": opsi.get("bot_simulasi", "0") == "1",
+        "catatan": [],
+    }
+    if not laporan["url"]:
+        laporan["galat"] = "Alamat Dapodik belum diisi pada pengaturan bot."
+        return laporan
+
+    peramban = None
+    try:
+        peramban = bot._buka_peramban()
+        peramban.get(laporan["url"])
+        bot._tunggu_halaman(peramban)
+        laporan.update({k: v for k, v in bot._ringkas_halaman(peramban).items()})
+        peta = peta_selector()
+        cocok: dict[str, bool] = {}
+        for kunci in ("login_username", "login_password", "login_tombol"):
+            _, nilai, cadangan = bot._cari_dengan_cadangan(peramban, kunci, peta, wajib=False)
+            cocok[kunci] = bool(nilai)
+            laporan.setdefault("selector_cocok", {})[kunci] = (
+                "bawaan" if nilai and not cadangan else ("cadangan" if nilai else "tidak ketemu"))
+        laporan["bukti"] = bot._bukti(peramban, "uji-koneksi-dapodik")
+        if not cocok.get("login_username"):
+            laporan["catatan"].append(
+                "Kolom nama pengguna tidak ditemukan: periksa apakah alamat Dapodik benar dan "
+                "aplikasi Dapodik sudah berjalan.")
+    except Exception as exc:  # noqa: BLE001 — alat bantu, selalu kembalikan laporan
+        laporan["galat"] = f"{type(exc).__name__}: {str(exc)[:300]}"
+    finally:
+        if peramban is not None:
+            try:
+                peramban.quit()
+            except Exception:  # noqa: BLE001
+                pass
+    return laporan
 
 
 def status_bot() -> dict[str, Any]:

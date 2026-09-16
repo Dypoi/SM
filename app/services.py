@@ -1616,7 +1616,8 @@ def create_dapodik_job(jenis: str, mode: str, payload: dict[str, Any] | None = N
 BOT_KEYS: tuple[str, ...] = (
     "bot_url", "bot_username", "bot_password", "bot_hobi", "bot_cita",
     "bot_jawaban_ya", "bot_headless", "bot_simulasi", "bot_timeout",
-    "bot_max_retries", "bot_jeda", "bot_selector_json", "bot_pakai_nisn",
+    "bot_max_retries", "bot_jeda", "bot_jeda_muat", "bot_selector_json",
+    "bot_pakai_nisn",
 )
 
 BOT_BAWAAN: dict[str, str] = {
@@ -1629,9 +1630,10 @@ BOT_BAWAAN: dict[str, str] = {
     "bot_jawaban_ya": "1",       # centang semua pilihan "Ya"
     "bot_headless": "1",         # bekerja di belakang layar (tanpa jendela)
     "bot_simulasi": "0",         # 1 = uji coba tanpa membuka peramban
-    "bot_timeout": "15",
+    "bot_timeout": "30",         # batas tunggu elemen (Dapodik dimuat lambat)
     "bot_max_retries": "3",
     "bot_jeda": "1",             # jeda antar siswa (detik)
+    "bot_jeda_muat": "8",        # jeda tambahan setelah halaman selesai dimuat (detik)
     "bot_selector_json": "",     # kosong = pakai peta bawaan
     "bot_pakai_nisn": "0",       # 1 = isi NIS dengan NISN bila NIPD kosong
 }
@@ -1899,6 +1901,27 @@ def ringkas_bot(job_id: int | None = None) -> dict[str, Any]:
         "total": len(items_bot(int(job_id), limit=100000)),
         "sedang": sedang,
     }
+
+
+#: Kunci pengaturan tempat laporan uji koneksi Dapodik terakhir disimpan.
+KUNCI_UJI_BOT = "bot_uji_terakhir"
+
+
+def simpan_laporan_uji_bot(laporan: dict[str, Any]) -> None:
+    """Simpan laporan uji koneksi Dapodik (ditampilkan di halaman Bot Dapodik)."""
+    set_setting(KUNCI_UJI_BOT, json.dumps(laporan, ensure_ascii=False))
+
+
+def laporan_uji_bot() -> dict[str, Any]:
+    """Laporan uji koneksi Dapodik terakhir (kosong bila belum pernah diuji)."""
+    mentah = get_setting(KUNCI_UJI_BOT) or ""
+    if not mentah.strip():
+        return {}
+    try:
+        laporan = json.loads(mentah)
+    except json.JSONDecodeError:
+        return {}
+    return laporan if isinstance(laporan, dict) else {}
 
 
 def hapus_riwayat_bot() -> tuple[int, int]:

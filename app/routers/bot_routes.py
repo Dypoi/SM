@@ -63,6 +63,7 @@ def _konteks(request: Request, **tambahan) -> dict:
         "status_hidup": bot_dapodik.status_bot(),
         "opsi_rombel": services.distinct_values("rombel"),
         "jumlah_berhasil": len(services.bot_nisn_sukses()),
+        "laporan_uji": services.laporan_uji_bot(),
         "punya_selenium": services.bot_punya_selenium(),
         "perintah_pip": services.perintah_pasang_bot(),
         "selector_bawaan": bot_dapodik.SELECTOR_BAWAAN,
@@ -101,6 +102,7 @@ def simpan_pengaturan(
     timeout: str = Form("15"),
     retries: str = Form("3"),
     jeda: str = Form("1"),
+    jeda_muat: str = Form("8"),
     jawaban_ya: str = Form(""),
     headless: str = Form(""),
     simulasi: str = Form(""),
@@ -115,6 +117,7 @@ def simpan_pengaturan(
         "bot_url": url, "bot_username": username, "bot_hobi": hobi, "bot_cita": cita,
         "bot_timeout": _angka(timeout, 15, 3, 120), "bot_max_retries": _angka(retries, 3, 1, 10),
         "bot_jeda": _angka(jeda, 1, 0, 60),
+        "bot_jeda_muat": _angka(jeda_muat, 8, 0, 120),
         "bot_jawaban_ya": "1" if jawaban_ya else "0",
         "bot_headless": "1" if headless else "0",
         "bot_simulasi": "1" if simulasi else "0",
@@ -156,6 +159,28 @@ async def mulai_bot(request: Request, user: auth.SessionUser = Depends(auth.requ
     return _pesan(f"Bot mulai bekerja ({mode}) untuk {len(antrean)} siswa. "
                   f"Pekerjaan #{job_id} — pantau kemajuannya di halaman ini.",
                   anchor="kemajuan")
+
+
+@router.post("/bot-dapodik/uji")
+def uji_koneksi(user: auth.SessionUser = Depends(auth.require_admin)):
+    """Buka Dapodik sebentar & laporkan apa yang terlihat (alat bantu selector)."""
+    if bot_dapodik.bot_berjalan() is not None:
+        return _pesan("Hentikan bot dulu sebelum menguji koneksi Dapodik.", level="warn",
+                      anchor="jalankan")
+    siap, keterangan = services.bot_siap_pakai()
+    if not siap and "selenium" in keterangan:
+        return _pesan(keterangan, level="err", anchor="jalankan")
+    laporan = bot_dapodik.uji_dapodik()
+    services.simpan_laporan_uji_bot(laporan)
+    if laporan.get("galat"):
+        return _pesan(f"Uji koneksi gagal: {laporan['galat']}", level="err", anchor="catatan-uji")
+    cocok = laporan.get("selector_cocok") or {}
+    jumlah_cocok = sum(1 for nilai in cocok.values() if nilai in ("bawaan", "cadangan"))
+    return _pesan(
+        f"Uji koneksi selesai. Halaman: '{laporan.get('judul') or '(tanpa judul)'}'. "
+        f"Selector login cocok: {jumlah_cocok}/3 ({cocok}). "
+        f"Rincian & bukti pemeriksaan ada pada kartu di bawah.",
+        level="ok" if jumlah_cocok else "warn", anchor="catatan-uji")
 
 
 @router.post("/bot-dapodik/pasang")

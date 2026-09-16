@@ -382,9 +382,16 @@ ditambahkan lewat menu **Ekstrakurikuler**.
     bisa diklik untuk melihat siswa pemakai NISN tersebut.
 
 ### Bot Dapodik (khusus admin)
-- Menu **Bot Dapodik** mendaftarkan peserta didik ke aplikasi Dapodik lokal
-  otomatis, mengikuti alur: cari NISN → pilih baris → **Registrasi** → isi **NIS** →
-  centang semua jawaban «Ya» → **Hobi** → **Cita-cita** → **Simpan dan Tutup**.
+- Menu **Bot Dapodik** memperbarui data Dapodik **berdasarkan data aplikasi SM**:
+  bot mengambil antrean siswa dari aplikasi ini, lalu menyelaraskannya ke Dapodik
+  lewat peramban. Tahap yang sudah dikerjakan sekarang: pendaftaran (**Registrasi**)
+  bagi siswa yang belum ada di Dapodik berikut pengisian **NIS** (dari kolom NIPD),
+  jawaban «Ya», **Hobi**, dan **Cita-cita** — alurnya: cari NISN → pilih baris →
+  **Registrasi** → isi **NIS** → centang semua jawaban «Ya» → **Hobi** → **Cita-cita**
+  → **Simpan dan Tutup**. Kolom lain (NIK, alamat, ayah/ibu, dst.) ditambahkan dengan
+  pola yang sama begitu alur Dapodik untuk kolom tersebut diketahui.
+- Siswa yang NISN-nya tidak ada di Dapodik dicatat *“tidak ditemukan”* sehingga mudah
+  ditindaklanjuti (mis. NISN salah pada data SM).
 - **Antrean diambil dari data siswa aplikasi SM**, bukan dari berkas Excel:
   pilih kelas/rombel, batasi jumlah siswa, atau tempel daftar NISN (bila ingin
   meniru daftar Excel). Siswa berstatus *Lulus/Mutasi/Keluar/Non-aktif* tidak diikutkan.
@@ -443,9 +450,21 @@ Bot Dapodik **sudah aktif** di menu **Bot Dapodik** (khusus admin). Ringkasnya:
    sendiri. Bila perlu berhenti, tekan *Hentikan bot* (siswa yang sedang diproses
    diselesaikan lebih dulu).
 
+**Bila bot berhenti dengan pesan waktu habis / elemen tidak ditemukan** — tekan tombol
+**«Uji koneksi Dapodik»**. Bot membuka Dapodik sebentar lalu menampilkan apa yang
+sebenarnya terlihat: judul halaman, kolom-kolom isian, tombol, menu, dan selector mana
+yang cocok (bawaan atau cadangan), plus **tangkapan layar** tersimpan di `data/bot/`.
+Dari situ biasanya langsung kelihatan penyebabnya, misalnya Dapodik belum dijalankan,
+alamat salah, halaman masih memuat, atau tombolnya berubah versi.
+
 Catatan penting:
 
 - Bot memproses **satu pekerjaan sekaligus**; pekerjaan kedua ditolak selama bot bekerja.
+- Bila Dapodik sekolah lambat terbuka, naikkan **Jeda muat halaman Dapodik** (bawaan
+  8 detik) dan **Batas tunggu elemen** (bawaan 30 detik) pada Pengaturan Bot.
+- Bila Dapodik berganti versi, bot masih mencoba **selector cadangan** (mis. mencari
+  tombol lewat tulisannya). Log akan menuliskan selector cadangan mana yang dipakai,
+  dan nilai itu dapat disalin ke *Peta tombol Dapodik*.
 - Bila PC mati atau bot dihentikan di tengah jalan, jalankan lagi dengan pilihan
   *«Dilewati (lanjutkan pekerjaan)»* — siswa yang sudah berhasil tidak didaftarkan dua kali.
 - Siswa tanpa NIPD/NIS dilewati (atau memakai NISN bila pilihan itu dicentang).
@@ -533,7 +552,10 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 │   └── buat_template.py       # pembuat berkas template impor
 ├── template-import/           # contoh.xlsx berisi data fiktif (aman dibagikan)
 ├── sample-data/               # berkas Dapodik asli (tidak di-commit, berisi data pribadi)
-└── data/                      # database, unggahan, kunci sesi (tidak di-commit)
+└── data/                      # database, unggahan, kunci sesi, bukti bot (tidak di-commit)
+    ├── sm.sqlite3             # seluruh data aplikasi
+    ├── uploads/dokumen/       # berkas bukti pengajuan siswa
+    └── bot/                   # tangkapan layar & HTML saat bot/uji koneksi gagal
 ```
 
 ---
@@ -655,9 +677,11 @@ Buka **Pengaturan → Sistem → Aman Online**, lalu benahi yang bertanda *perlu
 - [x] Perampingan kolom: 14 kolom Dapodik yang tidak dipakai dihapus
 - [x] Dropdown pekerjaan, penghasilan, & pendidikan serta aturan data ayah/ibu/wali
       (data wali dihapus otomatis oleh sistem)
-- [x] **Bot Dapodik**: pendaftaran peserta didik otomatis dari antrean data siswa SM
-      (alur Selenium, bekerja di belakang layar, kemajuan tampil di aplikasi)
-- [ ] Bot Dapodik tahap lanjut: pembanding data & pengirim koreksi lewat API
+- [x] **Bot Dapodik**: memperbarui data Dapodik dari data siswa SM
+      (alur Selenium: registrasi + NIS, bekerja di belakang layar, kemajuan tampil di aplikasi)
+- [ ] Bot Dapodik: pengisian kolom lain (NIK, alamat, ayah/ibu, tanggal lahir, dst.)
+      begitu alur Dapodik untuk kolom tersebut diketahui
+- [ ] Bot Dapodik: pembanding data (SM ↔ Dapodik) & pengirim koreksi lewat API
 - [ ] Bot Dapodik: unggah berkas sebagai lampiran registrasi (bila Dapodik mewajibkan)
 - [ ] Riwayat kenaikan kelas & mutasi siswa antar tahun ajaran
 - [ ] Presensi harian dan rekap per kelas

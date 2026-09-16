@@ -1711,15 +1711,66 @@ def cek_bot_dapodik() -> str:
     assert bot_routes.log_csv(user=admin_uji).status_code == 200, "unduhan CSV gagal tanpa pekerjaan"
     assert bot_routes.log_xlsx(user=admin_uji).status_code == 200, "unduhan Excel gagal tanpa pekerjaan"
 
+    # 4b2) Selector cadangan: Dapodik sering berganti versi, bot tidak boleh langsung menyerah.
+    assert set(bot_dapodik.SELECTOR_CADANGAN) <= set(bot_dapodik.SELECTOR_DIIZINKAN), \
+        "kunci selector cadangan harus dikenal"
+    for nama_selector in ("login_username", "login_password", "login_tombol", "cari_nisn",
+                          "tombol_registrasi", "input_nis", "simpan"):
+        assert bot_dapodik.SELECTOR_CADANGAN.get(nama_selector), \
+            f"cadangan untuk {nama_selector} kosong"
+    teks_cadangan = " ".join(bot_dapodik.SELECTOR_CADANGAN["login_tombol"]).lower()
+    assert "masuk" in teks_cadangan or "login" in teks_cadangan, \
+        "cadangan tombol masuk sebaiknya berbasis teks"
+    assert "ext-element" not in teks_cadangan, "cadangan tidak boleh bergantung id Ext JS"
+
+    # 4b3) Jeda muat halaman dapat diatur (Dapodik sekolah lambat terbuka).
+    assert "bot_jeda_muat" in services.BOT_KEYS and int(services.bot_setting()["bot_jeda_muat"]) >= 3, \
+        "jeda muat halaman Dapodik harus ada & masuk akal"
+    assert int(services.bot_setting()["bot_timeout"]) >= 20, \
+        "batas tunggu bawaan terlalu pendek untuk Dapodik"
+
+    # 4b4) Uji koneksi Dapodik selalu melapor (tidak melempar galat ke pengguna),
+    #      termasuk ketika peramban tidak tersedia seperti di lingkungan uji ini.
+    laporan = bot_dapodik.uji_dapodik({"bot_url": "", "bot_simulasi": "1"})
+    assert laporan["galat"], "uji koneksi tanpa alamat Dapodik harus melapor"
+    laporan = bot_dapodik.uji_dapodik({"bot_url": "http://localhost:5774/", "bot_timeout": "5"})
+    assert isinstance(laporan, dict) and laporan.get("url"), "uji koneksi harus mengembalikan laporan"
+    assert laporan.get("galat") or laporan.get("selector_cocok"), \
+        "uji koneksi harus berisi galat atau hasil selector"
+    services.simpan_laporan_uji_bot({"waktu": "uji", "url": "http://localhost:5774/",
+                                     "judul": "Dapodik", "selector_cocok": {"login_username": "bawaan"}})
+    assert services.laporan_uji_bot()["judul"] == "Dapodik", "laporan uji koneksi tidak tersimpan"
+    services.set_setting(services.KUNCI_UJI_BOT, "{bukan json")
+    assert services.laporan_uji_bot() == {}, "laporan uji koneksi rusak harus diabaikan"
+    services.set_setting(services.KUNCI_UJI_BOT, "")
+
     # 4c) Pemasangan pustaka bot dari dalam aplikasi memakai Python aplikasi ini.
     assert "requirements-bot.txt" in services.perintah_pasang_bot(), "perintah pasang tidak menunjuk berkasnya"
     assert services.perintah_pasang_bot().startswith('"'), "perintah pasang harus memakai jalur Python lengkap"
 
     # 5) Pekerjaan & item tercatat; mode uji coba (tanpa peramban) sampai tuntas.
+    # Aturan "siapa yang dilewati" diuji langsung supaya tidak bergantung isi data contoh:
+    # NISN wajib 10 angka, dan siswa tanpa NIPD dilewati kecuali NISN dipakai sebagai NIS.
+    from app.bot_dapodik import BotDapodik as _Bot
+
+    polos = {"login_username": "name:a", "login_password": "name:b", "login_tombol": "name:c",
+             "menu_tujuan": "name:d", "popup_tutup": "name:e", "menu_1": "name:f", "menu_2": "name:g",
+             "cari_nisn": "name:h", "tombol_registrasi": "name:i", "input_nis": "name:j",
+             "radio_ya": "name:k", "hobi": "name:l", "cita": "name:m", "simpan": "name:n"}
+    tanpa_nipd = {"nisn": "1234567890", "nipd": "", "nama": "Uji"}
+    bot_tanpa = _Bot(0, [], [], {**polos, "bot_pakai_nisn": "0"})
+    assert "NIPD" in bot_tanpa._aturan_lewati(tanpa_nipd), \
+        "siswa tanpa NIPD harus dilewati bila NISN tidak dipakai sebagai NIS"
+    bot_pakai = _Bot(0, [], [], {**polos, "bot_pakai_nisn": "1"})
+    assert bot_pakai._aturan_lewati(tanpa_nipd) == "", \
+        "siswa tanpa NIPD harus lanjut bila NISN dipakai sebagai NIS"
+    assert "NISN" in bot_pakai._aturan_lewati({"nisn": "123", "nipd": "9", "nama": "Uji"}), \
+        "NISN yang bukan 10 angka harus dilewati"
+
     services.simpan_bot_setting({"bot_simulasi": "1", "bot_url": "http://localhost:5774/",
                                  "bot_username": "bot.uji@contoh.id", "bot_password": "rahasia",
                                  "bot_hobi": "Olah Raga", "bot_cita": "Pegawai Negeri Sipil / PNS",
-                                 "bot_jeda": "0"})
+                                 "bot_jeda": "0", "bot_pakai_nisn": "1"})
     assert services.bot_siap_pakai()[0], "mode uji coba seharusnya siap dipakai"
     antrean = services.bot_antrean(nisn_manual=f"{nisn_a}\n{nisn_b}", limit=2)
     job_id, _ = bot_dapodik.mulai_bot(antrean, services.bot_setting(), actor="cek")
@@ -1762,7 +1813,8 @@ def cek_bot_dapodik() -> str:
     for penanda in ('action="/bot-dapodik/pengaturan"', 'action="/bot-dapodik/mulai"',
                     "/bot-dapodik/hentikan", "/bot-dapodik/status.json", "bot-dapodik/log.csv",
                     'action="/bot-dapodik/bersihkan"', 'action="/bot-dapodik/pasang"',
-                    "perintah_pip"):
+                    'action="/bot-dapodik/uji"', "perintah_pip", 'name="jeda_muat"',
+                    "Memperbarui data Dapodik dari data aplikasi SM"):
         assert penanda in halaman, f"halaman bot kehilangan {penanda}"
 
     # 7) Bila bot dihentikan/gagal, siswa yang belum diproses ditandai jelas.
