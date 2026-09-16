@@ -1171,31 +1171,59 @@ def cek_tabel():
                 if "empty-cell" not in sel and "data-label" not in sel:
                     kartu_tanpa_label.append(berkas.name)
 
+    # Semua aturan CSS dibaca sebagai pasangan (selector, isi). Komentar CSS
+    # dibuang dari selector lebih dulu supaya pencocokan nama aturan tepat.
+    def _sel(teks: str) -> str:
+        return " ".join(re.sub(r"/\*.*?\*/", "", teks, flags=re.S).split())
+
+    pasangan_aturan = [(_sel(sel), isi) for sel, isi in re.findall(r"([^{}]+)\{([^{}]*)\}", css)]
+
     # Kepala tabel hanya boleh MENEMPEL di dalam kotak yang benar-benar
     # menggulung sendiri, dan di sana harus di tepi kotak (top: 0) serta
     # berlatar pekat. Bila aturan umum memakai top: var(--topbar-h), kepala
     # tabel tampak melayang di tengah tabel dan menutupi sebagian baris
     # (mis. baris FUTSAL tertutup kepala tabel) — pernah terjadi, jangan diulang.
-    pasangan_aturan = re.findall(r"([^{}]+)\{([^{}]*)\}", css)
-    kepala_lengket = [" ".join(sel.split()) for sel, isi in pasangan_aturan
-                      if "thead" in sel and "sticky" in isi]
+    kepala_lengket = [sel for sel, isi in pasangan_aturan if "thead" in sel and "sticky" in isi]
     assert kepala_lengket, "kepala tabel di kotak bergulir harus tetap menempel (sticky)"
     for sel, isi in pasangan_aturan:
         if "thead" not in sel or "sticky" not in isi:
             continue
-        nama_aturan = " ".join(sel.split())
-        assert ".daftar" in nama_aturan or ".compact" in nama_aturan, \
-            f"kepala tabel lengket hanya untuk kotak bergulir: {nama_aturan}"
-        assert re.search(r"top:\s*0\b", isi), \
-            f"kepala tabel lengket harus menempel di tepi kotak: {nama_aturan}"
-        assert "background" in isi, \
-            f"kepala tabel lengket harus berlatar pekat agar baris tidak tembus: {nama_aturan}"
+        assert ".daftar" in sel or ".compact" in sel, (
+            f"kepala tabel lengket hanya untuk kotak bergulir: {sel}")
+        assert re.search(r"top:\s*0\b", isi), (
+            f"kepala tabel lengket harus menempel di tepi kotak: {sel}")
+        assert "background" in isi, (
+            f"kepala tabel lengket harus berlatar pekat agar baris tidak tembus: {sel}")
     assert not [sel for sel, isi in pasangan_aturan
-                if re.fullmatch(r"\s*table\.data thead th\s*", sel) and "sticky" in isi], \
-        "aturan umum kepala tabel jangan lengket (kepala bisa melayang di tengah tabel)"
-    assert ".table-wrap.compact table.data thead th" in css, \
-        "kepala tabel di kotak bergulir harus menempel di tepi (top: 0)"
+                if sel == "table.data thead th" and "sticky" in isi], (
+        "aturan umum kepala tabel jangan lengket (kepala bisa melayang di tengah tabel)")
     assert re.search(r"--topbar-h:\s*\d+px", css), "variabel --topbar-h harus punya nilai awal"
+
+    # Semua elemen lengket: jaraknya harus 0 atau mengikuti tinggi bilah atas
+    # (var(--topbar-h)). Angka tetap seperti 84px menyisakan celah di bawah
+    # bilah atas sehingga isi halaman terlihat lewat di atas elemen lengket
+    # saat halaman digulir — tampak "aneh" dan pernah dilaporkan pemakai.
+    for sel, isi in pasangan_aturan:
+        if "sticky" not in isi:
+            continue
+        jarak = re.search(r"(?:^|;)\s*top:\s*([^;]+)", isi)
+        if jarak:
+            nilai = jarak.group(1).strip()
+            assert nilai in ("0", "0px") or "var(--topbar-h)" in nilai, (
+                f"jarak elemen lengket harus 0 atau var(--topbar-h): {sel} = {nilai}")
+    panel_lengket = next((isi for sel, isi in pasangan_aturan
+                          if sel == ".sticky-side" and "sticky" in isi), None)
+    assert panel_lengket, "aturan .sticky-side lengket hilang"
+    assert "max-height" in panel_lengket and "var(--topbar-h)" in panel_lengket, (
+        "panel samping lengket wajib mengikuti tinggi bilah atas & dibatasi tinggi layar")
+    assert ".split > aside" in css and "align-self: stretch" in css, (
+        "kolom samping harus setinggi barisnya agar panel lengket tidak setengah lengket")
+
+    # Form tambah anggota ekskul harus berada di dalam kartu anggota (selalu
+    # terjangkau), bukan panel samping lengket yang harus dicari dengan gulir.
+    halaman_anggota = (BASE_DIR / "app" / "templates" / "ekskul" / "detail.html").read_text(encoding="utf-8")
+    assert "sticky-side" not in halaman_anggota and 'id="tambah-anggota"' in halaman_anggota, (
+        "form tambah anggota ekskul harus di atas daftar anggota, bukan panel samping lengket")
 
     class PeriksaTabel(HTMLParser):
         def __init__(self) -> None:

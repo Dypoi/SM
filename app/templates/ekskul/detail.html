@@ -72,6 +72,34 @@
         </p>
       </div>
     </div>
+
+    {# Form tambah anggota duduk tepat di atas daftar: selalu terjangkau, di
+       layar lebar maupun sempit, tanpa perlu menggulir mencari panel samping. #}
+    <div class="card-body tambah-anggota" id="tambah-anggota">
+      <form method="post" action="/ekstrakurikuler/{{ ekskul.id }}/anggota" class="form-tambah-anggota">
+        <div class="field">
+          <label for="nisn">Tambah anggota — tulis NISN atau nama siswa</label>
+          <input type="text" id="nisn" name="nisn" list="daftar-siswa"
+                 placeholder="0113374384 atau Ahmad Fauzi" autocomplete="off" required>
+          <datalist id="daftar-siswa">
+            {% for s in pilihan_siswa or [] %}
+            <option value="{{ s.nisn }}">{{ s.nama }}{% if s.rombel %} · {{ s.rombel }}{% endif %}</option>
+            {% endfor %}
+          </datalist>
+          <span class="hint">Bila ada nama kembar, tuliskan NISN-nya.</span>
+        </div>
+        <div class="field">
+          <label for="jabatan">Jabatan</label>
+          <select id="jabatan" name="jabatan">
+            {% for jab in jabatan_options %}
+              <option value="{{ jab }}">{{ jab }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button class="btn btn-primary" type="submit">{{ icon('plus') }} Masukkan ke ekskul</button>
+      </form>
+    </div>
+
     <div class="card-body p-0 table-wrap">
       <table class="data kartu">
         <caption class="sr-only">Daftar anggota ekstrakurikuler beserta jabatan, nilai, dan catatan</caption>
@@ -133,38 +161,14 @@
   </div>
 
   <aside>
-    <div class="card sticky-side">
+    <div class="card">
       <div class="card-head">
         <div>
-          <h3>Tambah Anggota</h3>
-          <p>Ketik NISN atau nama siswa — saran nama akan muncul.</p>
+          <h3>Ringkasan</h3>
+          <p>Ikhtisar ekstrakurikuler ini.</p>
         </div>
       </div>
       <div class="card-body">
-        <form method="post" action="/ekstrakurikuler/{{ ekskul.id }}/anggota">
-          <div class="field">
-            <label for="nisn">NISN atau nama siswa</label>
-            <input type="text" id="nisn" name="nisn" list="daftar-siswa" placeholder="0113374384 atau Ahmad Fauzi"
-                   autocomplete="off" required>
-            <datalist id="daftar-siswa">
-              {% for s in pilihan_siswa or [] %}
-              <option value="{{ s.nisn }}">{{ s.nama }}{% if s.rombel %} · {{ s.rombel }}{% endif %}</option>
-              {% endfor %}
-            </datalist>
-            <span class="hint">Bila ada nama kembar, tuliskan NISN-nya.</span>
-          </div>
-          <div class="field mt-2">
-            <label for="jabatan">Jabatan</label>
-            <select id="jabatan" name="jabatan">
-              {% for jab in jabatan_options %}
-                <option value="{{ jab }}">{{ jab }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <button class="btn btn-primary btn-block mt-2" type="submit">{{ icon('plus') }} Masukkan ke ekskul</button>
-        </form>
-
-        <div class="section-title">Ringkasan</div>
         <dl class="kv" style="grid-template-columns:1fr">
           <dt>Jumlah anggota</dt><dd>{{ anggota | length }}</dd>
           <dt>Status</dt><dd>{{ 'Aktif' if ekskul.aktif else 'Nonaktif' }}</dd>

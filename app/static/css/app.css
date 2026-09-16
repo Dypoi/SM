@@ -449,7 +449,23 @@ table.tabel-kecil th, table.tabel-kecil td { padding: .4rem .55rem; font-size: .
 }
 
 .split { display: grid; grid-template-columns: 1fr 320px; gap: 1rem; align-items: start; }
-.sticky-side { position: sticky; top: 84px; }
+/* Kolom samping harus setinggi barisnya. Kalau tidak (align-items: start),
+   panel lengket di dalamnya hanya "setengah lengket": ia berhenti menempel
+   setelah beberapa baris lalu ikut tergulir naik. */
+.split > aside { align-self: stretch; }
+
+/* Panel samping lengket yang menemani kolom panjang.
+   1) Jaraknya memakai tinggi bilah atas yang sebenarnya — angka tetap seperti
+      84px menyisakan celah di bawah bilah atas sehingga isi halaman terlihat
+      lewat di atas panel saat digulir (tampak "aneh").
+   2) Tingginya dibatasi ruang layar dan panel menggulung sendiri, supaya tombol
+      di bagian bawah panel tidak pernah terpotong dan tak terjangkau. */
+.sticky-side {
+  position: sticky;
+  top: var(--topbar-h);
+  max-height: calc(100vh - var(--topbar-h) - 18px);
+  overflow: auto;
+}
 
 .avatar-lg {
   width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center;
@@ -657,6 +673,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
   .stat-value { font-size: 1.35rem; }
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
   .form-actions.sticky-actions { margin: 1rem -.85rem -.85rem; padding: .7rem .85rem; }
+  .form-tambah-anggota { grid-template-columns: 1fr; }
+  .form-tambah-anggota .btn { width: 100%; }
 }
 
 /* --- Mode cetak: rapi untuk daftar siswa & laporan -------------------- */
@@ -792,6 +810,20 @@ input.input-nisn {
 .baris-nilai { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .baris-nilai select { flex: 0 0 auto; max-width: 150px; }
 .baris-nilai input[type="text"] { flex: 1 1 180px; min-width: 140px; }
+
+/* --- Baris "tambah anggota" di atas daftar anggota ekskul --------------- */
+/* Ditaruh di dalam kartu anggota (bukan panel samping lengket) supaya selalu
+   terjangkau: di layar lebar berdampingan, di layar sempit menumpuk. */
+.card-body.tambah-anggota {
+  background: #f8fafc;
+  border-bottom: 1px solid var(--border-soft);
+}
+.form-tambah-anggota {
+  display: grid; gap: .8rem; align-items: end;
+  grid-template-columns: minmax(220px, 1fr) 180px auto;
+}
+.form-tambah-anggota .field { margin: 0; }
+.form-tambah-anggota .btn { white-space: nowrap; }
 
 /* NIK: 16 angka, mudah dibaca satu per satu */
 input.input-nik {
