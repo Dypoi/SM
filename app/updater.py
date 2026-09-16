@@ -647,9 +647,19 @@ def perintah_restart() -> list[str]:
     khusus = os.getenv("SM_RESTART_CMD")
     if khusus:
         return shlex.split(khusus)
+
     argv = list(sys.argv) or ["run.py"]
-    if not os.path.isabs(argv[0]):
-        argv[0] = str((BASE_DIR / argv[0]).resolve())
+    skrip = argv[0]
+    if skrip in {"", "-c", "-m"}:
+        # Dijalankan sebagai "python -c ..."/"python -m ..." -> pakai run.py.
+        argv = [str(BASE_DIR / "run.py"), *argv[1:]]
+    else:
+        kandidat = Path(skrip)
+        if not kandidat.is_absolute():
+            kandidat = BASE_DIR / kandidat
+        if not kandidat.exists():
+            kandidat = BASE_DIR / "run.py"
+        argv = [str(kandidat.resolve()), *argv[1:]]
     return [sys.executable, *argv]
 
 
@@ -740,8 +750,6 @@ def bersihkan_marker_lama() -> None:
     except OSError:
         return
     if umur < PROSES_MULAI - 1:
-        data = _baca_status()
-        data.setdefault("aksi", "muat_ulang")
         _catat_status(aksi="muat_ulang", hasil="selesai", revisi=_rev("HEAD"))
         batalkan_muat_ulang()
 
