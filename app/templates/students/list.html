@@ -1,12 +1,21 @@
 {% extends "base.html" %}
 {# Catatan: makro paginasi diimpor dengan alias agar tidak menimpa
    variabel konteks `pagination` (hasil perhitungan jumlah halaman). #}
-{% from "_macros.html" import icon, nilai %}
+{% from "_macros.html" import icon, nilai, empty_state %}
 {% from "_macros.html" import pagination as render_pagination %}
 
 {% block content %}
+{#- Ringkasan keadaan filter lanjutan (dipakai untuk membuka panel & lencana) -#}
+{% set filter_lanjutan = (filters.agama or filters.kelurahan or filters.status or filters.incomplete_only
+                          or filters.sort != 'nama' or filters.direction != 'asc'
+                          or pagination.per_page != 25 or preset != 'ringkas') %}
+{% set jumlah_lanjutan = ([filters.agama, filters.kelurahan, filters.status] | select | list | length)
+                          + (1 if filters.incomplete_only else 0)
+                          + (1 if (filters.sort != 'nama' or filters.direction != 'asc') else 0)
+                          + (1 if (pagination.per_page != 25 or preset != 'ringkas') else 0) %}
 <div class="card">
   <div class="card-body">
+    {#-- Filter cepat: yang paling sering dipakai ------------------------------------#}
     <form method="get" action="/data-siswa" class="filter-bar" data-auto-submit>
       <div class="field span-2">
         <label for="q">Cari siswa</label>
@@ -39,64 +48,15 @@
           <option value="P" {{ 'selected' if filters.jk == 'P' }}>Perempuan</option>
         </select>
       </div>
-      <div class="field">
-        <label for="agama">Agama</label>
-        <select id="agama" name="agama">
-          <option value="">Semua</option>
-          {% for opsi in opsi_agama %}
-            <option value="{{ opsi }}" {{ 'selected' if filters.agama == opsi }}>{{ opsi }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label for="kelurahan">Kelurahan</label>
-        <select id="kelurahan" name="kelurahan">
-          <option value="">Semua</option>
-          {% for opsi in opsi_kelurahan %}
-            <option value="{{ opsi }}" {{ 'selected' if filters.kelurahan == opsi }}>{{ opsi | singkat(24) }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label for="sort">Urutkan</label>
-        <div class="flex gap-1">
-          <select id="sort" name="sort">
-            <option value="nama" {{ 'selected' if filters.sort == 'nama' }}>Nama</option>
-            <option value="rombel" {{ 'selected' if filters.sort == 'rombel' }}>Rombel</option>
-            <option value="nisn" {{ 'selected' if filters.sort == 'nisn' }}>NISN</option>
-            <option value="tanggal_lahir" {{ 'selected' if filters.sort == 'tanggal_lahir' }}>Tanggal lahir</option>
-            <option value="kelurahan" {{ 'selected' if filters.sort == 'kelurahan' }}>Kelurahan</option>
-            <option value="updated_at" {{ 'selected' if filters.sort == 'updated_at' }}>Terakhir diubah</option>
-          </select>
-          <select name="dir" style="max-width:110px">
-            <option value="asc" {{ 'selected' if filters.direction == 'asc' }}>A→Z</option>
-            <option value="desc" {{ 'selected' if filters.direction == 'desc' }}>Z→A</option>
-          </select>
-        </div>
-      </div>
-      <div class="field">
-        <label for="per">Baris</label>
-        <select id="per" name="per">
-          {% for opsi in [25, 50, 100, 200] %}
-            <option value="{{ opsi }}" {{ 'selected' if pagination.per_page == opsi }}>{{ opsi }} / halaman</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label for="kolom">Tampilan kolom</label>
-        <select id="kolom" name="kolom">
-          {% for key, labels in presets.items() %}
-            <option value="{{ key }}" {{ 'selected' if preset == key }}>{{ key | capitalize }} — {{ labels | length }} kolom</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="field">
-        <label>Kelengkapan</label>
-        <label class="check">
-          <input type="checkbox" name="lengkap" value="0" {{ 'checked' if filters.incomplete_only }}>
-          Hanya data belum lengkap
-        </label>
-      </div>
+      {#-- Nilai dari panel lanjutan dibawa serta agar tidak hilang saat menyaring ---#}
+      <input type="hidden" name="agama" value="{{ filters.agama }}">
+      <input type="hidden" name="kelurahan" value="{{ filters.kelurahan }}">
+      <input type="hidden" name="status" value="{{ filters.status }}">
+      <input type="hidden" name="sort" value="{{ filters.sort }}">
+      <input type="hidden" name="dir" value="{{ filters.direction }}">
+      <input type="hidden" name="per" value="{{ pagination.per_page }}">
+      <input type="hidden" name="kolom" value="{{ preset }}">
+      {% if filters.incomplete_only %}<input type="hidden" name="lengkap" value="0">{% endif %}
       <div class="field">
         <label>&nbsp;</label>
         <div class="btn-group">
@@ -106,14 +66,108 @@
       </div>
     </form>
 
+    {#-- Filter lanjutan & pengaturan tampilan tabel ------------------------------#}
+    <details class="filter-panel" {{ 'open' if filter_lanjutan }}>
+      <summary>
+        {{ icon('cog') }} Filter lanjutan &amp; tampilan tabel
+        {% if jumlah_lanjutan %}<span class="filter-count">{{ jumlah_lanjutan }}</span>{% endif %}
+      </summary>
+      <div class="filter-body">
+        <form method="get" action="/data-siswa" class="filter-bar" data-auto-submit>
+          <input type="hidden" name="q" value="{{ filters.q }}">
+          <input type="hidden" name="rombel" value="{{ filters.rombel }}">
+          <input type="hidden" name="tingkat" value="{{ filters.tingkat }}">
+          <input type="hidden" name="jk" value="{{ filters.jk }}">
+          <div class="field">
+            <label for="agama">Agama</label>
+            <select id="agama" name="agama">
+              <option value="">Semua</option>
+              {% for opsi in opsi_agama %}
+                <option value="{{ opsi }}" {{ 'selected' if filters.agama == opsi }}>{{ opsi }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="kelurahan">Kelurahan</label>
+            <select id="kelurahan" name="kelurahan">
+              <option value="">Semua</option>
+              {% for opsi in opsi_kelurahan %}
+                <option value="{{ opsi }}" {{ 'selected' if filters.kelurahan == opsi }}>{{ opsi | singkat(24) }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="status">Status siswa</label>
+            <select id="status" name="status">
+              <option value="">Semua</option>
+              {% for opsi in opsi_status %}
+                <option value="{{ opsi }}" {{ 'selected' if filters.status == opsi }}>{{ opsi }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="sort">Urutkan</label>
+            <div class="flex gap-1">
+              <select id="sort" name="sort">
+                <option value="nama" {{ 'selected' if filters.sort == 'nama' }}>Nama</option>
+                <option value="rombel" {{ 'selected' if filters.sort == 'rombel' }}>Rombel</option>
+                <option value="nisn" {{ 'selected' if filters.sort == 'nisn' }}>NISN</option>
+                <option value="tanggal_lahir" {{ 'selected' if filters.sort == 'tanggal_lahir' }}>Tanggal lahir</option>
+                <option value="kelurahan" {{ 'selected' if filters.sort == 'kelurahan' }}>Kelurahan</option>
+                <option value="updated_at" {{ 'selected' if filters.sort == 'updated_at' }}>Terakhir diubah</option>
+              </select>
+              <select name="dir" style="max-width:110px" aria-label="Arah pengurutan">
+                <option value="asc" {{ 'selected' if filters.direction == 'asc' }}>A→Z</option>
+                <option value="desc" {{ 'selected' if filters.direction == 'desc' }}>Z→A</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label for="per">Baris</label>
+            <select id="per" name="per">
+              {% for opsi in [25, 50, 100, 200] %}
+                <option value="{{ opsi }}" {{ 'selected' if pagination.per_page == opsi }}>{{ opsi }} / halaman</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="kolom">Tampilan kolom</label>
+            <select id="kolom" name="kolom">
+              {% for key, labels in presets.items() %}
+                <option value="{{ key }}" {{ 'selected' if preset == key }}>{{ key | capitalize }} — {{ labels | length }} kolom</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label>Kelengkapan</label>
+            <label class="check">
+              <input type="checkbox" name="lengkap" value="0" {{ 'checked' if filters.incomplete_only }}>
+              Hanya data belum lengkap
+            </label>
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <div class="btn-group">
+              <button class="btn btn-outline" type="submit">Terapkan</button>
+              <a class="btn btn-ghost" href="/data-siswa">Bersihkan</a>
+            </div>
+          </div>
+        </form>
+      </div>
+    </details>
+
     {% if filter_aktif %}
-    <div class="filter-chips">
-      {% if filters.q %}<span class="filter-chip">Cari: {{ filters.q }} <a href="{{ qs | replace('q=' ~ filters.q, '') }}">×</a></span>{% endif %}
-      {% if filters.rombel %}<span class="filter-chip">Rombel {{ filters.rombel }} <a href="/data-siswa?rombel=">×</a></span>{% endif %}
-      {% if filters.tingkat %}<span class="filter-chip">Tingkat {{ filters.tingkat }}</span>{% endif %}
-      {% if filters.jk %}<span class="filter-chip">{{ 'Laki-laki' if filters.jk == 'L' else 'Perempuan' }}</span>{% endif %}
-      {% if filters.agama %}<span class="filter-chip">{{ filters.agama }}</span>{% endif %}
-      {% if filters.incomplete_only %}<span class="filter-chip">Data belum lengkap</span>{% endif %}
+    <div class="filter-chips" aria-label="Filter aktif">
+      <span class="muted" style="font-size:.82rem">Filter aktif:</span>
+      {% if filters.q %}<span class="filter-chip">Cari: {{ filters.q }} <a href="/data-siswa{{ qs_tanpa(qs, 'q') }}" aria-label="Hapus filter pencarian">×</a></span>{% endif %}
+      {% if filters.rombel %}<span class="filter-chip">Rombel {{ filters.rombel }} <a href="/data-siswa{{ qs_tanpa(qs, 'rombel') }}" aria-label="Hapus filter rombel">×</a></span>{% endif %}
+      {% if filters.tingkat %}<span class="filter-chip">Kelas {{ filters.tingkat }} <a href="/data-siswa{{ qs_tanpa(qs, 'tingkat') }}" aria-label="Hapus filter tingkat">×</a></span>{% endif %}
+      {% if filters.jk %}<span class="filter-chip">{{ 'Laki-laki' if filters.jk == 'L' else 'Perempuan' }} <a href="/data-siswa{{ qs_tanpa(qs, 'jk') }}" aria-label="Hapus filter jenis kelamin">×</a></span>{% endif %}
+      {% if filters.agama %}<span class="filter-chip">{{ filters.agama }} <a href="/data-siswa{{ qs_tanpa(qs, 'agama') }}" aria-label="Hapus filter agama">×</a></span>{% endif %}
+      {% if filters.kelurahan %}<span class="filter-chip">Kel. {{ filters.kelurahan }} <a href="/data-siswa{{ qs_tanpa(qs, 'kelurahan') }}" aria-label="Hapus filter kelurahan">×</a></span>{% endif %}
+      {% if filters.status %}<span class="filter-chip">{{ filters.status }} <a href="/data-siswa{{ qs_tanpa(qs, 'status') }}" aria-label="Hapus filter status">×</a></span>{% endif %}
+      {% if filters.incomplete_only %}<span class="filter-chip">Data belum lengkap <a href="/data-siswa{{ qs_tanpa(qs, 'lengkap') }}" aria-label="Hapus filter kelengkapan">×</a></span>{% endif %}
+      <a class="btn btn-ghost btn-sm" href="/data-siswa">Bersihkan semua</a>
     </div>
     {% endif %}
   </div>
@@ -126,6 +180,8 @@
       <p>
         Menampilkan {{ pagination.start | angka_id }}–{{ pagination.end | angka_id }}
         dari {{ pagination.total | angka_id }} siswa
+        {% if pagination.pages > 1 %}· halaman {{ pagination.page | angka_id }} dari {{ pagination.pages | angka_id }}{% endif %}
+        {% if preset != 'ringkas' %}· tampilan {{ preset }}{% endif %}
       </p>
     </div>
     <div class="btn-group">
@@ -136,17 +192,19 @@
     </div>
   </div>
 
-  <div class="card-body p-0 table-wrap">
-    <table class="data">
+  <div class="card-body p-0 table-wrap daftar">
+    <table class="data kartu">
+      <caption class="sr-only">Daftar peserta didik beserta kolom terpilih</caption>
       <thead>
         <tr>
           <th style="width:48px">#</th>
           {% for key in kolom %}
-            <th>
+            <th {% if filters.sort == key %}aria-sort="{{ 'descending' if filters.direction == 'desc' else 'ascending' }}"{% endif %}>
               {% if key in ['nama', 'nisn', 'nipd', 'rombel', 'tanggal_lahir', 'kelurahan'] %}
-                <a href="/data-siswa{{ qs | replace('sort=' ~ filters.sort, '') | replace('dir=' ~ filters.direction, '') }}{{ '&' if '?' in qs else '?' }}sort={{ key }}&dir={{ 'desc' if filters.sort == key and filters.direction == 'asc' else 'asc' }}">
+                <a href="/data-siswa{{ qs_set(qs, sort=key, dir=('desc' if filters.sort == key and filters.direction == 'asc' else 'asc')) }}"
+                   title="Urutkan menurut {{ field_label(key) }}">
                   {{ field_label(key) }}
-                  {% if filters.sort == key %}{{ '↓' if filters.direction == 'desc' else '↑' }}{% endif %}
+                  {% if filters.sort == key %}<span aria-hidden="true">{{ '↓' if filters.direction == 'desc' else '↑' }}</span>{% endif %}
                 </a>
               {% else %}
                 {{ field_label(key) }}
@@ -185,11 +243,15 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="{{ kolom | length + 2 }}" class="empty">
+          <td colspan="{{ kolom | length + 2 }}" class="empty-cell">
             {% if filter_aktif %}
-              Tidak ada siswa yang cocok dengan filter.
+              {{ empty_state('Tidak ada siswa yang cocok',
+                             'Kata kunci atau kombinasi filter tidak menemukan data. Coba longgarkan filter yang aktif.',
+                             'search', 'Bersihkan filter', '/data-siswa', 'refresh') }}
             {% else %}
-              Belum ada data siswa. <a href="/impor">Impor berkas Excel/CSV</a> untuk memulai.
+              {{ empty_state('Belum ada data siswa',
+                             'Impor berkas Excel/CSV dari Dapodik atau unggahan sekolah. Semua kolom berkas asli tetap ditampilkan apa adanya.',
+                             'inbox', 'Impor berkas Excel/CSV', '/impor', 'upload') }}
             {% endif %}
           </td>
         </tr>

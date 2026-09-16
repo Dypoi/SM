@@ -286,4 +286,30 @@
       peringatanForm(form, "");
     });
   });
+
+  // --- Tabel rapi di layar sempit (mode kartu) ------------------------------
+  // Sel diberi label dari kepala tabel; CSS menyusunnya bertumpuk di ponsel.
+  document.querySelectorAll("table.data.kartu").forEach(function (tabel) {
+    var kepala = Array.prototype.map.call(tabel.querySelectorAll("thead th"), function (th) {
+      return th.textContent.replace(/[\u2191\u2193]/g, "").trim();
+    });
+    tabel.querySelectorAll("tbody td").forEach(function (sel) {
+      if (sel.classList.contains("empty-cell")) return;
+      var label = kepala[sel.cellIndex] || "";
+      if (label) sel.setAttribute("data-label", label);
+    });
+  });
+
+  // --- Cegah klik ganda saat formulir dikirim ------------------------------
+  document.addEventListener("submit", function (event) {
+    var form = event.target;
+    if (!form || form.tagName !== "FORM" || form.hasAttribute("data-tanpa-kunci")) return;
+    var tombol = event.submitter || form.querySelector("button[type=submit]");
+    if (!tombol) return;
+    window.setTimeout(function () {
+      tombol.disabled = true;
+      tombol.classList.add("btn-menunggu");
+      tombol.setAttribute("aria-busy", "true");
+    }, 0);
+  });
 })();

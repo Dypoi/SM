@@ -44,12 +44,23 @@
   {%- elif nama == "refresh" -%}
     <path d="M20 11a8 8 0 0 0-13.7-4.7L4 8.5"/><path d="M4 4v5h5"/>
     <path d="M4 13a8 8 0 0 0 13.7 4.7L20 15.5"/><path d="M20 20v-5h-5"/>
+  {%- elif nama == "inbox" -%}
+    <path d="M4 13h4l1.5 3h5L16 13h4"/><path d="M5.5 5h13l2.5 8v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5z"/>
   {%- elif nama == "book" -%}
     <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H20v3H6.5"/>
   {%- else -%}
     <circle cx="12" cy="12" r="9"/>
   {%- endif -%}
 </svg>
+{% endmacro %}
+
+{% macro empty_state(judul, pesan="", ikon="inbox", aksi_label="", aksi_href="", aksi_ikon="plus") %}
+<div class="empty-state">
+  <div class="empty-icon">{{ icon(ikon) }}</div>
+  <h3>{{ judul }}</h3>
+  {% if pesan %}<p>{{ pesan }}</p>{% endif %}
+  {% if aksi_label %}<a class="btn btn-primary btn-sm" href="{{ aksi_href }}">{{ icon(aksi_ikon) }} {{ aksi_label }}</a>{% endif %}
+</div>
 {% endmacro %}
 
 {% macro stat_card(label, nilai, ikon="chart", warna="primary", catatan="") %}

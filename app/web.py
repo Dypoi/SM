@@ -6,6 +6,7 @@ import datetime as dt
 import math
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode
 
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
@@ -135,8 +136,40 @@ def singkat(value: Any, length: int = 40) -> str:
     return text if len(text) <= length else text[: length - 1] + "…"
 
 
+def qs_set(qs: str, **nilai: Any) -> str:
+    """Query string dengan beberapa parameter diubah/ditambah.
+
+    Dipakai tautan urut tabel: mempertahankan filter yang sedang aktif sehingga
+    mengurutkan kolom tidak menghapus pencarian pengguna.
+    """
+    pasangan = dict(parse_qsl((qs or "").lstrip("?"), keep_blank_values=True))
+    for kunci, isi in nilai.items():
+        if isi in (None, ""):
+            pasangan.pop(kunci, None)
+        else:
+            pasangan[kunci] = str(isi)
+    hasil = urlencode(pasangan)
+    return f"?{hasil}" if hasil else ""
+
+
+def qs_tanpa(qs: str, *kunci: str) -> str:
+    """Query string tanpa parameter tertentu (tombol × pada chip filter)."""
+    pasangan = [(k, v) for k, v in parse_qsl((qs or "").lstrip("?"), keep_blank_values=True)
+                if k not in kunci]
+    hasil = urlencode(pasangan)
+    return f"?{hasil}" if hasil else ""
+
+
+def hari_ini(with_day: bool = True) -> str:
+    """Tanggal hari ini dalam bahasa Indonesia (untuk kepala cetak)."""
+    return tanggal_id(dt.date.today().isoformat(), with_day=with_day)
+
+
 templates.env.globals["field_label"] = field_label
 templates.env.globals["static_url"] = static_url
+templates.env.globals["qs_set"] = qs_set
+templates.env.globals["qs_tanpa"] = qs_tanpa
+templates.env.globals["hari_ini"] = hari_ini
 templates.env.globals["GROUP_LABELS"] = GROUP_LABELS
 
 
@@ -183,6 +216,36 @@ def nav_items(user: auth.SessionUser | None) -> list[dict[str, str]]:
     return items
 
 
+#: Kelompok menu samping supaya daftar menu mudah dipindai.
+NAV_GRUP = {
+    "/": "Utama",
+    "/data-siswa": "Utama",
+    "/pengajuan": "Utama",
+    "/impor": "Data & Laporan",
+    "/kualitas-data": "Data & Laporan",
+    "/statistik": "Data & Laporan",
+    "/ekstrakurikuler": "Data & Laporan",
+    "/pengaturan": "Sistem",
+    "/pembaruan": "Sistem",
+    "/profil-akun": "Sistem",
+}
+
+
+def nav_grup(user: auth.SessionUser | None) -> list[dict[str, Any]]:
+    """Menu samping dikelompokkan (label kosong bila menunya sedikit)."""
+    items = nav_items(user)
+    if len(items) <= 4:
+        return [{"label": "", "items": items}]
+    hasil: list[dict[str, Any]] = []
+    for item in items:
+        label = NAV_GRUP.get(item["href"], "Sistem")
+        if hasil and hasil[-1]["label"] == label:
+            hasil[-1]["items"].append(item)
+        else:
+            hasil.append({"label": label, "items": [item]})
+    return hasil
+
+
 PAGE_TITLES = {
     "/": "Dasbor",
     "/data-siswa": "Data Siswa",
@@ -210,6 +273,7 @@ def render(request: Request, template: str, context: dict[str, Any] | None = Non
         "user": user,
         "profil": services.school_profile(),
         "nav": nav_items(user),
+        "nav_grup": nav_grup(user),
         "app_name": config.APP_NAME,
         "app_long_name": config.APP_LONG_NAME,
         "app_version": config.APP_VERSION,

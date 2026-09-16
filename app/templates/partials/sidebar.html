@@ -20,13 +20,16 @@
     <span title="{{ profil.nama }}">{{ profil.nama | singkat(26) }}</span>
   </div>
 
-  <nav class="nav">
-    {% for item in nav %}
+  <nav class="nav" aria-label="Menu utama">
+    {% for grup in nav_grup %}
+      {% if grup.label %}<div class="nav-label">{{ grup.label }}</div>{% endif %}
+      {% for item in grup['items'] %}
       <a class="nav-link {{ 'active' if current_path == item.href or (item.href != '/' and current_path.startswith(item.href)) }}"
-         href="{{ item.href }}">
+         href="{{ item.href }}" {{ 'aria-current=page' if current_path == item.href }}>
         {{ icon(item.icon) }}<span>{{ item.label }}</span>
-        {% if item.badge %}<span class="badge badge-warning" style="margin-left:auto">{{ item.badge }}</span>{% endif %}
+        {% if item.badge %}<span class="badge badge-warning nav-badge">{{ item.badge }}</span>{% endif %}
       </a>
+      {% endfor %}
     {% endfor %}
   </nav>
 

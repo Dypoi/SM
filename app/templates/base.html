@@ -3,21 +3,30 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f172a">
   <title>{{ page_title }} · {{ app_name }}</title>
   <meta name="description" content="{{ app_long_name }} {{ profil.nama }}">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M9 21V11l7-4 7 4v10' stroke='white' stroke-width='2.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M13 21v-4h6v4' stroke='white' stroke-width='2.2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="{{ static_url('css/app.css') }}">
 </head>
 <body>
+<a class="skip-link" href="#konten">Lompat ke konten utama</a>
 <div class="layout">
   {% include "partials/sidebar.html" %}
 
   <div class="main">
     {% include "partials/topbar.html" %}
 
-    <main class="content">
+    <main class="content" id="konten" tabindex="-1">
+      <div class="print-only cetak-kepala">
+        <div>
+          <h1>{{ profil.nama }}</h1>
+          <p>{{ page_title }} · dicetak {{ hari_ini() }}</p>
+        </div>
+        <p>{{ app_long_name }} · {{ app_name }} v{{ app_version }}</p>
+      </div>
       {% from "_macros.html" import flash %}
-      {{ flash(msg, msg_level) }}
+      <div class="flash-area">{{ flash(msg, msg_level) }}</div>
       {% block content %}{% endblock %}
     </main>
 
@@ -30,5 +39,41 @@
   </div>
 </div>
 <script src="{{ static_url('js/app.js') }}" defer></script>
+<script>
+/* Penyempurnaan tampilan: pesan menutup sendiri & pencarian cepat (Ctrl+K atau /). */
+(function () {
+  function siap(fn) {
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", fn);
+    else fn();
+  }
+  siap(function () {
+    /* Tinggi topbar diukur langsung supaya kepala tabel lengket pas di bawahnya. */
+    var topbar = document.querySelector(".topbar");
+    function ukurTopbar() {
+      if (topbar) document.documentElement.style.setProperty("--topbar-h", topbar.offsetHeight + "px");
+    }
+    ukurTopbar();
+    window.addEventListener("resize", ukurTopbar);
+    var pesan = document.querySelector(".flash-area .alert");
+    if (pesan && !pesan.classList.contains("alert-err")) {
+      setTimeout(function () {
+        pesan.classList.add("alert-hilang");
+        setTimeout(function () { pesan.remove(); }, 400);
+      }, 9000);
+    }
+    var cari = document.getElementById("cari-cepat");
+    if (!cari) return;
+    document.addEventListener("keydown", function (ev) {
+      var aktif = document.activeElement;
+      var sedangMenulis = aktif && /^(INPUT|TEXTAREA|SELECT)$/.test(aktif.tagName);
+      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "k") {
+        ev.preventDefault(); cari.focus(); cari.select();
+      } else if (ev.key === "/" && !sedangMenulis) {
+        ev.preventDefault(); cari.focus();
+      }
+    });
+  });
+})();
+</script>
 </body>
 </html>
