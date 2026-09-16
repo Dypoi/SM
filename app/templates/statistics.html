@@ -57,10 +57,6 @@
 
 <div class="grid grid-2 mt-2">
   {{ bar_list('Kecamatan Asal', kecamatan, 'Belum ada data', 'info') }}
-  {{ bar_list('Kebutuhan Khusus', kebutuhan_khusus, 'Belum ada data', 'warning') }}
-</div>
-
-<div class="grid grid-2 mt-2">
   {{ bar_list('Sekolah Asal', sekolah_asal, 'Belum ada data', 'violet') }}
   {{ bar_list('Agama', agama, 'Belum ada data', 'teal') }}
 </div>
@@ -73,7 +69,6 @@
         <dt>Penerima KIP</dt><dd><strong>{{ stats.penerima_kip | angka_id }}</strong> siswa</dd>
         <dt>Penerima KPS</dt><dd><strong>{{ stats.penerima_kps | angka_id }}</strong> siswa</dd>
         <dt>Layak PIP (usulan sekolah)</dt><dd><strong>{{ stats.layak_pip | angka_id }}</strong> siswa</dd>
-        <dt>Berkebutuhan khusus</dt><dd><strong>{{ stats.kebutuhan_khusus | angka_id }}</strong> siswa</dd>
       </dl>
       <a class="btn btn-outline btn-sm mt-2" href="/data-siswa?q=&lengkap=">Lihat data siswa</a>
     </div>

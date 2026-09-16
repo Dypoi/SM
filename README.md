@@ -244,8 +244,9 @@ akta lahir, kesehatan, sampai koordinat rumah.
 - Unggah berkas, pratinjau 25 baris pertama, daftar pemetaan kolom, dan daftar temuan.
 - Laporan masalah per baris dapat diunduh sebagai CSV.
 - Riwayat setiap impor tersimpan (berkas, worksheet, baris header, hasil, status).
-- 13 kolom Dapodik lama (dusun, jenis tinggal, alat transportasi, telepon, e-mail, SKHUN,
-  no. peserta UN, no. KKS, bank, no. rekening, rekening atas nama, lintang, bujur)
+- 14 kolom Dapodik lama (dusun, jenis tinggal, alat transportasi, telepon, e-mail, SKHUN,
+  no. peserta UN, no. KKS, bank, no. rekening, rekening atas nama, lintang, bujur,
+  kebutuhan khusus)
   **tidak lagi dipakai**; berkas lama tetap bisa diunggah dan kolom tersebut ditampilkan
   sebagai "tidak lagi dipakai" pada halaman pratinjau impor.
 
@@ -309,7 +310,7 @@ akta lahir, kesehatan, sampai koordinat rumah.
   `pengajuan_wajib_dokumen` di Pengaturan.
 
 ### Statistik & kualitas data
-- Rekap per tingkat, rombel, agama, kecamatan, kebutuhan khusus, program bantuan.
+- Rekap per tingkat, rombel, agama, kecamatan, sekolah asal, program bantuan.
 - **Kualitas Data**: kelengkapan setiap kolom, 14 temuan bergaya validasi Dapodik
   (NISN bukan 10 digit, NIK bukan 16 digit, NISN ganda, **nama ayah sama dengan
   nama ibu**, **nama wali sama dengan nama ayah/ibu**, **data wali yang akan
@@ -456,7 +457,7 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 - [x] API JSON + kunci akses sebagai fondasi integrasi
 - [x] Fitur pembaruan aplikasi dari dalam web (git pull, cadangan, muat ulang)
 - [x] Pengajuan perubahan data oleh siswa + persetujuan admin + berkas bukti
-- [x] Perampingan kolom: 13 kolom Dapodik yang tidak dipakai dihapus
+- [x] Perampingan kolom: 14 kolom Dapodik yang tidak dipakai dihapus
 - [x] Dropdown pekerjaan, penghasilan, & pendidikan serta aturan data ayah/ibu/wali
       (data wali dihapus otomatis oleh sistem)
 - [ ] **Bot Dapodik**: pembaca berkas Dapodik, pembanding data, dan pengirim koreksi otomatis

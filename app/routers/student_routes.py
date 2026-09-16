@@ -237,7 +237,6 @@ def halaman_statistik(request: Request, user: auth.SessionUser = Depends(auth.re
             "per_rombel": services.stats_by_rombel(),
             "agama": services.stats_by("agama", limit=10),
             "kecamatan": services.stats_by("kecamatan", limit=12),
-            "kebutuhan_khusus": services.stats_by("kebutuhan_khusus", limit=8),
             "sekolah_asal": services.stats_by("sekolah_asal", limit=12),
             "ekskul": services.ekskul_stats(),
             "ekskul_kategori": services.ekskul_by_kategori(),

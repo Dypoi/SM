@@ -42,7 +42,7 @@ CONTOH = [
         "rombel": "7A", "no_registrasi_akta": "0001/KLU/JP/2013", "no_kk": "3671010101130001",
         "anak_ke": 1, "jml_saudara": 2, "berat_badan": 40, "tinggi_badan": 145,
         "lingkar_kepala": 52, "jarak_rumah": 1.5,
-        "kebutuhan_khusus": "Tidak ada", "sekolah_asal": "SD NEGERI CONTOH 1",
+        "sekolah_asal": "SD NEGERI CONTOH 1",
     },
     {
         "nama": "CONTOH SISWA DUA", "nipd": "26260002", "jk": "P", "nisn": "3900000002",
@@ -60,7 +60,7 @@ CONTOH = [
         "rombel": "7A",
         "rekening_atas_nama": "CONTOH SISWA DUA", "no_kk": "3173010101130002",
         "anak_ke": 2, "jml_saudara": 1, "berat_badan": 38, "tinggi_badan": 142,
-        "kebutuhan_khusus": "Tidak ada", "sekolah_asal": "SD NEGERI CONTOH 2",
+        "sekolah_asal": "SD NEGERI CONTOH 2",
     },
 ]
 

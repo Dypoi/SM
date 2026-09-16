@@ -26,10 +26,51 @@ def _kolom_tabel(conn: sqlite3.Connection, tabel: str) -> list[str]:
     return [row[1] for row in conn.execute(f"PRAGMA table_info({tabel})")]
 
 
-def _migrasi_002(conn: sqlite3.Connection) -> None:
-    """Tabel pengajuan perubahan + berkas pendukung, dan pembersihan 13 kolom."""
+def _bersihkan_kolom_tidak_dipakai(conn: sqlite3.Connection) -> None:
+    """Buang field yang sudah tidak dipakai: riwayat, temuan, butir pengajuan, kolom.
+
+    Daftarnya diambil dari :data:`app.dapodik.FIELD_DIHAPUS`, jadi penambahan
+    kolom yang dihapus cukup dilakukan di satu tempat itu.
+    """
     from .dapodik import FIELD_DIHAPUS
 
+    daftar = ",".join("?" * len(FIELD_DIHAPUS))
+    conn.execute(f"DELETE FROM data_changes WHERE field IN ({daftar})", FIELD_DIHAPUS)
+    conn.execute(f"DELETE FROM import_issues WHERE field IN ({daftar})", FIELD_DIHAPUS)
+    # Butir pengajuan siswa yang menunjuk kolom tidak terpakai dibuang; pengajuan
+    # yang jadi kosong otomatis dibatalkan supaya tidak menggantung.
+    conn.execute(f"DELETE FROM change_request_items WHERE field IN ({daftar})", FIELD_DIHAPUS)
+    conn.execute(
+        """
+        UPDATE change_requests
+           SET status = 'dibatalkan',
+               catatan_admin = 'Dibatalkan otomatis: kolom yang diajukan sudah tidak dipakai aplikasi.'
+         WHERE status = 'menunggu'
+           AND id NOT IN (SELECT request_id FROM change_request_items)
+        """
+    )
+
+    # Buang kolomnya. SQLite 3.35+ mendukung DROP COLUMN; versi lama cukup
+    # dikosongkan nilainya (kolom tak terpakai tidak dipakai aplikasi).
+    ada = set(_kolom_tabel(conn, "students"))
+    target = [kolom for kolom in FIELD_DIHAPUS if kolom in ada]
+    if not target:
+        return
+    if sqlite3.sqlite_version_info >= (3, 35, 0):
+        for kolom in target:
+            conn.execute(f"ALTER TABLE students DROP COLUMN {kolom}")
+        log.info("Kolom tidak terpakai dihapus dari tabel students: %s", ", ".join(target))
+    else:
+        set_clause = ", ".join(f"{kolom} = NULL" for kolom in target)
+        conn.execute(f"UPDATE students SET {set_clause}")
+        log.warning(
+            "SQLite %s belum mendukung DROP COLUMN; nilai %s dikosongkan.",
+            sqlite3.sqlite_version, ", ".join(target),
+        )
+
+
+def _migrasi_002(conn: sqlite3.Connection) -> None:
+    """Tabel pengajuan perubahan data siswa + berkas pendukung."""
     conn.executescript(
         """
         ---------------------------------------------------------------------
@@ -90,29 +131,6 @@ def _migrasi_002(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_dokumen_status ON student_documents(status);
         """
     )
-
-    # Hapus riwayat perubahan yang menunjuk ke field yang sudah tidak dipakai.
-    daftar = ",".join("?" * len(FIELD_DIHAPUS))
-    conn.execute(f"DELETE FROM data_changes WHERE field IN ({daftar})", FIELD_DIHAPUS)
-    conn.execute(f"DELETE FROM import_issues WHERE field IN ({daftar})", FIELD_DIHAPUS)
-
-    # Buang kolomnya. SQLite 3.35+ mendukung DROP COLUMN; versi lama cukup
-    # dikosongkan nilainya (kolom tak terpakai tidak dipakai aplikasi).
-    ada = set(_kolom_tabel(conn, "students"))
-    target = [kolom for kolom in FIELD_DIHAPUS if kolom in ada]
-    if not target:
-        return
-    if sqlite3.sqlite_version_info >= (3, 35, 0):
-        for kolom in target:
-            conn.execute(f"ALTER TABLE students DROP COLUMN {kolom}")
-        log.info("Kolom tidak terpakai dihapus dari tabel students: %s", ", ".join(target))
-    else:
-        set_clause = ", ".join(f"{kolom} = NULL" for kolom in target)
-        conn.execute(f"UPDATE students SET {set_clause}")
-        log.warning(
-            "SQLite %s belum mendukung DROP COLUMN; nilai %s dikosongkan.",
-            sqlite3.sqlite_version, ", ".join(target),
-        )
 
 
 #: Setiap entri: (id_migrasi, skrip SQL) atau (id_migrasi, fungsi(conn)).
@@ -256,7 +274,6 @@ MIGRATIONS: list[tuple[str, str | Callable[[sqlite3.Connection], None]]] = [
             layak_pip    TEXT,
             is_layak_pip INTEGER DEFAULT 0,
             alasan_layak_pip TEXT,
-            kebutuhan_khusus TEXT,
             sekolah_asal TEXT,
             anak_ke      INTEGER,
             lintang      REAL,
@@ -369,12 +386,21 @@ MIGRATIONS: list[tuple[str, str | Callable[[sqlite3.Connection], None]]] = [
     ),
 
     # ======================================================================= #
-    # 002 — Pengajuan perubahan data oleh siswa + berkas pendukung
-    #        Sekaligus menghapus kolom yang tidak diperlukan lagi.
+    # 002 — Pengajuan perubahan data oleh siswa + berkas pendukung.
     # ======================================================================= #
     (
         "002_pengajuan_perubahan",
         _migrasi_002,
+    ),
+
+    # ======================================================================= #
+    # 003 — Menghapus kolom yang tidak dipakai lagi (mengikuti FIELD_DIHAPUS:
+    #        13 kolom lama + "Kebutuhan Khusus" yang dihapus atas permintaan
+    #        sekolah), termasuk membersihkan riwayat & butir pengajuan terkait.
+    # ======================================================================= #
+    (
+        "003_hapus_kolom_tidak_dipakai",
+        _bersihkan_kolom_tidak_dipakai,
     ),
 ]
 

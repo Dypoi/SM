@@ -14,7 +14,6 @@
   {{ stat_card('Penerima KIP', stats.penerima_kip | angka_id, 'check', 'success', 'Program Indonesia Pintar') }}
   {{ stat_card('Penerima KPS', stats.penerima_kps | angka_id, 'check', 'success', 'Kartu Perlindungan Sosial') }}
   {{ stat_card('Layak PIP', stats.layak_pip | angka_id, 'check', 'warning', 'Usulan sekolah') }}
-  {{ stat_card('Berkebutuhan Khusus', stats.kebutuhan_khusus | angka_id, 'info', 'violet', 'Perlu pendampingan') }}
 </div>
 
 {% if user and user.role == 'admin' and pembaruan and pembaruan.ada %}

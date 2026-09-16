@@ -653,7 +653,6 @@ def student_stats() -> dict[str, Any]:
     kip = int(db.query_value("SELECT COUNT(*) FROM students WHERE is_kip = 1") or 0)
     kps = int(db.query_value("SELECT COUNT(*) FROM students WHERE is_kps = 1") or 0)
     pip = int(db.query_value("SELECT COUNT(*) FROM students WHERE is_layak_pip = 1") or 0)
-    khusus = int(db.query_value("SELECT COUNT(*) FROM students WHERE kebutuhan_khusus IS NOT NULL AND kebutuhan_khusus <> 'Tidak ada'") or 0)
     return {
         "total": total,
         "laki_laki": laki,
@@ -662,7 +661,6 @@ def student_stats() -> dict[str, Any]:
         "penerima_kip": kip,
         "penerima_kps": kps,
         "layak_pip": pip,
-        "kebutuhan_khusus": khusus,
     }
 
 
@@ -700,7 +698,7 @@ def stats_by_tingkat() -> list[dict[str, Any]]:
 
 
 def stats_by(column: str, limit: int = 12) -> list[dict[str, Any]]:
-    if column not in {"agama", "kelurahan", "kecamatan", "kebutuhan_khusus", "sekolah_asal"}:
+    if column not in {"agama", "kelurahan", "kecamatan", "sekolah_asal"}:
         raise ValueError("Kolom statistik tidak diizinkan.")
     rows = db.query_all(
         f"""

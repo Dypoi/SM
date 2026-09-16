@@ -116,7 +116,6 @@ STUDENT_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("nik", "NIK Siswa", ("nik", "nik siswa", "no ktp"), "identitas"),
     FieldSpec("no_kk", "No. Kartu Keluarga", ("no kk", "nomor kk", "no kartu keluarga", "nomor kartu keluarga"), "identitas"),
     FieldSpec("agama", "Agama", ("agama",), "identitas"),
-    FieldSpec("kebutuhan_khusus", "Kebutuhan Khusus", ("kebutuhan khusus",), "identitas"),
     FieldSpec("sekolah_asal", "Sekolah Asal", ("sekolah asal", "asal sekolah"), "identitas"),
 
     # ---- Alamat & kontak ----
@@ -188,12 +187,12 @@ FIELD_WALI: tuple[str, ...] = tuple(
 FIELD_DIHAPUS: tuple[str, ...] = (
     "dusun", "jenis_tinggal", "transportasi", "telepon", "email", "skhun",
     "no_peserta_un", "nomor_kks", "bank", "no_rekening", "rekening_atas_nama",
-    "lintang", "bujur",
+    "lintang", "bujur", "kebutuhan_khusus",
 )
 LABEL_DIHAPUS: tuple[str, ...] = (
     "Dusun", "Jenis Tinggal", "Alat Transportasi", "Telepon", "E-Mail", "SKHUN",
     "No. Peserta Ujian Nasional", "Nomor KKS", "Bank", "Nomor Rekening Bank",
-    "Rekening Atas Nama", "Lintang", "Bujur",
+    "Rekening Atas Nama", "Lintang", "Bujur", "Kebutuhan Khusus",
 )
 
 GROUP_LABELS = {
