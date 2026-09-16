@@ -12,26 +12,65 @@ Tanpa Node.js, tanpa bundler, tanpa CDN — satu proses, satu berkas database.
 
 ---
 
-## 1. Menjalankan aplikasi
+## 1. Mengambil & menjalankan aplikasi
 
-### Cara cepat (Windows / Linux / macOS)
+### Langkah A — ambil kodenya (sekali saja)
 
-```bash
-# 1. Siapkan lingkungan Python
+Lewat **Command Prompt** (Windows) / Terminal:
+
+```cmd
+git clone https://github.com/Dypoi/SM.git
+cd SM
+git checkout arena/01a0a87a-sm
+```
+
+> Kode saat ini berada di cabang `arena/01a0a87a-sm`. Setelah pull request
+> [#1](https://github.com/Dypoi/SM/pull/1) digabung ke `main`, baris
+> `git checkout` tidak lagi diperlukan.
+
+**Tidak punya Git?** Unduh sebagai ZIP:
+
+1. Buka <https://github.com/Dypoi/SM/tree/arena/01a0a87a-sm>
+2. Klik tombol hijau **Code → Download ZIP**
+3. Ekstrak, misalnya ke `C:\SIMSEK`
+
+### Langkah B — jalankan
+
+**Cara termudah di Windows:** klik dua kali berkas **`run.bat`**.
+Skrip itu otomatis membuat lingkungan Python, memasang dependensi (sekali saja,
+perlu internet), lalu menjalankan server.
+
+**Manual lewat Command Prompt:**
+
+```cmd
+cd C:\SIMSEK
 python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-
-# 2. Pasang dependensi
+.venv\Scripts\activate
 pip install -r requirements.txt
-
-# 3. Siapkan database (opsional, otomatis juga saat pertama dijalankan)
-python run.py --init-db
-
-# 4. Jalankan
 python run.py
 ```
 
-Buka **http://localhost:8000**.
+**Linux / macOS:**
+
+```bash
+./run.sh                  # atau: python3 -m venv .venv && ...
+```
+
+Buka **http://localhost:8000** di peramban.
+
+### Langkah C — masukkan data siswa
+
+Dua pilihan:
+
+1. **Otomatis** — salin berkas Excel Anda (mis. `daftar_pd-SMP NEGERI 2 TANGERANG.xlsx`)
+   ke folder `sample-data\`. Saat aplikasi dijalankan dan database masih kosong,
+   berkas pertama di folder itu akan diimpor sendiri (816 siswa ±5 detik).
+2. **Manual** — masuk sebagai admin, buka menu **Impor Excel/CSV**, unggah berkas,
+   periksa pratinjau, lalu klik **Jalankan Impor**.
+
+> Folder `sample-data/` sengaja tidak ikut ter-commit karena berisi data pribadi
+> siswa (NIK, NISN, alamat). Berkas contoh fiktif tersedia di
+> `template-import/contoh-template-import.xlsx` untuk uji coba.
 
 | Peran | Cara masuk |
 | --- | --- |
@@ -42,9 +81,11 @@ Buka **http://localhost:8000**.
 
 ### Opsi lain
 
-```bash
+```cmd
+run.bat                              ← Windows: klik dua kali
 python run.py --port 9000            # ganti port
 python run.py --reload               # mode pengembangan (auto-restart)
+python run.py --init-db              # siapkan database lalu keluar
 python run.py --seed-ekskul          # isi contoh data ekstrakurikuler
 python scripts/cek_sistem.py --http  # pemeriksaan mandiri seluruh fitur
 python scripts/buat_template.py      # buat berkas template impor di template-import/
