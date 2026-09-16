@@ -155,9 +155,10 @@ def nav_items(user: auth.SessionUser | None) -> list[dict[str, str]]:
         {"href": "/statistik", "label": "Statistik", "icon": "chart"},
         {"href": "/kualitas-data", "label": "Kualitas Data", "icon": "check"},
         {"href": "/pengaturan", "label": "Pengaturan", "icon": "cog"},
+        {"href": "/pembaruan", "label": "Pembaruan", "icon": "refresh"},
     ]
     if user.role != auth.ROLE_ADMIN:
-        items = [item for item in items if item["href"] != "/pengaturan"]
+        items = [item for item in items if item["href"] not in {"/pengaturan", "/pembaruan"}]
         items.append({"href": "/profil-akun", "label": "Akun Saya", "icon": "user"})
     return items
 
@@ -170,6 +171,7 @@ PAGE_TITLES = {
     "/statistik": "Statistik",
     "/kualitas-data": "Kualitas Data",
     "/pengaturan": "Pengaturan",
+    "/pembaruan": "Pembaruan Aplikasi",
     "/portal": "Beranda Saya",
     "/portal/ekstrakurikuler": "Ekstrakurikuler Saya",
     "/portal/profil": "Perbaiki Data Saya",

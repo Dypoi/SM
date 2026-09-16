@@ -278,7 +278,53 @@ def cek_api_kontrak():
             f"{len(FIELD_BY_KEY)} field tersedia untuk bot")
 
 
-@cek("13. Halaman HTTP (status 200 & izin akses)")
+@cek("13. Fitur pembaruan aplikasi (git pull)")
+def cek_pembaruan():
+    """Uji fungsi pembaruan tanpa menyentuh salinan aplikasi yang sedang dipakai."""
+    from app import updater
+
+    assert updater.AKTIF is True or os.getenv("SM_GIT_UPDATE") == "0"
+
+    perintah = updater.perintah_manual()
+    assert "git pull" in perintah, "petunjuk manual harus memuat perintah git pull"
+    assert str(BASE_DIR) in perintah, "petunjuk manual harus menyebut folder aplikasi"
+
+    status = updater.status_pembaruan(periksa_jaringan=False)
+    for kunci in ("tersedia", "revisi_lokal", "cabang", "remote", "pesan", "perubahan_lokal",
+                  "ada_perubahan_lokal", "butuh_muat_ulang", "catatan"):
+        assert kunci in status, f"status pembaruan kehilangan kunci '{kunci}'"
+
+    if (BASE_DIR / ".git").exists() and updater.status_pembaruan()["tersedia"]:
+        kode, keluaran = updater.jalankan_git(["rev-parse", "--short", "HEAD"])
+        assert kode == 0 and keluaran, "git rev-parse gagal"
+        info_git = updater.informasi_git()
+        assert info_git["cabang"], "nama cabang git tidak terbaca"
+        assert updater.cabang_target() == (updater.services.get_setting("update_cabang") or info_git["cabang"])
+
+    # Tanda muat ulang: dibuat, belum dijalankan seketika, lalu bisa dibatalkan.
+    updater.batalkan_muat_ulang()
+    assert updater.perlu_muat_ulang() is False, "tanda muat ulang seharusnya belum ada"
+    updater.minta_muat_ulang(aktor="cek", alasan="uji")
+    assert updater.RESTART_MARKER.exists(), "berkas permintaan muat ulang tidak dibuat"
+    assert updater.perlu_muat_ulang() is False, "server tidak boleh memuat ulang sebelum jeda aman"
+    updater.batalkan_muat_ulang()
+    assert not updater.RESTART_MARKER.exists(), "permintaan muat ulang tidak terhapus"
+
+    # Cadangan basis data otomatis sebelum penarikan pembaruan.
+    cadangan = updater.cadangkan_database()
+    assert cadangan is not None and cadangan.exists(), "cadangan basis data gagal dibuat"
+    assert cadangan.parent.name == "backup"
+
+    jadwal = updater.interval_detik()
+    assert 900 <= jadwal <= 86400, f"selang pemeriksaan tidak wajar: {jadwal}"
+
+    jenis = "salinan git" if status["tersedia"] else "tanpa git (ZIP)"
+    return (f"{jenis}; revisi {status['revisi_lokal'] or '-'} pada cabang "
+            f"{status['remote']}/{status['cabang']}; cadangan uji {cadangan.name}; "
+            f"pemeriksaan tiap {jadwal // 60} menit")
+
+
+@cek("14. Halaman HTTP (status 200 & izin akses)")
 def cek_http():
     """Menembak semua halaman utama memakai ASGI in-process (asinkron)."""
     import asyncio
@@ -291,7 +337,7 @@ def cek_http():
     halaman_admin = ["/", "/data-siswa", "/data-siswa/1", "/data-siswa/baru", "/statistik",
                      "/kualitas-data", "/ekstrakurikuler", "/ekstrakurikuler/1", "/impor",
                      "/impor/1", "/impor/panduan", "/pengaturan",
-                     "/pengaturan/dokumentasi-api", "/profil-akun"]
+                     "/pengaturan/dokumentasi-api", "/profil-akun", "/pembaruan"]
 
     async def jalankan() -> str:
         transport = httpx.ASGITransport(app=app)
@@ -361,6 +407,7 @@ def main() -> int:
     cek_ekskul()
     cek_keamanan()
     cek_api_kontrak()
+    cek_pembaruan()
     if args.http:
         cek_http()
 

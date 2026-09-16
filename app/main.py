@@ -11,8 +11,10 @@ atau sederhananya::
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+import time
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
@@ -20,7 +22,7 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import config, db, migrations, services
+from . import config, db, migrations, services, updater
 from .routers import (
     api_routes,
     auth_routes,
@@ -30,6 +32,7 @@ from .routers import (
     portal_routes,
     settings_routes,
     student_routes,
+    update_routes,
 )
 from .web import render
 
@@ -41,6 +44,22 @@ logging.basicConfig(
 log = logging.getLogger("simsek")
 
 
+async def _pemantau_latar() -> None:
+    """Pemantau latar belakang: cek pembaruan berkala & muat ulang bila diminta."""
+    await asyncio.sleep(20)  # beri waktu server siap dan data awal selesai dimuat
+    siklus_berikut = 0.0
+    while True:
+        if updater.perlu_muat_ulang():
+            log.info("Permintaan muat ulang diterima — memuat ulang server dengan kode terbaru.")
+            updater.muat_ulang_sekarang()  # proses diganti, tidak kembali ke sini
+        if time.time() >= siklus_berikut:
+            siklus_berikut = time.time() + updater.interval_detik()
+            hasil = await asyncio.to_thread(updater.otomatis_periksa)
+            if hasil.get("ada_pembaruan"):
+                log.info("Pembaruan tersedia di GitHub: %s", hasil)
+        await asyncio.sleep(5)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config.ensure_dirs()
@@ -48,8 +67,13 @@ async def lifespan(app: FastAPI):
     seed = services.auto_seed_sample()
     if seed:
         log.info("Data awal dimuat dari %s (%s siswa)", seed["file"], seed["imported"])
+    updater.bersihkan_marker_lama()
+    tugas_pemantau = asyncio.create_task(_pemantau_latar())
     log.info("%s siap dijalankan. Database: %s", config.APP_NAME, config.DB_PATH)
     yield
+    tugas_pemantau.cancel()
+    with suppress(asyncio.CancelledError):
+        await tugas_pemantau
     db.close_connection()
 
 
@@ -75,6 +99,7 @@ app.include_router(import_routes.router)
 app.include_router(ekskul_routes.router)
 app.include_router(portal_routes.router)
 app.include_router(settings_routes.router)
+app.include_router(update_routes.router)
 app.include_router(api_routes.router)
 
 

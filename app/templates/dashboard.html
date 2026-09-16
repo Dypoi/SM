@@ -17,6 +17,17 @@
   {{ stat_card('Berkebutuhan Khusus', stats.kebutuhan_khusus | angka_id, 'info', 'violet', 'Perlu pendampingan') }}
 </div>
 
+{% if user and user.role == 'admin' and pembaruan and pembaruan.ada %}
+<div class="alert alert-info mt-3">
+  {{ icon('refresh') }}
+  <span>
+    Ada <strong>{{ pembaruan.ketinggalan }} komit pembaruan</strong> dari GitHub yang belum ditarik.
+    {% if pembaruan.terakhir %}<span class="muted">(diperiksa {{ pembaruan.terakhir | tanggal_waktu }})</span>{% endif %}
+  </span>
+  <a class="btn btn-primary btn-sm" style="margin-left:auto" href="/pembaruan">Tarik pembaruan</a>
+</div>
+{% endif %}
+
 {% if total_temuan %}
 <div class="alert alert-warn mt-3">
   {{ icon('warning') }}

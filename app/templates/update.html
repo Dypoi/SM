@@ -1,0 +1,308 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, stat_card %}
+
+{% block content %}
+<div class="split">
+  <div>
+    <!-- ============================== Status ============================== -->
+    <div class="card" id="pembaruan">
+      <div class="card-head">
+        <div>
+          <h3>Pembaruan Aplikasi</h3>
+          <p>Tarik perubahan kode terbaru langsung dari GitHub, tanpa membuka Command Prompt.</p>
+        </div>
+        <span class="badge {{ 'badge-success' if status.tersedia else 'badge-warning' }}">{{ jenis_pasang }}</span>
+      </div>
+      <div class="card-body">
+        <dl class="kv kv-2">
+          <dt>Versi aplikasi</dt><dd>{{ versi_aplikasi }}</dd>
+          <dt>Perintah git</dt>
+          <dd class="mono">{{ status.info.versi if status.info.versi else 'tidak terdeteksi' }}</dd>
+          <dt>Cabang aktif</dt><dd class="mono">{{ status.cabang_aktif or '-' }}</dd>
+          <dt>Cabang pembaruan</dt><dd class="mono">{{ status.remote }}/{{ status.cabang }}</dd>
+          <dt>Revisi lokal</dt>
+          <dd class="mono">{{ status.revisi_lokal or '-' }}{% if status.komit_lokal.subjek %} · {{ status.komit_lokal.subjek | singkat(48) }}{% endif %}</dd>
+          <dt>Revisi GitHub</dt>
+          <dd class="mono">
+            {{ status.revisi_remote or 'belum diperiksa' }}
+            {%- if status.komit_remote.subjek %} · {{ status.komit_remote.subjek | singkat(48) }}{% endif %}
+          </dd>
+          <dt>Pemeriksaan terakhir</dt>
+          <dd>
+            {{ status.waktu_cek | tanggal_waktu if status.waktu_cek else 'belum pernah diperiksa' }}
+            {%- if status.ketinggalan_terakhir is not none %} · tertinggal {{ status.ketinggalan_terakhir }} komit{% endif %}
+          </dd>
+          <dt>Perubahan lokal</dt>
+          <dd>
+            {% if status.ada_perubahan_lokal %}
+              <span class="badge badge-warning">{{ status.berkas_lokal_total }} berkas belum di-commit</span>
+            {% else %}
+              <span class="badge badge-success">bersih</span>
+            {% endif %}
+          </dd>
+        </dl>
+
+        {% if status.pesan %}
+        <div class="alert {{ 'alert-ok' if status.ada_pembaruan is false else ('alert-warn' if status.ada_pembaruan else 'alert-info') }} mt-2">
+          {{ icon('info') }}<span>{{ status.pesan }}</span>
+        </div>
+        {% endif %}
+
+        {% if status.ada_perubahan_lokal %}
+        <div class="note note-warning mt-2">
+          <strong>Perubahan lokal terdeteksi.</strong> Berkas berikut berbeda dari versi di GitHub,
+          sehingga penarikan otomatis dibatalkan agar tidak ada pekerjaan yang hilang:
+          <ul class="mt-1">
+            {% for berkas in status.perubahan_lokal %}<li class="mono">{{ berkas }}</li>{% endfor %}
+          </ul>
+          Simpan perubahan tersebut (<code>git commit</code>) atau kembalikan (<code>git restore</code>) lalu ulangi.
+        </div>
+        {% endif %}
+
+        <div class="form-actions mt-3">
+          <form method="post" action="/pembaruan/periksa">
+            <button class="btn btn-outline" type="submit">{{ icon('search') }} Periksa pembaruan</button>
+          </form>
+          {% if status.tersedia %}
+          <form method="post" action="/pembaruan/tarik"
+                data-confirm="Tarik pembaruan dari {{ status.remote }}/{{ status.cabang }} sekarang?">
+            <input type="hidden" name="cabang" value="{{ status.cabang }}">
+            <input type="hidden" name="pasang_pip" value="1">
+            <input type="hidden" name="muat_ulang_setelah" value="1">
+            <button class="btn btn-primary" type="submit">{{ icon('download') }} Tarik pembaruan (git pull)</button>
+          </form>
+          {% endif %}
+          {% if status.butuh_muat_ulang %}
+          <form method="post" action="/pembaruan/muat-ulang">
+            <button class="btn btn-success" type="submit">{{ icon('refresh') }} Muat ulang server sekarang</button>
+          </form>
+          <form method="post" action="/pembaruan/batalkan-muat-ulang">
+            <button class="btn btn-ghost" type="submit">Batalkan muat ulang</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% if status.butuh_muat_ulang %}
+    <div class="alert alert-warn mt-3">
+      {{ icon('warning') }}
+      <span>Ada permintaan muat ulang server yang belum dijalankan. Server akan memakai kode terbaru
+        setelah dimuat ulang.</span>
+    </div>
+    {% endif %}
+
+    {% if not status.tersedia %}
+    <div class="card mt-3">
+      <div class="card-head">
+        <div>
+          <h3>Cara mengaktifkan pembaruan otomatis</h3>
+          <p>{{ status.info.alasan }}</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <p>Ubah salinan aplikasi menjadi salinan git (sekali saja, lewat Command Prompt):</p>
+        <div class="mono-block">cd /d {{ perintah_manual.splitlines()[0].replace('cd /d ', '') }}
+git init
+git remote add origin https://github.com/Dypoi/SM.git
+git fetch origin
+git checkout -f -B {{ status.cabang }} origin/{{ status.cabang }}</div>
+        <p class="muted mt-2">Data siswa di folder <code>data/</code> tidak ikut tersentuh karena sudah
+          dikecualikan pada <code>.gitignore</code>.</p>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if status.berkas_berubah %}
+    <div class="card mt-3">
+      <div class="card-head">
+        <div>
+          <h3>Berkas yang akan diperbarui</h3>
+          <p>{{ status.berkas_berubah | length }} berkas berbeda antara versi lokal dan GitHub.</p>
+        </div>
+      </div>
+      <div class="card-body p-0 table-wrap">
+        <table class="data">
+          <thead><tr><th>Berkas</th><th class="text-right">Jenis</th></tr></thead>
+          <tbody>
+            {% for berkas in status.berkas_berubah %}
+            <tr>
+              <td class="mono">{{ berkas }}</td>
+              <td class="text-right">
+                <span class="badge badge-muted">{{ 'kode' if berkas.endswith('.py') or berkas.endswith('.html') or berkas.endswith('.css') or berkas.endswith('.js') else ('template impor' if berkas.endswith('.xlsx') else 'lainnya') }}</span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- ========================== Catatan perubahan ======================== -->
+    <div class="card mt-3">
+      <div class="card-head">
+        <div>
+          <h3>Catatan Perubahan</h3>
+          <p>Komit terbaru pada cabang <span class="mono">{{ status.remote }}/{{ status.cabang }}</span>.</p>
+        </div>
+      </div>
+      {% if catatan %}
+      <div class="card-body p-0 table-wrap">
+        <table class="data">
+          <thead><tr><th>Kode</th><th>Tanggal</th><th>Perubahan</th><th>Penulis</th></tr></thead>
+          <tbody>
+            {% for komit in catatan %}
+            <tr>
+              <td class="mono nowrap">{{ komit.kode }}</td>
+              <td class="nowrap">{{ komit.tanggal[:10] | tanggal_id }}</td>
+              <td>{{ komit.subjek }}</td>
+              <td class="muted">{{ komit.penulis }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card-body"><p class="muted mb-0">Belum ada catatan perubahan yang bisa dibaca.</p></div>
+      {% endif %}
+    </div>
+
+    <!-- ============================ Preferensi =========================== -->
+    <div class="card mt-3" id="preferensi-pembaruan">
+      <div class="card-head">
+        <div>
+          <h3>Pengaturan Pembaruan</h3>
+          <p>Atur agar aplikasi memeriksa (dan bila perlu menarik) pembaruan secara berkala.</p>
+        </div>
+      </div>
+      <form method="post" action="/pembaruan/preferensi" class="card-body">
+        <div class="form-grid">
+          <div class="field span-2">
+            <label class="check">
+              <input type="checkbox" name="update_auto_cek" value="1"
+                     {{ 'checked' if settings.update_auto_cek != '0' }}>
+              Periksa pembaruan otomatis di latar belakang
+            </label>
+            <label class="check">
+              <input type="checkbox" name="update_auto_tarik" value="1"
+                     {{ 'checked' if settings.update_auto_tarik == '1' }}>
+              Tarik otomatis bila ada pembaruan baru dan tidak ada perubahan lokal
+            </label>
+            <label class="check">
+              <input type="checkbox" name="update_restart_otomatis" value="1"
+                     {{ 'checked' if settings.update_restart_otomatis == '1' }}>
+              Muat ulang server otomatis setelah penarikan otomatis
+            </label>
+            <p class="muted">Mematikan pilihan pertama membuat aplikasi tidak menghubungi GitHub
+              sama sekali (cocok untuk komputer tanpa internet).</p>
+          </div>
+          <div class="field">
+            <label for="update_interval_jam">Selang pemeriksaan (jam)</label>
+            <input type="number" id="update_interval_jam" name="update_interval_jam" min="1" max="24"
+                   value="{{ settings.update_interval_jam or 6 }}">
+          </div>
+          <div class="field">
+            <label for="update_remote">Nama remote</label>
+            <input type="text" id="update_remote" name="update_remote"
+                   value="{{ settings.update_remote or 'origin' }}" placeholder="origin">
+          </div>
+          <div class="field span-2">
+            <label for="update_cabang">Cabang yang ditarik</label>
+            <input type="text" id="update_cabang" name="update_cabang" list="daftar-cabang"
+                   value="{{ settings.update_cabang or '' }}"
+                   placeholder="kosongkan untuk memakai cabang aktif ({{ status.cabang_aktif or status.cabang }})">
+            <datalist id="daftar-cabang">
+              {% for nama in cabang_remote %}<option value="{{ nama }}"></option>{% endfor %}
+            </datalist>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">{{ icon('check') }} Simpan pengaturan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================================ Sisi kanan ========================== -->
+  <div class="sticky-side">
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3>Status Sistem</h3>
+          <p>Ringkasan singkat.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <dl class="kv">
+          <dt>Jenis pasang</dt><dd>{{ jenis_pasang }}</dd>
+          <dt>Remote</dt><dd class="mono">{{ status.url or '-' }}</dd>
+          <dt>Perubahan lokal</dt><dd>{{ 'ada' if status.ada_perubahan_lokal else 'tidak ada' }}</dd>
+          <dt>Muat ulang tertunda</dt><dd>{{ 'ya' if status.butuh_muat_ulang else 'tidak' }}</dd>
+        </dl>
+        {% if status.butuh_muat_ulang %}
+        <div class="note mt-2">Setelah muat ulang, server dijalankan dengan perintah:
+          <span class="mono">{{ perintah_restart }}</span></div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Pembaruan Manual</h3>
+          <p>Bila pembaruan otomatis tidak bisa dipakai.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="mono-block">{{ perintah_manual }}</div>
+        <p class="muted mt-2">Dijalankan di Command Prompt, dari dalam folder aplikasi.</p>
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Aktivitas Terakhir</h3>
+          <p>Hasil operasi pembaruan sebelumnya.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        {% if status.status_terakhir %}
+        <dl class="kv">
+          <dt>Aksi</dt><dd>{{ status.status_terakhir.aksi or '-' }}</dd>
+          <dt>Hasil</dt><dd>{{ status.status_terakhir.hasil or '-' }}</dd>
+          {% if status.status_terakhir.sebelum %}
+          <dt>Revisi</dt>
+          <dd class="mono">{{ status.status_terakhir.sebelum }} → {{ status.status_terakhir.sesudah }}</dd>
+          {% elif status.status_terakhir.revisi %}
+          <dt>Revisi</dt><dd class="mono">{{ status.status_terakhir.revisi }}</dd>
+          {% endif %}
+          <dt>Waktu</dt><dd>{{ status.status_terakhir.diperbarui | tanggal_waktu }}</dd>
+        </dl>
+        {% else %}
+        <p class="muted mb-0">Belum ada aktivitas pembaruan di komputer ini.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Yang Tidak Ikut Berubah</h3>
+          <p>Data sekolah tetap aman.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <ul class="mt-0">
+          <li>Basis data siswa: <span class="mono">data/simsek.sqlite3</span></li>
+          <li>Folder unggahan, ekspor, dan berkas contoh</li>
+          <li>Pengaturan sekolah, pengguna, dan kunci API</li>
+        </ul>
+        <p class="muted">Sebelum menarik pembaruan, aplikasi otomatis membuat cadangan basis data di
+          <span class="mono">data/backup/</span> (10 berkas terbaru disimpan).</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

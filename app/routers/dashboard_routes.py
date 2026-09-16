@@ -37,6 +37,11 @@ def dasbor(request: Request, user: auth.SessionUser = Depends(auth.require_user)
             "ekskul_kategori": services.ekskul_by_kategori(),
             "kualitas": quality,
             "total_temuan": total_issue,
+            "pembaruan": {
+                "ada": (services.get_setting("update_tersedia") or "0") == "1",
+                "ketinggalan": services.get_setting("update_komit_belakang") or "",
+                "terakhir": services.get_setting("update_cek_terakhir") or "",
+            } if user.is_admin else None,
             "impor_terakhir": services.list_imports(limit=5),
             "audit": services.recent_audit(limit=8),
             "jumlah_ekskul": int(db.query_value("SELECT COUNT(*) FROM extracurriculars") or 0),
