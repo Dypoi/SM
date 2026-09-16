@@ -54,6 +54,18 @@ SELECTOR_BAWAAN: dict[str, str] = {
     # Dapodik menamai kolom ini berbeda-beda antar versi, jadi dicari lewat labelnya
     # («Sekolah Asal») — lihat _cari_lewat_label. Bisa diganti di «Peta tombol Dapodik».
     "sekolah_asal": "label:Sekolah Asal",
+    # --- Data Periodik: panel di halaman Peserta Didik, persis potongan skrip sekolah.
+    #     Dijalankan SEBELUM tombol Registrasi ditekan. XPath kotak «Jarak rumah ke
+    #     sekolah» diambil apa adanya dari skrip itu, dengan cadangan berbasis label
+    #     supaya tetap jalan bila Dapodik mengubah tata letaknya.
+    "periodik_tinggi": "name:tinggi_badan",
+    "periodik_berat": "name:berat_badan",
+    "periodik_lingkar": "name:lingkar_kepala",
+    "periodik_saudara": "name:jumlah_saudara_kandung",
+    "periodik_jarak": "/html/body/div[2]/div/div/div[2]/div/div/div/div[3]/div[2]/div/div/div/"
+                      "div[1]/div/div/div[7]/div/div/table/tbody/tr/td/div[2]/div/div/span/input",
+    "simpan_periodik": '//span[contains(@class, "x-btn-inner-default-small") '
+                       'and contains(text(), "Simpan dan Tutup")]',
     "hobi": "name:id_hobby",
     "cita": "name:id_cita",
     "simpan": '//span[contains(@class, "x-btn-inner-default-small") '
@@ -134,6 +146,34 @@ SELECTOR_CADANGAN: dict[str, list[str]] = {
         "css:input[name*=sekolah_asal]",
         "css:input[name*=sekolahasal]",
         "css:input[name*=asal]",
+    ],
+    "periodik_tinggi": [
+        "label:Tinggi Badan",
+        "css:input[name*=tinggi]",
+    ],
+    "periodik_berat": [
+        "label:Berat Badan",
+        "css:input[name*=berat]",
+    ],
+    "periodik_lingkar": [
+        "label:Lingkar Kepala",
+        "css:input[name*=lingkar]",
+    ],
+    "periodik_saudara": [
+        "label:Jumlah Saudara Kandung",
+        "css:input[name*=saudara]",
+    ],
+    "periodik_jarak": [
+        'xpath://label[contains(normalize-space(), "Jarak rumah ke sekolah")]'
+        '/following::input[@type="checkbox"][1]',
+        'xpath://*[contains(normalize-space(), "Jarak rumah ke sekolah")]/following::input[1]',
+        "css:input[name*=jarak]",
+    ],
+    "simpan_periodik": [
+        'xpath://span[contains(@class, "x-btn-inner-default-small") '
+        'and contains(normalize-space(), "Simpan dan Tutup")]',
+        'xpath://span[contains(@class, "x-btn-inner-default-small") '
+        'and normalize-space()="Simpan"]',
     ],
     "hobi": [
         "css:input[name*=hobby]",
@@ -569,6 +609,28 @@ class BotDapodik:
         batas = float(self.opsi.get("bot_timeout", "15") or 15)
         return WebDriverWait(peramban, batas).until(EC.visibility_of_element_located(locator))
 
+    def _pertama_terlihat(self, peramban, locator, aktif: bool = False):
+        """Elemen pertama yang benar-benar **terlihat** (bukan yang tersembunyi).
+
+        Penting: Ext JS sering menyisakan elemen kembar yang tersembunyi di halaman —
+        mis. tombol «Simpan dan Tutup» panel Data Periodik setelah panelnya ditutup, yang
+        kelasnya sama dengan tombol «Simpan dan Tutup» formulir Registrasi. Pencarian yang
+        mengambil elemen pertama di DOM bisa memilih yang tersembunyi (klik tidak terjadi).
+        """
+        try:
+            for unsur in peramban.find_elements(*locator):
+                try:
+                    if not unsur.is_displayed():
+                        continue
+                    if aktif and not unsur.is_enabled():
+                        continue
+                    return unsur
+                except Exception:  # noqa: BLE001 — periksa unsur berikutnya
+                    continue
+        except Exception:  # noqa: BLE001 — tidak dapat mencari: anggap tidak ada
+            return None
+        return None
+
     def _elemen_ada(self, peramban, locator):
         """Elemen yang ada di halaman, terlihat atau belum (mis. formulir masih memuat)."""
         from selenium.webdriver.support import expected_conditions as EC
@@ -811,7 +873,8 @@ class BotDapodik:
                 # supaya tidak menggantung — penyebab "element click intercepted" di PC sekolah.
                 if not self._lapisan_hilang(peramban, min(LAPISAN_TUNGGU_DETIK, batas)):
                     raise TimeoutError("lapisan pemuatan Dapodik belum hilang")
-                elemen = WebDriverWait(peramban, batas).until(EC.element_to_be_clickable(locator))
+                elemen = WebDriverWait(peramban, batas).until(
+                    lambda p: self._pertama_terlihat(p, locator, aktif=True))
                 peramban.execute_script("arguments[0].scrollIntoView({block: 'center'});", elemen)
                 elemen.click()
                 return
@@ -825,7 +888,8 @@ class BotDapodik:
                     continue
                 # Upaya terakhir pada percobaan ini: tampilkan elemen lalu klik lewat skrip.
                 try:
-                    elemen = peramban.find_element(*locator)
+                    elemen = (self._pertama_terlihat(peramban, locator)
+                              or peramban.find_element(*locator))
                     self._paksa_terlihat(peramban, elemen)
                     peramban.execute_script("arguments[0].click();", elemen)
                     self._catat_kepala(f"[selector] klik lewat skrip untuk {locator}")
@@ -912,17 +976,18 @@ class BotDapodik:
         except Exception:  # noqa: BLE001 — halaman belum siap: anggap tidak ada
             return None
 
-    def _kolom_sekolah_asal(self, peramban, peta: dict[str, str]):
-        """Kolom «Sekolah Asal» pada formulir Registrasi (``None`` bila tidak ada)."""
-        kandidat = self._kandidat_selector("sekolah_asal", peta)
-        # Lewat label lebih dulu (paling tahan perbedaan versi Dapodik), lalu selector biasa.
-        for nilai in kandidat:
+    def _cari_kolom_dengan_label(self, peramban, kunci: str, peta: dict[str, str]):
+        """Cari satu kolom isian mengikuti urutan kandidat selector milik ``kunci``.
+
+        Nilai yang diawali ``label:`` dicari lewat **teks labelnya** (paling tahan
+        perbedaan versi Dapodik, mis. «Sekolah Asal», «Tinggi Badan»); nilai lain dicari
+        seperti biasa. Kembalikan elemen, atau ``None`` bila tidak ada.
+        """
+        for nilai in self._kandidat_selector(kunci, peta):
             if nilai.lower().startswith("label:"):
                 unsur = self._cari_lewat_label(peramban, nilai.split(":", 1)[1])
                 if unsur is not None:
                     return unsur
-        for nilai in kandidat:
-            if nilai.lower().startswith("label:"):
                 continue
             try:
                 for unsur in peramban.find_elements(*self._locator_nilai(nilai)):
@@ -930,6 +995,173 @@ class BotDapodik:
             except Exception:  # noqa: BLE001 — coba kandidat berikutnya
                 continue
         return None
+
+    def _kolom_sekolah_asal(self, peramban, peta: dict[str, str]):
+        """Kolom «Sekolah Asal» pada formulir Registrasi (``None`` bila tidak ada)."""
+        return self._cari_kolom_dengan_label(peramban, "sekolah_asal", peta)
+
+    #: Kolom Data Periodik: (kunci data siswa, label, kunci selector). Urutan mengikuti
+    #: potongan skrip sekolah: tinggi badan → berat badan → lingkar kepala → (jarak) →
+    #: jumlah saudara kandung → Simpan dan Tutup.
+    PERIODIK: tuple[tuple[str, str, str], ...] = (
+        ("tinggi_badan", "Tinggi badan", "periodik_tinggi"),
+        ("berat_badan", "Berat badan", "periodik_berat"),
+        ("lingkar_kepala", "Lingkar kepala", "periodik_lingkar"),
+        ("jml_saudara", "Jumlah saudara kandung", "periodik_saudara"),
+    )
+
+    @staticmethod
+    def _nilai_teks(nilai: Any) -> str:
+        """Nilai angka jadi teks rapi seperti skrip sekolah: 55.0 → '55', 63.5 → '63.5'."""
+        teks = str(nilai if nilai is not None else "").strip()
+        if not teks:
+            return ""
+        try:
+            angka = float(teks.replace(",", "."))
+        except ValueError:
+            return teks
+        return str(int(angka)) if angka == int(angka) else str(angka)
+
+    def _isi_periodik_satu(self, peramban, peta: dict[str, str], kunci: str, label: str,
+                           nilai: str, unsur=None) -> str:
+        """Isi satu kolom Data Periodik (Ctrl+A lalu ketik, seperti potongan skrip sekolah)."""
+        from selenium.webdriver.common.keys import Keys
+
+        unsur = unsur if unsur is not None else self._cari_kolom_dengan_label(peramban, kunci, peta)
+        if unsur is None:
+            return "kolomnya tidak ada di halaman ini"
+        self._paksa_terlihat(peramban, unsur)
+        try:
+            unsur.click()
+        except Exception:  # noqa: BLE001 — lapisan pemuatan/popup bisa menelan klik
+            pass
+        try:
+            unsur.send_keys(Keys.CONTROL, "a")
+            unsur.send_keys(nilai)
+        except Exception:  # noqa: BLE001 — lanjut ke pemeriksaan hasil
+            pass
+        isi = ""
+        try:
+            isi = str(unsur.get_attribute("value") or "").strip()
+        except Exception:  # noqa: BLE001
+            isi = ""
+        if nilai not in isi:      # sebagian kolom menolak ketikan langsung: isi lewat skrip
+            try:
+                self._isi_lewat_js(peramban, unsur, nilai)
+                isi = str(unsur.get_attribute("value") or "").strip()
+            except Exception:  # noqa: BLE001
+                isi = ""
+        if nilai in isi:
+            return f"terisi: {isi}"
+        return "kolom belum berisi nilai yang benar"
+
+    def _kandidat_kotak_jarak(self, peramban, peta: dict[str, str]) -> list[Any]:
+        """Kotak centang «Jarak rumah ke sekolah» yang terlihat di halaman (bila ada)."""
+        for nilai in self._kandidat_selector("periodik_jarak", peta):
+            try:
+                kotak = [unsur for unsur in peramban.find_elements(*self._locator_nilai(nilai))
+                         if unsur.is_displayed()]
+            except Exception:  # noqa: BLE001 — coba kandidat berikutnya
+                kotak = []
+            if kotak:
+                return kotak
+        return []
+
+    def _centang_jarak(self, peramban, peta: dict[str, str]) -> str:
+        """Centang kotak «Jarak rumah ke sekolah» — bagian dari potongan skrip sekolah."""
+        for nilai in self._kandidat_selector("periodik_jarak", peta):
+            try:
+                kotak = [unsur for unsur in peramban.find_elements(*self._locator_nilai(nilai))
+                         if unsur.is_displayed()]
+            except Exception:  # noqa: BLE001 — coba kandidat berikutnya
+                kotak = []
+            if not kotak:
+                continue
+            dicentang = 0
+            for unsur in kotak:
+                try:
+                    if unsur.is_selected():      # sudah tercentang: jangan dibalik jadi kosong
+                        continue
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    unsur.click()
+                except Exception:  # noqa: BLE001 — klik tertelan: pakai jalur skrip
+                    try:
+                        peramban.execute_script("arguments[0].click();", unsur)
+                    except Exception:  # noqa: BLE001
+                        continue
+                dicentang += 1
+            return (f"kotak «Jarak rumah ke sekolah» dicentang: {dicentang} dari {len(kotak)}")
+        return "kotak «Jarak rumah ke sekolah» tidak ada di halaman ini"
+
+    def _isi_data_periodik(self, peramban, peta: dict[str, str],
+                           siswa: dict[str, Any]) -> bool:
+        """Isi panel Data Periodik lalu simpan — **sebelum** tombol Registrasi ditekan.
+
+        Persis potongan skrip sekolah: tinggi badan → berat badan → lingkar kepala →
+        centang «Jarak rumah ke sekolah» → jumlah saudara kandung → «Simpan dan Tutup».
+        Nilai diambil dari data siswa di aplikasi SM. Kolom yang tidak ada atau data yang
+        kosong hanya dicatat pada log — pekerjaan siswa diteruskan.
+        """
+        # Dapodik versi lain bisa tidak punya panel ini sama sekali: jangan digagalkan,
+        # cukup dicatat (seperti kolom «Sekolah Asal» yang tidak ada).
+        ada_kolom = [self._cari_kolom_dengan_label(peramban, kunci_sel, peta)
+                     for _, _, kunci_sel in self.PERIODIK]
+        ada_jarak = any(self._kandidat_kotak_jarak(peramban, peta)) \
+            if self.opsi.get("bot_periodik_jarak", "1") == "1" else False
+        if not any(ada_kolom) and not ada_jarak:
+            self._catat_kepala("[periodik] halaman ini tidak punya panel Data Periodik "
+                               "(tinggi/berat/lingkar/jarak) — langkah dilewati.")
+            return False
+
+        self._catat_kepala("[periodik] mengisi Data Periodik (tinggi, berat, lingkar kepala, "
+                           "jarak, jumlah saudara kandung) — sesuai skrip sekolah.")
+        terisi = 0
+        for (kunci, label, kunci_sel), unsur in zip(self.PERIODIK, ada_kolom):
+            nilai = self._nilai_teks(siswa.get(kunci))
+            if not nilai:
+                self._catat_kepala(f"[periodik] {label}: data siswa kosong — dilewati.")
+                continue
+            keterangan = self._isi_periodik_satu(peramban, peta, kunci_sel, label, nilai, unsur)
+            self._catat_kepala(f"[periodik] {label}: {keterangan}")
+            if keterangan.startswith("terisi"):
+                terisi += 1
+            time.sleep(2)          # jeda antar kolom, sama seperti skrip sekolah
+        if self.opsi.get("bot_periodik_jarak", "1") == "1":
+            self._catat_kepala(f"[periodik] {self._centang_jarak(peramban, peta)}")
+            time.sleep(2)
+        else:
+            self._catat_kepala("[periodik] kotak «Jarak rumah ke sekolah» tidak dicentang "
+                               "(sesuai pengaturan).")
+
+        # Simpan panel Data Periodik (persis: tombol «Simpan dan Tutup»).
+        loc_simpan, _, _ = self._cari_dengan_cadangan(peramban, "simpan_periodik", peta,
+                                                     wajib=False)
+        if loc_simpan is None:
+            self._catat_kepala("[periodik] tombol «Simpan dan Tutup» panel Data Periodik "
+                               "tidak ada — penyimpanan dilewati.")
+            return terisi > 0
+        try:
+            self._klik_aman(peramban, loc_simpan)
+        except Exception as exc:  # noqa: BLE001 — jangan gagalkan siswa karena panel ini
+            self._catat_kepala("[periodik] tombol «Simpan dan Tutup» tidak dapat ditekan "
+                               f"({type(exc).__name__}) — dilanjutkan ke Registrasi.")
+            return terisi > 0
+        time.sleep(3)              # skrip sekolah menunggu 3 detik setelah menyimpan
+        self._siap_melanjutkan(peramban, "penyimpanan Data Periodik")
+        self._catat_kepala(f"[periodik] Data Periodik disimpan ({terisi} kolom terisi).")
+        return terisi > 0
+
+    def _ada_baris(self, peramban, xpath_baris: str) -> bool:
+        """Apakah baris siswa masih tampil pada tabel Dapodik."""
+        from selenium.webdriver.common.by import By
+
+        try:
+            return any(unsur.is_displayed()
+                       for unsur in peramban.find_elements(By.XPATH, xpath_baris))
+        except Exception:  # noqa: BLE001
+            return False
 
     def _isi_sekolah_asal(self, peramban, peta: dict[str, str], nilai: str) -> bool:
         """Isi kolom «Sekolah Asal» dengan data siswa SM — bila formulirnya punya kolom itu.
@@ -1346,7 +1578,7 @@ class BotDapodik:
             try:
                 locator = self._locator_nilai(nilai)
                 WebDriverWait(peramban, batas if indeks == 0 else SELEKTOR_UJI_DETIK).until(
-                    EC.visibility_of_element_located(locator))
+                    lambda p: self._pertama_terlihat(p, locator) is not None)
                 if indeks > 0:
                     self._catat_kepala(f"[selector] '{kunci}' memakai cadangan: {nilai}")
                 return locator, nilai, indeks > 0
@@ -1570,6 +1802,26 @@ class BotDapodik:
                 self._catat_kepala("[registrasi] peringatan: baris siswa belum terpilih — "
                                    "Dapodik biasanya perlu baris terpilih untuk Registrasi.")
             time.sleep(1)
+
+            # 2b) Data Periodik — persis potongan skrip sekolah, dan **sebelum** tombol
+            #     Registrasi ditekan: tinggi badan, berat badan, lingkar kepala, centang
+            #     «Jarak rumah ke sekolah», jumlah saudara kandung, lalu «Simpan dan Tutup».
+            if self.opsi.get("bot_data_periodik", "1") == "1":
+                self._isi_data_periodik(peramban, peta, siswa)
+                # Setelah disimpan, daftar peserta didik kadang tersegarkan (baris hilang).
+                # Jangan menyerah: cari NISN-nya sekali lagi, lalu pastikan tetap terpilih.
+                if not self._ada_baris(peramban, xpath_baris):
+                    self._catat_kepala("[periodik] daftar peserta didik tersegarkan — "
+                                       "mencari NISN sekali lagi.")
+                    self._kirim_enter(peramban, loc_cari)
+                    self._siap_melanjutkan(peramban, "hasil pencarian NISN")
+                    for _ in range(20):
+                        if self._ada_baris(peramban, xpath_baris):
+                            break
+                        time.sleep(0.5)
+                if not self._pastikan_baris_terpilih(peramban, xpath_baris, nisn):
+                    self._catat_kepala("[periodik] peringatan: baris siswa belum terpilih "
+                                       "setelah menyimpan Data Periodik.")
 
             # 3) tombol Registrasi → formulir Registrasi. Formulir baru terbuka setelah
             #    tombolnya benar-benar diproses Dapodik; kalau kliknya tertelan (popup

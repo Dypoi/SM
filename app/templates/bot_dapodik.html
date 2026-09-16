@@ -477,6 +477,10 @@
             <span><strong>Centang semua jawaban «Ya»</strong><br><small>Sama seperti skrip bot asli.</small></span></label>
           <label class="cek-bot"><input type="checkbox" name="pakai_nisn" value="1" {{ 'checked' if cfg.bot_pakai_nisn == '1' }}>
             <span><strong>Pakai NISN bila NIPD/NIS kosong</strong><br><small>Bila tidak dicentang, siswa tanpa NIPD akan dilewati.</small></span></label>
+          <label class="cek-bot"><input type="checkbox" name="data_periodik" value="1" {{ 'checked' if cfg.bot_data_periodik == '1' }}>
+            <span><strong>Isi Data Periodik sebelum Registrasi</strong><br><small>Persis skrip sekolah: tinggi badan, berat badan, lingkar kepala, <em>jarak rumah ke sekolah</em>, lalu jumlah saudara kandung — diambil dari data siswa SM, lalu <em>Simpan dan Tutup</em>. Dijalankan sesudah baris siswa dipilih dan <strong>sebelum</strong> tombol Registrasi ditekan.</small></span></label>
+          <label class="cek-bot"><input type="checkbox" name="periodik_jarak" value="1" {{ 'checked' if cfg.bot_periodik_jarak == '1' }}>
+            <span><strong>Centang «Jarak rumah ke sekolah»</strong><br><small>Kotak pada panel Data Periodik yang diklik skrip sekolah.</small></span></label>
           <label class="cek-bot"><input type="checkbox" name="sekolah_asal" value="1" {{ 'checked' if cfg.bot_sekolah_asal == '1' }}>
             <span><strong>Isi kolom «Sekolah Asal»</strong><br><small>Bot mengisi Sekolah Asal pada formulir Registrasi Dapodik dengan <em>kolom Sekolah Asal pada data siswa SM</em>. Bila Dapodik sekolah tidak punya kolom itu atau datanya kosong, langkah ini dilewati tanpa menggagalkan siswa.</small></span></label>
           <label class="cek-bot"><input type="checkbox" name="simulasi" value="1" {{ 'checked' if cfg.bot_simulasi == '1' }}>

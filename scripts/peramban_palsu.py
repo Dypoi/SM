@@ -61,6 +61,10 @@ class UnsurPalsu:
         self.terpilih = bool(sifat.get("terpilih", False))
         #: Teks label di sebelah kolom (mis. "Sekolah Asal") — dipakai bot mencari lewat label
         self.label = str(sifat.get("label", ""))
+        #: True = unsur milik panel «Data Periodik» (hanya hidup setelah baris siswa dipilih)
+        self.periodik = bool(sifat.get("periodik", False))
+        #: True = tombol «Simpan dan Tutup» milik panel Data Periodik
+        self.simpan_periodik = bool(sifat.get("simpan_periodik", False))
         #: XPath absolut skrip sekolah, mis. /html/body/div[5]/div[2]/form/input
         self.jalur = sifat.get("jalur", "")
 
@@ -98,6 +102,9 @@ class UnsurPalsu:
 
     def _klik_paksa(self) -> None:
         """Klik seperti lewat skrip: tetap bekerja walau unsur tidak terlihat."""
+        if self.periodik and not self.peramban.panel_periodik_terbuka():
+            self.peramban.klik_diabaikan += 1      # panel kelabu: Dapodik mengabaikan klik
+            return
         if self.peramban.popup_terbuka() and not self.popup:
             # Selagi popup pengumuman tampil, aplikasi mengabaikan klik di luarnya —
             # inilah yang membuat formulir Registrasi tidak pernah terbuka di PC sekolah.
@@ -114,6 +121,11 @@ class UnsurPalsu:
         if self.name == "tombol_registrasi" or \
                 "x-btn-inner-soft-green-small" in (self.kelas or ""):
             self.peramban.buka_formulir_registrasi()
+        if self.periodik and self.type == "checkbox":
+            self.terpilih = True
+            self.peramban.jarak_dicentang += 1
+        if self.simpan_periodik:
+            self.peramban.simpan_data_periodik()
         if self.jalur == "/html/body/div[1]/ul/li[2]/div/a/button":
             # Menu Peserta Didik dibuka → Dapodik menampilkan popup pengumuman versi.
             self.peramban._menu_tujuan_diklik()
@@ -147,11 +159,17 @@ class UnsurPalsu:
             self.terpilih = True
             if "x-grid-row-selected" not in self.kelas:
                 self.kelas = (self.kelas + " x-grid-row-selected").strip()
+            self.peramban._periodik_tersimpan = False      # panel Data Periodik terbuka lagi
 
     def send_keys(self, *tombol: Any) -> None:
         """Meniru pengetikan: tombol pengubah (Ctrl+A) ditangani, bukan diketik apa adanya."""
         if not self.is_displayed():
             raise ElementNotInteractableException("unsur tidak terlihat")
+        if self.periodik and not self.peramban.panel_periodik_terbuka():
+            # Panel Data Periodik masih kelabu (belum ada baris terpilih): Dapodik
+            # mengabaikan ketikan ini — nilainya tidak tersimpan.
+            self.peramban.ketikan_diabaikan += 1
+            return
         from selenium.webdriver.common.keys import Keys
 
         pengubah = (Keys.CONTROL, Keys.SHIFT, Keys.ALT, Keys.COMMAND)
@@ -215,6 +233,15 @@ class PerambanPalsu:
         self.registrasi_otomatis = False
         #: berapa klik Registrasi pertama yang diabaikan (meniru klik yang tertelan)
         self.tolak_klik_registrasi = 0
+        #: Data Periodik: sudah disimpan (panel tertutup sampai baris dipilih kembali)
+        self._periodik_tersimpan = False
+        #: nilai yang benar-benar tersimpan dari panel Data Periodik
+        self.data_periodik_tersimpan: dict[str, str] = {}
+        #: berapa kali kotak «Jarak rumah ke sekolah» dicentang
+        self.jarak_dicentang = 0
+        #: berapa ketikan/klik yang diabaikan karena panel Data Periodik masih kelabu
+        self.ketikan_diabaikan = 0
+        self.klik_diabaikan = 0
         #: True = popup pengumuman muncul saat pencarian ditekan; hasilnya tampil setelah ditutup
         self._popup_setelah_cari = False
         self._nisn_tersembunyi = ""
@@ -311,6 +338,23 @@ class PerambanPalsu:
             UnsurPalsu(self, "input", type="text", name="cari_text"),
             # Tombol Registrasi pada toolbar — sudah ada sebelum formulirnya dibuka.
             UnsurPalsu(self, "span", kelas="x-btn-inner-soft-green-small", teks="Registrasi"),
+            # Panel «Data Periodik Peserta Didik» — kelabu sampai ada baris siswa dipilih
+            # (persis yang terlihat pada screenshot PC sekolah).
+            UnsurPalsu(self, "input", type="text", name="tinggi_badan", label="Tinggi Badan",
+                       periodik=True),
+            UnsurPalsu(self, "input", type="text", name="berat_badan", label="Berat Badan",
+                       periodik=True),
+            UnsurPalsu(self, "input", type="text", name="lingkar_kepala",
+                       label="Lingkar Kepala", periodik=True),
+            UnsurPalsu(self, "input", type="checkbox", name="jarak_rumah",
+                       label="Jarak rumah ke sekolah", periodik=True,
+                       jalur="/html/body/div[2]/div/div/div[2]/div/div/div/div[3]/div[2]/div/div/"
+                             "div/div[1]/div/div/div[7]/div/div/table/tbody/tr/td/div[2]/div/div/"
+                             "span/input"),
+            UnsurPalsu(self, "input", type="text", name="jumlah_saudara_kandung",
+                       label="Jumlah Saudara Kandung", periodik=True),
+            UnsurPalsu(self, "span", kelas="x-btn-inner-default-small", teks="Simpan dan Tutup",
+                       periodik=True, simpan_periodik=True),
         ])
         self.judul = "Dapodik - Peserta Didik"
 
@@ -375,6 +419,18 @@ class PerambanPalsu:
         if self.registrasi_otomatis and not any(u.name == "nipd" for u in self.unsur):
             self.tambah_formulir_registrasi(self.nisn_dicari)
 
+    def panel_periodik_terbuka(self) -> bool:
+        """Panel «Data Periodik» hidup hanya bila ada baris siswa terpilih (seperti Dapodik)."""
+        return self.baris_siswa_terpilih() and not self._periodik_tersimpan
+
+    def simpan_data_periodik(self) -> None:
+        """Tombol «Simpan dan Tutup» panel Data Periodik ditekan."""
+        self._periodik_tersimpan = True
+        for unsur in self.unsur:
+            if unsur.periodik and unsur.type != "checkbox" and unsur.name:
+                self.data_periodik_tersimpan[unsur.name] = unsur.nilai
+        self.data_periodik_tersimpan["jarak"] = "1" if self.jarak_dicentang else "0"
+
     def baris_siswa_terpilih(self) -> bool:
         """Apakah ada baris siswa (x-grid-row) yang sudah terpilih."""
         return any(u.tag_name == "tr" and "x-grid-row" in (u.kelas or "") and u.terpilih
@@ -406,6 +462,9 @@ class PerambanPalsu:
 
     def _terlihat_otomatis(self, unsur: UnsurPalsu) -> bool:
         """Skenario splash: kolom login baru terlihat setelah tombol pembuka diklik."""
+        if unsur.periodik:
+            # Panel Data Periodik kelabu sampai baris siswa dipilih (persis screenshot PC).
+            return self.panel_periodik_terbuka()
         if unsur.popup:
             # Unsur popup ada di DOM, tetapi baru terlihat saat popupnya benar-benar tampil.
             return self.popup_terbuka()
@@ -582,6 +641,9 @@ class PerambanPalsu:
             return None
         if "el.value = nilai" in skrip:
             if argumen:
+                if argumen[0].periodik and not self.panel_periodik_terbuka():
+                    self.ketikan_diabaikan += 1      # panel kelabu: isian tidak tersimpan
+                    return None
                 argumen[0].nilai = str(argumen[1])
                 argumen[0].diketik.append(str(argumen[1]))
             return None

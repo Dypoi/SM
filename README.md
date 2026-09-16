@@ -462,10 +462,18 @@ menampilkan popup itu **lebih lambat daripada 5 detik** yang ditunggu skrip asli
 popup tampil, Dapodik mengabaikan klik di luarnya (akibatnya tombol *Registrasi* seolah
 tidak berpengaruh). Karena itu popup juga diperiksa lagi **sebelum setiap langkah**
 berikutnya. Per siswa: cari NISN →
-klik baris hasilnya → *Registrasi* → isi NIS → isi **Sekolah Asal** (dari kolom Sekolah Asal
-pada data siswa SM) → centang semua «Ya» → Hobi → Cita-cita → *Simpan dan Tutup*. Yang berbeda hanya sumber antreannya (data siswa SM, bukan Excel) dan
+klik baris hasilnya → **Data Periodik** (tinggi badan, berat badan, lingkar kepala, centang
+«Jarak rumah ke sekolah», jumlah saudara kandung → *Simpan dan Tutup*) → *Registrasi* → isi NIS
+→ isi **Sekolah Asal** (dari kolom Sekolah Asal pada data siswa SM) → centang semua «Ya» →
+Hobi → Cita-cita → *Simpan dan Tutup*. Yang berbeda hanya sumber antreannya (data siswa SM, bukan Excel) dan
 cara menampilkan kemajuannya (di halaman Bot Dapodik). Bawaan **Batas tunggu elemen 15
 detik** & **3 percobaan ulang** juga sama seperti skrip itu.
+
+**Data Periodik** dikenali lewat nama kolomnya (`tinggi_badan`, `berat_badan`,
+`lingkar_kepala`, `jumlah_saudara_kandung`) maupun lewat **label**nya, dan kotak
+«Jarak rumah ke sekolah» memakai XPath dari skrip sekolah dengan cadangan berbasis label.
+Bila Dapodik sekolah menamainya lain, ubah pada *Peta tombol Dapodik*, mis.
+`{"periodik_saudara": "name:jml_saudara"}`.
 
 **Bila formulir Registrasi tidak terbuka**, bot **mengklik tombol Registrasi ulang**
 (3× seperti batas percobaan ulang) sambil memeriksa popup yang mungkin menutupi halaman —
@@ -487,6 +495,7 @@ Ada dua pilihan pada tombol itu (boleh dipakai bersamaan):
 | Pilihan | Gunanya |
 | --- | --- |
 | **Coba masuk** | Bot benar-benar mengisi kolom login & menekan tombol masuk (seperti skrip manual), lalu melaporkan hasilnya: **BERHASIL** atau pesan Dapodik yang menolak. Jadi tidak perlu menebak lagi. Bisa memakan waktu sampai ±1 menit. |
+| **Isi Data Periodik sebelum Registrasi** (centang pada Pengaturan Bot) | Persis skrip sekolah: bot mengisi **tinggi badan, berat badan, lingkar kepala**, mencentang **«Jarak rumah ke sekolah»**, lalu mengisi **jumlah saudara kandung** pada panel *Data Periodik Peserta Didik* — nilainya dari kolom Tinggi Badan / Berat Badan / Lingkar Kepala / Jumlah Saudara Kandung milik siswa di aplikasi SM — lalu menekan *Simpan dan Tutup*. Langkah ini dijalankan sesudah baris siswa dipilih dan **sebelum** tombol *Registrasi* ditekan. Kolom yang tidak ada pada versi Dapodik sekolah, atau data siswa yang kosong, hanya dicatat pada log — siswa tetap didaftarkan. Centang «Centang Jarak rumah ke sekolah» dapat dimatikan tersendiri bila sekolah tidak memakainya. |
 | **Isi kolom «Sekolah Asal»** (centang pada Pengaturan Bot) | Bot mengisi *Sekolah Asal* pada formulir Registrasi Dapodik dengan kolom **Sekolah Asal** milik siswa di aplikasi SM. Kolom itu dicari lewat namanya maupun lewat labelnya, jadi tetap jalan walau Dapodik menamai kolom berbeda antar versi. Bila Dapodik sekolah tidak punya kolom itu atau data siswanya kosong, langkah ini **dilewati dengan catatan pada log** — siswa tetap didaftarkan. |
 | **Jendela tampak** | Uji sekali ini dijalankan dengan jendela Chrome terlihat — berguna untuk membandingkan bila mode *di belakang layar* gagal. Pekerjaan bot yang sesungguhnya tetap di belakang layar. |
 

@@ -2176,10 +2176,109 @@ def cek_bot_dapodik() -> str:
         assert any("belum memuat sekolah asal" in baris for baris in jejak), jejak[-4:]
         assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
 
+        # (15) Data Periodik — persis potongan skrip sekolah, dan **sebelum** tombol
+        #      Registrasi ditekan: tinggi badan → berat badan → lingkar kepala → centang
+        #      «Jarak rumah ke sekolah» → jumlah saudara kandung → «Simpan dan Tutup».
+        #      Nilainya diambil dari data siswa SM. Panel Dapodik kelabu sampai baris siswa
+        #      dipilih, jadi urutannya harus benar: pilih baris dulu, baru mengisi.
+        siswa_periodik = {"nisn": "3137492873", "nipd": "3144", "nama": "Uji",
+                          "sekolah_asal": "SDN UJI", "tinggi_badan": 155.0,
+                          "berat_badan": 47.5, "lingkar_kepala": 52, "jml_saudara": 3}
+        jejak.clear()
+        asli_waktu = bot_dapodik.time
+        jam_periodik = _WaktuCepat(time)
+        bot_dapodik.time = jam_periodik
+        try:
+            palsu_periodik = peramban_palsu.buat("alur_penuh").pakai_jam(jam_periodik.monotonic)
+            palsu_periodik.popup_detik = None
+            palsu_periodik.registrasi_otomatis = True
+            nisn_periodik = siswa_periodik["nisn"]
+            palsu_periodik.nisn_dicari = nisn_periodik
+            palsu_periodik.tambah_baris_siswa(nisn_periodik)
+            bot_periodik = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                                  kepala=jejak.append)
+            bot_periodik._login(palsu_periodik)
+            bot_periodik._proses_satu(palsu_periodik, siswa_periodik, None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        tersimpan = palsu_periodik.data_periodik_tersimpan
+        assert tersimpan.get("tinggi_badan") == "155", f"tinggi badan tidak terisi: {tersimpan}"
+        assert tersimpan.get("berat_badan") == "47.5", f"berat badan tidak terisi: {tersimpan}"
+        assert tersimpan.get("lingkar_kepala") == "52", f"lingkar kepala tidak terisi: {tersimpan}"
+        assert tersimpan.get("jumlah_saudara_kandung") == "3", \
+            f"jumlah saudara kandung tidak terisi: {tersimpan}"
+        assert tersimpan.get("jarak") == "1", "kotak «Jarak rumah ke sekolah» tidak dicentang"
+        assert palsu_periodik.ketikan_diabaikan == 0, \
+            "ada ketikan yang diabaikan — panel Data Periodik belum hidup saat diisi"
+        assert palsu_periodik.baris_siswa_terpilih(), "baris siswa tidak terpilih saat mengisi"
+        # Urutan: Data Periodik disimpan SEBELUM kolom NIS di formulir Registrasi diisi.
+        urut_periodik = [i for i, b in enumerate(jejak) if "Data Periodik disimpan" in b]
+        urut_nis = [i for i, b in enumerate(jejak) if "kolom NIS:" in b]
+        assert urut_periodik and urut_nis and urut_periodik[0] < urut_nis[0], \
+            "Data Periodik harus diisi & disimpan SEBELUM tombol Registrasi ditekan"
+        assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
+
+        # Data periodik kosong → dicatat pada log, siswa tetap berhasil.
+        jejak.clear()
+        jam_kosong_p = _WaktuCepat(time)
+        asli_waktu = bot_dapodik.time
+        bot_dapodik.time = jam_kosong_p
+        try:
+            palsu_kosong_p = peramban_palsu.buat("alur_penuh").pakai_jam(jam_kosong_p.monotonic)
+            palsu_kosong_p.popup_detik = None
+            palsu_kosong_p.registrasi_otomatis = True
+            nisn_kosong_p = "3137492874"
+            palsu_kosong_p.nisn_dicari = nisn_kosong_p
+            palsu_kosong_p.tambah_baris_siswa(nisn_kosong_p)
+            bot_kosong_p = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                                  kepala=jejak.append)
+            bot_kosong_p._login(palsu_kosong_p)
+            bot_kosong_p._proses_satu(palsu_kosong_p, {"nisn": nisn_kosong_p, "nipd": "3145",
+                                                       "nama": "Uji", "tinggi_badan": "",
+                                                       "berat_badan": "", "lingkar_kepala": "",
+                                                       "jml_saudara": ""}, None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert any("data siswa kosong" in baris for baris in jejak), jejak[-5:]
+        assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
+
+        # Halaman Dapodik tanpa panel Data Periodik → langkah dilewati, siswa tetap berhasil.
+        jejak.clear()
+        jam_tanpa = _WaktuCepat(time)
+        asli_waktu = bot_dapodik.time
+        bot_dapodik.time = jam_tanpa
+        try:
+            palsu_tanpa = peramban_palsu.buat("alur_penuh").pakai_jam(jam_tanpa.monotonic)
+            palsu_tanpa.popup_detik = None
+            palsu_tanpa.registrasi_otomatis = True
+            nisn_tanpa = "3137492875"
+            palsu_tanpa.nisn_dicari = nisn_tanpa
+            palsu_tanpa.tambah_baris_siswa(nisn_tanpa)
+            bot_tanpa = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                               kepala=jejak.append)
+            bot_tanpa._login(palsu_tanpa)
+            palsu_tanpa.unsur[:] = [unsur for unsur in palsu_tanpa.unsur if not unsur.periodik]
+            bot_tanpa._proses_satu(palsu_tanpa, {"nisn": nisn_tanpa, "nipd": "3146",
+                                                 "nama": "Uji", "tinggi_badan": 155,
+                                                 "berat_badan": 47, "lingkar_kepala": 52,
+                                                 "jml_saudara": 3}, None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert any("tidak punya panel Data Periodik" in baris for baris in jejak), jejak[-5:]
+        assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
+
+        # Pengaturan: centang «Isi Data Periodik» & «Centang Jarak» tersimpan.
+        services.simpan_bot_setting({"bot_data_periodik": "0", "bot_periodik_jarak": "0"})
+        assert services.bot_setting()["bot_data_periodik"] == "0", "pengaturan periodik tidak tersimpan"
+        services.simpan_bot_setting({"bot_data_periodik": "1", "bot_periodik_jarak": "1"})
+
         # Antrean bot membawa kolom sekolah asal dari data siswa (dipakai bot di atas).
         contoh_antrean = services.bot_antrean(limit=1, lewati_sukses=False)
         assert contoh_antrean and "sekolah_asal" in contoh_antrean[0], \
             "antrean bot tidak membawa kolom sekolah asal"
+        for kolom_periodik in ("tinggi_badan", "berat_badan", "lingkar_kepala", "jml_saudara"):
+            assert kolom_periodik in contoh_antrean[0], \
+                f"antrean bot tidak membawa kolom {kolom_periodik}"
 
         assert not hasattr(bot_routes, "pakai_saran"), "rute saran selector masih ada"
         jejak.clear()
@@ -2287,7 +2386,7 @@ def cek_bot_dapodik() -> str:
     return (f"{len(kunci)} selector · antrean dari tabel students · uji coba 2 siswa sukses · "
             f"siswa berstatus Lulus dilewati · alur skrip sekolah (masuk, menu, 1 siswa) "
             f"berjalan di peramban palsu, tahan klik tertelan lapisan pemuatan & popup "
-            f"pengumuman Dapodik · Sekolah Asal terisi dari data siswa · "
+            f"pengumuman Dapodik · Sekolah Asal & Data Periodik terisi dari data siswa · "
             f"sekarang {len(services.bot_nisn_sukses())} NISN berhasil")
 
 
