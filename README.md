@@ -79,6 +79,39 @@ Dua pilihan:
 
 > ⚠️ Segera ubah kata sandi `admin` melalui **Pengaturan → Pengguna** setelah aplikasi dipakai.
 
+### Langkah D — mengambil fitur baru (pembaruan)
+
+Setelah aplikasi ini dikembangkan lebih lanjut, Anda tidak perlu mengulang dari awal.
+Login sebagai **admin**, lalu buka menu **Pembaruan** di bilah samping (atau
+**Pengaturan → Sistem → Pembaruan aplikasi**):
+
+1. Klik **Periksa pembaruan** — aplikasi menanyakan GitHub (butuh internet) dan
+   menampilkan berapa komit baru yang tersedia beserta catatan perubahannya.
+2. Klik **Tarik pembaruan (git pull)** — kode terbaru masuk ke komputer Anda,
+   dependensi baru dipasang otomatis bila `requirements.txt` berubah, dan satu
+   **cadangan basis data** dibuat lebih dulu di `data/backup/`.
+3. Server dimuat ulang sendiri memakai kode baru (beberapa detik; halaman akan
+   terputus sesaat lalu bisa dibuka kembali). Data siswa, pengguna, dan pengaturan
+   **tidak berubah**.
+
+Agar berjalan sendiri, aktifkan di bagian **Pengaturan Pembaruan**: periksa otomatis
+tiap N jam, tarik otomatis bila ada versi baru, dan muat ulang otomatis. Bila
+pembaruan tersedia, admin juga melihat pemberitahuan di halaman **Dasbor**.
+
+Cara manual (bila aplikasi tidak dipasang lewat `git clone`, atau ingin lewat
+Command Prompt):
+
+```cmd
+cd /d C:\SIMSEK
+git pull origin arena/01a0a87a-sm
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe run.py
+```
+
+> Fitur ini perlu Git bila ingin dipakai dari dalam aplikasi. Bila Python/Git belum
+> ada di komputer server, halaman Pembaruan tetap menampilkan langkah manualnya.
+> Untuk mematikan fitur ini: set `SM_GIT_UPDATE=0`.
+
 ### Opsi lain
 
 ```cmd
@@ -192,6 +225,13 @@ akta lahir, kesehatan, sampai koordinat rumah.
 - Preferensi: tahun ajaran, semester, aturan login siswa, hak edit siswa, baris per halaman.
 - Manajemen pengguna (admin / operator-guru), audit aktivitas, kunci API.
 
+### Pembaruan aplikasi (khusus admin)
+- Menu **Pembaruan**: periksa pembaruan di GitHub, tarik pembaruan (`git pull`),
+  lihat catatan perubahan, dan muat ulang server tanpa membuka Command Prompt.
+- Cadangan basis data otomatis sebelum penarikan (`data/backup/`, 10 berkas terbaru).
+- Pemeriksaan berkala di latar belakang, dengan pilihan tarik otomatis dan
+  muat ulang otomatis.
+
 ---
 
 ## 4. Fondasi bot Dapodik (tahap berikutnya)
@@ -246,6 +286,7 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 │   ├── dapodik.py             # definisi 66 field, deteksi header, validasi
 │   ├── services.py            # logika bisnis: impor, siswa, ekskul, statistik, API
 │   ├── auth.py                # login petugas (user+sandi) & siswa (NISN)
+│   ├── updater.py             # pembaruan aplikasi: git pull, cadangan, muat ulang
 │   ├── web.py                 # konfigurasi Jinja2, filter tanggal/angka, paginasi
 │   ├── routers/               # rute HTTP dipisah per modul
 │   │   ├── auth_routes.py     login/logout
@@ -255,13 +296,14 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 │   │   ├── ekskul_routes.py   ekstrakurikuler & anggota
 │   │   ├── portal_routes.py   portal siswa
 │   │   ├── settings_routes.py pengaturan, pengguna, API key
+│   │   ├── update_routes.py   pembaruan aplikasi (khusus admin)
 │   │   └── api_routes.py      API JSON untuk bot Dapodik
 │   ├── templates/             # Jinja2 (server-side, tanpa CDN)
 │   │   ├── _macros.html, base.html, partials/
 │   │   └── students/, import/, ekskul/, portal/
 │   └── static/css/app.css, static/js/app.js
 ├── scripts/
-│   ├── cek_sistem.py          # pemeriksaan mandiri 13 titik uji
+│   ├── cek_sistem.py          # pemeriksaan mandiri 14 titik uji
 │   └── buat_template.py       # pembuat berkas template impor
 ├── template-import/           # contoh.xlsx berisi data fiktif (aman dibagikan)
 ├── sample-data/               # berkas Dapodik asli (tidak di-commit, berisi data pribadi)
@@ -272,6 +314,9 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 
 ## 6. Data & privasi
 
+- **Pembaruan kode tidak menyentuh data**: `git pull` hanya mengubah berkas program;
+  `data/`, pengguna, pengaturan, dan kunci API tetap. Sebelum menarik pembaruan,
+  aplikasi membuat cadangan basis data di `data/backup/`.
 - **Semua data disimpan lokal** di folder `data/` (`simsek.sqlite3`). Tidak ada
   pengiriman data ke internet. Untuk mencadangkan aplikasi, cukup salin folder `data/`.
 - Folder `sample-data/` berisi data siswa sungguhan (NIK, NISN, alamat) dan
@@ -292,6 +337,10 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 | `SM_ROWS_PER_PAGE` | `25` | Baris per halaman |
 | `SM_AUTO_SEED` | `1` | Impor otomatis berkas contoh saat database kosong |
 | `SM_API_PUBLIC` | `0` | `1` = API baca dapat diakses tanpa kunci |
+| `SM_GIT_UPDATE` | `1` | `0` = matikan fitur pembaruan `git pull` di aplikasi |
+| `SM_GIT_BIN` | otomatis | Path `git` bila tidak terdeteksi otomatis |
+| `SM_GIT_TIMEOUT` | `180` | Batas waktu perintah git (detik) |
+| `SM_RESTART_CMD` | `run.py` | Perintah untuk memulai ulang server setelah pembaruan |
 
 ---
 
@@ -303,6 +352,7 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 - [x] Modul ekstrakurikuler (kegiatan, anggota, nilai, predikat)
 - [x] Laporan kualitas data & panel kesiapan sinkronisasi
 - [x] API JSON + kunci akses sebagai fondasi integrasi
+- [x] Fitur pembaruan aplikasi dari dalam web (git pull, cadangan, muat ulang)
 - [ ] **Bot Dapodik**: pembaca berkas Dapodik, pembanding data, dan pengirim koreksi otomatis
 - [ ] Riwayat kenaikan kelas & mutasi siswa antar tahun ajaran
 - [ ] Presensi harian dan rekap per kelas
