@@ -61,7 +61,8 @@ async def simpan_preferensi(request: Request, user: auth.SessionUser = Depends(a
         "tahun_ajaran": str(form.get("tahun_ajaran") or config.TAHUN_AJARAN_DEFAULT).strip(),
         "semester": str(form.get("semester") or config.SEMESTER_DEFAULT).strip(),
         "login_siswa_pakai_tanggal_lahir": "1" if form.get("login_siswa_pakai_tanggal_lahir") else "0",
-        "siswa_boleh_edit_data": "1" if form.get("siswa_boleh_edit_data") else "0",
+        "pengajuan_aktif": "1" if form.get("pengajuan_aktif") else "0",
+        "pengajuan_wajib_dokumen": "1" if form.get("pengajuan_wajib_dokumen") else "0",
         "ekskul_aktif": "1" if form.get("ekskul_aktif") else "0",
         "dapodik_sync_aktif": "1" if form.get("dapodik_sync_aktif") else "0",
     }

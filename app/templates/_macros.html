@@ -123,3 +123,49 @@
 {% macro nilai(value, fallback="—") %}
   {% if value is none or value == "" %}<span class="muted">{{ fallback }}</span>{% else %}{{ value }}{% endif %}
 {% endmacro %}
+
+{% macro input_medan(spec, value, agama_options=[], prefix="") %}
+{#- Satu kolom formulir sesuai tipe field (teks, tanggal, pilihan, angka) -#}
+<div class="field {{ 'span-2' if spec.key in ['alamat', 'nama'] else '' }}">
+  <label for="{{ prefix }}{{ spec.key }}">
+    {{ spec.label }}
+    {% if spec.required %}<span style="color:var(--danger)">*</span>{% endif %}
+  </label>
+  {% if spec.kind == 'date' %}
+    <input type="date" id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}" value="{{ value or '' }}">
+  {% elif spec.key == 'jk' %}
+    <select id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}">
+      <option value="">— pilih —</option>
+      <option value="L" {{ 'selected' if value == 'L' }}>L — Laki-laki</option>
+      <option value="P" {{ 'selected' if value == 'P' }}>P — Perempuan</option>
+    </select>
+  {% elif spec.key == 'agama' %}
+    <select id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}">
+      <option value="">— pilih —</option>
+      {% for opsi in agama_options %}
+        <option value="{{ opsi }}" {{ 'selected' if value == opsi }}>{{ opsi }}</option>
+      {% endfor %}
+      {% if value and value not in agama_options %}
+        <option value="{{ value }}" selected>{{ value }}</option>
+      {% endif %}
+    </select>
+  {% elif spec.kind == 'ya_tidak' %}
+    <select id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}">
+      <option value="">— pilih —</option>
+      <option value="Ya" {{ 'selected' if value == 'Ya' }}>Ya</option>
+      <option value="Tidak" {{ 'selected' if value == 'Tidak' }}>Tidak</option>
+    </select>
+  {% elif spec.kind in ['int', 'float'] %}
+    <input type="number" step="{{ '1' if spec.kind == 'int' else '0.01' }}"
+           id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}"
+           value="{{ value if value is not none else '' }}">
+  {% else %}
+    <input type="text" id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}" value="{{ value or '' }}">
+  {% endif %}
+  {% if spec.help_text %}<span class="hint">{{ spec.help_text }}</span>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro pengajuan_badge(status) %}
+<span class="badge badge-{{ {'menunggu':'warning','disetujui':'success','ditolak':'danger','dibatalkan':'muted'}.get(status, 'muted') }}">{{ status }}</span>
+{% endmacro %}

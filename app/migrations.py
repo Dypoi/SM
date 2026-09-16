@@ -8,6 +8,7 @@ sehingga aplikasi aman di-update tanpa kehilangan data.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Callable
 
 from . import db
@@ -18,7 +19,106 @@ log = logging.getLogger("simsek.migrations")
 # --------------------------------------------------------------------------- #
 # Daftar migrasi (urut, sekali jalan)
 # --------------------------------------------------------------------------- #
-MIGRATIONS: list[tuple[str, str]] = [
+# --------------------------------------------------------------------------- #
+# Fungsi migrasi Python (dipakai bila perlu logika)
+# --------------------------------------------------------------------------- #
+def _kolom_tabel(conn: sqlite3.Connection, tabel: str) -> list[str]:
+    return [row[1] for row in conn.execute(f"PRAGMA table_info({tabel})")]
+
+
+def _migrasi_002(conn: sqlite3.Connection) -> None:
+    """Tabel pengajuan perubahan + berkas pendukung, dan pembersihan 13 kolom."""
+    from .dapodik import FIELD_DIHAPUS
+
+    conn.executescript(
+        """
+        ---------------------------------------------------------------------
+        -- Pengajuan perubahan data oleh siswa (menunggu persetujuan admin)
+        ---------------------------------------------------------------------
+        CREATE TABLE IF NOT EXISTS change_requests (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id      INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+            nisn            TEXT,
+            nama            TEXT,
+            rombel          TEXT,
+            status          TEXT NOT NULL DEFAULT 'menunggu'
+                            CHECK (status IN ('menunggu','disetujui','ditolak','dibatalkan')),
+            catatan_siswa   TEXT,
+            catatan_admin   TEXT,
+            jumlah_field    INTEGER NOT NULL DEFAULT 0,
+            dokumen_lengkap INTEGER NOT NULL DEFAULT 0,
+            diajukan_at     TEXT DEFAULT (datetime('now','localtime')),
+            diputuskan_at   TEXT,
+            diputuskan_oleh TEXT,
+            ip              TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_pengajuan_status  ON change_requests(status);
+        CREATE INDEX IF NOT EXISTS idx_pengajuan_siswa   ON change_requests(student_id);
+        CREATE INDEX IF NOT EXISTS idx_pengajuan_diajukan ON change_requests(diajukan_at);
+
+        CREATE TABLE IF NOT EXISTS change_request_items (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            request_id  INTEGER NOT NULL REFERENCES change_requests(id) ON DELETE CASCADE,
+            field       TEXT NOT NULL,
+            label       TEXT,
+            nilai_lama  TEXT,
+            nilai_baru  TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_pengajuan_item ON change_request_items(request_id);
+
+        ---------------------------------------------------------------------
+        -- Berkas pendukung siswa: akta kelahiran, kartu keluarga, ijazah
+        ---------------------------------------------------------------------
+        CREATE TABLE IF NOT EXISTS student_documents (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id    INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+            jenis         TEXT NOT NULL
+                          CHECK (jenis IN ('akta_lahir','kk','ijazah')),
+            nama_asli     TEXT,
+            nama_simpan   TEXT NOT NULL,
+            ukuran        INTEGER,
+            tipe          TEXT,
+            request_id    INTEGER REFERENCES change_requests(id) ON DELETE SET NULL,
+            status        TEXT NOT NULL DEFAULT 'menunggu'
+                          CHECK (status IN ('menunggu','diterima','ditolak')),
+            catatan       TEXT,
+            diunggah_at   TEXT DEFAULT (datetime('now','localtime')),
+            diperiksa_at  TEXT,
+            diperiksa_oleh TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_dokumen_siswa  ON student_documents(student_id, jenis);
+        CREATE INDEX IF NOT EXISTS idx_dokumen_status ON student_documents(status);
+        """
+    )
+
+    # Hapus riwayat perubahan yang menunjuk ke field yang sudah tidak dipakai.
+    daftar = ",".join("?" * len(FIELD_DIHAPUS))
+    conn.execute(f"DELETE FROM data_changes WHERE field IN ({daftar})", FIELD_DIHAPUS)
+    conn.execute(f"DELETE FROM import_issues WHERE field IN ({daftar})", FIELD_DIHAPUS)
+
+    # Buang kolomnya. SQLite 3.35+ mendukung DROP COLUMN; versi lama cukup
+    # dikosongkan nilainya (kolom tak terpakai tidak dipakai aplikasi).
+    ada = set(_kolom_tabel(conn, "students"))
+    target = [kolom for kolom in FIELD_DIHAPUS if kolom in ada]
+    if not target:
+        return
+    if sqlite3.sqlite_version_info >= (3, 35, 0):
+        for kolom in target:
+            conn.execute(f"ALTER TABLE students DROP COLUMN {kolom}")
+        log.info("Kolom tidak terpakai dihapus dari tabel students: %s", ", ".join(target))
+    else:
+        set_clause = ", ".join(f"{kolom} = NULL" for kolom in target)
+        conn.execute(f"UPDATE students SET {set_clause}")
+        log.warning(
+            "SQLite %s belum mendukung DROP COLUMN; nilai %s dikosongkan.",
+            sqlite3.sqlite_version, ", ".join(target),
+        )
+
+
+#: Setiap entri: (id_migrasi, skrip SQL) atau (id_migrasi, fungsi(conn)).
+Migrasi: Callable[[sqlite3.Connection], None]
+
+MIGRATIONS: list[tuple[str, str | Callable[[sqlite3.Connection], None]]] = [
     (
         "001_skema_awal",
         """
@@ -267,6 +367,15 @@ MIGRATIONS: list[tuple[str, str]] = [
         CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
         """,
     ),
+
+    # ======================================================================= #
+    # 002 — Pengajuan perubahan data oleh siswa + berkas pendukung
+    #        Sekaligus menghapus kolom yang tidak diperlukan lagi.
+    # ======================================================================= #
+    (
+        "002_pengajuan_perubahan",
+        _migrasi_002,
+    ),
 ]
 
 
@@ -300,6 +409,9 @@ def seed_defaults() -> None:
         "login_siswa_pakai_tanggal_lahir": "0",
         "ekskul_aktif": "1",
         "dapodik_sync_aktif": "0",
+        "pengajuan_aktif": "1",
+        "pengajuan_wajib_dokumen": "1",
+        "pengajuan_kunci_field": "nisn",
     }
     for key, value in defaults.items():
         _set_setting(key, value)
@@ -356,7 +468,10 @@ def run_migrations(verbose: bool = False) -> list[str]:
     for migration_id, script in MIGRATIONS:
         if migration_id in applied:
             continue
-        connection.executescript(script)
+        if callable(script):
+            script(connection)
+        else:
+            connection.executescript(script)
         connection.execute("INSERT INTO schema_migrations(id) VALUES(?)", (migration_id,))
         executed.append(migration_id)
         if verbose:

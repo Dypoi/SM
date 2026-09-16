@@ -15,7 +15,7 @@ router = APIRouter()
 
 COLUMN_PRESETS = {
     "ringkas": ["nama", "nisn", "nipd", "jk", "rombel", "tempat_lahir", "tanggal_lahir", "status"],
-    "kontak": ["nama", "nisn", "rombel", "alamat", "kelurahan", "kecamatan", "hp", "transportasi"],
+    "kontak": ["nama", "nisn", "rombel", "alamat", "kelurahan", "kecamatan", "hp"],
     "orangtua": ["nama", "nisn", "rombel", "ayah_nama", "ayah_pekerjaan", "ibu_nama", "ibu_pekerjaan", "hp"],
     "bantuan": ["nama", "nisn", "rombel", "penerima_kip", "nomor_kip", "penerima_kps", "layak_pip", "alasan_layak_pip"],
 }
@@ -231,8 +231,6 @@ def halaman_statistik(request: Request, user: auth.SessionUser = Depends(auth.re
             "per_rombel": services.stats_by_rombel(),
             "agama": services.stats_by("agama", limit=10),
             "kecamatan": services.stats_by("kecamatan", limit=12),
-            "transportasi": services.stats_by("transportasi", limit=10),
-            "jenis_tinggal": services.stats_by("jenis_tinggal", limit=6),
             "kebutuhan_khusus": services.stats_by("kebutuhan_khusus", limit=8),
             "sekolah_asal": services.stats_by("sekolah_asal", limit=12),
             "ekskul": services.ekskul_stats(),

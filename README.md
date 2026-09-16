@@ -236,6 +236,10 @@ akta lahir, kesehatan, sampai koordinat rumah.
 - Unggah berkas, pratinjau 25 baris pertama, daftar pemetaan kolom, dan daftar temuan.
 - Laporan masalah per baris dapat diunduh sebagai CSV.
 - Riwayat setiap impor tersimpan (berkas, worksheet, baris header, hasil, status).
+- 13 kolom Dapodik lama (dusun, jenis tinggal, alat transportasi, telepon, e-mail, SKHUN,
+  no. peserta UN, no. KKS, bank, no. rekening, rekening atas nama, lintang, bujur)
+  **tidak lagi dipakai**; berkas lama tetap bisa diunggah dan kolom tersebut ditampilkan
+  sebagai "tidak lagi dipakai" pada halaman pratinjau impor.
 
 ### Ekstrakurikuler
 - Kelola kegiatan: kode, kategori, pembina, hari, jam, tempat, kuota, deskripsi, status.
@@ -244,18 +248,32 @@ akta lahir, kesehatan, sampai koordinat rumah.
 
 ### Portal siswa
 - Siswa masuk hanya dengan **NISN** (opsional ditambah tanggal lahir, diatur di Pengaturan).
-- Melihat kelengkapan datanya sendiri dan **memperbaiki alamat/kontak** — perubahan
-  tercatat di riwayat dengan sumber `portal_siswa`.
+- Beranda, data lengkap miliknya, kelengkapan data, dan status berkas (akta kelahiran,
+  kartu keluarga, ijazah).
+- **Ajukan perubahan data**: memperbaiki setiap kolom datanya (kecuali NISN), melampirkan
+  foto ketiga berkas, dan menunggu keputusan admin. Riwayat pengajuan terlihat di portal.
+
+### Persetujuan data siswa (khusus admin)
+- Menu **Persetujuan Data** menampilkan antrean pengajuan siswa (yang menunggu di atas)
+  beserta jumlah berkas dan statistiknya.
+- Halaman periksa menampilkan perbandingan *data sekarang -> usulan siswa* per kolom,
+  pratinjau berkas bukti, dan riwayat perubahan siswa tersebut.
+- **Setujui** langsung menerapkan nilai baru (tercatat sebagai sumber `pengajuan_siswa`)
+  dan menandai berkas sebagai diterima; **Tolak** menyertakan catatan untuk siswa.
+- NISN tidak pernah dapat diubah lewat pengajuan; siswa boleh membatalkan pengajuannya
+  sendiri selama masih menunggu. Atur lewat `pengajuan_aktif` dan
+  `pengajuan_wajib_dokumen` di Pengaturan.
 
 ### Statistik & kualitas data
-- Rekap per tingkat, rombel, agama, kecamatan, transportasi, program bantuan.
+- Rekap per tingkat, rombel, agama, kecamatan, kebutuhan khusus, program bantuan.
 - **Kualitas Data**: kelengkapan setiap kolom, 8 temuan bergaya validasi Dapodik
   (NISN bukan 10 digit, NIK bukan 16 digit, NISN ganda, dan lainnya), serta panel
   kesiapan sinkronisasi.
 
 ### Pengaturan (khusus admin)
 - Identitas sekolah (nama, NPSN, alamat, kepala sekolah, kontak).
-- Preferensi: tahun ajaran, semester, aturan login siswa, hak edit siswa, baris per halaman.
+- Preferensi: tahun ajaran, semester, aturan login siswa, pengajuan perubahan data
+  (aktif & wajib berkas), baris per halaman.
 - Manajemen pengguna (admin / operator-guru), audit aktivitas, kunci API.
 
 ### Pembaruan aplikasi (khusus admin)
@@ -313,10 +331,10 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 │   ├── main.py                # rakit FastAPI, penangan kesalahan, /health
 │   ├── config.py              # konfigurasi & path (dapat dioverride via env SM_*)
 │   ├── db.py                  # koneksi SQLite + helper query/transaksi
-│   ├── migrations.py          # skema & seeder (versi 001_skema_awal)
+│   ├── migrations.py          # skema & seeder (001_skema_awal, 002_pengajuan_perubahan)
 │   ├── security.py            # hash PBKDF2, cookie sesi, kunci API
 │   ├── readers.py             # pembaca xlsx/xls/xlsb/ods/csv  ← inti multi-format
-│   ├── dapodik.py             # definisi 66 field, deteksi header, validasi
+│   ├── dapodik.py             # definisi 53 field, deteksi header, validasi
 │   ├── services.py            # logika bisnis: impor, siswa, ekskul, statistik, API
 │   ├── auth.py                # login petugas (user+sandi) & siswa (NISN)
 │   ├── updater.py             # pembaruan aplikasi: git pull, cadangan, muat ulang
@@ -327,16 +345,17 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 │   │   ├── student_routes.py  data siswa, statistik, kualitas data, ekspor
 │   │   ├── import_routes.py   unggah → pratinjau → jalankan
 │   │   ├── ekskul_routes.py   ekstrakurikuler & anggota
-│   │   ├── portal_routes.py   portal siswa
+│   │   ├── portal_routes.py   portal siswa & pengajuan perubahan data
+│   │   ├── approval_routes.py persetujuan pengajuan (khusus admin)
 │   │   ├── settings_routes.py pengaturan, pengguna, API key
 │   │   ├── update_routes.py   pembaruan aplikasi (khusus admin)
 │   │   └── api_routes.py      API JSON untuk bot Dapodik
 │   ├── templates/             # Jinja2 (server-side, tanpa CDN)
 │   │   ├── _macros.html, base.html, partials/
-│   │   └── students/, import/, ekskul/, portal/
+│   │   └── students/, import/, ekskul/, portal/, approval/
 │   └── static/css/app.css, static/js/app.js
 ├── scripts/
-│   ├── cek_sistem.py          # pemeriksaan mandiri 14 titik uji
+│   ├── cek_sistem.py          # pemeriksaan mandiri 16 titik uji
 │   └── buat_template.py       # pembuat berkas template impor
 ├── template-import/           # contoh.xlsx berisi data fiktif (aman dibagikan)
 ├── sample-data/               # berkas Dapodik asli (tidak di-commit, berisi data pribadi)
@@ -352,6 +371,9 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
   aplikasi membuat cadangan basis data di `data/backup/`.
 - **Semua data disimpan lokal** di folder `data/` (`simsek.sqlite3`). Tidak ada
   pengiriman data ke internet. Untuk mencadangkan aplikasi, cukup salin folder `data/`.
+- **Berkas bukti pengajuan** (akta kelahiran, KK, ijazah) tersimpan di
+  `data/uploads/dokumen/<id siswa>/` dan hanya dapat dibuka siswa pemiliknya serta petugas.
+  Hapus folder siswa saat lulus bila tidak diperlukan lagi.
 - Folder `sample-data/` berisi data siswa sungguhan (NIK, NISN, alamat) dan
   **sengaja diabaikan Git** (lihat `.gitignore`). Berkas contoh di `template-import/`
   memakai data fiktif sehingga aman dibagikan.
@@ -367,6 +389,7 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 | `SM_ADMIN_USER` / `SM_ADMIN_PASSWORD` | `admin` / `admin123` | Akun admin pertama |
 | `SM_DATA_DIR` | `./data` | Lokasi database, unggahan, kunci |
 | `SM_MAX_UPLOAD_MB` | `64` | Batas ukuran berkas unggahan |
+| `SM_DOKUMEN_MAX_MB` | `8` | Batas ukuran berkas bukti pengajuan (akta/KK/ijazah) |
 | `SM_ROWS_PER_PAGE` | `25` | Baris per halaman |
 | `SM_AUTO_SEED` | `1` | Impor otomatis berkas contoh saat database kosong |
 | `SM_API_PUBLIC` | `0` | `1` = API baca dapat diakses tanpa kunci |
@@ -386,6 +409,8 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 - [x] Laporan kualitas data & panel kesiapan sinkronisasi
 - [x] API JSON + kunci akses sebagai fondasi integrasi
 - [x] Fitur pembaruan aplikasi dari dalam web (git pull, cadangan, muat ulang)
+- [x] Pengajuan perubahan data oleh siswa + persetujuan admin + berkas bukti
+- [x] Perampingan kolom: 13 kolom Dapodik yang tidak dipakai dihapus
 - [ ] **Bot Dapodik**: pembaca berkas Dapodik, pembanding data, dan pengirim koreksi otomatis
 - [ ] Riwayat kenaikan kelas & mutasi siswa antar tahun ajaran
 - [ ] Presensi harian dan rekap per kelas

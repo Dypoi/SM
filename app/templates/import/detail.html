@@ -127,6 +127,15 @@
           <p>{{ parsed.mapping | length }} kolom dikenali otomatis. Kolom yang tidak terpetakan diabaikan.</p>
         </div>
       </div>
+      {% if kolom_dihapus %}
+      <div class="card-body pb-0">
+        <div class="note">
+          <strong>{{ kolom_dihapus | length }} kolom pada berkas ini tidak lagi dipakai</strong>
+          sehingga tidak disimpan: {{ kolom_dihapus | join(', ') }}.
+          Kolom tersebut sudah dihapus dari aplikasi agar data yang dikelola lebih ringkas.
+        </div>
+      </div>
+      {% endif %}
       <div class="card-body p-0 table-wrap compact">
         <table class="data tabel-kecil">
           <thead><tr><th>Kolom pada berkas</th><th>Disimpan sebagai</th><th>Grup data</th></tr></thead>

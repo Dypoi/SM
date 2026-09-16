@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 
-from .. import auth, config, services
+from .. import auth, services
 from ..web import render
 
 router = APIRouter()

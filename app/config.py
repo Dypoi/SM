@@ -18,9 +18,14 @@ DATA_DIR = Path(os.getenv("SM_DATA_DIR") or BASE_DIR / "data")
 UPLOAD_DIR = DATA_DIR / "uploads"
 EXPORT_DIR = DATA_DIR / "exports"
 DB_PATH = Path(os.getenv("SM_DB_PATH") or DATA_DIR / "simsek.sqlite3")
+DOKUMEN_DIR = UPLOAD_DIR / "dokumen"
 SAMPLE_DIR = BASE_DIR / "sample-data"
 TEMPLATE_DIR = BASE_DIR / "template-import"
 STATIC_DIR = BASE_DIR / "app" / "static"
+
+
+DOKUMEN_MAX_MB = int(os.getenv("SM_DOKUMEN_MAX_MB", 8))
+DOKUMEN_MAX_BYTES = DOKUMEN_MAX_MB * 1024 * 1024
 
 
 def ensure_dirs() -> None:

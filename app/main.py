@@ -17,7 +17,6 @@ import time
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request
-from fastapi.exceptions import HTTPException as FastAPIHTTPException
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -25,6 +24,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from . import config, db, migrations, services, updater
 from .routers import (
     api_routes,
+    approval_routes,
     auth_routes,
     dashboard_routes,
     ekskul_routes,
@@ -100,6 +100,7 @@ app.include_router(ekskul_routes.router)
 app.include_router(portal_routes.router)
 app.include_router(settings_routes.router)
 app.include_router(update_routes.router)
+app.include_router(approval_routes.router)
 app.include_router(api_routes.router)
 
 

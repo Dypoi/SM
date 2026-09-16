@@ -28,6 +28,17 @@
 </div>
 {% endif %}
 
+{% if pengajuan and pengajuan.menunggu and user and user.is_admin %}
+<div class="alert alert-warn mt-3">
+  {{ icon('check') }}
+  <span>
+    Ada <strong>{{ pengajuan.menunggu }} pengajuan perubahan data</strong> dari siswa yang menunggu
+    persetujuan Anda.
+  </span>
+  <a class="btn btn-warning btn-sm" style="margin-left:auto" href="/pengajuan">Periksa pengajuan</a>
+</div>
+{% endif %}
+
 {% if total_temuan %}
 <div class="alert alert-warn mt-3">
   {{ icon('warning') }}
@@ -86,7 +97,6 @@
 
     <div class="grid grid-2 mt-2">
       {{ bar_list('Kecamatan Asal Siswa', kecamatan, 'Belum ada data', 'info') }}
-      {{ bar_list('Alat Transportasi ke Sekolah', transportasi, 'Belum ada data', 'violet') }}
     </div>
   </div>
 

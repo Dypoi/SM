@@ -155,6 +155,7 @@ def detail_impor(request: Request, import_id: int, user: auth.SessionUser = Depe
             "map_json": json.loads(record.get("mapping_json") or "{}"),
             "meta_json": json.loads(record.get("meta_json") or "{}"),
             "field_by_key": FIELD_BY_KEY,
+            "kolom_dihapus": parsed.ignored_columns if parsed is not None else [],
             "jumlah_siswa_db": int(db.query_value("SELECT COUNT(*) FROM students") or 0),
         },
     )

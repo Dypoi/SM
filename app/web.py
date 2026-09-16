@@ -11,7 +11,7 @@ from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
 from . import auth, config, services
-from .dapodik import FIELD_BY_KEY, STUDENT_FIELDS, fields_by_group
+from .dapodik import FIELD_BY_KEY, fields_by_group
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -144,12 +144,15 @@ def nav_items(user: auth.SessionUser | None) -> list[dict[str, str]]:
     if user.role == auth.ROLE_SISWA:
         return [
             {"href": "/portal", "label": "Beranda Saya", "icon": "home"},
+            {"href": "/portal/pengajuan", "label": "Ajukan Perubahan", "icon": "edit"},
+            {"href": "/portal/profil", "label": "Data Saya", "icon": "user"},
             {"href": "/portal/ekstrakurikuler", "label": "Ekstrakurikuler", "icon": "flag"},
-            {"href": "/portal/profil", "label": "Perbaiki Data", "icon": "user"},
         ]
     items = [
         {"href": "/", "label": "Dasbor", "icon": "home"},
         {"href": "/data-siswa", "label": "Data Siswa", "icon": "users"},
+        {"href": "/pengajuan", "label": "Persetujuan Data", "icon": "check",
+         "badge": services.hitung_pengajuan("menunggu")},
         {"href": "/impor", "label": "Impor Excel/CSV", "icon": "upload"},
         {"href": "/ekstrakurikuler", "label": "Ekstrakurikuler", "icon": "flag"},
         {"href": "/statistik", "label": "Statistik", "icon": "chart"},
@@ -158,7 +161,7 @@ def nav_items(user: auth.SessionUser | None) -> list[dict[str, str]]:
         {"href": "/pembaruan", "label": "Pembaruan", "icon": "refresh"},
     ]
     if user.role != auth.ROLE_ADMIN:
-        items = [item for item in items if item["href"] not in {"/pengaturan", "/pembaruan"}]
+        items = [item for item in items if item["href"] not in {"/pengaturan", "/pembaruan", "/pengajuan"}]
         items.append({"href": "/profil-akun", "label": "Akun Saya", "icon": "user"})
     return items
 
@@ -172,6 +175,8 @@ PAGE_TITLES = {
     "/kualitas-data": "Kualitas Data",
     "/pengaturan": "Pengaturan",
     "/pembaruan": "Pembaruan Aplikasi",
+    "/pengajuan": "Persetujuan Perubahan Data",
+    "/portal/pengajuan": "Ajukan Perubahan Data",
     "/portal": "Beranda Saya",
     "/portal/ekstrakurikuler": "Ekstrakurikuler Saya",
     "/portal/profil": "Perbaiki Data Saya",

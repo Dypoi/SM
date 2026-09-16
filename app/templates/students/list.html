@@ -174,8 +174,6 @@
                 {% if row.rombel %}<span class="badge badge-primary">{{ row.rombel }}</span>{% else %}{{ nilai(None) }}{% endif %}
               {% elif key == 'status' %}
                 <span class="badge badge-{{ row.status | badge }}">{{ row.status }}</span>
-              {% elif key == 'transportasi' %}
-                {{ nilai(row.transportasi) }}
               {% else %}
                 {{ nilai(row[key] if key in row else None) }}
               {% endif %}

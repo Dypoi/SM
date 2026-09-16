@@ -132,7 +132,7 @@
           <dt>Alamat</dt><dd>{{ nilai(siswa.alamat) }}{% if siswa.rt or siswa.rw %}, RT {{ siswa.rt or '-' }}/RW {{ siswa.rw or '-' }}{% endif %}</dd>
           <dt>Desa/Kelurahan</dt><dd>{{ nilai(siswa.kelurahan) }}</dd>
           <dt>Kecamatan</dt><dd>{{ nilai(siswa.kecamatan) }}</dd>
-          <dt>Kontak</dt><dd>{{ nilai(siswa.hp) }}{% if siswa.telepon %} / {{ siswa.telepon }}{% endif %}</dd>
+          <dt>Kontak</dt><dd>{{ nilai(siswa.hp) }}</dd>
           <dt>Sekolah asal</dt><dd>{{ nilai(siswa.sekolah_asal) }}</dd>
           <dt>Jarak ke sekolah</dt><dd>{{ siswa.jarak_rumah ~ ' km' if siswa.jarak_rumah is not none else '—' }}</dd>
           <dt>Kebutuhan khusus</dt><dd>{{ nilai(siswa.kebutuhan_khusus) }}</dd>

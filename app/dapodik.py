@@ -59,17 +59,10 @@ STUDENT_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("alamat", "Alamat (Jalan)", ("alamat", "alamat jalan", "jalan"), "alamat"),
     FieldSpec("rt", "RT", ("rt",), "alamat"),
     FieldSpec("rw", "RW", ("rw",), "alamat"),
-    FieldSpec("dusun", "Dusun", ("dusun", "kampung"), "alamat"),
     FieldSpec("kelurahan", "Desa/Kelurahan", ("kelurahan", "desa kelurahan", "desa", "kelurahan desa"), "alamat"),
     FieldSpec("kecamatan", "Kecamatan", ("kecamatan", "kec"), "alamat"),
     FieldSpec("kode_pos", "Kode Pos", ("kode pos", "kodepos"), "alamat"),
-    FieldSpec("jenis_tinggal", "Jenis Tinggal", ("jenis tinggal", "status tinggal"), "alamat"),
-    FieldSpec("transportasi", "Alat Transportasi", ("alat transportasi", "moda transportasi", "transportasi"), "alamat"),
-    FieldSpec("telepon", "Telepon", ("telepon", "no telepon", "telp"), "alamat"),
     FieldSpec("hp", "HP", ("hp", "no hp", "handphone", "ponsel", "no wa", "whatsapp"), "alamat"),
-    FieldSpec("email", "E-Mail", ("e mail", "email", "surel"), "alamat"),
-    FieldSpec("lintang", "Lintang", ("lintang",), "alamat", kind="float"),
-    FieldSpec("bujur", "Bujur", ("bujur",), "alamat", kind="float"),
     FieldSpec("jarak_rumah", "Jarak Rumah ke Sekolah (KM)", ("jarak rumah ke sekolah km", "jarak rumah", "jarak ke sekolah"), "alamat", kind="float"),
 
     # ---- Data Ayah ----
@@ -99,9 +92,7 @@ STUDENT_FIELDS: tuple[FieldSpec, ...] = (
     # ---- Rombel & akademik ----
     FieldSpec("rombel", "Rombel Saat Ini", ("rombel saat ini", "rombel", "kelas", "nama rombel", "ruang kelas", "kelas saat ini"), "akademik"),
     FieldSpec("tingkat", "Tingkat", ("tingkat", "jenjang"), "akademik"),
-    FieldSpec("no_peserta_un", "No. Peserta Ujian Nasional", ("no peserta ujian nasional", "no peserta un", "nomor peserta un"), "akademik"),
     FieldSpec("no_seri_ijazah", "No. Seri Ijazah", ("no seri ijazah", "nomor seri ijazah"), "akademik"),
-    FieldSpec("skhun", "SKHUN", ("skhun", "no skhun", "nomor skhun"), "akademik"),
 
     # ---- Bantuan & kesejahteraan ----
     FieldSpec("penerima_kps", "Penerima KPS", ("penerima kps", "kps"), "bantuan", kind="ya_tidak"),
@@ -109,11 +100,7 @@ STUDENT_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("penerima_kip", "Penerima KIP", ("penerima kip", "kip"), "bantuan", kind="ya_tidak"),
     FieldSpec("nomor_kip", "Nomor KIP", ("nomor kip", "no kip"), "bantuan"),
     FieldSpec("nama_kip", "Nama di KIP", ("nama di kip", "nama kip"), "bantuan"),
-    FieldSpec("nomor_kks", "Nomor KKS", ("nomor kks", "no kks", "kks"), "bantuan"),
     FieldSpec("no_registrasi_akta", "No. Registrasi Akta Lahir", ("no registrasi akta lahir", "akta lahir", "no akta"), "bantuan"),
-    FieldSpec("bank", "Bank", ("bank", "nama bank"), "bantuan"),
-    FieldSpec("no_rekening", "Nomor Rekening Bank", ("nomor rekening bank", "no rekening", "norek"), "bantuan"),
-    FieldSpec("rekening_atas_nama", "Rekening Atas Nama", ("rekening atas nama", "nama pemilik rekening"), "bantuan"),
     FieldSpec("layak_pip", "Layak PIP (usulan sekolah)", ("layak pip", "layak pip usulan dari sekolah"), "bantuan", kind="ya_tidak"),
     FieldSpec("alasan_layak_pip", "Alasan Layak PIP", ("alasan layak pip",), "bantuan"),
 
@@ -126,6 +113,19 @@ STUDENT_FIELDS: tuple[FieldSpec, ...] = (
 )
 
 FIELD_BY_KEY: dict[str, FieldSpec] = {spec.key: spec for spec in STUDENT_FIELDS}
+
+#: Field Dapodik yang tidak dipakai lagi di SIMSEK (dihapus atas permintaan sekolah).
+#: Kolomnya tetap ada pada berkas Excel Dapodik, jadi saat impor hanya diabaikan.
+FIELD_DIHAPUS: tuple[str, ...] = (
+    "dusun", "jenis_tinggal", "transportasi", "telepon", "email", "skhun",
+    "no_peserta_un", "nomor_kks", "bank", "no_rekening", "rekening_atas_nama",
+    "lintang", "bujur",
+)
+LABEL_DIHAPUS: tuple[str, ...] = (
+    "Dusun", "Jenis Tinggal", "Alat Transportasi", "Telepon", "E-Mail", "SKHUN",
+    "No. Peserta Ujian Nasional", "Nomor KKS", "Bank", "Nomor Rekening Bank",
+    "Rekening Atas Nama", "Lintang", "Bujur",
+)
 
 GROUP_LABELS = {
     "identitas": "Identitas",
@@ -231,6 +231,16 @@ class ParsedSpreadsheet:
     @property
     def mapped_field_count(self) -> int:
         return len(self.column_map)
+
+    @property
+    def ignored_columns(self) -> list[str]:
+        """Kolom berkas yang cocok dengan field yang sudah dihapus dari aplikasi."""
+        diabaikan: list[str] = []
+        for label in self.columns:
+            normal = normalize_header(label)
+            if normal and normal in {normalize_header(item) for item in LABEL_DIHAPUS}:
+                diabaikan.append(label)
+        return diabaikan
 
     @property
     def detected_fields(self) -> list[str]:

@@ -673,7 +673,7 @@ def stats_by_tingkat() -> list[dict[str, Any]]:
 
 
 def stats_by(column: str, limit: int = 12) -> list[dict[str, Any]]:
-    if column not in {"agama", "kelurahan", "kecamatan", "transportasi", "kebutuhan_khusus", "jenis_tinggal", "sekolah_asal"}:
+    if column not in {"agama", "kelurahan", "kecamatan", "kebutuhan_khusus", "sekolah_asal"}:
         raise ValueError("Kolom statistik tidak diizinkan.")
     rows = db.query_all(
         f"""
@@ -1114,3 +1114,379 @@ def auto_seed_sample(nisn_example: dict[str, str] | None = None) -> dict[str, An
     except Exception as exc:  # noqa: BLE001
         log.warning("Gagal impor otomatis berkas contoh: %s", exc)
         return None
+
+
+# =========================================================================== #
+# DOKUMEN SISWA (akta kelahiran, kartu keluarga, ijazah)
+# =========================================================================== #
+DOKUMEN_JENIS: tuple[tuple[str, str, str], ...] = (
+    ("akta_lahir", "Akta Kelahiran", "Foto/scan akta kelahiran yang terbaca jelas."),
+    ("kk", "Kartu Keluarga", "Foto/scan kartu keluarga (KK) terbaru."),
+    ("ijazah", "Ijazah / SKL", "Foto/scan ijazah SD/MI atau surat keterangan lulus."),
+)
+DOKUMEN_LABEL: dict[str, str] = {key: label for key, label, _ in DOKUMEN_JENIS}
+DOKUMEN_EXT = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".pdf"}
+
+
+def dokumen_jenis_valid(jenis: str) -> bool:
+    return jenis in DOKUMEN_LABEL
+
+
+def validasi_dokumen(jenis: str, nama_asli: str, content: bytes) -> str:
+    """Periksa berkas pendukung sebelum disimpan. Mengembalikan ekstensi yang sah."""
+    if not dokumen_jenis_valid(jenis):
+        raise ValueError("Jenis berkas tidak dikenal.")
+    if not content:
+        raise ValueError("Berkas kosong.")
+    if len(content) > config.DOKUMEN_MAX_BYTES:
+        raise ValueError(f"Ukuran berkas melebihi {config.DOKUMEN_MAX_MB} MB.")
+    asli = Path(nama_asli or "berkas").name
+    ext = Path(asli).suffix.lower()
+    if ext not in DOKUMEN_EXT:
+        raise ValueError(
+            "Format berkas harus gambar (JPG/PNG/WebP) atau PDF: " + (asli or "tanpa nama")
+        )
+    return ext
+
+
+def simpan_dokumen(student_id: int, jenis: str, nama_asli: str, content: bytes, *,
+                   aktor: str | None = None, request_id: int | None = None) -> int:
+    """Simpan berkas pendukung siswa dan catat di tabel student_documents."""
+    ext = validasi_dokumen(jenis, nama_asli, content)
+    asli = Path(nama_asli or "berkas").name
+
+    folder = config.DOKUMEN_DIR / str(student_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    aman = re.sub(r"[^\w.\- ]+", "_", Path(asli).stem).strip() or "berkas"
+    nama_simpan = f"{jenis}__{stamp}__{aman[:60]}{ext}"
+    (folder / nama_simpan).write_bytes(content)
+
+    doc_id = db.insert_returning_id(
+        """
+        INSERT INTO student_documents(student_id, jenis, nama_asli, nama_simpan,
+                                      ukuran, tipe, request_id, status)
+        VALUES(?,?,?,?,?,?,?,'menunggu')
+        """,
+        (student_id, jenis, asli, f"{student_id}/{nama_simpan}", len(content),
+         content[:4].hex(), request_id),
+    )
+    log_audit(aktor, None, "unggah_dokumen", "student_documents", doc_id,
+              f"{DOKUMEN_LABEL[jenis]} untuk siswa {student_id}")
+    return doc_id
+
+
+def path_dokumen(row: dict[str, Any]) -> Path:
+    return config.DOKUMEN_DIR / str(row.get("nama_simpan") or "")
+
+
+def daftar_dokumen(student_id: int) -> list[dict[str, Any]]:
+    return db.rows_to_dicts(
+        db.query_all(
+            "SELECT * FROM student_documents WHERE student_id = ? ORDER BY id DESC",
+            (student_id,),
+        )
+    )
+
+
+def dokumen_terbaru(student_id: int) -> dict[str, dict[str, Any]]:
+    """Berkas terbaru per jenis (mengabaikan yang sudah ditolak admin)."""
+    hasil: dict[str, dict[str, Any]] = {}
+    for row in daftar_dokumen(student_id):
+        if row["status"] == "ditolak":
+            continue
+        hasil.setdefault(row["jenis"], row)
+    return hasil
+
+
+def dokumen_lengkap(student_id: int) -> tuple[bool, list[str]]:
+    """Cek kelengkapan tiga berkas wajib. Mengembalikan (lengkap, jenis yang kurang)."""
+    ada = dokumen_terbaru(student_id)
+    kurang = [label for key, label, _ in DOKUMEN_JENIS if key not in ada]
+    return (not kurang), kurang
+
+
+def ambil_dokumen(doc_id: int) -> dict[str, Any] | None:
+    return db.row_to_dict(db.query_one("SELECT * FROM student_documents WHERE id = ?", (doc_id,)))
+
+
+def periksa_dokumen(doc_id: int, status: str, aktor: str, catatan: str | None = None) -> None:
+    if status not in {"menunggu", "diterima", "ditolak"}:
+        raise ValueError("Status berkas tidak dikenal.")
+    db.execute(
+        """
+        UPDATE student_documents
+           SET status = ?, catatan = ?, diperiksa_at = datetime('now','localtime'), diperiksa_oleh = ?
+         WHERE id = ?
+        """,
+        (status, catatan, aktor, doc_id),
+    )
+    log_audit(aktor, "admin", f"dokumen_{status}", "student_documents", doc_id, catatan)
+
+
+def hapus_dokumen(doc_id: int, aktor: str | None = None) -> None:
+    row = ambil_dokumen(doc_id)
+    if row is None:
+        return
+    try:
+        path_dokumen(row).unlink(missing_ok=True)
+    except OSError:  # pragma: no cover - berkas mungkin sudah hilang
+        pass
+    db.execute("DELETE FROM student_documents WHERE id = ?", (doc_id,))
+    log_audit(aktor, "admin", "hapus_dokumen", "student_documents", doc_id, row.get("nama_asli"))
+
+
+# =========================================================================== #
+# PENGAJUAN PERUBAHAN DATA (siswa mengusulkan, admin memutuskan)
+# =========================================================================== #
+#: Semua kolom Dapodik boleh diusulkan diubah siswa, kecuali NISN.
+FIELD_DAPAT_DIAJUKAN: tuple[str, ...] = tuple(
+    spec.key for spec in STUDENT_FIELDS if spec.key != "nisn"
+)
+#: Field yang hanya boleh diubah petugas (bukan lewat pengajuan siswa).
+FIELD_HANYA_PETUGAS: tuple[str, ...] = ("nisn", "status")
+
+
+def field_dapat_diajukan(key: str) -> bool:
+    return key in FIELD_DAPAT_DIAJUKAN
+
+
+def _pengajuan_dari_row(row: Any) -> dict[str, Any] | None:
+    data = db.row_to_dict(row)
+    if data is None:
+        return None
+    data["items"] = db.rows_to_dicts(
+        db.query_all(
+            "SELECT * FROM change_request_items WHERE request_id = ? ORDER BY id",
+            (data["id"],),
+        )
+    )
+    data["dokumen"] = db.rows_to_dicts(
+        db.query_all(
+            "SELECT * FROM student_documents WHERE request_id = ? ORDER BY id",
+            (data["id"],),
+        )
+    )
+    return data
+
+
+def pengajuan_dokumen_wajib() -> bool:
+    return (get_setting("pengajuan_wajib_dokumen") or "1") == "1"
+
+
+def pengajuan_aktif() -> bool:
+    return (get_setting("pengajuan_aktif") or "1") == "1"
+
+
+def ajukan_perubahan(student_id: int, nilai: dict[str, Any], *, catatan: str = "",
+                     aktor: str | None = None, ip: str | None = None,
+                     dokumen: dict[str, tuple[str, bytes]] | None = None) -> dict[str, Any]:
+    """Buat pengajuan perubahan data. Mengembalikan ringkasan pengajuan.
+
+    ``nilai`` hanya berisi kolom yang benar-benar berubah; ``dokumen`` opsional
+    berisi berkas baru {jenis: (nama_asli, isi)} yang ikut diunggah.
+    """
+    if not pengajuan_aktif():
+        raise ValueError("Pengajuan perubahan data sedang dinonaktifkan sekolah.")
+
+    siswa = get_student(student_id)
+    if siswa is None:
+        raise ValueError("Data siswa tidak ditemukan.")
+
+    perubahan: dict[str, Any] = {}
+    for key, baru in nilai.items():
+        if key in FIELD_HANYA_PETUGAS or not field_dapat_diajukan(key):
+            continue
+        teks_baru = "" if baru is None else str(baru).strip()
+        teks_lama = "" if siswa.get(key) is None else str(siswa.get(key)).strip()
+        if teks_baru != teks_lama:
+            perubahan[key] = baru
+
+    if not perubahan and not dokumen:
+        raise ValueError("Tidak ada data yang berubah, jadi belum ada yang diajukan.")
+
+    # Berkas yang ikut diunggah harus lolos pemeriksaan sebelum pengajuan dibuat.
+    diunggah = dict(dokumen or {})
+    for jenis, (nama_asli, isi) in diunggah.items():
+        validasi_dokumen(jenis, nama_asli, isi)
+
+    # Tiga berkas wajib (akta kelahiran, KK, ijazah) harus ada — baru diunggah
+    # sekarang atau sudah tersimpan dari pengajuan sebelumnya.
+    if pengajuan_dokumen_wajib():
+        tersedia = set(dokumen_terbaru(student_id)) | set(diunggah)
+        kurang = [label for key, label, _ in DOKUMEN_JENIS if key not in tersedia]
+        if kurang:
+            raise ValueError(
+                "Berkas wajib belum lengkap: " + ", ".join(kurang) +
+                ". Unggah foto akta kelahiran, kartu keluarga, dan ijazah lebih dahulu."
+            )
+
+    sudah_lengkap, _kurang_awal = dokumen_lengkap(student_id)
+    request_id = db.insert_returning_id(
+        """
+        INSERT INTO change_requests(student_id, nisn, nama, rombel, status, catatan_siswa,
+                                    jumlah_field, dokumen_lengkap, ip)
+        VALUES(?,?,?,?,'menunggu',?,?,?,?)
+        """,
+        (student_id, siswa.get("nisn"), siswa.get("nama"), siswa.get("rombel"), catatan or None,
+         len(perubahan), 1 if (sudah_lengkap or diunggah) else 0, ip),
+    )
+
+    with db.transaction() as conn:
+        for key, baru in perubahan.items():
+            spec = FIELD_BY_KEY.get(key)
+            conn.execute(
+                """
+                INSERT INTO change_request_items(request_id, field, label, nilai_lama, nilai_baru)
+                VALUES(?,?,?,?,?)
+                """,
+                (request_id, key, spec.label if spec else field_label_aman(key),
+                 _text(siswa.get(key)), _text(baru)),
+            )
+
+    for jenis, (nama_asli, isi) in (dokumen or {}).items():
+        simpan_dokumen(student_id, jenis, nama_asli, isi, aktor=aktor, request_id=request_id)
+
+    lengkap, kurang = dokumen_lengkap(student_id)
+    db.execute(
+        "UPDATE change_requests SET dokumen_lengkap = ? WHERE id = ?",
+        (1 if lengkap else 0, request_id),
+    )
+    log_audit(aktor, "siswa", "ajukan_perubahan", "change_requests", request_id,
+              f"{len(perubahan)} kolom; dokumen {'lengkap' if lengkap else 'kurang: ' + ', '.join(kurang)}")
+    return ambil_pengajuan(request_id) or {}
+
+
+def field_label_aman(key: str) -> str:
+    spec = FIELD_BY_KEY.get(key)
+    return spec.label if spec else key.replace("_", " ").title()
+
+
+def ambil_pengajuan(request_id: int) -> dict[str, Any] | None:
+    data = _pengajuan_dari_row(
+        db.query_one("SELECT * FROM change_requests WHERE id = ?", (request_id,))
+    )
+    if data is None:
+        return None
+    data["siswa"] = get_student(int(data["student_id"]))
+    data["dokumen_siswa"] = dokumen_terbaru(int(data["student_id"]))
+    return data
+
+
+def daftar_pengajuan(status: str | None = None, q: str | None = None,
+                     limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+    klausa, params = [], []
+    if status and status != "semua":
+        klausa.append("r.status = ?")
+        params.append(status)
+    if q:
+        klausa.append("(r.nama LIKE ? OR r.nisn LIKE ? OR r.rombel LIKE ?)")
+        pola = f"%{q.strip()}%"
+        params.extend([pola, pola, pola])
+    where = f"WHERE {' AND '.join(klausa)}" if klausa else ""
+    return db.rows_to_dicts(
+        db.query_all(
+            f"""
+            SELECT r.*, (SELECT COUNT(*) FROM change_request_items i WHERE i.request_id = r.id) AS item_count,
+                   (SELECT COUNT(*) FROM student_documents d WHERE d.request_id = r.id) AS dokumen_count
+              FROM change_requests r
+              {where}
+             ORDER BY CASE r.status WHEN 'menunggu' THEN 0 ELSE 1 END, r.id DESC
+             LIMIT ? OFFSET ?
+            """,
+            (*params, limit, offset),
+        )
+    )
+
+
+def hitung_pengajuan(status: str | None = None) -> int:
+    if status:
+        return int(db.query_value("SELECT COUNT(*) FROM change_requests WHERE status = ?", (status,)) or 0)
+    return int(db.query_value("SELECT COUNT(*) FROM change_requests") or 0)
+
+
+def statistik_pengajuan() -> dict[str, int]:
+    return {
+        "menunggu": hitung_pengajuan("menunggu"),
+        "disetujui": hitung_pengajuan("disetujui"),
+        "ditolak": hitung_pengajuan("ditolak"),
+        "total": hitung_pengajuan(),
+    }
+
+
+def pengajuan_siswa(student_id: int, limit: int = 20) -> list[dict[str, Any]]:
+    """Pengajuan milik seorang siswa, lengkap dengan rincian kolom yang diusulkan."""
+    rows = db.rows_to_dicts(
+        db.query_all(
+            """
+            SELECT r.*, (SELECT COUNT(*) FROM change_request_items i WHERE i.request_id = r.id) AS item_count
+              FROM change_requests r
+             WHERE r.student_id = ?
+             ORDER BY r.id DESC LIMIT ?
+            """,
+            (student_id, limit),
+        )
+    )
+    for row in rows:
+        row["items"] = db.rows_to_dicts(
+            db.query_all(
+                "SELECT field, label, nilai_lama, nilai_baru FROM change_request_items WHERE request_id = ? ORDER BY id",
+                (row["id"],),
+            )
+        )
+    return rows
+
+
+def putuskan_pengajuan(request_id: int, terima: bool, aktor: str, catatan: str = "") -> dict[str, Any]:
+    """Setujui atau tolak pengajuan. Bila disetujui, data siswa langsung diperbarui."""
+    pengajuan = ambil_pengajuan(request_id)
+    if pengajuan is None:
+        raise ValueError("Pengajuan tidak ditemukan.")
+    if pengajuan["status"] != "menunggu":
+        raise ValueError(f"Pengajuan ini sudah diputuskan ({pengajuan['status']}).")
+
+    student_id = int(pengajuan["student_id"])
+    jumlah = 0
+    if terima:
+        nilai = {item["field"]: item["nilai_baru"] for item in pengajuan["items"]}
+        nilai = {key: (None if value in (None, "") else value) for key, value in nilai.items()}
+        for sumber, flag in (("penerima_kps", "is_kps"), ("penerima_kip", "is_kip"),
+                             ("layak_pip", "is_layak_pip")):
+            if sumber in nilai:
+                nilai[flag] = 1 if str(nilai[sumber] or "").strip().lower().startswith("ya") else 0
+        perubahan = update_student(student_id, nilai, actor=aktor, source="pengajuan_siswa")
+        jumlah = len(perubahan)
+        # Bukti yang dipakai saat menyetujui ikut ditandai diterima: berkas pada
+        # pengajuan ini dan berkas terbaru tiap jenis yang jadi rujukan admin.
+        for dokumen in pengajuan["dokumen"]:
+            periksa_dokumen(int(dokumen["id"]), "diterima", aktor)
+        for dokumen in dokumen_terbaru(student_id).values():
+            periksa_dokumen(int(dokumen["id"]), "diterima", aktor)
+
+    if not terima:
+        for dokumen in pengajuan["dokumen"]:
+            periksa_dokumen(int(dokumen["id"]), "ditolak", aktor, catatan or None)
+
+    db.execute(
+        """
+        UPDATE change_requests
+           SET status = ?, catatan_admin = ?, diputuskan_at = datetime('now','localtime'),
+               diputuskan_oleh = ?
+         WHERE id = ?
+        """,
+        ("disetujui" if terima else "ditolak", catatan or None, aktor, request_id),
+    )
+    log_audit(aktor, "admin", "putuskan_pengajuan" if terima else "tolak_pengajuan",
+              "change_requests", request_id,
+              f"{pengajuan['nama']} ({pengajuan['nisn']}) — {jumlah} kolom diterapkan")
+    hasil = ambil_pengajuan(request_id) or {}
+    hasil["jumlah_diterapkan"] = jumlah
+    return hasil
+
+
+def batalkan_pengajuan(request_id: int, aktor: str | None = None) -> None:
+    db.execute(
+        "UPDATE change_requests SET status = 'dibatalkan' WHERE id = ? AND status = 'menunggu'",
+        (request_id,),
+    )
+    log_audit(aktor, "siswa", "batalkan_pengajuan", "change_requests", request_id)

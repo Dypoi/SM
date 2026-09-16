@@ -102,9 +102,14 @@
             Siswa wajib mengisi tanggal lahir saat login (selain NISN)
           </label>
           <label class="check">
-            <input type="checkbox" name="siswa_boleh_edit_data" value="1"
-                   {{ 'checked' if settings.siswa_boleh_edit_data != '0' }}>
-            Siswa boleh memperbaiki sendiri data alamat dan kontak
+            <input type="checkbox" name="pengajuan_aktif" value="1"
+                   {{ 'checked' if settings.pengajuan_aktif != '0' }}>
+            Siswa boleh mengajukan perubahan data (disetujui admin)
+          </label>
+          <label class="check">
+            <input type="checkbox" name="pengajuan_wajib_dokumen" value="1"
+                   {{ 'checked' if settings.pengajuan_wajib_dokumen != '0' }}>
+            Wajib melampirkan foto akta kelahiran, kartu keluarga, dan ijazah
           </label>
           <label class="check">
             <input type="checkbox" name="ekskul_aktif" value="1"
@@ -349,6 +354,7 @@
       <div class="form-actions mt-3">
         <a class="btn btn-outline" href="/pembaruan">{{ icon('refresh') }} Pembaruan aplikasi (git pull)</a>
         <a class="btn btn-outline" href="/pengaturan/dokumentasi-api">{{ icon('book') }} Dokumentasi API</a>
+        <a class="btn btn-outline" href="/pengajuan">{{ icon('check') }} Persetujuan pengajuan siswa</a>
       </div>
     </div>
   </div>

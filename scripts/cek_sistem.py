@@ -102,12 +102,13 @@ def cek_parser():
     parsed = parse_sheet(sheet)
     assert parsed.kind == "daftar_peserta_didik", f"jenis terdeteksi: {parsed.kind}"
     assert parsed.header_row > 1, "baris judul seharusnya dilewati"
-    assert parsed.mapped_field_count >= 60, f"hanya {parsed.mapped_field_count} kolom terpetakan"
+    assert parsed.mapped_field_count >= 50, f"hanya {parsed.mapped_field_count} kolom terpetakan"
+    assert len(parsed.ignored_columns) >= 10, "kolom lama seharusnya terdeteksi & diabaikan"
     assert len(parsed.records) > 100, f"hanya {len(parsed.records)} baris terbaca"
     errors = [i for i in parsed.issues if i.level == "error"]
     assert not errors, f"ada {len(errors)} error tidak terduga: {errors[:2]}"
     return (f"{len(parsed.records)} baris, {parsed.mapped_field_count}/{parsed.total_columns} kolom, "
-            f"header baris {parsed.header_row}, sub-header {parsed.sub_header_row}")
+            f"{len(parsed.ignored_columns)} kolom lama diabaikan, header baris {parsed.header_row}")
 
 
 @cek("4. Impor ke database + riwayat impor")
@@ -324,7 +325,107 @@ def cek_pembaruan():
             f"pemeriksaan tiap {jadwal // 60} menit")
 
 
-@cek("14. Halaman HTTP (status 200 & izin akses)")
+@cek("14. Pengajuan perubahan data & berkas pendukung")
+def cek_pengajuan():
+    """Uji alur pengajuan siswa: berkas wajib, keputusan admin, dan audit."""
+    from app import services
+    from app.dapodik import STUDENT_FIELDS
+
+    assert set(services.DOKUMEN_LABEL) == {"akta_lahir", "kk", "ijazah"}, "jenis berkas berubah"
+    assert "nisn" not in services.FIELD_DAPAT_DIAJUKAN, "NISN tidak boleh dapat diajukan"
+    assert len(services.FIELD_DAPAT_DIAJUKAN) == len(STUDENT_FIELDS) - 1
+
+    sid = services.create_student(
+        {"nama": "UJI PENGAJUAN", "nisn": "3999900001", "jk": "L", "rombel": "7A",
+         "alamat": "Jl. Sebelum", "hp": "0800000000"},
+        actor="cek",
+    )
+
+    # Berkas wajib dulu: pengajuan tanpa berkas harus ditolak.
+    try:
+        services.ajukan_perubahan(sid, {"hp": "0811111111"}, aktor="cek")
+        raise AssertionError("pengajuan tanpa berkas seharusnya ditolak")
+    except ValueError as exc:
+        assert "Berkas wajib" in str(exc)
+
+    berkas = {
+        "akta_lahir": ("akta.png", b"\x89PNG\r\n\x1a\n" + b"uji" * 8),
+        "kk": ("kk.png", b"\x89PNG\r\n\x1a\n" + b"uji" * 8),
+        "ijazah": ("ijazah.pdf", b"%PDF-1.4 uji"),
+    }
+    pengajuan = services.ajukan_perubahan(
+        sid, {"hp": "0812222222", "nisn": "0000000000"},
+        catatan="uji", aktor="siswa:3999900001", dokumen=berkas,
+    )
+    rid = int(pengajuan["id"])
+    assert [item["field"] for item in pengajuan["items"]] == ["hp"], "NISN ikut diajukan!"
+    assert services.dokumen_lengkap(sid)[0] is True
+    assert len(pengajuan["dokumen"]) == 3
+
+    # Tolak: data siswa tidak berubah dan berkas harus diunggah ulang.
+    services.putuskan_pengajuan(rid, False, aktor="admin", catatan="kurang jelas")
+    assert services.get_student(sid)["hp"] == "0800000000", "data berubah walau ditolak"
+    assert services.dokumen_lengkap(sid)[0] is False, "berkas ditolak tidak boleh dihitung"
+
+    pengajuan2 = services.ajukan_perubahan(sid, {"hp": "0813333333"}, aktor="cek", dokumen=berkas)
+    rid2 = int(pengajuan2["id"])
+    services.putuskan_pengajuan(rid2, True, aktor="admin", catatan="sesuai")
+    assert services.get_student(sid)["hp"] == "0813333333", "data baru tidak diterapkan"
+    assert services.ambil_pengajuan(rid2)["status"] == "disetujui"
+    riwayat = [row for row in services.student_changes(sid, limit=20)
+               if row["source"] == "pengajuan_siswa" and row["field"] == "hp"]
+    assert riwayat, "perubahan dari pengajuan tidak tercatat"
+
+    # Siswa dapat membatalkan pengajuannya sendiri selama masih menunggu.
+    pengajuan3 = services.ajukan_perubahan(sid, {"alamat": "Jl. Baru"}, aktor="cek")
+    services.batalkan_pengajuan(int(pengajuan3["id"]), aktor="cek")
+    assert services.ambil_pengajuan(int(pengajuan3["id"]))["status"] == "dibatalkan"
+
+    stat = services.statistik_pengajuan()
+    return (f"{len(services.FIELD_DAPAT_DIAJUKAN)} kolom dapat diajukan (NISN terkunci); "
+            f"3 jenis berkas; disetujui {stat['disetujui']} / ditolak {stat['ditolak']}")
+
+
+@cek("15. Halaman pengajuan & portal siswa (izin akses)")
+def cek_http_pengajuan():
+    """Pastikan halaman pengajuan hanya untuk admin dan portal aman bagi siswa."""
+    import asyncio
+
+    import httpx
+
+    from app import services
+    from app.main import app
+    from app.migrations import run_migrations
+
+    run_migrations()
+    services.create_student({"nama": "UJI PORTAL", "nisn": "3999900002", "jk": "P"}, actor="cek")
+
+    async def skenario():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://cek",
+                                     follow_redirects=False) as klien:
+            r = await klien.get("/pengajuan")
+            assert r.status_code in {303, 403}, "anonim bisa membuka /pengajuan"
+
+            await klien.post("/login", data={"mode": "siswa", "nisn": "3999900002"})
+            r = await klien.get("/portal/pengajuan")
+            assert r.status_code == 200, "siswa tidak bisa membuka form pengajuan"
+            assert "NISN" in r.text and "name=\"nisn\"" not in r.text
+            r = await klien.get("/pengajuan")
+            assert r.status_code in {303, 403}, "siswa bisa membuka halaman admin"
+            await klien.post("/logout")
+
+            await klien.post("/login", data={"mode": "staff", "username": "admin",
+                                             "password": "admin123"})
+            r = await klien.get("/pengajuan")
+            assert r.status_code == 200, "admin tidak bisa membuka /pengajuan"
+            assert "Persetujuan" in r.text
+            await klien.post("/logout")
+
+    asyncio.run(skenario())
+    return "halaman admin aman; form siswa tampil tanpa kolom NISN"
+
+@cek("16. Halaman HTTP (status 200 & izin akses)")
 def cek_http():
     """Menembak semua halaman utama memakai ASGI in-process (asinkron)."""
     import asyncio
@@ -408,7 +509,9 @@ def main() -> int:
     cek_keamanan()
     cek_api_kontrak()
     cek_pembaruan()
+    cek_pengajuan()
     if args.http:
+        cek_http_pengajuan()
         cek_http()
 
     berhasil = sum(1 for _, ok, _ in HASIL if ok)
