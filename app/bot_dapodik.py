@@ -131,6 +131,10 @@ SELECTOR_CADANGAN: dict[str, list[str]] = {
 #: Batas waktu singkat untuk menguji satu kandidat selector (detik).
 SELEKTOR_UJI_DETIK = 6
 
+#: Berapa lama menunggu lapisan pemuatan Ext JS (``div.x-mask``) hilang sebelum
+#: mengisi kolom / menekan tombol (skrip asli sekolah menunggu hal yang sama).
+LAPISAN_TUNGGU_DETIK = 10
+
 #: Batas waktu pemeriksaan selector pada laporan «Uji koneksi Dapodik» (detik).
 UJI_TUNGGU_PERTAMA = 4
 UJI_TUNGGU_LAIN = 2
@@ -507,6 +511,67 @@ class BotDapodik:
         except TimeoutException as exc:
             raise TimeoutException("Overlay loading masih aktif setelah timeout.") from exc
 
+    def _tunggu_lapisan(self, peramban, detik: float | None = None) -> bool:
+        """Tunggu lapisan pemuatan Ext JS (``div.x-mask``) hilang.
+
+        Skrip asli sekolah selalu menunggu ini sebelum mengisi/menekan tombol. Pada
+        beberapa versi Dapodik lapisan itu menutupi formulir login sehingga klik
+        biasa tertelan. Kembalikan ``True`` bila layar sudah bersih.
+        """
+        batas = float(detik if detik is not None else LAPISAN_TUNGGU_DETIK)
+        mulai = time.time()
+        while True:
+            try:
+                sisa = int(peramban.execute_script(
+                    """
+                    const tampak = (el) => {
+                        const kotak = el.getBoundingClientRect();
+                        const gaya = window.getComputedStyle(el);
+                        return kotak.width > 1 && kotak.height > 1 &&
+                               gaya.display !== 'none' && gaya.visibility !== 'hidden';
+                    };
+                    return [...document.querySelectorAll(
+                        'div.x-mask, .loading-mask, #loading')].filter(tampak).length;
+                    """) or 0)
+            except Exception:  # noqa: BLE001 — tidak bisa diperiksa: anggap bersih
+                return True
+            if sisa <= 0:
+                return True
+            if time.time() - mulai >= batas:
+                return False
+            time.sleep(0.4)
+
+    def _nilai_kolom(self, peramban, locator) -> str:
+        """Isi kolom saat ini (dibaca ulang dari halaman) — '' bila tidak terbaca."""
+        try:
+            return str(peramban.find_element(*locator).get_attribute("value") or "")
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _isi_dan_periksa(self, peramban, locator, nilai: str, label: str) -> dict[str, Any]:
+        """Isi kolom lalu pastikan isinya benar-benar masuk (dibaca ulang).
+
+        Menangkap kejadian "kolom ketemu & diketik, tetapi halaman tidak menerimanya"
+        (mis. kolom readonly/tertutup lapisan) — penyebab login gagal yang sulit dilihat.
+        Nilai sandi tidak pernah dicatat, hanya panjangnya.
+        """
+        self._tunggu_lapisan(peramban)
+        self._isi(peramban, locator, nilai)
+        isi = self._nilai_kolom(peramban, locator)
+        if str(nilai).strip() and str(nilai).strip() not in isi:
+            try:  # percobaan kedua: tampilkan lalu isi lewat skrip
+                elemen = peramban.find_element(*locator)
+                self._paksa_terlihat(peramban, elemen)
+                self._isi_lewat_js(peramban, elemen, nilai)
+                isi = self._nilai_kolom(peramban, locator)
+            except Exception:  # noqa: BLE001 — tetap laporkan hasil terakhir
+                pass
+        hasil = {"terisi": bool(isi) and str(nilai).strip() in isi, "panjang": len(isi)}
+        self._catat_kepala(f"[login] kolom {label}: " +
+                           ("terisi" if hasil["terisi"] else "GAGAL terisi") +
+                           f" ({hasil['panjang']} karakter)")
+        return hasil
+
     def _tunggu_elemen(self, peramban, locator):
         from selenium.webdriver.support import expected_conditions as EC
         from selenium.webdriver.support.ui import WebDriverWait
@@ -794,6 +859,123 @@ class BotDapodik:
             time.sleep(1)
         return self._formulir_terlihat(peramban)
 
+    def _tunggu_formulir_hilang(self, peramban, detik: float | None = None) -> bool:
+        """Tunggu formulir login hilang sebagai penanda sudah berhasil masuk."""
+        batas = float(detik if detik is not None else self.opsi.get("bot_timeout", "30") or 30)
+        mulai = time.time()
+        while time.time() - mulai < batas:
+            if not self._formulir_terlihat(peramban):
+                return True
+            time.sleep(1)
+        return not self._formulir_terlihat(peramban)
+
+    def _coba_login(self, peramban, peta: dict[str, str]) -> dict[str, Any]:
+        """Uji sungguhan: isi kolom login & tekan tombolnya, lalu laporkan hasilnya.
+
+        Dipakai «Uji koneksi Dapodik» supaya jawabannya pasti: bukan hanya "selector
+        ketemu", tetapi "berhasil masuk" atau pesan Dapodik yang menolak. Tidak pernah
+        melempar galat.
+        """
+        mulai = time.time()
+        hasil: dict[str, Any] = {"dicoba": True, "berhasil": False, "detik": 0.0,
+                                 "pesan": "", "terisi": {}, "judul_setelah": "", "bukti": ""}
+        try:
+            if not self._tunggu_lapisan(peramban, float(self.opsi.get("bot_timeout", "30") or 30)):
+                self._catat_kepala("[uji] lapisan pemuatan Dapodik masih terlihat.")
+            if not self._tunggu_formulir_login(peramban):
+                hasil["pesan"] = ("Formulir login belum tampil sampai batas tunggu habis — "
+                                  "naikkan «Batas tunggu elemen» / «Jeda muat halaman Dapodik».")
+                hasil["detik"] = round(time.time() - mulai, 1)
+                return hasil
+
+            if not (self.opsi.get("bot_username", "").strip() and
+                    self.opsi.get("bot_password", "")):
+                hasil["pesan"] = ("Nama pengguna/kata sandi Dapodik belum diisi pada «Pengaturan» — "
+                                  "isi dulu keduanya, lalu uji lagi supaya percobaan masuk benar-benar "
+                                  "dijalankan.")
+                hasil["detik"] = round(time.time() - mulai, 1)
+                return hasil
+
+            loc: dict[str, Any] = {}
+            for kunci in ("login_username", "login_password"):
+                locator, _, _ = self._cari_dengan_cadangan(peramban, kunci, peta, wajib=False,
+                                                           boleh_tak_terlihat=True)
+                if locator is not None:
+                    loc[kunci] = locator
+            if len(loc) < 2:
+                kenal = self._kenali_kolom_login(peramban)
+                for kunci in ("login_username", "login_password"):
+                    if kunci in loc or not kenal.get(kunci):
+                        continue
+                    try:
+                        loc[kunci] = self._locator_nilai(kenal[kunci]["selector"])
+                    except Exception:  # noqa: BLE001
+                        continue
+            if len(loc) < 2:
+                hasil["pesan"] = ("Kolom nama pengguna/kata sandi belum dapat dipakai pada halaman "
+                                  "ini — lihat tabel status selector di atas.")
+                hasil["detik"] = round(time.time() - mulai, 1)
+                return hasil
+
+            for kunci, label, nilai in (("login_username", "nama pengguna",
+                                         self.opsi.get("bot_username", "")),
+                                        ("login_password", "kata sandi",
+                                         self.opsi.get("bot_password", ""))):
+                hasil["terisi"][kunci] = self._isi_dan_periksa(peramban, loc[kunci], nilai, label)
+            belum = [kunci for kunci, info in hasil["terisi"].items() if not info.get("terisi")]
+            if belum:
+                hasil["pesan"] = ("Kolom " + ", ".join(belum) + " tidak mau diisi oleh peramban — "
+                                  "coba lagi, atau jalankan uji dengan pilihan «Tampilkan jendela "
+                                  "Chrome».")
+                hasil["detik"] = round(time.time() - mulai, 1)
+                return hasil
+
+            loc_tombol = None
+            try:
+                loc_tombol, _, _ = self._cari_dengan_cadangan(peramban, "login_tombol", peta,
+                                                              wajib=False, boleh_tak_terlihat=True)
+            except Exception:  # noqa: BLE001
+                loc_tombol = None
+            if loc_tombol is None:
+                kenal_tombol = self._kenali_kolom_login(peramban).get("login_tombol")
+                if kenal_tombol:
+                    try:
+                        loc_tombol = self._locator_nilai(kenal_tombol["selector"])
+                    except Exception:  # noqa: BLE001
+                        loc_tombol = None
+            if loc_tombol is not None:
+                self._klik_aman(peramban, loc_tombol)
+            else:
+                from selenium.webdriver.common.keys import Keys
+
+                peramban.find_element(*loc["login_password"]).send_keys(Keys.RETURN)
+                self._catat_kepala("[uji] tombol masuk tidak dikenali — formulir dikirim dengan Enter.")
+
+            batas = float(self.opsi.get("bot_timeout", "30") or 30)
+            berhasil = self._tunggu_formulir_hilang(peramban, batas)
+            pesan_dapodik = "" if berhasil else self._pesan_dapodik(peramban)
+            hasil["detik"] = round(time.time() - mulai, 1)
+            try:
+                hasil["judul_setelah"] = (peramban.title or "").strip()[:120]
+            except Exception:  # noqa: BLE001
+                hasil["judul_setelah"] = ""
+            hasil["bukti"] = self._bukti(peramban, "uji-masuk")
+            if berhasil:
+                hasil["berhasil"] = True
+                hasil["pesan"] = (f"Login berhasil — halaman Dapodik berpindah dari formulir login "
+                                  f"dalam {hasil['detik']} detik (judul sekarang: "
+                                  f"'{hasil['judul_setelah'] or '(tanpa judul)'}'). Bot siap dijalankan.")
+            elif pesan_dapodik:
+                hasil["pesan"] = "Dapodik menolak login: " + pesan_dapodik
+            else:
+                hasil["pesan"] = ("Formulir login masih tampil setelah tombol masuk ditekan — "
+                                  "halaman belum berpindah. Coba jalankan uji dengan pilihan "
+                                  "«Tampilkan jendela Chrome» atau naikkan «Batas tunggu elemen».")
+        except Exception as exc:  # noqa: BLE001 — alat bantu, selalu laporkan
+            hasil["detik"] = round(time.time() - mulai, 1)
+            hasil["pesan"] = f"{type(exc).__name__}: {str(exc)[:250]}"
+        return hasil
+
     def _login(self, peramban) -> None:
         """Masuk ke Dapodik dan buka daftar peserta didik.
 
@@ -875,21 +1057,48 @@ class BotDapodik:
                 loc_tombol = self._locator_nilai(kenal["selector"])
                 self._catat_kepala(f"[selector] 'login_tombol' dikenali otomatis: {kenal['selector']}")
 
-        self._isi(peramban, loc["login_username"], self.opsi.get("bot_username", ""))
-        self._isi(peramban, loc["login_password"], self.opsi.get("bot_password", ""))
+        # Lapisan pemuatan Ext JS harus hilang dulu, sama seperti skrip asli sekolah;
+        # kalau tidak, ketikan/klik bisa tertelan lapisan itu.
+        if not self._tunggu_lapisan(peramban):
+            self._catat_kepala("[login] lapisan pemuatan Dapodik masih terlihat — mengisi kolom "
+                               "lewat jalur paksa.")
+
+        terisi = {
+            "login_username": self._isi_dan_periksa(peramban, loc["login_username"],
+                                                    self.opsi.get("bot_username", ""), "nama pengguna"),
+            "login_password": self._isi_dan_periksa(peramban, loc["login_password"],
+                                                    self.opsi.get("bot_password", ""), "kata sandi"),
+        }
+        kurang = [nama for nama, info in terisi.items() if not info["terisi"]]
+        if kurang:
+            self._catat_kepala("[login] peringatan: kolom " + ", ".join(kurang) +
+                               " belum berisi nilai yang benar — login bisa ditolak Dapodik.")
         if loc_tombol is not None:
             self._klik_aman(peramban, loc_tombol)
         else:
             # Tidak ada tombol masuk yang dikenali: kirim formulir dengan Enter.
             from selenium.webdriver.common.keys import Keys
 
-            self._isi(peramban, loc["login_password"], self.opsi.get("bot_password", "") + "")
             peramban.find_element(*loc["login_password"]).send_keys(Keys.RETURN)
             self._catat_kepala("Tombol masuk tidak ditemukan — formulir dikirim dengan Enter.")
         time.sleep(2)
         self._tunggu_halaman(peramban)
         if self._galat_halaman(peramban):
             raise RuntimeError(self._galat_halaman(peramban))
+
+        # Pastikan benar-benar sudah masuk: formulir login harus sudah berpindah.
+        if self._formulir_terlihat(peramban):
+            akhir = self._tunggu_formulir_hilang(peramban)
+            if not akhir:
+                pesan_dapodik = self._pesan_dapodik(peramban)
+                bukti = self._bukti(peramban, "gagal-login")
+                raise RuntimeError(
+                    "Formulir login masih tampil setelah tombol masuk ditekan — Dapodik "
+                    "belum mengizinkan masuk. " +
+                    (f"Pesan Dapodik: {pesan_dapodik} " if pesan_dapodik else
+                     "Periksa kembali nama pengguna & kata sandi pada pengaturan bot. ") +
+                    f"(bukti: {bukti or 'tidak tersimpan'}). Gunakan «Uji koneksi Dapodik» "
+                    "untuk mencoba masuk sekaligus melihat rinciannya.")
 
         # menu tujuan (mis. Peserta Didik) lalu dua menu lanjutan seperti skrip asli
         loc_menu, _, _ = self._cari_dengan_cadangan(peramban, "menu_tujuan", peta)
@@ -1278,7 +1487,8 @@ def _keadaan_halaman(peramban) -> dict[str, Any]:
         return {"galat": f"{type(exc).__name__}: {str(exc)[:120]}"}
 
 
-def uji_dapodik(opsi: dict[str, str] | None = None) -> dict[str, Any]:
+def uji_dapodik(opsi: dict[str, str] | None = None,
+                coba_login: bool = False) -> dict[str, Any]:
     """Buka Dapodik sebentar lalu laporkan apa yang benar-benar terlihat.
 
     Alat bantu bila bot berhenti dengan TimeoutException. Laporan memuat: judul &
@@ -1286,6 +1496,9 @@ def uji_dapodik(opsi: dict[str, str] | None = None) -> dict[str, Any]:
     tombol beserta status terlihat, status tiap selector login (cocok / ada tetapi
     belum terlihat / tidak ditemukan), serta usulan selector baru siap-tempel.
     Tidak pernah melempar galat ke pemanggil.
+
+    Bila ``coba_login`` benar, kolom login sekalian diisi, tombol masuk ditekan, dan
+    hasilnya dilaporkan pada kunci ``masuk`` (pasti: berhasil masuk atau pesan Dapodik).
     """
     opsi = dict(opsi or services.bot_setting())
     bot = BotDapodik(0, [], [], opsi)
@@ -1314,6 +1527,7 @@ def uji_dapodik(opsi: dict[str, str] | None = None) -> dict[str, Any]:
         laporan.update({k: v for k, v in bot._ringkas_halaman(peramban).items()
                         if k not in ("galat_ringkas",)})
         laporan["halaman"] = _keadaan_halaman(peramban)
+        laporan["lapisan_bersih"] = bot._tunggu_lapisan(peramban)
         laporan["formulir_tampil"] = bot._tunggu_formulir_login(peramban)
 
         kolom, tombol = bot._deskripsi_unsur(peramban)
@@ -1328,6 +1542,12 @@ def uji_dapodik(opsi: dict[str, str] | None = None) -> dict[str, Any]:
             if keadaan["keadaan"] != "terlihat" and kenal.get(kunci):
                 laporan["saran"][kunci] = kenal[kunci]["selector"]
 
+        # Nama lama (dipakai pesan ringkas & pemeriksaan mandiri) tetap diisi.
+        laporan["selector_cocok"] = {
+            kunci: ("bawaan" if info.get("keadaan") == "terlihat" and not info.get("cadangan")
+                    else "cadangan" if info.get("keadaan") == "terlihat"
+                    else info.get("keadaan") or "tidak_ada")
+            for kunci, info in laporan["selector_status"].items()}
         if laporan["saran"]:
             laporan["saran_json"] = json.dumps(laporan["saran"], ensure_ascii=False, indent=2)
         belum_terlihat = [kunci for kunci, keadaan in laporan["selector_status"].items()
@@ -1354,6 +1574,18 @@ def uji_dapodik(opsi: dict[str, str] | None = None) -> dict[str, Any]:
             laporan["catatan"].append(
                 "Tidak ada kolom isian sama sekali: aplikasi Dapodik kemungkinan belum selesai "
                 "membuka halaman, atau alamat/port yang dituju salah.")
+        if not laporan["lapisan_bersih"]:
+            laporan["catatan"].append(
+                "Lapisan pemuatan Dapodik (mask/overlay) masih terlihat setelah ditunggu — "
+                "halaman memang belum siap. Bot akan mengisi kolom lewat jalur paksa; bila masih "
+                "gagal, naikkan «Jeda muat halaman Dapodik».")
+        if coba_login:
+            laporan["masuk"] = bot._coba_login(peramban, peta)
+            if laporan["masuk"]["berhasil"]:
+                laporan["catatan"].append("Percobaan masuk: " + laporan["masuk"]["pesan"])
+            else:
+                laporan["catatan"].append(
+                    "Percobaan masuk belum berhasil: " + (laporan["masuk"]["pesan"] or "tanpa keterangan"))
         laporan["bukti"] = bot._bukti(peramban, "uji-koneksi-dapodik")
     except Exception as exc:  # noqa: BLE001 — alat bantu, selalu kembalikan laporan
         laporan["galat"] = f"{type(exc).__name__}: {str(exc)[:300]}"

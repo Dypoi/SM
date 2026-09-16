@@ -32,6 +32,11 @@
             (memakai Chrome yang terpasang di PC ini).
           {% endif %}
         </p>
+        <p class="muted" style="margin:0 0 .35rem; font-size:.83rem">
+          Uji koneksi bisa sekalian <strong>mencoba masuk</strong> (kolom login diisi &amp; tombol masuk
+          ditekan seperti pekerjaan sungguhan, sampai ±1 menit) dan/atau dijalankan dengan
+          <strong>jendela Chrome tampak</strong> untuk membandingkan bila mode di belakang layar gagal.
+        </p>
         <p class="muted" style="margin:0; font-size:.83rem">
           Tahap yang sudah dikerjakan bot sekarang: <strong>pendaftaran peserta didik (Registrasi)</strong>
           bagi siswa yang belum ada di Dapodik, sekaligus mengisi <strong>NIS</strong> dari kolom NIPD,
@@ -46,8 +51,12 @@
           <button class="btn btn-danger btn-sm" type="submit">{{ icon('x') }} Hentikan bot</button>
         </form>
         {% endif %}
-        <form method="post" action="/bot-dapodik/uji" class="inline-form"
+        <form method="post" action="/bot-dapodik/uji" class="inline-form opsi-uji"
               data-confirm="Buka Dapodik sebentar untuk memeriksa halaman & selector? Bot perlu berhenti dan Chrome akan dibuka lalu ditutup.">
+          <label class="cek-bot" title="Kolom login diisi &amp; tombol masuk ditekan seperti pekerjaan sungguhan, lalu hasilnya dilaporkan (bisa sampai ±1 menit).">
+            <input type="checkbox" name="coba_login" value="1" checked><span>Coba masuk</span></label>
+          <label class="cek-bot" title="Uji sekali ini saja dengan jendela Chrome terlihat, seperti menjalankan skrip manual.">
+            <input type="checkbox" name="tampak" value="1"><span>Jendela tampak</span></label>
           <button class="btn btn-outline btn-sm" type="submit">{{ icon('search') }} Uji koneksi Dapodik</button>
         </form>
         <a class="btn btn-outline btn-sm" href="/bot-dapodik/log.csv">{{ icon('download') }} Log CSV</a>
@@ -113,9 +122,13 @@
   <div class="card-head">
     <div>
       <h3>Hasil Uji Koneksi Dapodik</h3>
-      <p>{{ laporan_uji.waktu }} · {{ laporan_uji.url }}{{ ' · jendela tampak' if not laporan_uji.headless else ' · di belakang layar' }}</p>
+      <p>{{ laporan_uji.waktu }} · {{ laporan_uji.url }}{{ ' · jendela tampak' if not laporan_uji.headless else ' · di belakang layar' }}{{ ' · percobaan masuk: ' ~ ('berhasil' if (laporan_uji.masuk or {}).get('berhasil') else 'belum berhasil') if laporan_uji.masuk }}</p>
     </div>
-    <form method="post" action="/bot-dapodik/uji" class="inline-form">
+    <form method="post" action="/bot-dapodik/uji" class="inline-form opsi-uji">
+      <label class="cek-bot" title="Kolom login diisi &amp; tombol masuk ditekan seperti pekerjaan sungguhan.">
+        <input type="checkbox" name="coba_login" value="1" checked><span>Coba masuk</span></label>
+      <label class="cek-bot" title="Jalankan uji ini dengan jendela Chrome terlihat.">
+        <input type="checkbox" name="tampak" value="1" {{ 'checked' if not laporan_uji.headless }}><span>Jendela tampak</span></label>
       <button class="btn btn-outline btn-sm" type="submit">Ulangi uji koneksi</button>
     </form>
   </div>
@@ -140,6 +153,27 @@
       <ul class="langkah-bot mt-2">
         {% for baris in laporan_uji.catatan %}<li>{{ baris }}</li>{% endfor %}
       </ul>
+      {% endif %}
+
+      {% if laporan_uji.masuk %}
+      {% set masuk = laporan_uji.masuk %}
+      <div class="alert {{ 'alert-success' if masuk.berhasil else 'alert-warning' }} mt-2" role="status">
+        <span class="alert-icon">{{ icon('check') if masuk.berhasil else icon('warning') }}</span>
+        <div>
+          <strong>Percobaan masuk: {{ 'BERHASIL' if masuk.berhasil else 'belum berhasil' }}</strong>
+          <span class="muted">· {{ masuk.detik }} detik</span>
+          <div style="font-size:.86rem">{{ masuk.pesan }}</div>
+          {% if masuk.terisi %}
+          <div class="muted" style="font-size:.78rem">
+            {% for kunci, info in masuk.terisi.items() %}{{ kunci }}: {{ 'terisi ' ~ info.panjang ~ ' karakter' if info.terisi else 'GAGAL terisi' }}{{ ' · ' if not loop.last }}{% endfor %}
+          </div>
+          {% endif %}
+          {% if not masuk.berhasil %}
+          <div class="muted" style="font-size:.78rem">Ingin lebih pasti? Ulangi uji dengan centang
+            <strong>«Tampilkan jendela Chrome»</strong> supaya terlihat apa yang dikerjakan peramban.</div>
+          {% endif %}
+        </div>
+      </div>
       {% endif %}
 
       <div class="section-title">Status selector login</div>
@@ -171,8 +205,10 @@
       <div class="section-title">Saran selector (dari halaman ini)</div>
       <pre class="mono-blok" style="max-height:180px">{{ laporan_uji.saran_json }}</pre>
       <form method="post" action="/bot-dapodik/pakai-saran" class="inline-form mt-1">
-        <button class="btn btn-primary btn-sm" type="submit">{{ icon('check') }} Pakai saran selector</button>
-        <span class="hint">Selector yang tidak ketemu diganti dengan usulan di atas; sisanya tetap.</span>
+        <input type="hidden" name="coba_login" value="1">
+        <input type="hidden" name="tampak" value="{{ '0' if laporan_uji.headless else '1' }}">
+        <button class="btn btn-primary btn-sm" type="submit">{{ icon('check') }} Pakai saran selector &amp; uji ulang</button>
+        <span class="hint">Selector yang tidak ketemu diganti usulan di atas (tersimpan di <em>Peta tombol Dapodik</em>, dipakai bot saat bekerja), lalu bot langsung mencoba masuk lagi sebagai bukti.</span>
       </form>
       {% endif %}
 

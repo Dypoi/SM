@@ -162,31 +162,82 @@ async def mulai_bot(request: Request, user: auth.SessionUser = Depends(auth.requ
                   anchor="kemajuan")
 
 
+def _ringkas_selector(laporan: dict) -> str:
+    """Kalimat ringkas keadaan selector login untuk pesan di halaman."""
+    status = laporan.get("selector_status") or {}
+    terlihat = [k for k, v in status.items() if v.get("keadaan") == "terlihat"]
+    belum = [k for k, v in status.items() if v.get("keadaan") == "ada_tak_terlihat"]
+    hilang = [k for k, v in status.items() if v.get("keadaan") == "tidak_ada"]
+    kalimat = f"selector login cocok {len(terlihat)}/{len(status) or 3}"
+    if belum:
+        kalimat += f", {len(belum)} ada tetapi belum terlihat ({', '.join(belum)})"
+    if hilang:
+        kalimat += f", tidak ditemukan: {', '.join(hilang)}"
+    return kalimat
+
+
 @router.post("/bot-dapodik/uji")
-def uji_koneksi(user: auth.SessionUser = Depends(auth.require_admin)):
-    """Buka Dapodik sebentar & laporkan apa yang terlihat (alat bantu selector)."""
+def uji_koneksi(coba_login: str = Form("0"), tampak: str = Form("0"),
+                user: auth.SessionUser = Depends(auth.require_admin)):
+    """Buka Dapodik sebentar & laporkan apa yang terlihat (alat bantu selector).
+
+    Pilihan ``coba_login`` membuat bot sekalian mengisi kolom login & menekan tombol
+    masuk seperti pekerjaan sungguhan, sehingga jawabannya pasti: berhasil masuk, atau
+    pesan penolakan dari Dapodik. ``tampak`` menjalankan uji ini dengan jendela Chrome
+    terlihat (untuk membandingkan dengan mode di belakang layar).
+    """
     if bot_dapodik.bot_berjalan() is not None:
         return _pesan("Hentikan bot dulu sebelum menguji koneksi Dapodik.", level="warn",
                       anchor="jalankan")
     siap, keterangan = services.bot_siap_pakai()
     if not siap and "selenium" in keterangan:
         return _pesan(keterangan, level="err", anchor="jalankan")
-    laporan = bot_dapodik.uji_dapodik()
+    opsi = dict(services.bot_setting())
+    if tampak == "1":
+        opsi["bot_headless"] = "0"      # hanya untuk uji kali ini
+    percobaan_masuk = coba_login == "1"
+    alasan_lewat = ""
+    if percobaan_masuk and not (opsi.get("bot_username", "").strip() and opsi.get("bot_password", "")):
+        percobaan_masuk = False
+        alasan_lewat = (" Percobaan masuk dilewati karena nama pengguna/kata sandi belum diisi "
+                        "pada «Pengaturan».")
+    laporan = bot_dapodik.uji_dapodik(opsi, coba_login=percobaan_masuk)
     services.simpan_laporan_uji_bot(laporan)
     if laporan.get("galat"):
         return _pesan(f"Uji koneksi gagal: {laporan['galat']}", level="err", anchor="catatan-uji")
-    cocok = laporan.get("selector_cocok") or {}
-    jumlah_cocok = sum(1 for nilai in cocok.values() if nilai in ("bawaan", "cadangan"))
+    masuk = laporan.get("masuk") or {}
+    if percobaan_masuk and masuk.get("dicoba"):
+        if masuk.get("berhasil"):
+            return _pesan("Uji koneksi + percobaan masuk: BERHASIL. " + str(masuk.get("pesan") or "") +
+                          " Rincian & bukti ada pada kartu di bawah.", anchor="catatan-uji")
+        return _pesan("Uji koneksi selesai, tetapi percobaan masuk BELUM berhasil: " +
+                      str(masuk.get("pesan") or "tanpa keterangan") +
+                      " Rincian, status selector, dan saran selector ada pada kartu di bawah.",
+                      level="warn", anchor="catatan-uji")
+    if laporan.get("formulir_tampil"):
+        return _pesan(
+            f"Uji koneksi selesai. Formulir login tampil (judul: "
+            f"'{laporan.get('judul') or '(tanpa judul)'}'), {_ringkas_selector(laporan)}." +
+            alasan_lewat + " Rincian & bukti pemeriksaan ada pada kartu di bawah.",
+            level="warn" if alasan_lewat else "ok", anchor="catatan-uji")
     return _pesan(
-        f"Uji koneksi selesai. Halaman: '{laporan.get('judul') or '(tanpa judul)'}'. "
-        f"Selector login cocok: {jumlah_cocok}/3 ({cocok}). "
-        f"Rincian & bukti pemeriksaan ada pada kartu di bawah.",
-        level="ok" if jumlah_cocok else "warn", anchor="catatan-uji")
+        f"Uji koneksi selesai, tetapi formulir login BELUM tampil (judul: "
+        f"'{laporan.get('judul') or '(tanpa judul)'}', {_ringkas_selector(laporan)}). "
+        f"Naikkan «Jeda muat halaman Dapodik» lalu uji lagi — atau ulangi uji dengan "
+        f"pilihan «sekalian coba masuk» supaya bot benar-benar mencoba mengisi & menekan tombol." +
+        alasan_lewat,
+        level="warn", anchor="catatan-uji")
 
 
 @router.post("/bot-dapodik/pakai-saran")
-def pakai_saran(user: auth.SessionUser = Depends(auth.require_admin)):
-    """Simpan selector usulan dari hasil uji koneksi terakhir (tanpa mengetik manual)."""
+def pakai_saran(coba_login: str = Form("1"), tampak: str = Form("0"),
+                user: auth.SessionUser = Depends(auth.require_admin)):
+    """Pakai selector usulan dari uji terakhir, lalu langsung uji ulang sebagai bukti.
+
+    Tombol ini bukan sekadar "menyalin teks": hasilnya disimpan ke *Peta tombol
+    Dapodik* (dipakai bot saat bekerja) dan halaman ini langsung menjalankan uji ulang
+    dengan selector baru supaya kelihatan apakah masalahnya benar-benar selesai.
+    """
     laporan = services.laporan_uji_bot()
     saran = (laporan or {}).get("saran") or {}
     if not saran:
@@ -204,9 +255,38 @@ def pakai_saran(user: auth.SessionUser = Depends(auth.require_admin)):
     if galat:
         return _pesan(galat, level="err", anchor="catatan-uji")
     services.simpan_bot_setting({"bot_selector_json": json.dumps(peta, ensure_ascii=False, indent=2)})
-    return _pesan("Selector usulan dipakai: " + ", ".join(sorted(peta)) +
-                  ". Jalankan bot lagi; bila berhasil, pengaturan ini tetap tersimpan.",
-                  anchor="pengaturan-bot")
+
+    # Buktikan langsung: uji ulang memakai selector baru (dan sekalian coba masuk).
+    opsi = dict(services.bot_setting())
+    if tampak == "1":
+        opsi["bot_headless"] = "0"
+    percobaan_masuk = coba_login == "1" and bool(opsi.get("bot_username", "").strip() and
+                                                opsi.get("bot_password", ""))
+    try:
+        laporan_baru = bot_dapodik.uji_dapodik(opsi, coba_login=percobaan_masuk)
+        services.simpan_laporan_uji_bot(laporan_baru)
+    except Exception:  # noqa: BLE001 — penyimpanan selector tetap dianggap berhasil
+        laporan_baru = {}
+    if laporan_baru.get("galat"):
+        return _pesan("Selector usulan tersimpan (" + ", ".join(sorted(saran)) +
+                      "), tetapi uji ulang gagal dijalankan: " + str(laporan_baru["galat"]) +
+                      " Coba tekan «Uji koneksi Dapodik».", level="warn", anchor="pengaturan-bot")
+    masuk = laporan_baru.get("masuk") or {}
+    if percobaan_masuk and masuk.get("berhasil"):
+        return _pesan("Selector usulan dipakai (" + ", ".join(sorted(saran)) +
+                      ") dan uji ulang BERHASIL masuk: " + str(masuk.get("pesan") or "") +
+                      " Bot siap dijalankan.", anchor="catatan-uji")
+    if laporan_baru.get("formulir_tampil"):
+        return _pesan("Selector usulan dipakai (" + ", ".join(sorted(saran)) + "). Uji ulang: " +
+                      _ringkas_selector(laporan_baru) + ". Formulir login sudah tampil — "
+                      "bot siap dijalankan (rincian pada kartu di bawah).", anchor="catatan-uji")
+    return _pesan("Selector usulan tersimpan (" + ", ".join(sorted(saran)) +
+                  "), tetapi uji ulang belum menemukan formulir login (" +
+                  _ringkas_selector(laporan_baru) + "). " +
+                  str(masuk.get("pesan") or "") +
+                  " Coba naikkan «Jeda muat halaman Dapodik», atau ulangi uji dengan pilihan "
+                  "«Tampilkan jendela Chrome» (rincian pada kartu di bawah).",
+                  level="warn", anchor="catatan-uji")
 
 
 @router.post("/bot-dapodik/pasang")

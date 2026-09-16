@@ -452,17 +452,26 @@ Bot Dapodik **sudah aktif** di menu **Bot Dapodik** (khusus admin). Ringkasnya:
 
 **Bila bot berhenti dengan pesan waktu habis / elemen tidak ditemukan** — tekan tombol
 **«Uji koneksi Dapodik»**. Bot membuka Dapodik sebentar lalu menampilkan apa yang
-sebenarnya terlihat: judul halaman, kesiapan halaman (readyState & overlay), daftar
-kolom isian dan tombol beserta status *terlihat/belum*, status tiap selector login
-(cocok bawaan / cocok cadangan / **ada tetapi belum terlihat** / tidak ditemukan), dan
-**usulan selector** siap pakai, plus **tangkapan layar** tersimpan di `data/bot/`.
+sebenarnya terlihat: judul halaman, kesiapan halaman (readyState & overlay/lapisan
+pemuatan), daftar kolom isian dan tombol beserta status *terlihat/belum*, status tiap
+selector login (cocok bawaan / cocok cadangan / **ada tetapi belum terlihat** /
+tidak ditemukan), dan **usulan selector** siap pakai, plus **tangkapan layar**
+tersimpan di `data/bot/`.
+
+Ada dua pilihan pada tombol itu (boleh dipakai bersamaan):
+
+| Pilihan | Gunanya |
+| --- | --- |
+| **Coba masuk** | Bot benar-benar mengisi kolom login & menekan tombol masuk (seperti skrip manual), lalu melaporkan hasilnya: **BERHASIL** atau pesan Dapodik yang menolak. Jadi tidak perlu menebak lagi. Bisa memakan waktu sampai ±1 menit. |
+| **Jendela tampak** | Uji sekali ini dijalankan dengan jendela Chrome terlihat — berguna untuk membandingkan bila mode *di belakang layar* gagal. Pekerjaan bot yang sesungguhnya tetap di belakang layar. |
 
 Arti hasil yang paling sering muncul:
 
 | Hasil | Artinya | Tindakan |
 | --- | --- | --- |
 | Kolom login **“ada, belum terlihat”** | Halaman Dapodik belum selesai dimuat (atau memakai halaman pembuka) | Bot sekarang menunggu sendiri sampai kolom terlihat; kalau masih sering, naikkan *Jeda muat halaman Dapodik* ke 15–20 dan *Batas tunggu elemen* ke 60 |
-| **“tidak ditemukan”** pada satu selector | Tombol/kolom berganti nama pada versi Dapodik ini | Tekan **«Pakai saran selector»** pada kartu hasil uji — selector usulan otomatis tersimpan |
+| **“tidak ditemukan”** pada satu selector | Tombol/kolom berganti nama pada versi Dapodik ini | Tekan **«Pakai saran selector & uji ulang»** pada kartu hasil uji — usulan tersimpan ke *Peta tombol Dapodik* (dipakai bot saat bekerja) dan bot langsung menguji ulang sebagai bukti |
+| **Percobaan masuk belum berhasil** | Halaman belum berpindah setelah tombol masuk ditekan | Lihat pesan di bawahnya (mis. pesan penolakan Dapodik), lalu ulangi uji dengan centang **Jendela tampak** untuk melihat langsung apa yang terjadi |
 | **Tidak ada kolom sama sekali** | Alamat/port salah atau Dapodik belum berjalan | Buka `http://localhost:5774/` di Chrome biasa untuk memastikan |
 
 Catatan penting:
@@ -477,6 +486,12 @@ Catatan penting:
 - Bila kolom login sudah ada di halaman tetapi belum terlihat (Dapodik masih memuat),
   bot menunggu lebih dulu, dan sebagai jalan terakhir mengisi kolom lewat skrip supaya
   pekerjaan tidak langsung gagal.
+- Bot juga **menunggu lapisan pemuatan Ext JS** (`div.x-mask`) hilang sebelum mengisi &
+  menekan tombol — sama seperti skrip manual — karena lapisan itu sering menelan klik.
+- Setelah menekan tombol masuk, bot **memastikan halaman benar-benar berpindah**; bila
+  masih di formulir login, pekerjaan dihentikan dengan pesan yang jelas (termasuk pesan
+  penolakan dari Dapodik bila ada), bukan dibiarkan menggantung. Nilai kolom juga dibaca
+  ulang supaya ketahuan bila ketikan tidak diterima halaman.
 - Bila PC mati atau bot dihentikan di tengah jalan, jalankan lagi dengan pilihan
   *«Dilewati (lanjutkan pekerjaan)»* — siswa yang sudah berhasil tidak didaftarkan dua kali.
 - Siswa tanpa NIPD/NIS dilewati (atau memakai NISN bila pilihan itu dicentang).

@@ -821,6 +821,11 @@ table.data.anggota td input[name="catatan"] { min-width: 190px; }
 .opsi-bot {
   display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
+/* Baris opsi pada form uji koneksi Dapodik (tetap ringkas di kepala kartu). */
+.opsi-uji { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.opsi-uji .cek-bot { font-size: .82rem; }
+.opsi-uji .cek-bot span { white-space: nowrap; }
+
 .cek-bot {
   display: flex; gap: .6rem; align-items: flex-start;
   border: 1px solid var(--border); border-radius: var(--radius-sm);

@@ -4,6 +4,10 @@ Lingkungan uji (sandbox/CI) tidak punya Google Chrome, padahal perilaku bot perl
 diuji: menunggu formulir login tampil, menembus halaman pembuka (splash), mengisi
 kolom yang belum terlihat, dan mengenali selector sendiri.
 
+Skenario yang tersedia: ``splash`` (halaman pembuka), ``kolom_tersembunyi`` (persis
+laporan PC sekolah), ``siap``, ``mask`` (masih tertutup lapisan loading Ext JS),
+``masuk`` (login berhasil setelah tombol ditekan), ``xpath_bawaan``, ``kosong``.
+
 Kelas di sini meniru bagian API Selenium WebDriver yang dipakai ``app/bot_dapodik``
 secukupnya (``find_element``, ``find_elements``, ``execute_script``, ``is_displayed``,
 ``click``, ``send_keys``) sehingga skenario seperti yang dialami di PC sekolah dapat
@@ -71,6 +75,10 @@ class UnsurPalsu:
         """Klik seperti lewat skrip: tetap bekerja walau unsur tidak terlihat."""
         self.diklik += 1
         self._buka_formulir_bila_pembuka()
+        if self.peramban.skenario == "masuk" and self.teks.strip().lower() in ("masuk", "login"):
+            # Tombol kirim formulir login: halaman berpindah ke daftar peserta didik.
+            self.peramban.sudah_masuk = True
+            self.peramban.unsur.append(UnsurPalsu(self.peramban, "a", teks="Peserta Didik"))
 
     def click(self) -> None:
         if not self.is_displayed():
@@ -122,6 +130,9 @@ class PerambanPalsu:
         self.url = ""
         self.judul = "Dapodik"
         self.buka_formulir = skenario != "splash"
+        self.sudah_masuk = False
+        #: berapa kali lapisan loading (div.x-mask) masih terlihat saat ditanya
+        self.mask_sisa = 2 if skenario == "mask" else 0
         self.skrip: list[str] = []
         self.unsur: list[UnsurPalsu] = []
         self.ditutup = False
@@ -157,6 +168,21 @@ class PerambanPalsu:
             self.unsur.append(UnsurPalsu(self, "input", type="password", name="password",
                                          placeholder="Kata sandi"))
             self.unsur.append(UnsurPalsu(self, "button", teks="Masuk"))
+        elif self.skenario == "mask":
+            # Ext JS masih menutupi halaman dengan lapisan loading (div.x-mask);
+            # skrip asli sekolah selalu menunggu lapisan ini hilang lebih dulu.
+            self.unsur.append(UnsurPalsu(self, "input", type="email", name="email",
+                                         placeholder="Email"))
+            self.unsur.append(UnsurPalsu(self, "input", type="password", name="password",
+                                         placeholder="Kata sandi"))
+            self.unsur.append(UnsurPalsu(self, "button", teks="Masuk", id="form2"))
+        elif self.skenario == "masuk":
+            # Halaman siap; setelah tombol Masuk ditekan formulir hilang (login berhasil).
+            self.unsur.append(UnsurPalsu(self, "input", type="email", name="email",
+                                         placeholder="Email"))
+            self.unsur.append(UnsurPalsu(self, "input", type="password", name="password",
+                                         placeholder="Kata sandi"))
+            self.unsur.append(UnsurPalsu(self, "button", teks="Masuk", id="form2"))
         elif self.skenario == "xpath_bawaan":
             # Halaman yang cocok dengan skrip bot asli (selector bawaan semuanya tepat).
             self.unsur.append(UnsurPalsu(self, "input", type="text", name="username",
@@ -168,6 +194,8 @@ class PerambanPalsu:
         """Skenario splash: kolom login baru terlihat setelah tombol pembuka diklik."""
         if self.skenario == "splash" and unsur.type in ("text", "password"):
             return self.buka_formulir
+        if self.skenario == "masuk" and unsur.type in ("text", "password", "email"):
+            return not self.sudah_masuk      # setelah login berhasil formulir hilang
         return unsur.terlihat
 
     # ------------------------------------------------------------ pencarian - #
@@ -259,6 +287,11 @@ class PerambanPalsu:
     # ------------------------------------------------------------ skrip ----- #
     def execute_script(self, skrip: str, *argumen: Any) -> Any:
         self.skrip.append(skrip)
+        if "x-mask" in skrip and "querySelectorAll" in skrip:
+            if self.mask_sisa > 0:
+                self.mask_sisa -= 1
+                return 1
+            return 0
         if "document.readyState" in skrip and "return" in skrip and "kolom" not in skrip:
             return "complete"
         if "input[type=password], input[type=email], input[type=text]" in skrip:
@@ -322,7 +355,7 @@ class PerambanPalsu:
         return [u.teks or u.id for u in self.unsur if u.diklik]
 
 
-SKENARIO = ("splash", "kolom_tersembunyi", "siap", "xpath_bawaan", "kosong")
+SKENARIO = ("splash", "kolom_tersembunyi", "siap", "mask", "masuk", "xpath_bawaan", "kosong")
 
 
 def buat(skenario: str = "splash") -> PerambanPalsu:
