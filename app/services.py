@@ -1195,6 +1195,41 @@ def pilihan_siswa_ekskul(limit: int = 1200) -> list[dict[str, Any]]:
     )
 
 
+def cari_siswa_cepat(ekskul_id: int, rombel: str = "", cari: str = "",
+                     batas: int = 25) -> list[dict[str, Any]]:
+    """Cari siswa untuk dijadikan anggota ekskul: per kelas dan/atau nama/NISN.
+
+    Dipakai halaman ekskul pada bagian "Cari cepat siswa" — pembina/pelatih
+    sering hanya tahu kelasnya, bukan NISN-nya. Siswa yang sudah menjadi
+    anggota ditandai ``sudah_anggota`` supaya tidak ditambahkan dua kali.
+    """
+    rombel = (rombel or "").strip()[:20]
+    cari = (cari or "").strip()[:60]
+    if not rombel and not cari:
+        return []
+    syarat: list[str] = []
+    nilai: list[Any] = [ekskul_id]  # untuk EXISTS pada SELECT
+    if rombel:
+        syarat.append("s.rombel = ?")
+        nilai.append(rombel)
+    if cari:
+        if cari.isdigit():
+            syarat.append("s.nisn LIKE ?")
+            nilai.append(f"{cari}%")
+        else:
+            syarat.append("LOWER(s.nama) LIKE ?")
+            nilai.append(f"%{cari.lower()}%")
+    nilai.append(batas)
+    sql = (
+        "SELECT s.id, s.nisn, s.nama, s.rombel, s.jk, "
+        "(SELECT COUNT(*) FROM ekskul_members m WHERE m.student_id = s.id AND m.ekskul_id = ?) "
+        "  AS sudah_anggota "
+        "FROM students s WHERE " + " AND ".join(syarat) +
+        " ORDER BY s.rombel COLLATE NOCASE, s.nama COLLATE NOCASE LIMIT ?"
+    )
+    return db.rows_to_dicts(db.query_all(sql, tuple(nilai)))
+
+
 def ekskul_members(ekskul_id: int) -> list[dict[str, Any]]:
     return db.rows_to_dicts(
         db.query_all(

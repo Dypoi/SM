@@ -25,8 +25,16 @@ router = APIRouter()
 JABATAN_OPTIONS = ("Anggota", "Ketua", "Wakil Ketua", "Sekretaris", "Bendahara", "Pelatih")
 
 
-def _redirect(pesan: str, level: str = "ok", target: str = "/ekstrakurikuler"):
-    return RedirectResponse(f"{target}?level={level}&msg={quote_plus(pesan)}", status_code=303)
+def _redirect(pesan: str, level: str = "ok", target: str = "/ekstrakurikuler", fragmen: str = ""):
+    """Alihkan halaman disertai pesan.
+
+    ``target`` boleh sudah memuat query (mis. hasil "Cari cepat siswa"), jadi
+    pemisah & ditambahkan, dan ``fragmen`` menaruh penanda bagian halaman.
+    """
+    pemisah = "&" if "?" in target else "?"
+    ujung = f"#{fragmen}" if fragmen else ""
+    return RedirectResponse(f"{target}{pemisah}level={level}&msg={quote_plus(pesan)}{ujung}",
+                            status_code=303)
 
 
 def _boleh_kelola(user: auth.SessionUser, ekskul_id: int) -> bool:
@@ -101,12 +109,16 @@ def simpan_ekskul(
 
 
 @router.get("/ekstrakurikuler/{ekskul_id}")
-def detail_ekskul(request: Request, ekskul_id: int, user: auth.SessionUser = Depends(auth.require_user)):
+def detail_ekskul(request: Request, ekskul_id: int, rombel: str = "", cari: str = "",
+                  user: auth.SessionUser = Depends(auth.require_user)):
     ekskul = services.get_ekskul(ekskul_id)
     if ekskul is None:
         return render(request, "error.html", {"kode": 404, "pesan": "Ekstrakurikuler tidak ditemukan."}, status_code=404)
     if not _boleh_kelola(user, ekskul_id):
         return _tolak_kelola(user)
+    rombel = (rombel or "").strip()
+    cari = (cari or "").strip()
+    ada_cari = bool(rombel or cari)
     return render(
         request,
         "ekskul/detail.html",
@@ -121,6 +133,10 @@ def detail_ekskul(request: Request, ekskul_id: int, user: auth.SessionUser = Dep
             "pilihan_siswa": services.pilihan_siswa_ekskul(),
             "nilai_options": services.EKSKUL_NILAI,
             "jabatan_options": JABATAN_OPTIONS,
+            "rombel_dipilih": rombel,
+            "kata_cari": cari,
+            "cari_aktif": ada_cari,
+            "hasil_cari": services.cari_siswa_cepat(ekskul_id, rombel=rombel, cari=cari) if ada_cari else [],
         },
     )
 
@@ -139,11 +155,21 @@ def tambah_anggota(
     student_id: str = Form(""),
     nisn: str = Form(""),
     jabatan: str = Form("Anggota"),
+    kembali_rombel: str = Form(""),
+    kembali_cari: str = Form(""),
     user: auth.SessionUser = Depends(auth.require_user),
 ):
     if not _boleh_kelola(user, ekskul_id):
         return _tolak_kelola(user)
     target = f"/ekstrakurikuler/{ekskul_id}"
+    # Bila penambahan dilakukan dari hasil "Cari cepat siswa", kembalikan ke hasil
+    # pencarian itu supaya pembina dapat memasukkan beberapa siswa sekaligus.
+    rombel_kembali = (kembali_rombel or "").strip()[:20]
+    cari_kembali = (kembali_cari or "").strip()[:60]
+    fragmen = ""
+    if rombel_kembali or cari_kembali:
+        target += f"?rombel={quote_plus(rombel_kembali)}&cari={quote_plus(cari_kembali)}"
+        fragmen = "cari-cepat"
     siswa = None
     if student_id.isdigit():
         siswa = services.get_student(int(student_id))
@@ -153,14 +179,15 @@ def tambah_anggota(
 
     if siswa is None:
         return _redirect(galat or "Siswa tidak ditemukan. Masukkan NISN yang benar.", level="err",
-                         target=target)
+                         target=target, fragmen=fragmen)
 
     member_id = services.add_ekskul_member(ekskul_id, siswa["id"], jabatan=jabatan or "Anggota",
                                            actor=user.username)
     if member_id is None:
-        return _redirect(f"{siswa['nama']} sudah terdaftar di ekstrakurikuler ini.", level="warn", target=target)
+        return _redirect(f"{siswa['nama']} sudah terdaftar di ekstrakurikuler ini.", level="warn",
+                         target=target, fragmen=fragmen)
     return _redirect(f"{siswa['nama']} ({siswa.get('rombel') or '-'}) masuk ke ekstrakurikuler.",
-                     target=target)
+                     target=target, fragmen=fragmen)
 
 
 @router.post("/ekstrakurikuler/anggota/{member_id}/hapus")

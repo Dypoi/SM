@@ -274,6 +274,45 @@ def cek_ekskul():
             assert halaman.status_code == 200
             assert 'value="A"' in halaman.text and 'name="catatan"' in halaman.text, \
                 "dropdown nilai A-D & kolom catatan harus ada di halaman ekskul"
+            assert "panel di samping" not in halaman.text, \
+                "teks bantuan jangan menyuruh mencari panel di samping lagi"
+            assert "/data-siswa" not in halaman.text, \
+                "akun ekskul tidak boleh diberi tautan ke halaman petugas (jalan buntu)"
+
+            # "Cari cepat siswa": cari per kelas, lalu masukkan satu per satu
+            anggota_ada = db.query_one(
+                "SELECT s.id, s.nisn, s.rombel FROM ekskul_members m "
+                "JOIN students s ON s.id = m.student_id WHERE m.ekskul_id = ? LIMIT 1",
+                (ekskul_id,))
+            rombel_uji = (anggota_ada["rombel"] if anggota_ada and anggota_ada["rombel"] else None) or \
+                db.query_value("SELECT rombel FROM students WHERE rombel IS NOT NULL "
+                               "AND TRIM(rombel) <> '' ORDER BY rombel LIMIT 1")
+            cari_kelas = await klien.get(f"/ekstrakurikuler/{ekskul_id}?rombel={rombel_uji}")
+            assert cari_kelas.status_code == 200
+            assert 'name="student_id"' in cari_kelas.text, \
+                "hasil cari cepat harus punya tombol Masukkan per siswa"
+            if anggota_ada and anggota_ada["nisn"]:
+                cari_nisn = await klien.get(f"/ekstrakurikuler/{ekskul_id}?cari={anggota_ada['nisn']}")
+                assert "sudah anggota" in cari_nisn.text, \
+                    "siswa yang sudah menjadi anggota harus ditandai pada hasil pencarian"
+            siswa_lain = db.query_one(
+                "SELECT id FROM students WHERE rombel = ? AND id NOT IN "
+                "(SELECT student_id FROM ekskul_members WHERE ekskul_id = ?) LIMIT 1",
+                (rombel_uji, ekskul_id))
+            if siswa_lain:
+                masuk_kelas = await klien.post(
+                    f"/ekstrakurikuler/{ekskul_id}/anggota",
+                    data={"student_id": str(siswa_lain["id"]), "jabatan": "Anggota",
+                          "kembali_rombel": str(rombel_uji), "kembali_cari": ""})
+                assert masuk_kelas.status_code == 303, masuk_kelas.status_code
+                tujuan = masuk_kelas.headers.get("location", "")
+                assert "#cari-cepat" in tujuan and f"rombel={rombel_uji}" in tujuan, tujuan
+                assert db.query_value(
+                    "SELECT COUNT(*) FROM ekskul_members WHERE ekskul_id = ? AND student_id = ?",
+                    (ekskul_id, siswa_lain["id"])) == 1, "anggota dari hasil cari tidak tersimpan"
+                services.remove_ekskul_member(
+                    int(db.query_value("SELECT id FROM ekskul_members WHERE ekskul_id = ? AND student_id = ?",
+                                       (ekskul_id, siswa_lain["id"]))), actor="cek")
             assert "Aktif latihan" in halaman.text
 
             # nilai huruf & catatan lewat HTTP (seperti yang dilakukan pembina)
@@ -1142,10 +1181,22 @@ def cek_tabel():
 
     import httpx
 
+    from app import db, services
     from app.main import app
 
+    # Tabel anggota ekskul hanya punya baris kalau ada anggotanya. Tanpa baris,
+    # sel gabungan yang membuat tabel punya kolom tanpa kepala tidak ketahuan —
+    # dulu tombol Aksi melenceng karena itu. Jadi ditambah satu anggota sementara.
+    ekskul_uji = next((item["id"] for item in services.list_ekskul()), None)
+    siswa_uji = db.query_one("SELECT id FROM students LIMIT 1")
+    anggota_uji = None
+    if ekskul_uji and siswa_uji:
+        anggota_uji = services.add_ekskul_member(ekskul_uji, int(siswa_uji["id"]), actor="cek")
+
     css = (BASE_DIR / "app" / "static" / "css" / "app.css").read_text(encoding="utf-8")
-    kelas_css = set(re.findall(r"table\.([a-zA-Z0-9_-]+)", css)) | {"kartu", "tabel-kecil", "preview-table"}
+    kelas_css = {"kartu", "tabel-kecil", "preview-table"}
+    for rantai in re.findall(r"table\.((?:[a-zA-Z0-9_-]+\.)*[a-zA-Z0-9_-]+)", css):
+        kelas_css.update(rantai.split("."))
     assert "data" in kelas_css, "kelas dasar tabel (table.data) hilang dari CSS"
 
     template = sorted((BASE_DIR / "app" / "templates").rglob("*.html"))
@@ -1277,15 +1328,18 @@ def cek_tabel():
                     for nama_kelas in data["kelas"].split():
                         if nama_kelas and nama_kelas not in kelas_css:
                             keliru.append(f"{path} tabel#{indeks}: kelas '{nama_kelas}' tanpa gaya")
-        return f"{jumlah_tabel} tabel pada 12 halaman diperiksa"
+        return (f"{jumlah_tabel} tabel pada 12 halaman diperiksa"
+                + (" (termasuk baris tabel anggota)" if anggota_uji else ""))
 
     rincian = asyncio.run(jalankan())
+    if anggota_uji:
+        services.remove_ekskul_member(int(anggota_uji), actor="cek")
     assert not keliru, "; ".join(sorted(set(keliru))[:4])
     assert not tanpa_wrap, "; ".join(sorted(set(tanpa_wrap))[:4])
     assert not kartu_tanpa_label, ("sel kartu tanpa data-label: "
                                    + ", ".join(sorted(set(kartu_tanpa_label))[:4]))
     return (f"{rincian}; kelas tabel ber-CSS; semua terbungkus .table-wrap; "
-            "jumlah sel seragam; label kartu tertulis dari server")
+            "lebar kolom baris = kepala tabel; label kartu tertulis dari server")
 
 
 def main() -> int:

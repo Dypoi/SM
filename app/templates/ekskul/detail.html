@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, nilai %}
+{% from "_macros.html" import icon, nilai, empty_state %}
 
 {% block content %}
 {% if user.is_ekskul %}
@@ -61,138 +61,211 @@
   </div>
 </div>
 
-<div class="split mt-2">
-  <div class="card">
-    <div class="card-head">
-      <div>
-        <h3>Anggota ({{ anggota | length }})</h3>
-        <p>
-          Nilai memakai huruf <strong>A, B, C, D</strong>; catatan diisi per siswa.
-          Perubahan disimpan dengan tombol <em>Simpan</em> di barisnya.
-        </p>
-      </div>
-    </div>
-
-    {# Form tambah anggota duduk tepat di atas daftar: selalu terjangkau, di
-       layar lebar maupun sempit, tanpa perlu menggulir mencari panel samping. #}
-    <div class="card-body tambah-anggota" id="tambah-anggota">
-      <form method="post" action="/ekstrakurikuler/{{ ekskul.id }}/anggota" class="form-tambah-anggota">
-        <div class="field">
-          <label for="nisn">Tambah anggota — tulis NISN atau nama siswa</label>
-          <input type="text" id="nisn" name="nisn" list="daftar-siswa"
-                 placeholder="0113374384 atau Ahmad Fauzi" autocomplete="off" required>
-          <datalist id="daftar-siswa">
-            {% for s in pilihan_siswa or [] %}
-            <option value="{{ s.nisn }}">{{ s.nama }}{% if s.rombel %} · {{ s.rombel }}{% endif %}</option>
-            {% endfor %}
-          </datalist>
-          <span class="hint">Bila ada nama kembar, tuliskan NISN-nya.</span>
-        </div>
-        <div class="field">
-          <label for="jabatan">Jabatan</label>
-          <select id="jabatan" name="jabatan">
-            {% for jab in jabatan_options %}
-              <option value="{{ jab }}">{{ jab }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <button class="btn btn-primary" type="submit">{{ icon('plus') }} Masukkan ke ekskul</button>
-      </form>
-    </div>
-
-    <div class="card-body p-0 table-wrap">
-      <table class="data kartu">
-        <caption class="sr-only">Daftar anggota ekstrakurikuler beserta jabatan, nilai, dan catatan</caption>
-        <thead>
-          <tr>
-            <th style="width:44px">#</th><th>Nama</th><th>NISN</th><th>Rombel</th>
-            <th>Jabatan</th><th>Nilai</th><th>Catatan</th><th class="text-right">Aksi</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for m in anggota %}
-          <tr>
-            <td class="muted" data-label="#">{{ loop.index }}</td>
-            <td data-label="Nama">
-              <a href="/data-siswa/{{ m.student_id }}"><strong>{{ m.nama }}</strong></a>
-              <div class="muted" style="font-size:.74rem">{{ m.tahun_ajaran or '-' }} · {{ m.status }}</div>
-            </td>
-            <td class="mono" data-label="NISN">{{ nilai(m.nisn) }}</td>
-            <td data-label="Rombel">{% if m.rombel %}<span class="badge badge-primary">{{ m.rombel }}</span>{% else %}—{% endif %}</td>
-            <td colspan="4" data-label="Jabatan, nilai &amp; catatan">
-              <form method="post" action="/ekstrakurikuler/anggota/{{ m.id }}" class="baris-nilai">
-                <select name="jabatan" aria-label="Jabatan {{ m.nama }}">
-                  {% for jab in jabatan_options %}
-                    <option value="{{ jab }}" {{ 'selected' if m.jabatan == jab }}>{{ jab }}</option>
-                  {% endfor %}
-                </select>
-                <select name="nilai" aria-label="Nilai {{ m.nama }}">
-                  <option value="">— nilai —</option>
-                  {% for huruf in nilai_options %}
-                    <option value="{{ huruf }}" {{ 'selected' if m.predikat == huruf }}>{{ huruf }}</option>
-                  {% endfor %}
-                  {% if m.predikat and m.predikat not in nilai_options %}
-                    <option value="{{ m.predikat }}" selected>{{ m.predikat }} (nilai lama)</option>
-                  {% endif %}
-                </select>
-                <input type="text" name="catatan" value="{{ m.catatan or '' }}" maxlength="160"
-                       placeholder="Catatan untuk siswa ini" aria-label="Catatan {{ m.nama }}">
-                <select name="status" aria-label="Status {{ m.nama }}">
-                  <option value="aktif" {{ 'selected' if m.status == 'aktif' }}>aktif</option>
-                  <option value="nonaktif" {{ 'selected' if m.status == 'nonaktif' }}>nonaktif</option>
-                  <option value="keluar" {{ 'selected' if m.status == 'keluar' }}>keluar</option>
-                </select>
-                <button class="btn btn-outline btn-sm" type="submit">{{ icon('check') }} Simpan</button>
-              </form>
-            </td>
-            <td class="text-right" data-label="Aksi">
-              <form method="post" action="/ekstrakurikuler/anggota/{{ m.id }}/hapus"
-                    data-confirm="Keluarkan {{ m.nama }} dari {{ ekskul.nama }}?">
-                <button class="btn btn-outline btn-sm" type="submit" title="Keluarkan dari ekskul">{{ icon('trash') }}</button>
-              </form>
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="8" class="empty-cell"><p class="empty">Belum ada anggota. Tambahkan siswa lewat panel di samping.</p></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Anggota ({{ anggota | length }})</h3>
+      <p>
+        Nilai memakai huruf <strong>A, B, C, D</strong>; catatan diisi per siswa.
+        Perubahan disimpan dengan tombol <em>Simpan</em> di barisnya.
+      </p>
     </div>
   </div>
 
-  <aside>
-    <div class="card">
-      <div class="card-head">
-        <div>
-          <h3>Ringkasan</h3>
-          <p>Ikhtisar ekstrakurikuler ini.</p>
-        </div>
-      </div>
-      <div class="card-body">
-        <dl class="kv" style="grid-template-columns:1fr">
-          <dt>Jumlah anggota</dt><dd>{{ anggota | length }}</dd>
-          <dt>Status</dt><dd>{{ 'Aktif' if ekskul.aktif else 'Nonaktif' }}</dd>
-          <dt>Pembina</dt><dd>{{ ekskul.pembina or '—' }}</dd>
-          <dt>Pelatih</dt><dd>{{ ekskul.pelatih or '—' }}</dd>
-        </dl>
-      </div>
-    </div>
-
-    {% if opsi_rombel %}
-    <div class="card mt-2">
-      <div class="card-head"><h3>Cari cepat</h3></div>
-      <div class="card-body">
-        <p class="soft" style="font-size:.83rem">
-          Buka daftar siswa per rombel, salin NISN atau namanya, lalu tambahkan di sini.
-        </p>
-        <div class="tag-list">
-          {% for rombel in opsi_rombel %}
-            <a class="chip chip-muted" href="/data-siswa?rombel={{ rombel }}">{{ rombel }}</a>
+  {# Isian tambah anggota selalu di atas daftar: tidak perlu menggulir mencari
+     panel, dan di layar sempit tetap di tempat yang sama. #}
+  <div class="card-body tambah-anggota" id="tambah-anggota">
+    <form method="post" action="/ekstrakurikuler/{{ ekskul.id }}/anggota" class="form-tambah-anggota">
+      <div class="field">
+        <label for="nisn">Tambah anggota — tulis NISN atau nama siswa</label>
+        <input type="text" id="nisn" name="nisn" list="daftar-siswa"
+               placeholder="0113374384 atau Ahmad Fauzi" autocomplete="off" required>
+        <datalist id="daftar-siswa">
+          {% for s in pilihan_siswa or [] %}
+          <option value="{{ s.nisn }}">{{ s.nama }}{% if s.rombel %} · {{ s.rombel }}{% endif %}</option>
           {% endfor %}
-        </div>
+        </datalist>
+        <span class="hint">Bila ada nama kembar, tuliskan NISN-nya.</span>
       </div>
+      <div class="field">
+        <label for="jabatan">Jabatan</label>
+        <select id="jabatan" name="jabatan">
+          {% for jab in jabatan_options %}
+            <option value="{{ jab }}">{{ jab }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="btn btn-primary" type="submit">{{ icon('plus') }} Masukkan ke ekskul</button>
+    </form>
+  </div>
+
+  {# Cari cepat: pembina/pelatih biasanya tahu kelasnya, belum tentu NISN-nya.
+     Hasil pencarian bisa dimasukkan satu per satu tanpa mencari ulang. #}
+  <details class="cari-cepat" id="cari-cepat" {{ 'open' if cari_aktif }}>
+    <summary>{{ icon('search') }} <span>Cari cepat siswa — pilih kelas atau tulis nama</span></summary>
+    <div class="cari-cepat-isi">
+      <form method="get" action="/ekstrakurikuler/{{ ekskul.id }}#cari-cepat" class="form-cari-cepat">
+        <div class="field">
+          <label for="cari">Nama atau NISN siswa</label>
+          <input type="search" id="cari" name="cari" value="{{ kata_cari }}"
+                 placeholder="mis. Ahmad atau 0115109370" autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="rombel">Kelas</label>
+          <select id="rombel" name="rombel">
+            <option value="">— semua kelas —</option>
+            {% for rb in opsi_rombel %}
+            <option value="{{ rb }}" {{ 'selected' if rombel_dipilih == rb }}>{{ rb }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button class="btn btn-outline" type="submit">{{ icon('search') }} Cari siswa</button>
+        {% if cari_aktif %}
+        <a class="btn btn-outline" href="/ekstrakurikuler/{{ ekskul.id }}#cari-cepat">{{ icon('x') }} Bersihkan</a>
+        {% endif %}
+      </form>
+
+      {% if cari_aktif %}
+        <p class="cari-ringkas">
+          Hasil pencarian
+          {% if rombel_dipilih %}kelas <strong>{{ rombel_dipilih }}</strong>{% endif %}
+          {% if rombel_dipilih and kata_cari %} dan {% endif %}
+          {% if kata_cari %}kata kunci <strong>&ldquo;{{ kata_cari }}&rdquo;</strong>{% endif %}
+          — {{ hasil_cari | length }} siswa.
+        </p>
+        {% if hasil_cari %}
+        <div class="table-wrap hasil-cari">
+          <table class="data tabel-kecil">
+            <caption class="sr-only">Hasil pencarian siswa untuk dimasukkan ke ekstrakurikuler</caption>
+            <thead>
+              <tr>
+                <th>NISN</th><th>Nama</th><th>Kelas</th><th>JK</th><th class="text-right">Tindakan</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for s in hasil_cari %}
+              <tr>
+                <td class="mono" data-label="NISN">{{ nilai(s.nisn) }}</td>
+                <td data-label="Nama"><strong>{{ s.nama }}</strong></td>
+                <td data-label="Kelas">{{ s.rombel or '—' }}</td>
+                <td data-label="JK">{{ s.jk or '—' }}</td>
+                <td class="text-right" data-label="Tindakan">
+                  {% if s.sudah_anggota %}
+                    <span class="badge badge-muted">sudah anggota</span>
+                  {% else %}
+                    <form method="post" action="/ekstrakurikuler/{{ ekskul.id }}/anggota">
+                      <input type="hidden" name="student_id" value="{{ s.id }}">
+                      <input type="hidden" name="jabatan" value="Anggota">
+                      <input type="hidden" name="kembali_rombel" value="{{ rombel_dipilih }}">
+                      <input type="hidden" name="kembali_cari" value="{{ kata_cari }}">
+                      <button class="btn btn-primary btn-sm" type="submit">{{ icon('plus') }} Masukkan</button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p class="cari-catatan">
+          Menampilkan paling banyak 25 siswa. Hasil tetap terbuka setelah satu siswa dimasukkan,
+          jadi beberapa siswa dari kelas yang sama bisa dimasukkan sekaligus.
+        </p>
+        {% else %}
+        <p class="empty">Tidak ada siswa yang cocok. Coba kata kunci lain atau kelas yang berbeda.</p>
+        {% endif %}
+      {% else %}
+      <p class="cari-catatan">
+        Belum tahu NISN siswa? Pilih <strong>kelas</strong> lalu tekan <strong>Cari siswa</strong>,
+        kemudian tekan <strong>Masukkan</strong> pada nama yang dituju. Boleh juga menuliskan
+        sebagian nama siswa pada isian di atas.
+      </p>
+      {% endif %}
     </div>
-    {% endif %}
-  </aside>
+  </details>
+
+  {% if anggota %}
+  {# Form ubah tiap baris diletakkan terpisah supaya sel tabel tetap sejajar
+     dengan kepala tabel (sebelumnya sel gabungan membuat tabel punya kolom
+     ke-9 tanpa kepala sehingga tombol Aksi melenceng). #}
+  <div class="baris-form" hidden>
+    {% for m in anggota %}
+    <form id="ubah-{{ m.id }}" method="post" action="/ekstrakurikuler/anggota/{{ m.id }}"></form>
+    {% endfor %}
+  </div>
+  <div class="card-body p-0 table-wrap">
+    <table class="data kartu anggota">
+      <caption class="sr-only">Daftar anggota ekstrakurikuler beserta jabatan, nilai, dan catatan</caption>
+      <thead>
+        <tr>
+          <th style="width:44px">#</th><th>Nama</th><th>NISN</th><th>Rombel</th>
+          <th>Jabatan</th><th>Nilai</th><th>Catatan</th><th>Status</th><th class="text-right">Aksi</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in anggota %}
+        <tr>
+          <td class="muted" data-label="#">{{ loop.index }}</td>
+          <td data-label="Nama">
+            {% if user.is_staff %}
+            <a href="/data-siswa/{{ m.student_id }}"><strong>{{ m.nama }}</strong></a>
+            {% else %}
+            <strong>{{ m.nama }}</strong>
+            {% endif %}
+            <div class="muted" style="font-size:.74rem">{{ m.tahun_ajaran or '-' }}</div>
+          </td>
+          <td class="mono" data-label="NISN">{{ nilai(m.nisn) }}</td>
+          <td data-label="Rombel">{% if m.rombel %}<span class="badge badge-primary">{{ m.rombel }}</span>{% else %}—{% endif %}</td>
+          <td data-label="Jabatan">
+            <select form="ubah-{{ m.id }}" name="jabatan" aria-label="Jabatan {{ m.nama }}">
+              {% for jab in jabatan_options %}
+                <option value="{{ jab }}" {{ 'selected' if m.jabatan == jab }}>{{ jab }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td data-label="Nilai">
+            <select form="ubah-{{ m.id }}" name="nilai" aria-label="Nilai {{ m.nama }}">
+              <option value="">— nilai —</option>
+              {% for huruf in nilai_options %}
+                <option value="{{ huruf }}" {{ 'selected' if m.predikat == huruf }}>{{ huruf }}</option>
+              {% endfor %}
+              {% if m.predikat and m.predikat not in nilai_options %}
+                <option value="{{ m.predikat }}" selected>{{ m.predikat }} (nilai lama)</option>
+              {% endif %}
+            </select>
+          </td>
+          <td data-label="Catatan">
+            <input form="ubah-{{ m.id }}" type="text" name="catatan" value="{{ m.catatan or '' }}"
+                   maxlength="160" placeholder="Catatan untuk siswa ini" aria-label="Catatan {{ m.nama }}">
+          </td>
+          <td data-label="Status">
+            <select form="ubah-{{ m.id }}" name="status" aria-label="Status {{ m.nama }}">
+              <option value="aktif" {{ 'selected' if m.status == 'aktif' }}>aktif</option>
+              <option value="nonaktif" {{ 'selected' if m.status == 'nonaktif' }}>nonaktif</option>
+              <option value="keluar" {{ 'selected' if m.status == 'keluar' }}>keluar</option>
+            </select>
+          </td>
+          <td class="text-right nowrap" data-label="Aksi">
+            <button class="btn btn-outline btn-sm" type="submit" form="ubah-{{ m.id }}"
+                    title="Simpan jabatan, nilai, catatan, dan status">{{ icon('check') }} Simpan</button>
+            <form method="post" action="/ekstrakurikuler/anggota/{{ m.id }}/hapus" style="display:inline"
+                  data-confirm="Keluarkan {{ m.nama }} dari {{ ekskul.nama }}?">
+              <button class="btn btn-outline btn-sm" type="submit" title="Keluarkan dari ekskul">{{ icon('trash') }}</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body">
+    {{ empty_state(
+         'Belum ada anggota',
+         'Tulis NISN atau nama siswa pada isian di atas, pilih jabatan, lalu tekan "Masukkan ke ekskul".
+          Belum tahu NISN-nya? Buka "Cari cepat siswa" untuk melihat daftar siswa per kelas.',
+         'users') }}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
