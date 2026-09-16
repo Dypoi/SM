@@ -120,6 +120,23 @@ if errorlevel 1 goto gagal_dependensi
 echo     Dependensi siap.
 echo.
 
+REM Pustaka Bot Dapodik (selenium) bersifat opsional. Bila belum ada, dicoba
+REM dipasang sekarang; tanpa internet aplikasi tetap jalan dan bot masih bisa
+REM memakai Mode uji coba atau dipasang dari halaman Bot Dapodik.
+"%VENV_PY%" -c "import selenium" >nul 2>nul
+if not errorlevel 1 goto bot_siap
+echo [bot] Memasang pustaka Bot Dapodik - perlu internet, sekali saja ...
+"%VENV_PY%" -m pip install -r requirements-bot.txt --quiet --disable-pip-version-check
+"%VENV_PY%" -c "import selenium" >nul 2>nul
+if errorlevel 1 (
+  echo       [!] Belum berhasil - bot Dapodik belum bisa jalan sungguhan.
+  echo           Bisa dicoba lagi dari menu Bot Dapodik di aplikasi.
+) else (
+  echo       Pustaka bot siap.
+)
+echo.
+:bot_siap
+
 REM --- 4. Jalankan ------------------------------------------------------------
 :jalankan_server
 set "PYTHONIOENCODING=utf-8"

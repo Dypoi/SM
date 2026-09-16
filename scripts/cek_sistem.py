@@ -464,6 +464,8 @@ def cek_pembaruan():
         "run.bat tidak memeriksa dependensi inti"
     assert "sm-dependensi.txt" in isi_run, "run.bat tidak menyimpan stempel dependensi"
     assert "goto jalankan_server" in isi_run, "run.bat tidak melewati pemasangan yang tidak perlu"
+    assert "requirements-bot.txt" in isi_run, \
+        "run.bat tidak mencoba memasang pustaka bot (selenium) saat belum ada"
     assert "where " not in isi_run.lower(), "run.bat tidak boleh bergantung pada perintah 'where'"
     urutan = [isi_run.index(".venv\\Scripts\\python.exe"),
               isi_run.index('py.exe"'),
@@ -845,6 +847,15 @@ def cek_http():
             assert "quick-search" in kosong.text, "pencarian cepat topbar tidak dirender"
             assert "filter-panel" in kosong.text, "panel filter lanjutan tidak dirender"
             assert "empty-state" in kosong.text, "keadaan kosong tidak tampil pada daftar siswa"
+
+            # Endpoint kemajuan bot harus tetap sehat walau belum ada pekerjaan sama sekali
+            # (kekeliruan int(None) pernah membuat halaman ini membalas 500).
+            status_bot = await client.get("/bot-dapodik/status.json")
+            assert status_bot.status_code == 200, \
+                f"/bot-dapodik/status.json -> {status_bot.status_code}"
+            isi_status = status_bot.json()
+            assert isi_status["items"] == [] and isi_status["hitung"] in ({}, None), \
+                "status.json tanpa pekerjaan seharusnya kosong, bukan galat"
 
             kunci = services.get_setting("api_key")
             tanpa_kunci = await client.get("/api/statistik")
@@ -1690,6 +1701,20 @@ def cek_bot_dapodik() -> str:
         assert cfg[wajib] == nilai, f"bawaan {wajib} berubah: {cfg[wajib]!r}"
     assert services.simpan_bot_setting({"bukan_kunci_bot": "x"}) == [], "kunci asing ikut tersimpan"
 
+    # 4b) Endpoint kemajuan aman saat belum ada pekerjaan (penyebab galat 500 sebelumnya).
+    from app.routers import bot_routes
+
+    admin_uji = auth.SessionUser(id=1, username="admin", nama="Admin", role=auth.ROLE_ADMIN)
+    kosong = bot_routes.status_json(user=admin_uji)
+    assert kosong["items"] == [], "status.json tanpa pekerjaan harus berisi daftar kosong"
+    assert kosong["job"]["total"] == 0 and not kosong["job"]["id"], "pekerjaan kosong masih terbaca"
+    assert bot_routes.log_csv(user=admin_uji).status_code == 200, "unduhan CSV gagal tanpa pekerjaan"
+    assert bot_routes.log_xlsx(user=admin_uji).status_code == 200, "unduhan Excel gagal tanpa pekerjaan"
+
+    # 4c) Pemasangan pustaka bot dari dalam aplikasi memakai Python aplikasi ini.
+    assert "requirements-bot.txt" in services.perintah_pasang_bot(), "perintah pasang tidak menunjuk berkasnya"
+    assert services.perintah_pasang_bot().startswith('"'), "perintah pasang harus memakai jalur Python lengkap"
+
     # 5) Pekerjaan & item tercatat; mode uji coba (tanpa peramban) sampai tuntas.
     services.simpan_bot_setting({"bot_simulasi": "1", "bot_url": "http://localhost:5774/",
                                  "bot_username": "bot.uji@contoh.id", "bot_password": "rahasia",
@@ -1736,7 +1761,8 @@ def cek_bot_dapodik() -> str:
                / "app" / "templates" / "bot_dapodik.html").read_text(encoding="utf-8")
     for penanda in ('action="/bot-dapodik/pengaturan"', 'action="/bot-dapodik/mulai"',
                     "/bot-dapodik/hentikan", "/bot-dapodik/status.json", "bot-dapodik/log.csv",
-                    'action="/bot-dapodik/bersihkan"'):
+                    'action="/bot-dapodik/bersihkan"', 'action="/bot-dapodik/pasang"',
+                    "perintah_pip"):
         assert penanda in halaman, f"halaman bot kehilangan {penanda}"
 
     # 7) Bila bot dihentikan/gagal, siswa yang belum diproses ditandai jelas.

@@ -68,7 +68,12 @@ def _siapkan_db_path() -> Path:
                     sumber.rename(Path(f"{lama}{sisa}"))
                 except OSError:
                     pass
-        CATATAN_DB = f"Berkas basis data masih memakai nama lama ({DB_NAMA_LAMA}): {exc}"
+        CATATAN_DB = (
+            f"Berkas basis data masih memakai nama lama ({DB_NAMA_LAMA}) karena tidak dapat "
+            f"dipindahkan: {exc} Aplikasi tetap berjalan dan data Anda aman. Agar berganti menjadi "
+            f"{DB_NAMA}, tutup dulu aplikasi/jendela server SM lain atau program yang sedang "
+            "membuka berkas itu, lalu jalankan run.bat sekali lagi."
+        )
         return lama
 
 

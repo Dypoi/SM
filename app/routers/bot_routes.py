@@ -63,6 +63,8 @@ def _konteks(request: Request, **tambahan) -> dict:
         "status_hidup": bot_dapodik.status_bot(),
         "opsi_rombel": services.distinct_values("rombel"),
         "jumlah_berhasil": len(services.bot_nisn_sukses()),
+        "punya_selenium": services.bot_punya_selenium(),
+        "perintah_pip": services.perintah_pasang_bot(),
         "selector_bawaan": bot_dapodik.SELECTOR_BAWAAN,
         "selector_kunci": bot_dapodik.SELECTOR_DIIZINKAN,
         "antrean": [],
@@ -156,6 +158,15 @@ async def mulai_bot(request: Request, user: auth.SessionUser = Depends(auth.requ
                   anchor="kemajuan")
 
 
+@router.post("/bot-dapodik/pasang")
+def pasang_pustaka(user: auth.SessionUser = Depends(auth.require_admin)):
+    """Pasang selenium dari dalam aplikasi (memakai Python aplikasi ini)."""
+    if bot_dapodik.bot_berjalan() is not None:
+        return _pesan("Hentikan bot dulu sebelum memasang pustaka.", level="warn", anchor="jalankan")
+    berhasil, pesan = services.bot_pasang_pustaka()
+    return _pesan(pesan, level="ok" if berhasil else "err", anchor="jalankan")
+
+
 @router.post("/bot-dapodik/hentikan")
 def hentikan(user: auth.SessionUser = Depends(auth.require_admin)):
     if bot_dapodik.hentikan_bot():
@@ -178,7 +189,7 @@ def status_json(user: auth.SessionUser = Depends(auth.require_admin)):
     """Kemajuan terkini (dipakai halaman untuk memperbarui tampilan otomatis)."""
     ringkas = services.ringkas_bot()
     job = ringkas.get("job") or {}
-    job_id = job.get("id")
+    job_id = int(job["id"]) if job.get("id") else 0
     hidup = bot_dapodik.status_bot()
     hitung = ringkas.get("hitung", {})
     return {
@@ -199,10 +210,16 @@ def status_json(user: auth.SessionUser = Depends(auth.require_admin)):
         "items": [
             {"nisn": item["nisn"], "nis": item["nipd"], "nama": item["nama"],
              "status": item["status"], "pesan": item["pesan"], "waktu": item["waktu"]}
-            for item in services.items_bot(int(job_id)) if job_id
+            for item in (services.items_bot(job_id) if job_id else [])
         ],
         "log": (job.get("log") or "").splitlines()[-12:],
     }
+
+
+def _job_terakhir() -> int:
+    """Nomor pekerjaan bot terakhir (0 bila belum ada) — aman untuk basis data kosong."""
+    ringkas = services.ringkas_bot()
+    return int((ringkas.get("job") or {}).get("id") or 0)
 
 
 def _data_item(job_id: int) -> list[dict]:
@@ -211,8 +228,8 @@ def _data_item(job_id: int) -> list[dict]:
 
 @router.get("/bot-dapodik/log.csv")
 def log_csv(user: auth.SessionUser = Depends(auth.require_admin)):
-    job_id = services.ringkas_bot().get("job", {}).get("id") if services.ringkas_bot().get("job") else None
-    baris = _data_item(int(job_id)) if job_id else []
+    job_id = _job_terakhir()
+    baris = _data_item(job_id) if job_id else []
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
     writer.writerow(["No", "NISN", "NIS/NIPD", "Nama", "Status", "Pesan", "Waktu"])
@@ -229,8 +246,7 @@ def log_xlsx(user: auth.SessionUser = Depends(auth.require_admin)):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font
 
-    ringkas = services.ringkas_bot()
-    job_id = (ringkas.get("job") or {}).get("id")
+    job_id = _job_terakhir()
     wb = Workbook()
     ws = wb.active
     ws.title = "Bot Dapodik"
@@ -238,7 +254,7 @@ def log_xlsx(user: auth.SessionUser = Depends(auth.require_admin)):
     ws.append(kepala)
     for sel in ws[1]:
         sel.font = Font(bold=True)
-    for indeks, item in enumerate(_data_item(int(job_id)) if job_id else [], start=1):
+    for indeks, item in enumerate(_data_item(job_id) if job_id else [], start=1):
         ws.append([indeks, item["nisn"] or "", item["nipd"] or "", item["nama"] or "",
                    item["status"], item["pesan"] or "", item["waktu"] or ""])
     for kolom, lebar in zip("ABCDEFG", (5, 14, 14, 30, 11, 60, 20)):

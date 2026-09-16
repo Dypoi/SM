@@ -47,7 +47,21 @@
     {% if not siap %}
     <div class="alert alert-warning mt-2" role="status">
       <span class="alert-icon">{{ icon('warning') }}</span>
-      <div>{{ keterangan_siap }}</div>
+      <div>
+        <p style="margin:0 0 .35rem">{{ keterangan_siap }}</p>
+        {% if not punya_selenium %}
+        <p class="soft" style="margin:0 0 .5rem; font-size:.83rem">
+          Bisa juga lewat Command Prompt pada folder aplikasi:
+          <code class="mono-block" style="display:inline-block; padding:.15rem .4rem">{{ perintah_pip }}</code>
+          — pastikan memakai Python milik aplikasi (<code>.venv</code>), bukan Python lain di komputer.
+        </p>
+        <form method="post" action="/bot-dapodik/pasang" class="inline-form"
+              data-confirm="Pasang pustaka selenium sekarang? Butuh internet dan bisa memakan 1–2 menit.">
+          <button class="btn btn-primary btn-sm" type="submit">{{ icon('download') }} Pasang pustaka bot</button>
+          <span class="hint">Butuh internet, sekali saja. Aplikasi tetap bisa dipakai setelahnya.</span>
+        </form>
+        {% endif %}
+      </div>
     </div>
     {% endif %}
 
@@ -246,6 +260,15 @@
       </div>
     </div>
     <div class="card-body">
+      <p class="soft" style="font-size:.83rem; margin-top:0">
+        Pustaka bot (selenium):
+        {% if punya_selenium %}
+          <span class="badge badge-success">terpasang</span>
+        {% else %}
+          <span class="badge badge-warning">belum terpasang</span> —
+          gunakan tombol <em>Pasang pustaka bot</em> di bagian atas halaman.
+        {% endif %}
+      </p>
       <form method="post" action="/bot-dapodik/pengaturan">
         <div class="form-grid">
           <div class="field span-2">

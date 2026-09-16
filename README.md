@@ -420,11 +420,19 @@ ditambahkan lewat menu **Ekstrakurikuler**.
 Bot Dapodik **sudah aktif** di menu **Bot Dapodik** (khusus admin). Ringkasnya:
 
 1. **Pasang Chrome** di PC sekolah (bot memakai Chrome yang sudah terpasang).
-2. **Pasang pustaka bot sekali saja** — buka Command Prompt pada folder aplikasi:
+2. **Pasang pustaka bot sekali saja.** Cara termudah: buka menu **Bot Dapodik** lalu
+   tekan tombol **«Pasang pustaka bot»** (butuh internet, sekitar 1 menit); status
+   pustaka terlihat pada kartu *Pengaturan Bot*. Bisa juga lewat Command Prompt:
 
    ```bat
-   .venv\Scripts\pip install -r requirements-bot.txt
+   cd C:\SM
+   .venv\Scripts\python -m pip install -r requirements-bot.txt
    ```
+
+   > **Penting:** pemasangan harus memakai Python milik aplikasi (folder `.venv`).
+   > Perintah `pip install ...` biasa bisa masuk ke Python lain di komputer sehingga
+   > aplikasi tetap mengatakan *"Pustaka selenium belum terpasang"*. Bila memakai
+   > `run.bat`, pustaka bot juga dicoba dipasang otomatis saat belum ada.
 
 3. **Isi pengaturan bot**: alamat Dapodik (bawaan `http://localhost:5774/`), surel/NIK
    akun Dapodik, kata sandi, Hobi, dan Cita-cita. Pilihan *Bekerja di belakang layar*

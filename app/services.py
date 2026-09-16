@@ -1664,18 +1664,86 @@ def simpan_bot_setting(data: dict[str, Any]) -> list[str]:
     return berubah
 
 
+#: Nama berkas daftar pustaka khusus bot (berisi selenium).
+BERKAS_PUSTAKA_BOT = "requirements-bot.txt"
+
+
+def bot_punya_selenium() -> bool:
+    """Apakah pustaka selenium dapat diimpor oleh **Python aplikasi ini**.
+
+    Perlu ``invalidate_caches`` karena folder site-packages bisa baru berubah
+    (mis. sesudah pemasangan dari halaman Bot Dapodik).
+    """
+    import importlib.util
+
+    importlib.invalidate_caches()
+    try:
+        return importlib.util.find_spec("selenium") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def perintah_pasang_bot() -> str:
+    """Perintah pemasangan pustaka bot memakai Python aplikasi ini.
+
+    Ditampilkan di halaman Bot Dapodik supaya pengguna tidak salah memasang ke
+    Python lain yang ada di komputer (penyebab tersering bot "belum terpasang").
+    """
+    import sys
+
+    return f'"{sys.executable}" -m pip install -r {BERKAS_PUSTAKA_BOT}'
+
+
+def bot_pasang_pustaka() -> tuple[bool, str]:
+    """Pasang selenium dari dalam aplikasi (butuh internet, sekali saja).
+
+    Memakai ``sys.executable`` sehingga pustaka masuk ke lingkungan Python yang
+    benar-benar dipakai aplikasi, bukan ke Python lain di komputer.
+    """
+    import subprocess
+    import sys
+
+    if bot_punya_selenium():
+        return True, "Pustaka selenium sudah terpasang — bot siap dipakai."
+    berkas = config.BASE_DIR / BERKAS_PUSTAKA_BOT
+    if not berkas.exists():
+        return False, f"Berkas {BERKAS_PUSTAKA_BOT} tidak ditemukan pada folder aplikasi."
+    perintah = [sys.executable, "-m", "pip", "install", "-r", str(berkas),
+                "--disable-pip-version-check", "--no-input"]
+    try:
+        hasil = subprocess.run(perintah, capture_output=True, text=True, timeout=900)
+    except subprocess.TimeoutExpired:
+        return False, "Pemasangan melebihi 15 menit dan dihentikan. Periksa koneksi internet."
+    except OSError as exc:
+        return False, f"Pemasangan tidak dapat dijalankan: {exc}"
+    pesan = ((hasil.stderr or "") + (hasil.stdout or "")).strip().splitlines()
+    ringkas = " ".join(pesan[-2:])[:300] if pesan else ""
+    if bot_punya_selenium():
+        log_audit(None, "admin", "pasang_pustaka_bot", "requirements", BERKAS_PUSTAKA_BOT, "berhasil")
+        return True, "Pustaka selenium berhasil dipasang. Bot siap dijalankan."
+    log_audit(None, "admin", "pasang_pustaka_bot", "requirements", BERKAS_PUSTAKA_BOT, "gagal")
+    return False, ("Pemasangan gagal. Pastikan komputer terhubung internet, lalu coba lagi. "
+                   f"Rincian: {ringkas}")
+
+
 def bot_siap_pakai() -> tuple[bool, str]:
-    """Periksa kesiapan bot: selenium + data pengaturan wajib."""
+    """Periksa kesiapan bot: pustaka selenium + pengaturan wajib.
+
+    Semua kekurangan dilaporkan sekaligus supaya tidak perlu membuka-buka halaman
+    untuk menemukan satu per satu penyebab bot belum bisa dijalankan.
+    """
     cfg = bot_setting()
     if cfg["bot_simulasi"] == "1":
         return True, "Mode uji coba (tanpa peramban): antrean & kemajuan tetap dicatat."
-    if not cfg["bot_username"] or not cfg["bot_password"]:
-        return False, "Isi dulu alamat Dapodik, surel/NIK, dan kata sandi pada pengaturan bot."
-    import importlib.util
-
-    if importlib.util.find_spec("selenium") is None:
-        return False, ("Pustaka selenium belum terpasang. Jalankan: "
-                       "pip install -r requirements-bot.txt")
+    kurang: list[str] = []
+    if not (cfg["bot_url"] or "").strip():
+        kurang.append("alamat Dapodik")
+    if not (cfg["bot_username"] or "").strip() or not (cfg["bot_password"] or "").strip():
+        kurang.append("surel/NIK & kata sandi akun Dapodik")
+    if not bot_punya_selenium():
+        kurang.append("pustaka selenium (tekan “Pasang pustaka bot” di atas)")
+    if kurang:
+        return False, "Bot belum bisa dijalankan. Lengkapi dulu: " + "; ".join(kurang) + "."
     return True, "Bot siap dijalankan."
 
 
