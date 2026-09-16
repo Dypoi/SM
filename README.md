@@ -94,6 +94,10 @@ Login sebagai **admin**, lalu buka menu **Pembaruan** di bilah samping (atau
    terputus sesaat lalu bisa dibuka kembali). Data siswa, pengguna, dan pengaturan
    **tidak berubah**.
 
+> Saat dimuat ulang di Windows, sebuah **jendela konsol baru** terbuka untuk menjalankan
+> server — jendela lama (yang berisi `pause` dari `run.bat`) boleh ditutup. Di Linux/macOS
+> prosesnya diganti di tempat, tanpa jendela tambahan.
+
 Agar berjalan sendiri, aktifkan di bagian **Pengaturan Pembaruan**: periksa otomatis
 tiap N jam, tarik otomatis bila ada versi baru, dan muat ulang otomatis. Bila
 pembaruan tersedia, admin juga melihat pemberitahuan di halaman **Dasbor**.

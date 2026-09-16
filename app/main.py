@@ -46,7 +46,7 @@ log = logging.getLogger("simsek")
 
 async def _pemantau_latar() -> None:
     """Pemantau latar belakang: cek pembaruan berkala & muat ulang bila diminta."""
-    await asyncio.sleep(20)  # beri waktu server siap dan data awal selesai dimuat
+    await asyncio.sleep(4)  # beri waktu startup server selesai lebih dulu
     siklus_berikut = 0.0
     while True:
         if updater.perlu_muat_ulang():
@@ -57,7 +57,7 @@ async def _pemantau_latar() -> None:
             hasil = await asyncio.to_thread(updater.otomatis_periksa)
             if hasil.get("ada_pembaruan"):
                 log.info("Pembaruan tersedia di GitHub: %s", hasil)
-        await asyncio.sleep(5)
+        await asyncio.sleep(updater.SELANG_PANTAU)
 
 
 @asynccontextmanager

@@ -52,8 +52,11 @@ LOG_DIR = config.DATA_DIR / "logs"
 PROSES_MULAI = time.time()
 
 #: Jeda minimal antara tombol "muat ulang" dan proses penggantian diri,
-#: supaya balasan HTTP sempat terkirim lebih dulu.
-JEDA_MUAT_ULANG = 4.0
+#: supaya balasan HTTP (pengalihan + pesan) sempat terkirim lebih dulu.
+JEDA_MUAT_ULANG = 3.0
+
+#: Selang pemeriksaan tanda muat ulang oleh pemantau latar belakang (detik).
+SELANG_PANTAU = 3.0
 
 SETTING_DEFAULT = {
     "update_auto_cek": "1",
@@ -606,19 +609,49 @@ def perlu_muat_ulang() -> bool:
     return umur >= JEDA_MUAT_ULANG
 
 
+def _mulai_ulang_windows() -> None:
+    """Buka jendela konsol baru yang menjalankan server (khusus Windows).
+
+    ``os.execv`` di Windows membuat proses baru ber-PID berbeda sehingga jendela
+    ``run.bat`` yang ber-``pause`` bisa ikut tertutup dan mematikan server. Karena
+    itu server dijalankan di jendela konsol baru yang terpisah.
+    """
+    perintah = perintah_restart()
+    baris = subprocess.list2cmdline(perintah)
+    bendera = 0
+    for nama in ("DETACHED_PROCESS", "CREATE_NEW_PROCESS_GROUP"):
+        bendera |= int(getattr(subprocess, nama, 0))
+    try:
+        subprocess.Popen(
+            ["cmd", "/c", "start", "SIMSEK", "/D", str(BASE_DIR), "cmd", "/k", baris],
+            cwd=str(BASE_DIR),
+            creationflags=bendera,
+            close_fds=True,
+            stdin=subprocess.DEVNULL,
+        )
+        print("Jendela server baru dibuka. Jendela ini dapat ditutup.")
+    except OSError as exc:  # pragma: no cover - Windows tanpa cmd?
+        print(f"Gagal membuka jendela server baru: {exc}")
+        print("Tutup jendela ini, lalu jalankan run.bat kembali.")
+
+
 def muat_ulang_sekarang() -> None:
-    """Ganti proses server dengan proses baru (``os.execv``) memakai kode terbaru."""
-    logging_selesai = _catat_status(
+    """Jalankan ulang server memakai kode terbaru (proses diganti)."""
+    _catat_status(
         aksi="muat_ulang", hasil="dijalankan", revisi=_rev("HEAD"),
         perintah=" ".join(perintah_restart()),
     )
-    del logging_selesai
     try:
         db.close_connection()
     except Exception:  # noqa: BLE001 - jangan gagalkan muat ulang
         pass
     sys.stdout.flush()
     sys.stderr.flush()
+
+    if os.name == "nt":
+        _mulai_ulang_windows()
+        os._exit(0)
+
     os.execv(perintah_restart()[0], perintah_restart())
 
 
