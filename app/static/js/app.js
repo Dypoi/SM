@@ -158,4 +158,128 @@
       });
     }
   }
+
+  // --- Data wali: muncul hanya bila nama ayah kosong ------------------------
+  // Aturan: nama ayah diisi -> sistem menganggap siswa tidak punya wali.
+  // Data wali dapat dihapus (dikosongkan) bila namanya berbeda dari ayah/ibu.
+  function namaNormal(teks) {
+    return (teks || "").replace(/\s+/g, " ").trim().toLowerCase();
+  }
+
+  function peringatanForm(form, teks) {
+    var kotak = form.querySelector("[data-keluarga-peringatan]");
+    if (!kotak) {
+      kotak = document.createElement("div");
+      kotak.setAttribute("data-keluarga-peringatan", "");
+      kotak.className = "alert alert-warn";
+      form.insertBefore(kotak, form.firstChild);
+    }
+    kotak.textContent = teks;
+    kotak.hidden = !teks;
+    if (teks) kotak.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
+  document.querySelectorAll("[data-wali-zone]").forEach(function (zone) {
+    var form = zone.closest("form");
+    var ayahInput = form ? form.querySelector('[name="ayah_nama"]') : null;
+    var ibuInput = form ? form.querySelector('[name="ibu_nama"]') : null;
+    var namaWali = zone.querySelector('[name="wali_nama"]');
+    var ask = zone.querySelector("[data-wali-ask]");
+    var fields = zone.querySelector("[data-wali-fields]");
+    var note = zone.querySelector("[data-wali-ayah-note]");
+    var tombolHapus = zone.querySelector("[data-wali-hapus]");
+    var catatanHapus = zone.querySelector("[data-wali-hapus-note]");
+    var labelJawab = zone.querySelector("[data-wali-jawaban]");
+    var jawaban = zone.getAttribute("data-ada-wali") === "1" ? "Ya" : "";
+    var akanDihapus = false;
+    var catatanAsli = catatanHapus ? catatanHapus.textContent : "";
+
+    function isian() {
+      return Array.prototype.slice.call(zone.querySelectorAll("input, select, textarea"));
+    }
+
+    function adaIsiWali() {
+      return isian().some(function (el) { return (el.value || "").trim() !== ""; });
+    }
+
+    function terapkan() {
+      var ayah = namaNormal(ayahInput ? ayahInput.value : "");
+      var adaAyah = ayah !== "";
+      var bukaWali = !adaAyah && (jawaban === "Ya" || akanDihapus);
+
+      if (ask) ask.hidden = adaAyah;
+      if (note) note.hidden = !adaAyah;
+      if (fields) fields.hidden = !bukaWali;
+
+      // Isian wali hanya dikirim bila memang dipakai, supaya data lama tidak
+      // ikut terhapus tanpa sengaja.
+      isian().forEach(function (el) { el.disabled = !bukaWali; });
+
+      if (labelJawab) {
+        labelJawab.textContent = akanDihapus ? "akan dihapus" : (jawaban || "belum dijawab");
+      }
+      if (tombolHapus) {
+        tombolHapus.disabled = !(adaIsiWali() || zone.getAttribute("data-ada-wali") === "1");
+      }
+      if (catatanHapus) {
+        catatanHapus.textContent = akanDihapus
+          ? "Data wali akan dikosongkan saat disimpan. Bila nama wali sama dengan nama ayah/ibu, sistem akan menolaknya."
+          : catatanAsli;
+      }
+    }
+
+    zone.querySelectorAll("[data-wali-jawab]").forEach(function (tombol) {
+      tombol.addEventListener("click", function () {
+        jawaban = tombol.getAttribute("data-wali-jawab");
+        akanDihapus = false;
+        if (jawaban === "Tidak") {
+          isian().forEach(function (el) { el.value = ""; });
+        }
+        zone.querySelectorAll("[data-wali-jawab]").forEach(function (t) {
+          t.classList.toggle("active", t === tombol);
+        });
+        terapkan();
+      });
+    });
+
+    if (tombolHapus) {
+      tombolHapus.addEventListener("click", function () {
+        isian().forEach(function (el) { el.value = ""; });
+        akanDihapus = true;
+        jawaban = "";
+        terapkan();
+      });
+    }
+
+    [ayahInput, ibuInput, namaWali].forEach(function (el) {
+      if (el) el.addEventListener("input", terapkan);
+    });
+    terapkan();
+  });
+
+  // --- Nama ayah tidak boleh sama dengan nama ibu ---------------------------
+  document.querySelectorAll("form").forEach(function (form) {
+    var ayah = form.querySelector('[name="ayah_nama"]');
+    var ibu = form.querySelector('[name="ibu_nama"]');
+    if (!ayah || !ibu) return;
+    form.addEventListener("submit", function (event) {
+      var a = namaNormal(ayah.value);
+      var i = namaNormal(ibu.value);
+      if (a && i && a === i) {
+        event.preventDefault();
+        peringatanForm(form, "Nama ayah dan nama ibu tidak boleh sama. Mohon periksa kembali.");
+        ibu.focus();
+        return;
+      }
+      var wali = form.querySelector('[name="wali_nama"]');
+      var w = wali && !wali.disabled ? namaNormal(wali.value) : "";
+      if (w && (w === a || w === i)) {
+        event.preventDefault();
+        peringatanForm(form, "Nama wali tidak boleh sama dengan nama ayah/ibu. Kosongkan kolom wali bila memang tidak ada wali.");
+        if (wali) wali.focus();
+        return;
+      }
+      peringatanForm(form, "");
+    });
+  });
 })();

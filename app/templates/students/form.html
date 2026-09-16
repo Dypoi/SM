@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon %}
+{% from "_macros.html" import icon, input_medan, bagian_wali %}
 
 {% block content %}
 <form method="post" action="/data-siswa/baru" class="card">
@@ -13,46 +13,16 @@
 
   <div class="card-body">
     {% for grup, daftar in grup_field.items() %}
-      <div class="section-title">
-        {{ {'identitas':'Identitas','alamat':'Alamat & Kontak','ayah':'Data Ayah','ibu':'Data Ibu',
-            'wali':'Data Wali','akademik':'Rombel & Akademik','bantuan':'Bantuan & Kesejahteraan',
-            'kesehatan':'Kesehatan & Keluarga'}.get(grup, grup) }}
-      </div>
-      <div class="form-grid">
-        {% for spec in daftar %}
-          <div class="field {{ 'span-2' if spec.key in ['alamat', 'nama'] else '' }}">
-            <label for="{{ spec.key }}">
-              {{ spec.label }}{% if spec.required %} <span style="color:var(--danger)">*</span>{% endif %}
-            </label>
-            {% if spec.kind == 'date' %}
-              <input type="date" id="{{ spec.key }}" name="{{ spec.key }}">
-            {% elif spec.key == 'jk' %}
-              <select id="{{ spec.key }}" name="{{ spec.key }}">
-                <option value="">— pilih —</option>
-                <option value="L">L — Laki-laki</option>
-                <option value="P">P — Perempuan</option>
-              </select>
-            {% elif spec.key == 'agama' %}
-              <select id="{{ spec.key }}" name="{{ spec.key }}">
-                <option value="">— pilih —</option>
-                {% for opsi in agama_options %}<option value="{{ opsi }}">{{ opsi }}</option>{% endfor %}
-              </select>
-            {% elif spec.kind == 'ya_tidak' %}
-              <select id="{{ spec.key }}" name="{{ spec.key }}">
-                <option value="">— pilih —</option>
-                <option value="Ya">Ya</option>
-                <option value="Tidak">Tidak</option>
-              </select>
-            {% elif spec.kind in ['int', 'float'] %}
-              <input type="number" step="{{ '1' if spec.kind == 'int' else '0.01' }}" id="{{ spec.key }}" name="{{ spec.key }}">
-            {% else %}
-              <input type="text" id="{{ spec.key }}" name="{{ spec.key }}"
-                     {{ 'required' if spec.required }} {{ 'inputmode=numeric maxlength=10' if spec.key == 'nisn' }}>
-            {% endif %}
-            {% if spec.help_text %}<span class="hint">{{ spec.help_text }}</span>{% endif %}
-          </div>
-        {% endfor %}
-      </div>
+      {% if grup == 'wali' %}
+        {{ bagian_wali(daftar, {}) }}
+      {% else %}
+        <div class="section-title">{{ GROUP_LABELS.get(grup, grup) }}</div>
+        <div class="form-grid">
+          {% for spec in daftar %}
+            {{ input_medan(spec, none, agama_options) }}
+          {% endfor %}
+        </div>
+      {% endif %}
     {% endfor %}
 
     <div class="section-title">Status</div>

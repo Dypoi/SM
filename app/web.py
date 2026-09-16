@@ -11,7 +11,7 @@ from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
 from . import auth, config, services
-from .dapodik import FIELD_BY_KEY, fields_by_group
+from .dapodik import FIELD_BY_KEY, GROUP_LABELS, fields_by_group
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -121,6 +121,7 @@ def singkat(value: Any, length: int = 40) -> str:
 
 
 templates.env.globals["field_label"] = field_label
+templates.env.globals["GROUP_LABELS"] = GROUP_LABELS
 
 
 templates.env.filters.update(

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import icon, input_medan, pengajuan_badge %}
+{% from "_macros.html" import icon, input_medan, pengajuan_badge, bagian_wali %}
 
 {% block content %}
 <div class="card">
@@ -51,24 +51,25 @@
           </div>
 
           {% for grup, daftar in grup_field.items() %}
-            <div class="section-title">
-              {{ {'identitas':'Identitas','alamat':'Alamat & Kontak','ayah':'Data Ayah','ibu':'Data Ibu',
-                  'wali':'Data Wali','akademik':'Rombel & Akademik','bantuan':'Bantuan & Kesejahteraan',
-                  'kesehatan':'Kesehatan & Keluarga'}.get(grup, grup) }}
-            </div>
-            <div class="form-grid">
-              {% for spec in daftar %}
-                {% if spec.key == 'nisn' %}
-                  <div class="field">
-                    <label for="nisn">NISN</label>
-                    <input type="text" id="nisn" value="{{ siswa.nisn or '' }}" disabled>
-                    <span class="hint">Tidak dapat diubah (lihat catatan di atas).</span>
-                  </div>
-                {% else %}
-                  {{ input_medan(spec, siswa.get(spec.key), agama_options) }}
-                {% endif %}
-              {% endfor %}
-            </div>
+            {% if grup == 'wali' %}
+              {{ bagian_wali(daftar, siswa) }}
+            {% else %}
+              <div class="section-title">{{ GROUP_LABELS.get(grup, grup) }}</div>
+              <div class="form-grid">
+                {% for spec in daftar %}
+                  {% if spec.key == 'nisn' %}
+                    {# NISN terkunci: tidak dapat diajukan perubahannya. #}
+                    <div class="field">
+                      <label for="nisn">NISN</label>
+                      <input type="text" id="nisn" value="{{ siswa.nisn or '' }}" disabled>
+                      <span class="hint">Tidak dapat diubah (lihat catatan di atas).</span>
+                    </div>
+                  {% else %}
+                    {{ input_medan(spec, siswa.get(spec.key), agama_options) }}
+                  {% endif %}
+                {% endfor %}
+              </div>
+            {% endif %}
           {% endfor %}
 
           <div class="section-title">Catatan untuk admin</div>

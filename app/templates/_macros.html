@@ -124,23 +124,37 @@
   {% if value is none or value == "" %}<span class="muted">{{ fallback }}</span>{% else %}{{ value }}{% endif %}
 {% endmacro %}
 
-{% macro input_medan(spec, value, agama_options=[], prefix="") %}
-{#- Satu kolom formulir sesuai tipe field (teks, tanggal, pilihan, angka) -#}
+{% macro input_medan(spec, value, agama_options=[], prefix="", nonaktif=False) %}
+{#- Satu kolom formulir sesuai tipe field (teks, tanggal, angka, dropdown) -#}
 <div class="field {{ 'span-2' if spec.key in ['alamat', 'nama'] else '' }}">
   <label for="{{ prefix }}{{ spec.key }}">
     {{ spec.label }}
     {% if spec.required %}<span style="color:var(--danger)">*</span>{% endif %}
   </label>
+  {% set mati = 'disabled' if nonaktif else '' %}
   {% if spec.kind == 'date' %}
-    <input type="date" id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}" value="{{ value or '' }}">
+    <input type="date" id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}"
+           value="{{ value or '' }}" {{ mati }}>
+  {% elif spec.choices %}
+    {% set nilai_kecil = (value or '') | string | trim | lower %}
+    {% set daftar_kecil = spec.choices | map('lower') | list %}
+    <select id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}" {{ mati }}>
+      <option value="">— pilih —</option>
+      {% for opsi in spec.choices %}
+        <option value="{{ opsi }}" {{ 'selected' if nilai_kecil == opsi | lower }}>{{ opsi }}</option>
+      {% endfor %}
+      {% if value and nilai_kecil not in daftar_kecil %}
+        <option value="{{ value }}" selected>{{ value }} (data lama)</option>
+      {% endif %}
+    </select>
   {% elif spec.key == 'jk' %}
-    <select id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}">
+    <select id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}" {{ mati }}>
       <option value="">— pilih —</option>
       <option value="L" {{ 'selected' if value == 'L' }}>L — Laki-laki</option>
       <option value="P" {{ 'selected' if value == 'P' }}>P — Perempuan</option>
     </select>
   {% elif spec.key == 'agama' %}
-    <select id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}">
+    <select id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}" {{ mati }}>
       <option value="">— pilih —</option>
       {% for opsi in agama_options %}
         <option value="{{ opsi }}" {{ 'selected' if value == opsi }}>{{ opsi }}</option>
@@ -150,7 +164,7 @@
       {% endif %}
     </select>
   {% elif spec.kind == 'ya_tidak' %}
-    <select id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}">
+    <select id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}" {{ mati }}>
       <option value="">— pilih —</option>
       <option value="Ya" {{ 'selected' if value == 'Ya' }}>Ya</option>
       <option value="Tidak" {{ 'selected' if value == 'Tidak' }}>Tidak</option>
@@ -158,11 +172,53 @@
   {% elif spec.kind in ['int', 'float'] %}
     <input type="number" step="{{ '1' if spec.kind == 'int' else '0.01' }}"
            id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}"
-           value="{{ value if value is not none else '' }}">
+           value="{{ value if value is not none else '' }}" {{ mati }}>
   {% else %}
-    <input type="text" id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}" value="{{ value or '' }}">
+    <input type="text" id="{{ prefix }}{{ spec.key }}" name="{{ spec.key }}" value="{{ value or '' }}"
+           {{ 'required' if spec.required }} {{ 'inputmode=numeric maxlength=10' if spec.key == 'nisn' }}
+           {{ 'placeholder=contoh' if not value and not nonaktif }} {{ mati }}>
   {% endif %}
   {% if spec.help_text %}<span class="hint">{{ spec.help_text }}</span>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro bagian_wali(daftar, data={}, prefix="") %}
+{#- Blok Data Wali: muncul hanya bila nama ayah kosong (atau sudah ada data wali).
+    Tombol "Hapus data wali" mengosongkan isian sehingga data wali terhapus saat disimpan. -#}
+{% set ayah = (data.get('ayah_nama') or '') | trim %}
+{% set wali = (data.get('wali_nama') or '') | trim %}
+<div class="wali-zone" data-wali-zone data-ada-wali="{{ '1' if wali else '0' }}"
+     data-ada-ayah="{{ '1' if ayah else '0' }}">
+  <div class="section-title">Data Wali</div>
+
+  <div class="note" data-wali-ayah-note {{ '' if ayah else 'hidden' }}>
+    Nama ayah sudah diisi, jadi sistem menganggap siswa <strong>tidak memiliki wali</strong>
+    dan isian di bawah tidak ikut disimpan.
+    {%- if wali %} Bila data wali ini memang bukan ayah/ibu, kosongkan dulu nama ayah,
+    isi nama wali, lalu simpan kembali.{% endif %}
+  </div>
+
+  <div class="wali-ask" data-wali-ask {{ 'hidden' if ayah }}>
+    <span>Apakah siswa mempunyai wali?</span>
+    <button type="button" class="btn btn-sm btn-outline" data-wali-jawab="Ya">Ya</button>
+    <button type="button" class="btn btn-sm btn-outline" data-wali-jawab="Tidak">Tidak</button>
+    <span class="badge badge-muted" data-wali-jawaban>{{ 'Ya' if wali else 'belum dijawab' }}</span>
+  </div>
+
+  <div class="wali-fields" data-wali-fields {{ 'hidden' if ayah }}>
+    <div class="form-grid">
+      {% for spec in daftar %}
+        {{ input_medan(spec, data.get(spec.key), [], prefix, nonaktif=ayah != '') }}
+      {% endfor %}
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn btn-danger btn-sm" data-wali-hapus
+              {{ 'disabled' if not wali }}>{{ icon('warning') }} Hapus data wali</button>
+      <span class="hint" data-wali-hapus-note>
+        Data wali boleh dikosongkan, tetapi hanya bila nama wali berbeda dengan nama ayah/ibu.
+      </span>
+    </div>
+  </div>
 </div>
 {% endmacro %}
 

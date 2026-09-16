@@ -253,6 +253,34 @@ akta lahir, kesehatan, sampai koordinat rumah.
 - **Ajukan perubahan data**: memperbaiki setiap kolom datanya (kecuali NISN), melampirkan
   foto ketiga berkas, dan menunggu keputusan admin. Riwayat pengajuan terlihat di portal.
 
+### Formulir data keluarga (ayah / ibu / wali)
+- **Pekerjaan** (ayah, ibu, wali) dipilih dari daftar 17 pilihan Dapodik:
+  Tidak Bekerja, Nelayan, Petani, Peternak, PNS/TNI/Polri, Karyawan Swasta,
+  Pedagang Kecil, Pedagang Besar, Wiraswasta, Wirausaha, Buruh, Pensiunan,
+  Tenaga Kerja Indonesia, Karyawan BUMN, Tidak Dapat Diterapkan, Sudah Meninggal,
+  dan Lainnya.
+- **Penghasilan** (ayah, ibu, wali) dipilih dari daftar rentang: Kurang dari
+  Rp. 500,000 · Rp. 500,000 - Rp. 999,999 · Rp. 1,000,000 - Rp. 1,999,999 ·
+  Rp. 2,000,000 - Rp. 4,999,999 · Rp. 5,000,000 - Rp. 20,000,000 ·
+  Lebih dari Rp. 20,000,000 · Tidak Berpenghasilan.
+- Nilai lama dari berkas impor yang tidak ada di daftar tetap ditampilkan
+  (ditandai *data lama*) supaya tidak ada data yang berubah tanpa disengaja;
+  nilai yang hanya berbeda huruf besar/kecil otomatis memakai pilihan baku.
+- **Data wali hanya ditampilkan bila nama ayah kosong.** Bila nama ayah sudah
+  diisi, sistem menganggap siswa tidak memiliki wali dan isian wali tidak ikut
+  disimpan.
+- Di blok wali ada pertanyaan **"Apakah siswa mempunyai wali?"** (Ya / Tidak)
+  dan tombol **Hapus data wali** untuk mengosongkan data wali.
+- Aturan yang dijaga sistem:
+  1. **nama ayah tidak boleh sama dengan nama ibu**;
+  2. **nama wali tidak boleh sama dengan nama ayah/ibu** (dulu sering terisi
+     data ayah);
+  3. **data wali hanya boleh dihapus bila namanya berbeda dari nama ayah/ibu** —
+     bila sama, sistem menolak dan meminta nama wali dibetulkan lebih dahulu.
+- Data yang sudah ada (basis data / berkas impor) tidak diubah otomatis — impor
+  tetap menampilkan isi berkas apa adanya. Pelanggaran aturan di atas dilaporkan
+  pada halaman **Kualitas Data**.
+
 ### Persetujuan data siswa (khusus admin)
 - Menu **Persetujuan Data** menampilkan antrean pengajuan siswa (yang menunggu di atas)
   beserta jumlah berkas dan statistiknya.
@@ -266,9 +294,10 @@ akta lahir, kesehatan, sampai koordinat rumah.
 
 ### Statistik & kualitas data
 - Rekap per tingkat, rombel, agama, kecamatan, kebutuhan khusus, program bantuan.
-- **Kualitas Data**: kelengkapan setiap kolom, 8 temuan bergaya validasi Dapodik
-  (NISN bukan 10 digit, NIK bukan 16 digit, NISN ganda, dan lainnya), serta panel
-  kesiapan sinkronisasi.
+- **Kualitas Data**: kelengkapan setiap kolom, 12 temuan bergaya validasi Dapodik
+  (NISN bukan 10 digit, NIK bukan 16 digit, NISN ganda, **nama ayah sama dengan
+  nama ibu**, **nama wali sama dengan nama ayah/ibu**, **pekerjaan atau penghasilan
+  di luar daftar pilihan**, dan lainnya), serta panel kesiapan sinkronisasi.
 
 ### Pengaturan (khusus admin)
 - Identitas sekolah (nama, NPSN, alamat, kepala sekolah, kontak).
@@ -355,7 +384,7 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 │   │   └── students/, import/, ekskul/, portal/, approval/
 │   └── static/css/app.css, static/js/app.js
 ├── scripts/
-│   ├── cek_sistem.py          # pemeriksaan mandiri 16 titik uji
+│   ├── cek_sistem.py          # pemeriksaan mandiri 17 titik uji
 │   └── buat_template.py       # pembuat berkas template impor
 ├── template-import/           # contoh.xlsx berisi data fiktif (aman dibagikan)
 ├── sample-data/               # berkas Dapodik asli (tidak di-commit, berisi data pribadi)
@@ -411,6 +440,7 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 - [x] Fitur pembaruan aplikasi dari dalam web (git pull, cadangan, muat ulang)
 - [x] Pengajuan perubahan data oleh siswa + persetujuan admin + berkas bukti
 - [x] Perampingan kolom: 13 kolom Dapodik yang tidak dipakai dihapus
+- [x] Dropdown pekerjaan & penghasilan serta aturan data ayah/ibu/wali
 - [ ] **Bot Dapodik**: pembaca berkas Dapodik, pembanding data, dan pengirim koreksi otomatis
 - [ ] Riwayat kenaikan kelas & mutasi siswa antar tahun ajaran
 - [ ] Presensi harian dan rekap per kelas

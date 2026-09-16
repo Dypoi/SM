@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import datetime as dt
 
+from urllib.parse import quote_plus
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse, Response
 
@@ -118,13 +120,16 @@ async def simpan_siswa_baru(request: Request, user: auth.SessionUser = Depends(a
     duplikat = services.student_exists(values.get("nisn"), values.get("nipd"))
     if duplikat:
         pesan = f"NISN/NIPD sudah dipakai oleh {duplikat['nama']}."
-        from urllib.parse import quote_plus
-
         return RedirectResponse(f"/data-siswa/baru?level=err&msg={quote_plus(pesan)}", status_code=303)
 
     values["nama"] = values["nama"].upper()
     for source, flag in (("penerima_kps", "is_kps"), ("penerima_kip", "is_kip"), ("layak_pip", "is_layak_pip")):
         values[flag] = 1 if (values.get(source) or "").lower().startswith("ya") else 0
+    try:
+        services.validasi_keluarga(values)
+    except ValueError as exc:
+        return RedirectResponse(f"/data-siswa/baru?level=err&msg={quote_plus(str(exc))}", status_code=303)
+
     student_id = services.create_student(values, actor=user.username)
     return RedirectResponse(f"/data-siswa/{student_id}?msg=Data+siswa+berhasil+disimpan", status_code=303)
 
@@ -153,8 +158,6 @@ def detail_siswa(request: Request, student_id: int, user: auth.SessionUser = Dep
 @router.post("/data-siswa/{student_id}")
 async def perbarui_siswa(request: Request, student_id: int,
                          user: auth.SessionUser = Depends(auth.require_staff)):
-    from urllib.parse import quote_plus
-
     siswa = services.get_student(student_id)
     if siswa is None:
         return RedirectResponse("/data-siswa?level=err&msg=Siswa+tidak+ditemukan", status_code=303)
@@ -171,6 +174,11 @@ async def perbarui_siswa(request: Request, student_id: int,
         pesan = f"NISN/NIPD sudah dipakai oleh {duplikat['nama']}."
         return RedirectResponse(f"/data-siswa/{student_id}?level=err&msg={quote_plus(pesan)}", status_code=303)
 
+    try:
+        services.validasi_keluarga(values, siswa)
+    except ValueError as exc:
+        return RedirectResponse(f"/data-siswa/{student_id}?level=err&msg={quote_plus(str(exc))}", status_code=303)
+
     changes = services.update_student(student_id, values, actor=user.username, source="manual")
     pesan = f"{len(changes)} perubahan disimpan." if changes else "Tidak ada perubahan."
     level = "ok" if changes else "info"
@@ -179,8 +187,6 @@ async def perbarui_siswa(request: Request, student_id: int,
 
 @router.post("/data-siswa/{student_id}/hapus")
 def hapus_siswa(request: Request, student_id: int, user: auth.SessionUser = Depends(auth.require_admin)):
-    from urllib.parse import quote_plus
-
     siswa = services.get_student(student_id)
     services.delete_student(student_id, actor=user.username)
     pesan = f"Data {siswa['nama']} dihapus." if siswa else "Data dihapus."

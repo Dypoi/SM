@@ -386,7 +386,82 @@ def cek_pengajuan():
             f"3 jenis berkas; disetujui {stat['disetujui']} / ditolak {stat['ditolak']}")
 
 
-@cek("15. Halaman pengajuan & portal siswa (izin akses)")
+@cek("15. Dropdown pekerjaan/penghasilan & aturan data keluarga")
+def cek_keluarga():
+    """Pilihan pekerjaan/penghasilan serta aturan ayah/ibu/wali pada formulir."""
+    from app import services
+    from app.dapodik import (FIELD_BY_KEY, FIELD_PEKERJAAN, FIELD_PENGHASILAN,
+                             PEKERJAAN_OPTIONS, PENGHASILAN_OPTIONS)
+
+    # --- dropdown ---
+    assert len(PEKERJAAN_OPTIONS) == 17, f"pilihan pekerjaan: {len(PEKERJAAN_OPTIONS)}"
+    assert len(PENGHASILAN_OPTIONS) == 7, f"pilihan penghasilan: {len(PENGHASILAN_OPTIONS)}"
+    assert "Rp. 5,000,000 - Rp. 20,000,000" in PENGHASILAN_OPTIONS, "rentang 5-20 juta hilang"
+    for key in FIELD_PEKERJAAN:
+        assert FIELD_BY_KEY[key].choices == PEKERJAAN_OPTIONS, f"{key} belum memakai daftar pekerjaan"
+    for key in FIELD_PENGHASILAN:
+        assert FIELD_BY_KEY[key].choices == PENGHASILAN_OPTIONS, f"{key} belum memakai daftar penghasilan"
+    assert "Tidak Berpenghasilan" in PENGHASILAN_OPTIONS
+    assert "Sudah Meninggal" in PEKERJAAN_OPTIONS
+
+    # --- aturan: nama ayah harus berbeda dengan nama ibu ---
+    sid = services.create_student(
+        {"nama": "UJI KELUARGA", "nisn": "3999000011", "jk": "L", "rombel": "7A",
+         "ayah_nama": "BUDI SANTOSO", "ibu_nama": "SITI AMINAH",
+         "wali_nama": "SUPARMAN"}, actor="cek")
+
+    try:
+        services.validasi_keluarga({"ayah_nama": "NAMA SAMA", "ibu_nama": "nama   sama"},
+                                   services.get_student(sid))
+        raise AssertionError("nama ayah = nama ibu seharusnya ditolak")
+    except ValueError as exc:
+        assert "ayah" in str(exc).lower()
+
+    # --- aturan: wali tidak boleh memakai data ayah/ibu ---
+    try:
+        services.validasi_keluarga({"wali_nama": "siti aminah"}, services.get_student(sid))
+        raise AssertionError("nama wali = nama ibu seharusnya ditolak")
+    except ValueError as exc:
+        assert "wali" in str(exc).lower()
+
+    # --- aturan: data wali hanya boleh dihapus bila namanya berbeda ---
+    services.validasi_keluarga({"wali_nama": ""}, services.get_student(sid))  # berbeda -> boleh
+    sid2 = services.create_student(
+        {"nama": "UJI WALI SAMA", "nisn": "3999000012", "jk": "L", "ayah_nama": "AHMAD",
+         "wali_nama": "Ahmad"}, actor="cek")
+    try:
+        services.validasi_keluarga({"wali_nama": ""}, services.get_student(sid2))
+        raise AssertionError("menghapus wali yang namanya sama dengan ayah seharusnya ditolak")
+    except ValueError as exc:
+        assert "tidak bisa dihapus" in str(exc)
+
+    # --- pengajuan siswa lewat layanan: penghapusan wali ikut tercatat ---
+    siswa = services.get_student(sid)
+    pengajuan = services.ajukan_perubahan(
+        sid, {"wali_nama": ""}, aktor="cek",
+        dokumen={
+            "akta_lahir": ("akta.png", b"\x89PNG\r\n\x1a\n" + b"uji" * 8),
+            "kk": ("kk.png", b"\x89PNG\r\n\x1a\n" + b"uji" * 8),
+            "ijazah": ("ijazah.pdf", b"%PDF-1.4 uji"),
+        },
+    )
+    assert any(item["field"] == "wali_nama" for item in pengajuan["items"]), "hapus wali tidak diajukan"
+    services.putuskan_pengajuan(int(pengajuan["id"]), True, aktor="cek")
+    assert not (services.get_student(sid).get("wali_nama") or ""), "data wali belum terhapus"
+
+    # --- temuan kualitas data ikut memeriksa nama kembar ---
+    services.create_student({"nama": "UJI KEMBAR", "nisn": "3999000013", "jk": "P",
+                             "ayah_nama": "NAMA SAMA", "ibu_nama": "nama sama"}, actor="cek")
+    kode = {item["kode"]: item["jumlah"] for item in services.data_quality()["temuan"]}
+    for kunci in ("AYAH_IBU_SAMA", "WALI_SAMA_AYAH_IBU", "PEKERJAAN_LUAR_DAFTAR",
+                  "PENGHASILAN_LUAR_DAFTAR"):
+        assert kunci in kode, f"temuan {kunci} tidak ada"
+    assert kode["AYAH_IBU_SAMA"] >= 1, "temuan ayah = ibu tidak terhitung"
+    return (f"{len(PEKERJAAN_OPTIONS)} pilihan pekerjaan & {len(PENGHASILAN_OPTIONS)} pilihan penghasilan; "
+            f"ayah/ibu/wali diperiksa; wali {siswa.get('wali_nama')} terhapus lewat pengajuan")
+
+
+@cek("16. Halaman pengajuan & portal siswa (izin akses)")
 def cek_http_pengajuan():
     """Pastikan halaman pengajuan hanya untuk admin dan portal aman bagi siswa."""
     import asyncio
@@ -425,7 +500,7 @@ def cek_http_pengajuan():
     asyncio.run(skenario())
     return "halaman admin aman; form siswa tampil tanpa kolom NISN"
 
-@cek("16. Halaman HTTP (status 200 & izin akses)")
+@cek("17. Halaman HTTP (status 200 & izin akses)")
 def cek_http():
     """Menembak semua halaman utama memakai ASGI in-process (asinkron)."""
     import asyncio
@@ -510,6 +585,7 @@ def main() -> int:
     cek_api_kontrak()
     cek_pembaruan()
     cek_pengajuan()
+    cek_keluarga()
     if args.http:
         cek_http_pengajuan()
         cek_http()

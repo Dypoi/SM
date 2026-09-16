@@ -36,8 +36,48 @@ class FieldSpec:
     aliases: tuple[str, ...] = ()
     group: str = "lainnya"
     kind: str = "text"  # text | int | float | date | ya_tidak
+    #: Daftar pilihan tetap. Bila diisi, kolom ditampilkan sebagai dropdown
+    #: (nilai di luar daftar tetap boleh tersimpan — mis. hasil impor lama).
+    choices: tuple[str, ...] = ()
     required: bool = False
     help_text: str = ""
+
+
+#: Pilihan pekerjaan ayah/ibu/wali (mengikuti daftar Dapodik).
+PEKERJAAN_OPTIONS: tuple[str, ...] = (
+    "Tidak Bekerja",
+    "Nelayan",
+    "Petani",
+    "Peternak",
+    "PNS/TNI/Polri",
+    "Karyawan Swasta",
+    "Pedagang Kecil",
+    "Pedagang Besar",
+    "Wiraswasta",
+    "Wirausaha",
+    "Buruh",
+    "Pensiunan",
+    "Tenaga Kerja Indonesia",
+    "Karyawan BUMN",
+    "Tidak Dapat Diterapkan",
+    "Sudah Meninggal",
+    "Lainnya",
+)
+
+#: Pilihan penghasilan per bulan ayah/ibu/wali (daftar Dapodik).
+PENGHASILAN_OPTIONS: tuple[str, ...] = (
+    "Kurang dari Rp. 500,000",
+    "Rp. 500,000 - Rp. 999,999",
+    "Rp. 1,000,000 - Rp. 1,999,999",
+    "Rp. 2,000,000 - Rp. 4,999,999",
+    "Rp. 5,000,000 - Rp. 20,000,000",
+    "Lebih dari Rp. 20,000,000",
+    "Tidak Berpenghasilan",
+)
+
+#: Kolom yang memakai daftar pilihan pekerjaan / penghasilan.
+FIELD_PEKERJAAN: tuple[str, ...] = ("ayah_pekerjaan", "ibu_pekerjaan", "wali_pekerjaan")
+FIELD_PENGHASILAN: tuple[str, ...] = ("ayah_penghasilan", "ibu_penghasilan", "wali_penghasilan")
 
 
 STUDENT_FIELDS: tuple[FieldSpec, ...] = (
@@ -69,24 +109,24 @@ STUDENT_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("ayah_nama", "Ayah - Nama", ("nama", "nama ayah", "ayah", "nama bapak", "bapak", "nama papa"), "ayah"),
     FieldSpec("ayah_tahun_lahir", "Ayah - Tahun Lahir", ("tahun lahir",), "ayah", kind="int"),
     FieldSpec("ayah_pendidikan", "Ayah - Jenjang Pendidikan", ("jenjang pendidikan",), "ayah"),
-    FieldSpec("ayah_pekerjaan", "Ayah - Pekerjaan", ("pekerjaan",), "ayah"),
-    FieldSpec("ayah_penghasilan", "Ayah - Penghasilan", ("penghasilan",), "ayah"),
+    FieldSpec("ayah_pekerjaan", "Ayah - Pekerjaan", ("pekerjaan",), "ayah", choices=PEKERJAAN_OPTIONS),
+    FieldSpec("ayah_penghasilan", "Ayah - Penghasilan", ("penghasilan",), "ayah", choices=PENGHASILAN_OPTIONS),
     FieldSpec("ayah_nik", "Ayah - NIK", ("nik",), "ayah"),
 
     # ---- Data Ibu ----
     FieldSpec("ibu_nama", "Ibu - Nama", ("nama", "nama ibu", "ibu", "nama mama", "nama emak", "nama bunda"), "ibu"),
     FieldSpec("ibu_tahun_lahir", "Ibu - Tahun Lahir", ("tahun lahir",), "ibu", kind="int"),
     FieldSpec("ibu_pendidikan", "Ibu - Jenjang Pendidikan", ("jenjang pendidikan",), "ibu"),
-    FieldSpec("ibu_pekerjaan", "Ibu - Pekerjaan", ("pekerjaan",), "ibu"),
-    FieldSpec("ibu_penghasilan", "Ibu - Penghasilan", ("penghasilan",), "ibu"),
+    FieldSpec("ibu_pekerjaan", "Ibu - Pekerjaan", ("pekerjaan",), "ibu", choices=PEKERJAAN_OPTIONS),
+    FieldSpec("ibu_penghasilan", "Ibu - Penghasilan", ("penghasilan",), "ibu", choices=PENGHASILAN_OPTIONS),
     FieldSpec("ibu_nik", "Ibu - NIK", ("nik",), "ibu"),
 
     # ---- Data Wali ----
     FieldSpec("wali_nama", "Wali - Nama", ("nama", "nama wali", "wali"), "wali"),
     FieldSpec("wali_tahun_lahir", "Wali - Tahun Lahir", ("tahun lahir",), "wali", kind="int"),
     FieldSpec("wali_pendidikan", "Wali - Jenjang Pendidikan", ("jenjang pendidikan",), "wali"),
-    FieldSpec("wali_pekerjaan", "Wali - Pekerjaan", ("pekerjaan",), "wali"),
-    FieldSpec("wali_penghasilan", "Wali - Penghasilan", ("penghasilan",), "wali"),
+    FieldSpec("wali_pekerjaan", "Wali - Pekerjaan", ("pekerjaan",), "wali", choices=PEKERJAAN_OPTIONS),
+    FieldSpec("wali_penghasilan", "Wali - Penghasilan", ("penghasilan",), "wali", choices=PENGHASILAN_OPTIONS),
     FieldSpec("wali_nik", "Wali - NIK", ("nik",), "wali"),
 
     # ---- Rombel & akademik ----

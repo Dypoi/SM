@@ -19,6 +19,8 @@ from typing import Any
 from . import config, db
 from .dapodik import (
     FIELD_BY_KEY,
+    PEKERJAAN_OPTIONS,
+    PENGHASILAN_OPTIONS,
     STUDENT_FIELDS,
     ParsedSpreadsheet,
     parse_sheet,
@@ -716,6 +718,10 @@ def data_quality() -> dict[str, Any]:
     belum_lengkap = int(db.query_value(f"SELECT COUNT(*) FROM students s WHERE {checks}") or 0)
 
     # Temuan spesifik ala Dapodik
+    tanda_pekerjaan = ", ".join("?" for _ in PEKERJAAN_OPTIONS)
+    tanda_penghasilan = ", ".join("?" for _ in PENGHASILAN_OPTIONS)
+    baku_pekerjaan = [opsi.lower() for opsi in PEKERJAAN_OPTIONS]
+    baku_penghasilan = [opsi.lower() for opsi in PENGHASILAN_OPTIONS]
     temuan = [
         {
             "kode": "NISN_TIDAK_VALID",
@@ -764,6 +770,62 @@ def data_quality() -> dict[str, Any]:
             "label": "Alamat belum diisi",
             "jumlah": int(db.query_value("SELECT COUNT(*) FROM students WHERE alamat IS NULL OR TRIM(alamat) = ''") or 0),
             "field": "alamat",
+        },
+        {
+            "kode": "AYAH_IBU_SAMA",
+            "label": "Nama ayah sama dengan nama ibu",
+            "jumlah": int(db.query_value(
+                """
+                SELECT COUNT(*) FROM students
+                 WHERE ayah_nama IS NOT NULL AND TRIM(ayah_nama) <> ''
+                   AND ibu_nama IS NOT NULL AND TRIM(ibu_nama) <> ''
+                   AND REPLACE(LOWER(TRIM(ayah_nama)), ' ', '')
+                     = REPLACE(LOWER(TRIM(ibu_nama)), ' ', '')
+                """
+            ) or 0),
+            "field": "ayah_nama",
+        },
+        {
+            "kode": "WALI_SAMA_AYAH_IBU",
+            "label": "Nama wali sama dengan nama ayah/ibu",
+            "jumlah": int(db.query_value(
+                """
+                SELECT COUNT(*) FROM students
+                 WHERE wali_nama IS NOT NULL AND TRIM(wali_nama) <> ''
+                   AND REPLACE(LOWER(TRIM(wali_nama)), ' ', '')
+                       IN (REPLACE(LOWER(TRIM(COALESCE(ayah_nama, ''))), ' ', ''),
+                           REPLACE(LOWER(TRIM(COALESCE(ibu_nama, ''))), ' ', ''))
+                """
+            ) or 0),
+            "field": "wali_nama",
+        },
+        {
+            "kode": "PEKERJAAN_LUAR_DAFTAR",
+            "label": "Pekerjaan ayah/ibu/wali di luar daftar pilihan",
+            "jumlah": int(db.query_value(
+                f"""
+                SELECT COUNT(*) FROM students
+                 WHERE (COALESCE(ayah_pekerjaan, '') <> '' AND LOWER(TRIM(ayah_pekerjaan)) NOT IN ({tanda_pekerjaan}))
+                    OR (COALESCE(ibu_pekerjaan, '') <> '' AND LOWER(TRIM(ibu_pekerjaan)) NOT IN ({tanda_pekerjaan}))
+                    OR (COALESCE(wali_pekerjaan, '') <> '' AND LOWER(TRIM(wali_pekerjaan)) NOT IN ({tanda_pekerjaan}))
+                """,
+                (*baku_pekerjaan, *baku_pekerjaan, *baku_pekerjaan),
+            ) or 0),
+            "field": "ayah_pekerjaan",
+        },
+        {
+            "kode": "PENGHASILAN_LUAR_DAFTAR",
+            "label": "Penghasilan ayah/ibu/wali di luar daftar pilihan",
+            "jumlah": int(db.query_value(
+                f"""
+                SELECT COUNT(*) FROM students
+                 WHERE (COALESCE(ayah_penghasilan, '') <> '' AND LOWER(TRIM(ayah_penghasilan)) NOT IN ({tanda_penghasilan}))
+                    OR (COALESCE(ibu_penghasilan, '') <> '' AND LOWER(TRIM(ibu_penghasilan)) NOT IN ({tanda_penghasilan}))
+                    OR (COALESCE(wali_penghasilan, '') <> '' AND LOWER(TRIM(wali_penghasilan)) NOT IN ({tanda_penghasilan}))
+                """,
+                (*baku_penghasilan, *baku_penghasilan, *baku_penghasilan),
+            ) or 0),
+            "field": "ayah_penghasilan",
         },
         {
             "kode": "IBU_KOSONG",
@@ -1117,6 +1179,68 @@ def auto_seed_sample(nisn_example: dict[str, str] | None = None) -> dict[str, An
 
 
 # =========================================================================== #
+# ATURAN DATA KELUARGA (ayah, ibu, wali)
+# =========================================================================== #
+def _nama_normal(nilai: Any) -> str:
+    """Rapikan nama untuk pembandingan: huruf kecil, spasi ganda disatukan."""
+    return " ".join(str(nilai or "").split()).casefold()
+
+
+def validasi_keluarga(nilai: dict[str, Any], siswa: dict[str, Any] | None = None) -> None:
+    """Periksa aturan pengisian data ayah/ibu/wali (form petugas & pengajuan siswa).
+
+    * nama ayah tidak boleh sama dengan nama ibu;
+    * nama wali tidak boleh sama dengan nama ayah/ibu;
+    * data wali hanya boleh dihapus bila namanya memang berbeda dari ayah/ibu,
+      supaya data ayah/ibu tidak ikut terhapus karena salah isi.
+
+    ``nilai`` = nilai yang hendak disimpan, ``siswa`` = data yang tersimpan
+    (None saat menambah siswa baru).
+    """
+    lama = siswa or {}
+    berubah = {
+        kunci: baru
+        for kunci, baru in nilai.items()
+        if kunci in FIELD_BY_KEY and not _same_value(lama.get(kunci), baru)
+    }
+    if not berubah:
+        return
+
+    ayah = _nama_normal(berubah.get("ayah_nama", lama.get("ayah_nama")))
+    ibu = _nama_normal(berubah.get("ibu_nama", lama.get("ibu_nama")))
+    wali = _nama_normal(berubah.get("wali_nama", lama.get("wali_nama")))
+
+    # 1) Nama ayah harus berbeda dengan nama ibu.
+    if {"ayah_nama", "ibu_nama"} & set(berubah) and ayah and ibu and ayah == ibu:
+        raise ValueError(
+            "Nama ayah dan nama ibu tidak boleh sama. Mohon periksa kembali penulisan "
+            "kedua nama tersebut."
+        )
+
+    if "wali_nama" in berubah:
+        wali_lama = _nama_normal(lama.get("wali_nama"))
+        ayah_lama = _nama_normal(lama.get("ayah_nama"))
+        ibu_lama = _nama_normal(lama.get("ibu_nama"))
+
+        # 2) Wali tidak boleh memakai data ayah/ibu.
+        if wali and wali in {ayah, ibu} - {""}:
+            raise ValueError(
+                "Nama wali tidak boleh sama dengan nama ayah/ibu. Bila wali sebenarnya "
+                "adalah ayah atau ibu, biarkan kolom wali kosong dan isi kolom ayah/ibu saja."
+            )
+
+        # 3) Data wali hanya boleh dihapus bila namanya berbeda dari ayah/ibu.
+        if not wali and wali_lama and wali_lama in {ayah_lama, ibu_lama} - {""}:
+            raise ValueError(
+                f"Data wali \"{lama.get('wali_nama')}\" namanya sama dengan nama ayah/ibu, "
+                "jadi kemungkinan itu data ayah/ibu dan tidak bisa dihapus dari sini. "
+                "Perbaiki dulu nama wali atau nama ayah/ibu, lalu simpan kembali."
+            )
+        if not wali and wali_lama:
+            log.info("Data wali dikosongkan (dihapus) atas permintaan pengguna.")
+
+
+# =========================================================================== #
 # DOKUMEN SISWA (akta kelahiran, kartu keluarga, ijazah)
 # =========================================================================== #
 DOKUMEN_JENIS: tuple[tuple[str, str, str], ...] = (
@@ -1301,6 +1425,9 @@ def ajukan_perubahan(student_id: int, nilai: dict[str, Any], *, catatan: str = "
         teks_lama = "" if siswa.get(key) is None else str(siswa.get(key)).strip()
         if teks_baru != teks_lama:
             perubahan[key] = baru
+
+    # Aturan pengisian data ayah/ibu/wali diperiksa sebelum pengajuan dibuat.
+    validasi_keluarga(perubahan, siswa)
 
     if not perubahan and not dokumen:
         raise ValueError("Tidak ada data yang berubah, jadi belum ada yang diajukan.")

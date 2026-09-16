@@ -481,3 +481,28 @@ table.tabel-kecil th, table.tabel-kecil td { padding: .4rem .55rem; font-size: .
   .content { padding: 0; }
   .card { box-shadow: none; border-color: #cbd5e1; }
 }
+
+/* --- Blok Data Wali (formulir siswa & petugas) --------------------------- */
+/* Atribut `hidden` harus tetap menang walau elemennya diberi display lain. */
+[hidden] { display: none !important; }
+
+.wali-zone { margin-bottom: .5rem; }
+.wali-ask {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  flex-wrap: wrap;
+  padding: .7rem .9rem;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--primary-50);
+  margin-bottom: .9rem;
+}
+.wali-ask > span:first-child { font-weight: 600; color: var(--text); }
+.wali-ask [data-wali-jawaban] { margin-left: auto; }
+[data-wali-jawab].active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.wali-fields { margin-top: .2rem; }
