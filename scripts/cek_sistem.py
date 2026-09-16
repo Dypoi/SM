@@ -1171,7 +1171,28 @@ def cek_tabel():
                 if "empty-cell" not in sel and "data-label" not in sel:
                     kartu_tanpa_label.append(berkas.name)
 
-    # Kepala tabel lengket hanya boleh menempel di tepi kotak bergulir.
+    # Kepala tabel hanya boleh MENEMPEL di dalam kotak yang benar-benar
+    # menggulung sendiri, dan di sana harus di tepi kotak (top: 0) serta
+    # berlatar pekat. Bila aturan umum memakai top: var(--topbar-h), kepala
+    # tabel tampak melayang di tengah tabel dan menutupi sebagian baris
+    # (mis. baris FUTSAL tertutup kepala tabel) — pernah terjadi, jangan diulang.
+    pasangan_aturan = re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+    kepala_lengket = [" ".join(sel.split()) for sel, isi in pasangan_aturan
+                      if "thead" in sel and "sticky" in isi]
+    assert kepala_lengket, "kepala tabel di kotak bergulir harus tetap menempel (sticky)"
+    for sel, isi in pasangan_aturan:
+        if "thead" not in sel or "sticky" not in isi:
+            continue
+        nama_aturan = " ".join(sel.split())
+        assert ".daftar" in nama_aturan or ".compact" in nama_aturan, \
+            f"kepala tabel lengket hanya untuk kotak bergulir: {nama_aturan}"
+        assert re.search(r"top:\s*0\b", isi), \
+            f"kepala tabel lengket harus menempel di tepi kotak: {nama_aturan}"
+        assert "background" in isi, \
+            f"kepala tabel lengket harus berlatar pekat agar baris tidak tembus: {nama_aturan}"
+    assert not [sel for sel, isi in pasangan_aturan
+                if re.fullmatch(r"\s*table\.data thead th\s*", sel) and "sticky" in isi], \
+        "aturan umum kepala tabel jangan lengket (kepala bisa melayang di tengah tabel)"
     assert ".table-wrap.compact table.data thead th" in css, \
         "kepala tabel di kotak bergulir harus menempel di tepi (top: 0)"
     assert re.search(r"--topbar-h:\s*\d+px", css), "variabel --topbar-h harus punya nilai awal"

@@ -32,7 +32,9 @@
   --muted: #64748b;
   /* Versi terang untuk latar gelap (sidebar) supaya tetap kontras. */
   --muted-terang: #94a3b8;
-  /* Tinggi topbar lengket — dipakai header tabel lengket & sisi lengket lain. */
+  /* Tinggi topbar lengket — dipakai sisi lengket & jarak aman saat melompat
+     ke bagian halaman (scroll-padding). JANGAN dipakai sebagai offset kepala
+     tabel: kepala tabel jadi melayang di tengah tabel dan menutupi baris. */
   --topbar-h: 65px;
   --border: #e2e8f0;
   --border-soft: #eef2f7;
@@ -51,6 +53,10 @@
 * { box-sizing: border-box; }
 
 html, body { height: 100%; }
+
+/* Saat melompat ke bagian halaman (#form-ekskul, tautan dalam), bagian atas
+   tidak bersembunyi di bawah bilah atas yang lengket. */
+html { scroll-padding-top: calc(var(--topbar-h) + 12px); }
 
 body {
   margin: 0;
@@ -303,7 +309,7 @@ table.data th, table.data td {
 table.data thead th {
   background: #f8fafc; color: var(--text-soft); font-size: .76rem;
   text-transform: uppercase; letter-spacing: .05em; font-weight: 700;
-  position: sticky; top: var(--topbar-h); z-index: 2; white-space: nowrap;
+  white-space: nowrap;
 }
 /* Selang-seling baris memudahkan membaca tabel panjang. */
 table.data tbody tr:nth-child(even) { background: #fcfdff; }
@@ -316,12 +322,16 @@ table.data tbody tr.row-error:hover { background: var(--danger-50); }
   overflow: auto;
   overscroll-behavior-x: contain;
 }
-/* Di dalam kotak yang menggulung sendiri, kepala tabel menempel di tepi kotak
-   (bukan di bawah bilah atas halaman) — kalau tidak, baris tampak menumpuk. */
+/* Kepala tabel HANYA menempel di dalam kotak yang benar-benar menggulung
+   sendiri, dan di sana ia menempel di tepi kotak (top: 0) dengan latar pekat
+   agar baris tidak tembus. Sebelumnya aturan umum memakai top: var(--topbar-h)
+   sehingga kepala tabel tampak melayang di tengah tabel dan menutupi sebagian
+   baris (mis. baris FUTSAL tertutup kepala tabel) — jangan diulang. */
 .table-wrap.daftar table.data thead th,
 .table-wrap.compact table.data thead th {
-  top: 0;
-  box-shadow: 0 1px 0 var(--border);
+  position: sticky; top: 0; z-index: 3;
+  background: #f8fafc;
+  box-shadow: 0 1px 0 var(--border), 0 7px 12px -12px rgba(15, 23, 42, .45);
 }
 .table-wrap.compact { overscroll-behavior-x: contain; }
 table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
