@@ -734,6 +734,16 @@ def cek_http():
             assert terlarang.status_code in (303, 403), "siswa seharusnya tidak bisa membuka Pengaturan"
 
             await client.post("/logout")
+
+            # Tab siswa terbuka langsung lewat /login?mode=siswa — alamat ini dipakai
+            # saat siswa keluar, dan halaman login mengingat pilihan peran terakhir.
+            halaman_siswa = await client.get("/login?mode=siswa")
+            teks_siswa = halaman_siswa.text
+            assert "sm-peran-terakhir" in teks_siswa, "halaman login tidak mengingat pilihan peran"
+            potongan_siswa = teks_siswa.split('data-tab="siswa"')[0].rsplit("<button", 1)[-1]
+            assert "active" in potongan_siswa, "tab siswa tidak aktif pada /login?mode=siswa"
+            potongan_staff = teks_siswa.split('data-tab="staff"')[0].rsplit("<button", 1)[-1]
+            assert "active" not in potongan_staff, "tab admin seharusnya tidak aktif"
         return f"{len(halaman_admin)} halaman petugas + portal siswa + 3 endpoint API diuji"
 
     return asyncio.run(jalankan())
