@@ -356,6 +356,10 @@ def cek_pembaruan():
     if os.name != "nt":
         assert updater._mulai_ulang_windows() is False, "jalur gagal harus mengembalikan False"
     kode_updater = pathlib.Path(updater.__file__).read_text(encoding="utf-8")
+    # Pencatatan audit saat meminta muat ulang tidak boleh menggagalkan tombol
+    # (server bisa keburu mengganti diri & menutup koneksi database).
+    assert "Audit muat ulang tidak tercatat" in kode_updater, \
+        "pencatatan audit muat ulang tidak dibungkus penanganan galat"
     assert '["cmd", "/c", "start"' not in kode_updater, \
         "jangan memakai bentuk list untuk start (judul tanpa kutip dianggap nama program)"
 

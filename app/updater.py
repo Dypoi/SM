@@ -681,7 +681,13 @@ def minta_muat_ulang(aktor: str | None = None, alasan: str = "pembaruan") -> Non
         ),
         encoding="utf-8",
     )
-    services.log_audit(aktor, "admin", "muat_ulang_server", "aplikasi", None, alasan)
+    # Tanda muat ulang sudah tertulis di atas. Bila server keburu mengganti diri
+    # (koneksi database ditutup di tengah permintaan), pencatatan audit tidak
+    # boleh membuat permintaan tombol "Muat ulang server" gagal dengan 500.
+    try:
+        services.log_audit(aktor, "admin", "muat_ulang_server", "aplikasi", None, alasan)
+    except Exception as exc:  # noqa: BLE001 - catat saja, muat ulang tetap berjalan
+        print(f"Audit muat ulang tidak tercatat: {exc}")
 
 
 def batalkan_muat_ulang() -> None:
