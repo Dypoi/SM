@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import secrets
 import sqlite3
+import time
 from pathlib import Path
 
 # --------------------------------------------------------------------------- #
@@ -20,6 +21,10 @@ UPLOAD_DIR = DATA_DIR / "uploads"
 EXPORT_DIR = DATA_DIR / "exports"
 DB_NAMA = "sm.sqlite3"
 DB_NAMA_LAMA = "simsek.sqlite3"
+
+#: Percobaan memindahkan berkas basis data lama (menghadapi berkas yang sedang terkunci).
+PINDAH_DB_PERCOBAAN = 8
+PINDAH_DB_JEDA = 0.6
 #: Diisi bila berkas basis data lama dipindahkan/dipertahankan (dibaca run.py).
 CATATAN_DB = ""
 
@@ -49,32 +54,48 @@ def _siapkan_db_path() -> Path:
         return baru
 
     akhiran = ("", "-wal", "-shm")
-    try:
-        sebelum = _ringkasan_db(lama)
-        for sisa in akhiran:
-            sumber = Path(f"{lama}{sisa}")
-            if sumber.exists():
-                sumber.rename(Path(f"{baru}{sisa}"))
-        sesudah = _ringkasan_db(baru)
-        if sebelum != sesudah:
-            raise RuntimeError(f"isi basis data berbeda setelah dipindahkan ({sebelum} -> {sesudah})")
-        CATATAN_DB = f"Berkas basis data lama dipindahkan ke {DB_NAMA} ({sesudah[1]} siswa)."
-        return baru
-    except Exception as exc:  # noqa: BLE001 - apa pun sebabnya, data tetap harus terbaca
-        for sisa in akhiran:
-            sumber = Path(f"{baru}{sisa}")
-            if sumber.exists():
-                try:
-                    sumber.rename(Path(f"{lama}{sisa}"))
-                except OSError:
-                    pass
+    penanda = DATA_DIR / f".{DB_NAMA_LAMA}.diberitahukan"
+    galat_terakhir: Exception | None = None
+    # Berkas bisa sedang terkunci sesaat (mis. jendela server SM lain baru ditutup, atau
+    # antivirus memindai). Dicoba beberapa kali sebelum menyerah.
+    for percobaan in range(PINDAH_DB_PERCOBAAN):
+        try:
+            sebelum = _ringkasan_db(lama)
+            for sisa in akhiran:
+                sumber = Path(f"{lama}{sisa}")
+                if sumber.exists():
+                    sumber.rename(Path(f"{baru}{sisa}"))
+            sesudah = _ringkasan_db(baru)
+            if sebelum != sesudah:
+                raise RuntimeError(f"isi basis data berbeda setelah dipindahkan ({sebelum} -> {sesudah})")
+            CATATAN_DB = f"Berkas basis data lama dipindahkan ke {DB_NAMA} ({sesudah[1]} siswa)."
+            penanda.unlink(missing_ok=True)
+            return baru
+        except Exception as exc:  # noqa: BLE001 - apa pun sebabnya, data tetap harus terbaca
+            galat_terakhir = exc
+            for sisa in akhiran:
+                sumber = Path(f"{baru}{sisa}")
+                if sumber.exists():
+                    try:
+                        sumber.rename(Path(f"{lama}{sisa}"))
+                    except OSError:
+                        pass
+            if percobaan < PINDAH_DB_PERCOBAAN - 1:
+                time.sleep(PINDAH_DB_JEDA)
+    # Pesannya cukup sekali per pemasangan supaya tidak mengganggu setiap kali dijalankan.
+    if not penanda.exists():
+        try:
+            penanda.write_text("sudah diberitahukan", encoding="utf-8")
+        except OSError:
+            pass
         CATATAN_DB = (
-            f"Berkas basis data masih memakai nama lama ({DB_NAMA_LAMA}) karena tidak dapat "
-            f"dipindahkan: {exc} Aplikasi tetap berjalan dan data Anda aman. Agar berganti menjadi "
-            f"{DB_NAMA}, tutup dulu aplikasi/jendela server SM lain atau program yang sedang "
-            "membuka berkas itu, lalu jalankan run.bat sekali lagi."
+            f"Berkas basis data masih bernama lama ({DB_NAMA_LAMA}) karena berkasnya sedang dipakai "
+            f"program lain ({type(galat_terakhir).__name__}). Aplikasi berjalan normal dan data aman. "
+            f"Bila ingin namanya berganti menjadi {DB_NAMA}: tutup semua jendela SM lain (periksa "
+            "Task Manager → python.exe), lalu jalankan run.bat sekali lagi. Bila tetap tidak bisa, "
+            "abaikan saja — fungsinya sama."
         )
-        return lama
+    return lama
 
 
 DB_PATH = _siapkan_db_path()

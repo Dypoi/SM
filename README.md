@@ -452,10 +452,18 @@ Bot Dapodik **sudah aktif** di menu **Bot Dapodik** (khusus admin). Ringkasnya:
 
 **Bila bot berhenti dengan pesan waktu habis / elemen tidak ditemukan** — tekan tombol
 **«Uji koneksi Dapodik»**. Bot membuka Dapodik sebentar lalu menampilkan apa yang
-sebenarnya terlihat: judul halaman, kolom-kolom isian, tombol, menu, dan selector mana
-yang cocok (bawaan atau cadangan), plus **tangkapan layar** tersimpan di `data/bot/`.
-Dari situ biasanya langsung kelihatan penyebabnya, misalnya Dapodik belum dijalankan,
-alamat salah, halaman masih memuat, atau tombolnya berubah versi.
+sebenarnya terlihat: judul halaman, kesiapan halaman (readyState & overlay), daftar
+kolom isian dan tombol beserta status *terlihat/belum*, status tiap selector login
+(cocok bawaan / cocok cadangan / **ada tetapi belum terlihat** / tidak ditemukan), dan
+**usulan selector** siap pakai, plus **tangkapan layar** tersimpan di `data/bot/`.
+
+Arti hasil yang paling sering muncul:
+
+| Hasil | Artinya | Tindakan |
+| --- | --- | --- |
+| Kolom login **“ada, belum terlihat”** | Halaman Dapodik belum selesai dimuat (atau memakai halaman pembuka) | Bot sekarang menunggu sendiri sampai kolom terlihat; kalau masih sering, naikkan *Jeda muat halaman Dapodik* ke 15–20 dan *Batas tunggu elemen* ke 60 |
+| **“tidak ditemukan”** pada satu selector | Tombol/kolom berganti nama pada versi Dapodik ini | Tekan **«Pakai saran selector»** pada kartu hasil uji — selector usulan otomatis tersimpan |
+| **Tidak ada kolom sama sekali** | Alamat/port salah atau Dapodik belum berjalan | Buka `http://localhost:5774/` di Chrome biasa untuk memastikan |
 
 Catatan penting:
 
@@ -463,8 +471,12 @@ Catatan penting:
 - Bila Dapodik sekolah lambat terbuka, naikkan **Jeda muat halaman Dapodik** (bawaan
   8 detik) dan **Batas tunggu elemen** (bawaan 30 detik) pada Pengaturan Bot.
 - Bila Dapodik berganti versi, bot masih mencoba **selector cadangan** (mis. mencari
-  tombol lewat tulisannya). Log akan menuliskan selector cadangan mana yang dipakai,
-  dan nilai itu dapat disalin ke *Peta tombol Dapodik*.
+  tombol lewat tulisannya) bahkan **mengenali sendiri** kolom login dari halaman, lalu
+  menuliskan selector yang dipakainya pada catatan pekerjaan supaya bisa disalin ke
+  *Peta tombol Dapodik*.
+- Bila kolom login sudah ada di halaman tetapi belum terlihat (Dapodik masih memuat),
+  bot menunggu lebih dulu, dan sebagai jalan terakhir mengisi kolom lewat skrip supaya
+  pekerjaan tidak langsung gagal.
 - Bila PC mati atau bot dihentikan di tengah jalan, jalankan lagi dengan pilihan
   *«Dilewati (lanjutkan pekerjaan)»* — siswa yang sudah berhasil tidak didaftarkan dua kali.
 - Siswa tanpa NIPD/NIS dilewati (atau memakai NISN bila pilihan itu dicentang).
@@ -549,6 +561,7 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 │   └── static/css/app.css, static/js/app.js
 ├── scripts/
 │   ├── cek_sistem.py          # pemeriksaan mandiri 24 titik uji
+│   ├── peramban_palsu.py      # peramban tiruan untuk menguji bot tanpa Chrome
 │   └── buat_template.py       # pembuat berkas template impor
 ├── template-import/           # contoh.xlsx berisi data fiktif (aman dibagikan)
 ├── sample-data/               # berkas Dapodik asli (tidak di-commit, berisi data pribadi)
@@ -567,6 +580,11 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
   aplikasi membuat cadangan basis data di `data/backup/`.
 - **Semua data disimpan lokal** di folder `data/` (`sm.sqlite3`). Tidak ada
   pengiriman data ke internet. Untuk mencadangkan aplikasi, cukup salin folder `data/`.
+- Pemasangan lama yang masih memakai `simsek.sqlite3` dipindahkan otomatis ke
+  `sm.sqlite3` saat aplikasi dijalankan. Bila berkasnya sedang dipakai program lain
+  (mis. jendela server SM lain masih terbuka), pemindahan dicoba beberapa kali lalu
+  **dilewati** — aplikasi tetap berjalan dan data tetap aman, dan keterangannya hanya
+  muncul sekali. Ingin namanya berganti? Tutup semua jendela SM lalu jalankan `run.bat`.
 - **Berkas bukti pengajuan** (akta kelahiran, KK, ijazah) tersimpan di
   `data/uploads/dokumen/<id siswa>/` dan hanya dapat dibuka siswa pemiliknya serta petugas.
   Hapus folder siswa saat lulus bila tidak diperlukan lagi.

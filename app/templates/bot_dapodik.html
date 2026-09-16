@@ -115,6 +115,9 @@
       <h3>Hasil Uji Koneksi Dapodik</h3>
       <p>{{ laporan_uji.waktu }} · {{ laporan_uji.url }}{{ ' · jendela tampak' if not laporan_uji.headless else ' · di belakang layar' }}</p>
     </div>
+    <form method="post" action="/bot-dapodik/uji" class="inline-form">
+      <button class="btn btn-outline btn-sm" type="submit">Ulangi uji koneksi</button>
+    </form>
   </div>
   <div class="card-body">
     {% if laporan_uji.galat %}
@@ -123,29 +126,89 @@
         <div>{{ laporan_uji.galat }}</div>
       </div>
     {% else %}
-      <div class="grid grid-3">
+      <div class="grid grid-4">
         <div><div class="muted" style="font-size:.78rem">Judul halaman</div><strong>{{ laporan_uji.judul or '(tanpa judul)' }}</strong></div>
-        <div><div class="muted" style="font-size:.78rem">Alamat akhir</div><span class="mono" style="font-size:.8rem">{{ laporan_uji.url or '—' }}</span></div>
-        <div><div class="muted" style="font-size:.78rem">Kolom kata sandi</div><strong>{{ 'ada' if laporan_uji.isian_sandi else 'tidak ada' }}</strong></div>
+        <div><div class="muted" style="font-size:.78rem">Alamat akhir</div><span class="mono" style="font-size:.78rem">{{ laporan_uji.url or '—' }}</span></div>
+        <div><div class="muted" style="font-size:.78rem">Formulir login tampil</div>
+          <strong>{{ 'ya' if laporan_uji.formulir_tampil else 'belum' }}</strong></div>
+        <div><div class="muted" style="font-size:.78rem">Kesiapan halaman</div>
+          <strong>{{ (laporan_uji.halaman or {}).get('readyState', '—') }}</strong>
+          <span class="muted">· overlay {{ (laporan_uji.halaman or {}).get('overlay', 0) }}</span></div>
       </div>
-      <div class="section-title">Selector login</div>
-      <ul class="langkah-bot">
-        {% for kunci, keadaan in (laporan_uji.selector_cocok or {}).items() %}
-        <li><code>{{ kunci }}</code>:
-          {% if keadaan == 'bawaan' %}<span class="badge badge-success">cocok dengan bawaan</span>
-          {% elif keadaan == 'cadangan' %}<span class="badge badge-warning">memakai cadangan (boleh disalin ke "Peta tombol Dapodik")</span>
-          {% else %}<span class="badge badge-danger">tidak ditemukan</span>{% endif %}
-        </li>
-        {% endfor %}
+
+      {% if laporan_uji.catatan %}
+      <ul class="langkah-bot mt-2">
+        {% for baris in laporan_uji.catatan %}<li>{{ baris }}</li>{% endfor %}
       </ul>
+      {% endif %}
+
+      <div class="section-title">Status selector login</div>
+      <div class="table-wrap compact">
+        <table class="data tabel-kecil kartu">
+          <caption class="sr-only">Status selector tombol Dapodik</caption>
+          <thead><tr><th>Selector</th><th>Keadaan</th><th>Nilai yang dipakai</th></tr></thead>
+          <tbody>
+            {% for kunci, keadaan in (laporan_uji.selector_status or {}).items() %}
+            <tr>
+              <td class="mono" data-label="Selector">{{ kunci }}</td>
+              <td data-label="Keadaan">
+                {% if keadaan.keadaan == 'terlihat' %}
+                  <span class="badge badge-success">cocok{{ ' (cadangan)' if keadaan.cadangan }}</span>
+                {% elif keadaan.keadaan == 'ada_tak_terlihat' %}
+                  <span class="badge badge-warning">ada, belum terlihat</span>
+                {% else %}
+                  <span class="badge badge-danger">tidak ditemukan</span>
+                {% endif %}
+              </td>
+              <td class="mono" data-label="Nilai" style="font-size:.76rem">{{ keadaan.nilai or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if laporan_uji.saran %}
+      <div class="section-title">Saran selector (dari halaman ini)</div>
+      <pre class="mono-blok" style="max-height:180px">{{ laporan_uji.saran_json }}</pre>
+      <form method="post" action="/bot-dapodik/pakai-saran" class="inline-form mt-1">
+        <button class="btn btn-primary btn-sm" type="submit">{{ icon('check') }} Pakai saran selector</button>
+        <span class="hint">Selector yang tidak ketemu diganti dengan usulan di atas; sisanya tetap.</span>
+      </form>
+      {% endif %}
+
       <details class="filter-panel mt-2">
-        <summary>Yang terlihat pada halaman</summary>
+        <summary>Unsur yang terbaca pada halaman ({{ (laporan_uji.kolom | length) + (laporan_uji.tombol | length) }})</summary>
         <div class="filter-body">
-          <p><strong>Isian teks:</strong> {{ laporan_uji.isian_teks | join(' · ') or 'tidak ada' }}</p>
-          <p><strong>Tombol:</strong> {{ laporan_uji.tombol | join(' · ') or 'tidak ada' }}</p>
-          <p><strong>Menu:</strong> {{ laporan_uji.menu | join(' · ') or 'tidak ada' }}</p>
-          <p><strong>Judul kotak/panel:</strong> {{ laporan_uji.judul_kotak | join(' · ') or 'tidak ada' }}</p>
-          {% if laporan_uji.bukti %}<p class="muted">Tangkapan layar &amp; HTML tersimpan: <code>{{ laporan_uji.bukti }}</code></p>{% endif %}
+          <div class="table-wrap compact">
+            <table class="data tabel-kecil kartu">
+              <caption class="sr-only">Kolom isian yang terbaca pada halaman Dapodik</caption>
+              <thead><tr><th>Jenis</th><th>Nama</th><th>Id</th><th>Terlihat</th><th>Ukuran</th></tr></thead>
+              <tbody>
+                {% for k in laporan_uji.kolom %}
+                <tr>
+                  <td data-label="Jenis"><span class="mono">{{ k.tag }}{{ '/' + k.type if k.type }}</span></td>
+                  <td class="mono" data-label="Nama">{{ k.name or '—' }}</td>
+                  <td class="mono" data-label="Id">{{ k.id or '—' }}</td>
+                  <td data-label="Terlihat">{% if k.terlihat %}<span class="badge badge-success">ya</span>{% else %}<span class="badge badge-muted">belum</span>{% endif %}</td>
+                  <td class="mono" data-label="Ukuran">{{ k.ukuran }}</td>
+                </tr>
+                {% endfor %}
+                {% for t in laporan_uji.tombol %}
+                <tr>
+                  <td data-label="Jenis"><span class="mono">{{ t.tag }}{{ '/' + t.type if t.type }}</span></td>
+                  <td data-label="Nama" colspan="2"><strong>{{ t.teks }}</strong></td>
+                  <td data-label="Terlihat">{% if t.terlihat %}<span class="badge badge-success">ya</span>{% else %}<span class="badge badge-muted">belum</span>{% endif %}</td>
+                  <td class="mono" data-label="Ukuran">{{ t.ukuran }}</td>
+                </tr>
+                {% endfor %}
+                {% if not laporan_uji.kolom and not laporan_uji.tombol %}
+                <tr><td colspan="5" class="empty-cell"><p class="empty">Tidak ada kolom/tombol yang terbaca.</p></td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+          {% if laporan_uji.teks_awal %}<p class="muted" style="font-size:.8rem">Teks halaman: {{ laporan_uji.teks_awal }}</p>{% endif %}
+          {% if laporan_uji.bukti %}<p class="muted" style="font-size:.8rem">Tangkapan layar &amp; HTML tersimpan: <code>{{ laporan_uji.bukti }}</code></p>{% endif %}
         </div>
       </details>
     {% endif %}

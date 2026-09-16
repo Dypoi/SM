@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sqlite3
 import pathlib
 import shutil
 import sys
@@ -72,7 +73,51 @@ def cek_migrasi():
     hilang = wajib - tabel
     assert not hilang, f"tabel tidak dibuat: {hilang}"
     assert db.query_value("SELECT COUNT(*) FROM users WHERE role='admin'") == 1
-    return f"{len(tabel)} tabel, {db.query_value('SELECT COUNT(*) FROM settings')} pengaturan, {config.DB_PATH.name}"
+
+    # Nama berkas basis data dari pemasangan lama dipindahkan otomatis, tetapi berkasnya
+    # sering terkunci sesaat (mis. jendela server lain baru ditutup) → harus dicoba
+    # beberapa kali dan pesannya cukup sekali agar tidak mengganggu tiap kali dijalankan.
+    assert config.PINDAH_DB_PERCOBAAN >= 3 and config.PINDAH_DB_JEDA > 0, \
+        "pemindahan berkas basis data lama harus dicoba beberapa kali"
+    simpan_data = config.DATA_DIR
+    simpan_rinci = config._ringkasan_db
+    simpan_db_env = os.environ.pop("SM_DB_PATH", None)  # agar jalur basis data benar-benar diuji
+    folder = _SEMENTARA / "nama-db"
+    folder.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(str(folder / config.DB_NAMA_LAMA)) as conn:
+        conn.execute("CREATE TABLE students(id INTEGER)")
+    config.DATA_DIR = folder
+    config.PINDAH_DB_PERCOBAAN, simpan_coba = 2, config.PINDAH_DB_PERCOBAAN
+    simpan_jeda, config.PINDAH_DB_JEDA = config.PINDAH_DB_JEDA, 0.01
+
+    def _kunci(path):  # tiru WinError 32: berkas sedang dipakai proses lain
+        raise PermissionError(32, "berkas dipakai proses lain")
+    try:
+        config._ringkasan_db = _kunci
+        pertama = config._siapkan_db_path()
+        assert pertama.name == config.DB_NAMA_LAMA, "harus tetap memakai berkas lama saat terkunci"
+        assert config.CATATAN_DB, "pemakaian nama lama seharusnya diberitahukan sekali"
+        config.CATATAN_DB = ""
+        config._siapkan_db_path()
+        assert not config.CATATAN_DB, "pemberitahuan nama lama tidak boleh berulang setiap dijalankan"
+        config._ringkasan_db = simpan_rinci
+        dijalankan = config._siapkan_db_path()
+        assert dijalankan.name == config.DB_NAMA, "berkas harus berpindah setelah tidak terkunci"
+        assert "dipindahkan" in config.CATATAN_DB, config.CATATAN_DB
+        assert not (folder / f".{config.DB_NAMA_LAMA}.diberitahukan").exists(), \
+            "penanda 'sudah diberitahukan' harus dihapus setelah berhasil"
+        _, siswa_awal = config._ringkasan_db(folder / config.DB_NAMA)
+        assert siswa_awal == 0, "basis data contoh tidak sesuai"
+    finally:
+        config._ringkasan_db = simpan_rinci
+        config.DATA_DIR = simpan_data
+        config.PINDAH_DB_PERCOBAAN, config.PINDAH_DB_JEDA = simpan_coba, simpan_jeda
+        config.CATATAN_DB = ""
+        if simpan_db_env is not None:
+            os.environ["SM_DB_PATH"] = simpan_db_env
+
+    return (f"{len(tabel)} tabel, {db.query_value('SELECT COUNT(*) FROM settings')} pengaturan, "
+            f"{config.DB_PATH.name}")
 
 
 @cek("2. Pembaca berkas multi-format")
@@ -1630,7 +1675,9 @@ def cek_bot_dapodik() -> str:
     """Bot Dapodik: antrean bersumber dari tabel students, berjalan tanpa peramban
     pada mode uji coba, dan pekerjaan yang sudah berhasil tidak diulang."""
     import inspect
+    import json
     import time
+    from pathlib import Path
 
     from app import auth, bot_dapodik, db, services, web
 
@@ -1744,6 +1791,94 @@ def cek_bot_dapodik() -> str:
     assert services.laporan_uji_bot() == {}, "laporan uji koneksi rusak harus diabaikan"
     services.set_setting(services.KUNCI_UJI_BOT, "")
 
+    # 4d) Peramban palsu: skenario yang dialami di PC sekolah — kolom login sudah ada di
+    #     halaman tetapi belum terlihat (halaman Dapodik masih memuat / ada halaman pembuka).
+    #     Bot harus menunggu, mengenali kolomnya sendiri, dan tetap bisa mengisinya.
+    import peramban_palsu
+
+    cepat = (bot_dapodik.SELEKTOR_UJI_DETIK, bot_dapodik.UJI_TUNGGU_PERTAMA,
+             bot_dapodik.UJI_TUNGGU_LAIN)
+    bot_dapodik.SELEKTOR_UJI_DETIK, bot_dapodik.UJI_TUNGGU_PERTAMA, bot_dapodik.UJI_TUNGGU_LAIN = 0.2, 0.2, 0.1
+    asli_buka = bot_dapodik.BotDapodik._buka_peramban
+    galat_lama = bot_dapodik.SELECTOR_BAWAAN["login_username"]
+    bot_dapodik.SELECTOR_BAWAAN["login_username"] = "/html/body/div[9]/form/input"
+    try:
+        opsi_uji = dict(services.bot_setting(), bot_url="http://localhost:5774/", bot_timeout="1",
+                        bot_jeda_muat="0", bot_username="a@b.id", bot_password="rahasia")
+        bot_uji = bot_dapodik.BotDapodik(0, [], [], opsi_uji)
+
+        # (1) halaman pembuka: formulir baru muncul setelah tombol "Masuk" ditekan
+        palsu = peramban_palsu.buat("splash")
+        assert not bot_uji._formulir_terlihat(palsu), "kolom login splash seharusnya belum terlihat"
+        assert bot_uji._tunggu_formulir_login(palsu), "bot harus menunggu sampai formulir tampil"
+        assert "Masuk" in palsu.tombol_diklik(), "tombol pembuka halaman Dapodik tidak diklik"
+
+        # (2) kolom tersembunyi: penanda "ada tetapi belum terlihat" muncul pada laporan
+        palsu = peramban_palsu.buat("kolom_tersembunyi")
+        assert not bot_uji._tunggu_formulir_login(palsu), "skenario ini memang tak pernah menampilkan"
+        peta_uji = bot_dapodik.peta_selector()
+        keadaan = bot_uji._keadaan_selector(palsu, "login_password", peta_uji)
+        assert keadaan["keadaan"] in ("ada_tak_terlihat", "terlihat"), keadaan
+        kolom_palsu, tombol_palsu = bot_uji._deskripsi_unsur(palsu)
+        assert len(kolom_palsu) == 2 and kolom_palsu[1]["type"] == "password", kolom_palsu
+        kenal = bot_dapodik.pilih_kolom_login(kolom_palsu, tombol_palsu)
+        assert kenal["login_username"]["selector"] == 'css:input[name="email"]', kenal
+        assert kenal["login_password"]["selector"] == 'css:input[name="password"]', kenal
+
+        # Bot tetap mengisi kolom walau belum terlihat (lewat JS), lalu menekan tombolnya.
+        for kunci, nilai in (("login_username", "a@b.id"), ("login_password", "rahasia")):
+            locator, _, _ = bot_uji._cari_dengan_cadangan(palsu, kunci, peta_uji, wajib=False,
+                                                          boleh_tak_terlihat=True)
+            assert locator is not None, f"bot harus menemukan kolom {kunci} walau belum terlihat"
+            bot_uji._isi(palsu, locator, nilai)
+        assert palsu.unsur_bernama("email").nilai == "a@b.id", "kolom email tidak terisi"
+        assert palsu.unsur_bernama("password").nilai == "rahasia", "kolom sandi tidak terisi"
+        bot_uji._klik_aman(palsu, bot_uji._locator_nilai(kenal["login_tombol"]["selector"]))
+        assert palsu.tombol_diklik(), "tombol masuk hasil pengenalan otomatis tidak diklik"
+
+        # (3) halaman normal: selector cadangan menemukan kolom & laporan menyarankannya
+        palsu = peramban_palsu.buat("siap")
+        assert bot_uji._tunggu_formulir_login(palsu), "halaman siap harus langsung terlihat"
+        locator, nilai, _ = bot_uji._cari_dengan_cadangan(palsu, "login_username", peta_uji,
+                                                          wajib=False, boleh_tak_terlihat=True)
+        assert nilai and nilai.startswith("css:input"), f"cadangan login tidak dipakai: {nilai!r}"
+        locator_tombol, nilai_tombol, _ = bot_uji._cari_dengan_cadangan(
+            palsu, "login_tombol", peta_uji, wajib=False, boleh_tak_terlihat=True)
+        assert nilai_tombol and "Masuk" in nilai_tombol, f"cadangan tombol masuk gagal: {nilai_tombol!r}"
+
+        # (4) laporan "Uji koneksi Dapodik" memakai peramban palsu (tanpa Chrome)
+        data_lama = bot_dapodik.config.DATA_DIR
+        bot_dapodik.config.DATA_DIR = _SEMENTARA / "uji-bukti"
+        bot_dapodik.BotDapodik._buka_peramban = lambda self: peramban_palsu.buat("kolom_tersembunyi")
+        try:
+            laporan = bot_dapodik.uji_dapodik(opsi_uji)
+        finally:
+            bot_dapodik.BotDapodik._buka_peramban = asli_buka
+            bot_dapodik.config.DATA_DIR = data_lama
+        assert not laporan.get("galat"), f"uji koneksi gagal: {laporan.get('galat')}"
+        assert laporan["selector_status"]["login_password"]["keadaan"] == "ada_tak_terlihat", \
+            laporan["selector_status"]
+        assert "login_password" in laporan["saran"], f"saran selector kosong: {laporan['saran']}"
+        assert json.loads(laporan["saran_json"])["login_password"].startswith("css:"), \
+            "saran_json harus JSON siap-tempel"
+        assert any("belum terlihat" in baris for baris in laporan["catatan"]), \
+            "laporan harus menjelaskan kolom yang belum terlihat"
+        assert laporan["kolom"] and laporan["tombol"], "laporan harus memuat unsur halaman"
+        assert Path(laporan["bukti"]).exists(), "tangkapan layar uji koneksi tidak tersimpan"
+
+        # (5) Tombol "Pakai saran selector" menyimpan usulan ke pengaturan bot.
+        services.simpan_laporan_uji_bot(laporan)
+        services.simpan_bot_setting({"bot_selector_json": ""})
+        bot_routes.pakai_saran(user=admin_uji)
+        tersimpan = json.loads(services.bot_setting()["bot_selector_json"] or "{}")
+        assert tersimpan.get("login_password", "").startswith("css:input"), tersimpan
+        services.simpan_bot_setting({"bot_selector_json": ""})  # bersihkan untuk uji berikutnya
+        services.set_setting(services.KUNCI_UJI_BOT, "")
+    finally:
+        bot_dapodik.SELECTOR_BAWAAN["login_username"] = galat_lama
+        (bot_dapodik.SELEKTOR_UJI_DETIK, bot_dapodik.UJI_TUNGGU_PERTAMA,
+         bot_dapodik.UJI_TUNGGU_LAIN) = cepat
+
     # 4c) Pemasangan pustaka bot dari dalam aplikasi memakai Python aplikasi ini.
     assert "requirements-bot.txt" in services.perintah_pasang_bot(), "perintah pasang tidak menunjuk berkasnya"
     assert services.perintah_pasang_bot().startswith('"'), "perintah pasang harus memakai jalur Python lengkap"
@@ -1839,7 +1974,8 @@ def cek_bot_dapodik() -> str:
         "setelah riwayat dibersihkan, siswa lama harus bisa didaftarkan ulang"
 
     return (f"{len(kunci)} selector · antrean dari tabel students · uji coba 2 siswa sukses · "
-            f"siswa berstatus Lulus dilewati · sekarang {len(services.bot_nisn_sukses())} NISN berhasil")
+            f"siswa berstatus Lulus dilewati · tahan formulir login tersembunyi (peramban palsu) · "
+            f"sekarang {len(services.bot_nisn_sukses())} NISN berhasil")
 
 
 def main() -> int:

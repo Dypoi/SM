@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -181,6 +182,31 @@ def uji_koneksi(user: auth.SessionUser = Depends(auth.require_admin)):
         f"Selector login cocok: {jumlah_cocok}/3 ({cocok}). "
         f"Rincian & bukti pemeriksaan ada pada kartu di bawah.",
         level="ok" if jumlah_cocok else "warn", anchor="catatan-uji")
+
+
+@router.post("/bot-dapodik/pakai-saran")
+def pakai_saran(user: auth.SessionUser = Depends(auth.require_admin)):
+    """Simpan selector usulan dari hasil uji koneksi terakhir (tanpa mengetik manual)."""
+    laporan = services.laporan_uji_bot()
+    saran = (laporan or {}).get("saran") or {}
+    if not saran:
+        return _pesan("Belum ada selector usulan. Jalankan dulu «Uji koneksi Dapodik».",
+                      level="warn", anchor="catatan-uji")
+    sekarang = services.bot_setting().get("bot_selector_json") or ""
+    try:
+        peta = json.loads(sekarang) if sekarang.strip() else {}
+        if not isinstance(peta, dict):
+            peta = {}
+    except json.JSONDecodeError:
+        peta = {}
+    peta.update({str(kunci): str(nilai) for kunci, nilai in saran.items() if str(nilai).strip()})
+    galat = bot_dapodik._pesan_galat_selector(json.dumps(peta, ensure_ascii=False))
+    if galat:
+        return _pesan(galat, level="err", anchor="catatan-uji")
+    services.simpan_bot_setting({"bot_selector_json": json.dumps(peta, ensure_ascii=False, indent=2)})
+    return _pesan("Selector usulan dipakai: " + ", ".join(sorted(peta)) +
+                  ". Jalankan bot lagi; bila berhasil, pengaturan ini tetap tersimpan.",
+                  anchor="pengaturan-bot")
 
 
 @router.post("/bot-dapodik/pasang")
