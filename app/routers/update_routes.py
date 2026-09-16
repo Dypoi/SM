@@ -30,6 +30,7 @@ def _konteks(status: dict | None = None) -> dict:
         "cabang_remote": updater.daftar_cabang_remote(status.get("remote") or "origin"),
         "catatan": status.get("catatan") or [],
         "perintah_manual": updater.perintah_manual(),
+        "folder_aplikasi": str(config.BASE_DIR),
         "perintah_restart": " ".join(updater.perintah_restart()),
         "versi_aplikasi": config.APP_VERSION,
         "jenis_pasang": "salinan git" if status.get("tersedia") else "salinan tanpa git (ZIP)",

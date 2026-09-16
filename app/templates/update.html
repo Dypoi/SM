@@ -102,7 +102,7 @@
       </div>
       <div class="card-body">
         <p>Ubah salinan aplikasi menjadi salinan git (sekali saja, lewat Command Prompt):</p>
-        <div class="mono-block">cd /d {{ perintah_manual.splitlines()[0].replace('cd /d ', '') }}
+        <div class="mono-block">cd /d {{ folder_aplikasi }}
 git init
 git remote add origin https://github.com/Dypoi/SM.git
 git fetch origin
@@ -256,7 +256,10 @@ git checkout -f -B {{ status.cabang }} origin/{{ status.cabang }}</div>
       </div>
       <div class="card-body">
         <div class="mono-block">{{ perintah_manual }}</div>
-        <p class="muted mt-2">Dijalankan di Command Prompt, dari dalam folder aplikasi.</p>
+        <p class="muted mt-2">Dijalankan di Command Prompt, dari dalam folder aplikasi
+          (<span class="mono">{{ folder_aplikasi }}</span>). Di Linux/macOS gunakan
+          <span class="mono">python3 -m pip install -r requirements.txt</span> lalu
+          <span class="mono">python3 run.py</span>.</p>
       </div>
     </div>
 

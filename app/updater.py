@@ -127,6 +127,21 @@ def _rev(ref: str = "HEAD") -> str:
     return keluaran if kode == 0 else ""
 
 
+def _ref_remote(remote: str, cabang: str) -> str:
+    """Nama ref pelacak remote, mis. ``origin/arena/01a0a87a-sm``."""
+    return f"{remote}/{cabang}"
+
+
+def ambil_pembaruan(remote: str, cabang: str) -> tuple[int, str]:
+    """``git fetch`` dengan refspec eksplisit agar ref pelacak remote ikut dibuat.
+
+    Tanpa refspec eksplisit, salinan yang di-``clone`` dengan ``--single-branch``
+    tidak menyimpan ``origin/<cabang>`` sehingga perbandingan revisi gagal.
+    """
+    refspec = f"+refs/heads/{cabang}:refs/remotes/{remote}/{cabang}"
+    return jalankan_git(["fetch", "--prune", remote, refspec])
+
+
 def _ada_berkas_git() -> bool:
     return (BASE_DIR / ".git").exists()
 
@@ -288,8 +303,8 @@ def status_pembaruan(periksa_jaringan: bool = False, remote: str | None = None,
         "ketinggalan_terakhir": _angka(services.get_setting("update_komit_belakang")),
         "butuh_muat_ulang": RESTART_MARKER.exists(),
         "status_terakhir": _baca_status(),
-        "catatan": catatan_perubahan("HEAD" if not info["bisa"] else f"{remote}/{cabang}", batas=12)
-        if info["bisa"] else [],
+        "catatan": [],
+        "belum_diperiksa": False,
     }
 
     if not info["bisa"]:
@@ -302,7 +317,7 @@ def status_pembaruan(periksa_jaringan: bool = False, remote: str | None = None,
     status["berkas_lokal_total"] = len(ubah)
 
     if periksa_jaringan:
-        kode, keluaran = jalankan_git(["fetch", "--prune", remote, cabang])
+        kode, keluaran = ambil_pembaruan(remote, cabang)
         status["jaringan_diperiksa"] = kode == 0
         status["log"].append(keluaran or "git fetch selesai.")
         if kode != 0:
@@ -312,21 +327,29 @@ def status_pembaruan(periksa_jaringan: bool = False, remote: str | None = None,
             )
             return status
 
-    status["revisi_remote"] = _rev(f"{remote}/{cabang}") if _rev(f"{remote}/{cabang}") else ""
+    ref = _ref_remote(remote, cabang)
+    status["revisi_remote"] = _rev(ref) or _rev("FETCH_HEAD")
     if not status["revisi_remote"]:
+        # Belum pernah diperiksa & ref pelacak belum ada: bukan kesalahan.
+        status["belum_diperiksa"] = not periksa_jaringan
+        status["catatan"] = catatan_perubahan("HEAD", batas=12)
         status["pesan"] = (
-            f"Cabang '{cabang}' belum ada di remote '{remote}'. Pilih cabang lain pada "
-            "bagian pengaturan pembaruan."
+            "Revisi GitHub belum diperiksa. Klik “Periksa pembaruan” untuk membandingkan "
+            "dengan versi di GitHub (butuh internet)."
+            if status["belum_diperiksa"]
+            else f"Cabang '{cabang}' tidak ditemukan di remote '{remote}'. Pilih cabang lain "
+                 "pada bagian pengaturan pembaruan."
         )
         return status
 
-    kode, keluaran = jalankan_git(["rev-list", "--count", f"HEAD..{remote}/{cabang}"])
+    ref_banding = ref if _rev(ref) else "FETCH_HEAD"
+    kode, keluaran = jalankan_git(["rev-list", "--count", f"HEAD..{ref_banding}"])
     if kode == 0 and keluaran.strip().isdigit():
         status["ketinggalan"] = int(keluaran.strip())
         status["ada_pembaruan"] = status["ketinggalan"] > 0
-    status["komit_remote"] = komit_terakhir(f"{remote}/{cabang}")
-    status["catatan"] = catatan_perubahan(f"{remote}/{cabang}", batas=12)
-    status["berkas_berubah"] = berkas_berbeda("HEAD", f"{remote}/{cabang}")[:20]
+    status["komit_remote"] = komit_terakhir(ref_banding)
+    status["catatan"] = catatan_perubahan(ref_banding, batas=12)
+    status["berkas_berubah"] = berkas_berbeda("HEAD", ref_banding)[:20]
 
     if status["ada_pembaruan"]:
         status["pesan"] = (
@@ -470,7 +493,7 @@ def terapkan_pembaruan(cabang: str | None = None, remote: str | None = None,
     hasil["sebelum"] = sebelum
     hasil["log"].append(f"Versi lokal: {sebelum or 'tidak diketahui'} (cabang {info['cabang'] or '-'})")
 
-    kode, keluaran = jalankan_git(["fetch", "--prune", remote, cabang])
+    kode, keluaran = ambil_pembaruan(remote, cabang)
     hasil["log"].append(keluaran or f"git fetch {remote} {cabang} selesai.")
     if kode != 0:
         hasil["pesan"] = (
