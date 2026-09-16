@@ -326,6 +326,30 @@ def cek_pembaruan():
         isi_cmd = launcher.read_bytes().decode("utf-8")
         assert "run.py" in isi_cmd, "SM.cmd tidak menjalankan run.py"
         assert "\r\n" in isi_cmd, "SM.cmd harus memakai CRLF"
+    # run.bat harus menemukan Python walau PATH rusak / "where" tidak ada:
+    # periksa folder .venv lebih dulu, lalu peluncur py, lalu PATH, lalu folder
+    # pemasangan umum — dan tolak Python yang lebih tua dari 3.10.
+    run_bat = updater.BASE_DIR / "run.bat"
+    isi_run = run_bat.read_bytes().decode("utf-8")
+    assert "\r\n" in isi_run, "run.bat harus memakai CRLF"
+    assert ".venv\\Scripts\\python.exe" in isi_run, "run.bat tidak memakai .venv aplikasi"
+    assert "%%~$PATH:" in isi_run, "run.bat tidak mencari python.exe di PATH tanpa 'where'"
+    assert "sys.version_info >= (3, 10)" in isi_run, "run.bat tidak memeriksa versi Python 3.10+"
+    assert "import fastapi, uvicorn, jinja2, multipart, itsdangerous, openpyxl" in isi_run, \
+        "run.bat tidak memeriksa dependensi inti"
+    assert "sm-dependensi.txt" in isi_run, "run.bat tidak menyimpan stempel dependensi"
+    assert "goto jalankan_server" in isi_run, "run.bat tidak melewati pemasangan yang tidak perlu"
+    assert "where " not in isi_run.lower(), "run.bat tidak boleh bergantung pada perintah 'where'"
+    urutan = [isi_run.index(".venv\\Scripts\\python.exe"),
+              isi_run.index('py.exe"'),
+              isi_run.index('"python.exe" "" "python.exe di PATH"')]
+    assert urutan == sorted(urutan), "urutan pencarian Python di run.bat salah (.venv harus pertama)"
+    diag = updater.BASE_DIR / "SM-diagnosa.bat"
+    if diag.exists():
+        isi_diag = diag.read_bytes().decode("utf-8")
+        assert "laporan-python.txt" in isi_diag, "SM-diagnosa.bat tidak membuat laporan"
+        assert "\r\n" in isi_diag, "SM-diagnosa.bat harus memakai CRLF"
+
     # Di Linux/macOS fungsi ini harus gagal dengan baik (mengembalikan False, tanpa
     # mematikan proses). Di Windows TIDAK dipanggil di sini agar tidak membuka
     # jendela server kedua saat pemeriksaan berjalan.

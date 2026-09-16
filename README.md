@@ -37,8 +37,9 @@ git checkout arena/01a0a87a-sm
 ### Langkah B — jalankan
 
 **Cara termudah di Windows:** klik dua kali berkas **`run.bat`**.
-Skrip itu otomatis membuat lingkungan Python, memasang dependensi (sekali saja,
-perlu internet), lalu menjalankan server.
+Skrip itu mencari Python sendiri (folder `.venv` aplikasi diperiksa lebih dulu),
+membuat lingkungan Python, memasang dependensi (sekali saja, perlu internet), lalu
+menjalankan server. Jendela `.venv` tidak perlu diaktifkan lebih dulu.
 
 **Manual lewat Command Prompt:**
 
@@ -146,12 +147,16 @@ kejadiannya tercatat di **Pengaturan → Audit** serta halaman Pembaruan.
 | Komputer tanpa internet? | Matikan "Periksa pembaruan otomatis" pada halaman Pembaruan; aplikasi tetap berjalan normal. |
 | Di Windows, apa yang terjadi saat "Muat ulang server sekarang"? | Aplikasi menulis berkas `data/jalankan-ulang.bat`, lalu membuka **jendela konsol baru** yang menjalankannya. Jendela lama (server sebelum pembaruan) otomatis berhenti dan boleh ditutup. Tunggu 5–10 detik, lalu muat ulang halaman di browser. |
 | Ada peluncur lain selain `run.bat`? | Ya, `SM.cmd` — sama seperti `run.bat` tetapi tanpa memasang dependensi (lebih cepat dipakai sehari-hari bila `.venv` sudah ada). |
+| Muncul pesan `[!] Python 3.10 atau lebih baru tidak ditemukan` padahal Python sudah dipasang? | Perbarui `run.bat` (tarik pembaruan), lalu jalankan lagi. Versi baru mencari Python di `.venv` aplikasi, peluncur `py`, PATH, dan folder pemasangan umum — tanpa bergantung pada perintah `where` yang bisa gagal bila `PATH` berubah. Bila masih gagal, jalankan **`SM-diagnosa.bat`** (membuat `laporan-python.txt`) dan kirim isinya. |
+| Bagaimana kalau server belum sempat menyala padahal `run.bat` gagal? | Jalankan langsung dengan Python yang sudah ada, mis. dari jendela `.venv`: `python run.py`. Aplikasi menyala seperti biasa. |
 | Setelah muat ulang halaman malah "tidak dapat diakses"? | Berarti server sedang tidak berjalan. Buka folder aplikasi dan klik dua kali **`run.bat`**. Data siswa tidak terpengaruh. Bila jendela konsol baru memang tidak muncul, jalankan `run.bat` secara manual sekali, lalu coba lagi. |
 
 ### Opsi lain
 
 ```cmd
 run.bat                              ← Windows: klik dua kali
+SM.cmd                               ← Windows: mulai cepat (tanpa pasang dependensi)
+SM-diagnosa.bat                      ← Windows: laporan kondisi bila ada masalah
 python run.py --port 9000            # ganti port
 python run.py --reload               # mode pengembangan (auto-restart)
 python run.py --init-db              # siapkan database lalu keluar
