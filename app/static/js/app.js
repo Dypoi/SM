@@ -32,17 +32,32 @@
   });
 
   // --- Tab -----------------------------------------------------------------
+  // Kelompok tab bisa berupa .tabs (halaman Pengaturan) atau .switch (halaman
+  // login). Dulu penyorot hanya dilepas dari elemen berkelas .tab di dalam
+  // .tabs, sehingga pada halaman login tombol lama tetap tersorot dan dua kartu
+  // peran tampak aktif bersamaan (warna tidak sesuai).
   document.querySelectorAll("[data-tab]").forEach(function (button) {
-    button.addEventListener("click", function () {
-      var grup = button.closest(".tabs");
+    button.addEventListener("click", function (event) {
       var target = button.getAttribute("data-tab");
+      var grup = button.closest(".tabs, .switch") || button.parentElement;
       if (grup) {
-        grup.querySelectorAll(".tab").forEach(function (t) { t.classList.remove("active"); });
+        grup.querySelectorAll("[data-tab]").forEach(function (lain) {
+          if (lain === button) return;
+          lain.classList.remove("active");
+          lain.setAttribute("aria-selected", "false");
+        });
       }
       button.classList.add("active");
+      button.setAttribute("aria-selected", "true");
       document.querySelectorAll(".tab-panel").forEach(function (panel) {
         panel.classList.toggle("active", panel.getAttribute("data-panel") === target);
       });
+      // Klik dari papan tunas (tanpa tetikus) langsung memfokuskan isian pertama.
+      if (event && event.detail === 0) {
+        var panel = document.querySelector('.tab-panel[data-panel="' + target + '"]');
+        var isian = panel && panel.querySelector("input:not([type=hidden]), select, textarea");
+        if (isian) isian.focus();
+      }
     });
   });
 

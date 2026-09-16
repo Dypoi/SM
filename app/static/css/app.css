@@ -744,13 +744,14 @@ td.empty-cell { padding: 0; }
 .switch button .icon { width: 20px; height: 20px; color: var(--muted); }
 .switch button strong { display: block; font-size: .9rem; color: var(--text); line-height: 1.25; }
 .switch button small { display: block; font-size: .74rem; font-weight: 500; color: var(--muted); }
-.switch button:hover { border-color: var(--primary); background: var(--primary-50); }
+.switch button:hover { border-color: var(--primary-100); background: #f8fbff; }
+/* Kartu aktif harus paling menonjol: garis tepi biru penuh + latar biru muda. */
 .switch button.active {
   background: var(--primary-50); border-color: var(--primary); box-shadow: none;
   color: var(--primary-600);
 }
 .switch button.active .icon { color: var(--primary-600); }
-.switch button.active strong { color: var(--primary-700, #1d4ed8); }
+.switch button.active strong { color: var(--primary-600); }
 .switch button.active small { color: var(--primary-600); }
 
 /* Kepala panel siswa */

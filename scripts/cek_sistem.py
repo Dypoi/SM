@@ -744,6 +744,16 @@ def cek_http():
             assert "active" in potongan_siswa, "tab siswa tidak aktif pada /login?mode=siswa"
             potongan_staff = teks_siswa.split('data-tab="staff"')[0].rsplit("<button", 1)[-1]
             assert "active" not in potongan_staff, "tab admin seharusnya tidak aktif"
+
+            # Sumber app.js: saat tab diklik, penyorot dilepas dari semua tombol di
+            # kelompoknya (.tabs maupun .switch) supaya tidak ada dua kartu peran
+            # yang tersorot bersamaan — penyebab warna tab yang salah di halaman login.
+            from app import config as _config
+
+            app_js_sumber = (_config.BASE_DIR / "app/static/js/app.js").read_text(encoding="utf-8")
+            assert ".tabs, .switch" in app_js_sumber, \
+                "app.js belum melepas penyorot tab pada kelompok .switch (halaman login)"
+            assert "aria-selected" in app_js_sumber, "app.js tidak memperbarui aria-selected"
         return f"{len(halaman_admin)} halaman petugas + portal siswa + 3 endpoint API diuji"
 
     return asyncio.run(jalankan())

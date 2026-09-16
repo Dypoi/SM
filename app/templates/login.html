@@ -161,7 +161,9 @@
   var bawaan = {% if form_mode is defined and form_mode %}"{{ form_mode }}"{% else %}null{% endif %};
   function aktifkan(nama) {
     tombol.forEach(function (t) {
-      t.classList.toggle("active", t.getAttribute("data-tab") === nama);
+      var ini = t.getAttribute("data-tab") === nama;
+      t.classList.toggle("active", ini);
+      t.setAttribute("aria-selected", ini ? "true" : "false");
     });
     document.querySelectorAll(".tab-panel").forEach(function (panel) {
       panel.classList.toggle("active", panel.getAttribute("data-panel") === nama);
