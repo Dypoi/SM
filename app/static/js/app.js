@@ -161,7 +161,10 @@
 
   // --- Data wali: muncul hanya bila nama ayah kosong ------------------------
   // Aturan: nama ayah diisi -> sistem menganggap siswa tidak punya wali.
-  // Data wali dapat dihapus (dikosongkan) bila namanya berbeda dari ayah/ibu.
+  // Isian wali yang tidak sesuai (nama ayah terisi, nama wali sama dengan
+  // ayah/ibu, atau kolom wali tanpa nama) DIKOSONGKAN OTOMATIS OLEH SISTEM saat
+  // disimpan. Karena itu sisi browser tidak memblokir pengiriman form — hanya
+  // memberi catatan supaya pengguna tahu datanya akan dihapus sistem.
   function namaNormal(teks) {
     return (teks || "").replace(/\s+/g, " ").trim().toLowerCase();
   }
@@ -189,6 +192,7 @@
     var note = zone.querySelector("[data-wali-ayah-note]");
     var tombolHapus = zone.querySelector("[data-wali-hapus]");
     var catatanHapus = zone.querySelector("[data-wali-hapus-note]");
+    var samaNote = zone.querySelector("[data-wali-sama-note]");
     var labelJawab = zone.querySelector("[data-wali-jawaban]");
     var jawaban = zone.getAttribute("data-ada-wali") === "1" ? "Ya" : "";
     var akanDihapus = false;
@@ -204,12 +208,18 @@
 
     function terapkan() {
       var ayah = namaNormal(ayahInput ? ayahInput.value : "");
+      var ibu = namaNormal(ibuInput ? ibuInput.value : "");
+      var namaWaliKini = namaNormal(namaWali ? namaWali.value : "");
       var adaAyah = ayah !== "";
       var bukaWali = !adaAyah && (jawaban === "Ya" || akanDihapus);
+      // Nama wali yang sama dengan ayah/ibu bukan kesalahan yang perlu ditolak:
+      // sistem mengosongkannya saat disimpan, jadi cukup diberi catatan.
+      var waliSama = namaWaliKini !== "" && (namaWaliKini === ayah || namaWaliKini === ibu);
 
       if (ask) ask.hidden = adaAyah;
       if (note) note.hidden = !adaAyah;
       if (fields) fields.hidden = !bukaWali;
+      if (samaNote) samaNote.hidden = !(waliSama && bukaWali);
 
       // Isian wali hanya dikirim bila memang dipakai, supaya data lama tidak
       // ikut terhapus tanpa sengaja.
@@ -223,7 +233,7 @@
       }
       if (catatanHapus) {
         catatanHapus.textContent = akanDihapus
-          ? "Data wali akan dikosongkan saat disimpan. Bila nama wali sama dengan nama ayah/ibu, sistem akan menolaknya."
+          ? "Data wali akan dikosongkan saat disimpan. Isian wali yang sama dengan nama ayah/ibu juga dikosongkan otomatis oleh sistem."
           : catatanAsli;
       }
     }
@@ -258,6 +268,8 @@
   });
 
   // --- Nama ayah tidak boleh sama dengan nama ibu ---------------------------
+  // Satu-satunya aturan yang masih menolak pengiriman. Data wali tidak diperiksa
+  // di sini karena server mengosongkannya otomatis (lihat catatan di atas).
   document.querySelectorAll("form").forEach(function (form) {
     var ayah = form.querySelector('[name="ayah_nama"]');
     var ibu = form.querySelector('[name="ibu_nama"]');
@@ -269,14 +281,6 @@
         event.preventDefault();
         peringatanForm(form, "Nama ayah dan nama ibu tidak boleh sama. Mohon periksa kembali.");
         ibu.focus();
-        return;
-      }
-      var wali = form.querySelector('[name="wali_nama"]');
-      var w = wali && !wali.disabled ? namaNormal(wali.value) : "";
-      if (w && (w === a || w === i)) {
-        event.preventDefault();
-        peringatanForm(form, "Nama wali tidak boleh sama dengan nama ayah/ibu. Kosongkan kolom wali bila memang tidak ada wali.");
-        if (wali) wali.focus();
         return;
       }
       peringatanForm(form, "");

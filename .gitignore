@@ -18,6 +18,9 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# --- Uji antarmuka (jsdom) di luar aplikasi ---
+node_modules/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

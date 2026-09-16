@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse, Response
 
 from .. import auth, config, services
-from ..dapodik import FIELD_BY_KEY, fields_by_group
+from ..dapodik import FIELD_BY_KEY, FIELD_WALI, fields_by_group
 from ..web import paginate, query_string, render
 
 router = APIRouter()
@@ -100,6 +100,14 @@ def form_siswa_baru(request: Request, user: auth.SessionUser = Depends(auth.requ
     )
 
 
+def _catatan_wali_dibersihkan(dibersihkan: bool) -> str:
+    """Pesan tambahan bila sistem mengosongkan data wali saat menyimpan."""
+    if not dibersihkan:
+        return ""
+    return (" Data wali dikosongkan otomatis oleh sistem karena tidak sesuai aturan "
+            "(nama ayah terisi, nama wali sama dengan ayah/ibu, atau tanpa nama wali).")
+
+
 async def _form_to_values(request: Request) -> dict:
     form = await request.form()
     values: dict = {}
@@ -131,7 +139,12 @@ async def simpan_siswa_baru(request: Request, user: auth.SessionUser = Depends(a
         return RedirectResponse(f"/data-siswa/baru?level=err&msg={quote_plus(str(exc))}", status_code=303)
 
     student_id = services.create_student(values, actor=user.username)
-    return RedirectResponse(f"/data-siswa/{student_id}?msg=Data+siswa+berhasil+disimpan", status_code=303)
+    tersimpan = services.get_student(student_id) or {}
+    wali_diminta = any((values.get(key) or "") for key in FIELD_WALI)
+    wali_tersimpan = any((tersimpan.get(key) or "") for key in FIELD_WALI)
+    pesan = quote_plus("Data siswa berhasil disimpan"
+                       + _catatan_wali_dibersihkan(wali_diminta and not wali_tersimpan))
+    return RedirectResponse(f"/data-siswa/{student_id}?msg={pesan}", status_code=303)
 
 
 @router.get("/data-siswa/{student_id}")
@@ -181,6 +194,10 @@ async def perbarui_siswa(request: Request, student_id: int,
 
     changes = services.update_student(student_id, values, actor=user.username, source="manual")
     pesan = f"{len(changes)} perubahan disimpan." if changes else "Tidak ada perubahan."
+    dibersihkan = any(key in FIELD_WALI and not baru for key, _lama, baru in changes)
+    if dibersihkan:
+        level = "ok"
+    pesan += _catatan_wali_dibersihkan(dibersihkan)
     level = "ok" if changes else "info"
     return RedirectResponse(f"/data-siswa/{student_id}?level={level}&msg={quote_plus(pesan)}", status_code=303)
 

@@ -553,6 +553,22 @@ def cek_keluarga():
                   "PEKERJAAN_LUAR_DAFTAR", "PENGHASILAN_LUAR_DAFTAR", "PENDIDIKAN_LUAR_DAFTAR"):
         assert kunci in kode, f"temuan {kunci} tidak ada"
     assert kode["AYAH_IBU_SAMA"] >= 1, "temuan ayah = ibu tidak terhitung"
+
+    # --- sisi browser tidak boleh memblokir data wali (server yang mengurus) ---
+    from app import config as _config
+    app_js = (_config.BASE_DIR / "app/static/js/app.js").read_text(encoding="utf-8")
+    assert "Nama wali tidak boleh sama" not in app_js, \
+        "app.js masih menolak pengiriman saat nama wali sama dengan ayah/ibu"
+    assert "data-wali-sama-note" in app_js, "app.js tidak menampilkan catatan wali sama ayah/ibu"
+    assert "sama dengan nama ayah" in app_js, "teks peringatan wali hilang dari app.js"
+    assert "Nama ayah dan nama ibu tidak boleh sama" in app_js, \
+        "aturan ayah tidak boleh sama dengan ibu harus tetap dijaga di browser"
+    makro = (_config.BASE_DIR / "app/templates/_macros.html").read_text(encoding="utf-8")
+    assert "data-wali-sama-note" in makro, "blok wali tidak menyediakan tempat catatan"
+    rute = (_config.BASE_DIR / "app/routers/student_routes.py").read_text(encoding="utf-8")
+    assert "_catatan_wali_dibersihkan" in rute, \
+        "pesan bahwa data wali dikosongkan sistem tidak ada di rute penyimpanan"
+
     return (f"{len(PEKERJAAN_OPTIONS)} pekerjaan, {len(PENGHASILAN_OPTIONS)} penghasilan, "
             f"{len(PENDIDIKAN_OPTIONS)} pendidikan; {len(FIELD_WALI)} kolom wali; "
             f"hapus wali otomatis (tanpa persetujuan) & {hasil_rapikan['dibersihkan']} data lama dibersihkan")

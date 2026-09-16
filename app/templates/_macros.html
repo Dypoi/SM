@@ -207,6 +207,11 @@
   </div>
 
   <div class="wali-fields" data-wali-fields {{ 'hidden' if ayah }}>
+    <div class="note note-warning" data-wali-sama-note hidden>
+      Nama wali yang diisi <strong>sama dengan nama ayah atau ibu</strong>. Data wali akan
+      <strong>dikosongkan otomatis oleh sistem</strong> saat disimpan — tidak perlu
+      persetujuan admin.
+    </div>
     <div class="form-grid">
       {% for spec in daftar %}
         {{ input_medan(spec, data.get(spec.key), [], prefix, nonaktif=ayah != '') }}

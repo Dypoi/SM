@@ -290,6 +290,10 @@ akta lahir, kesehatan, sampai koordinat rumah.
   Penghapusan ini berlaku di formulir petugas, di pengajuan siswa (langsung
   selesai tanpa masuk antrean admin dan tanpa perlu unggah berkas), maupun
   lewat API bot; setiap penghapusan tercatat di riwayat data & audit.
+- Di formulir, isian wali yang tidak sesuai **tidak ditolak dan tidak memblokir
+  penyimpanan**: sistem mengosongkannya lalu menampilkan pesan hasil di halaman
+  siswa ("data wali dikosongkan otomatis oleh sistem"). Blok wali juga menampilkan
+  catatan lebih dulu bila nama wali sama dengan ayah/ibu.
 - Satu-satunya aturan yang **menolak** penyimpanan: **nama ayah tidak boleh
   sama dengan nama ibu** — pesannya meminta kedua nama diperiksa.
 - **Rapikan data lama**: bila masih ada data wali dari berkas impor yang tidak
