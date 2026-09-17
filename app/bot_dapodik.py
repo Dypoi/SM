@@ -442,6 +442,18 @@ class BotDapodik:
         opsi.add_argument("--log-level=3")
         try:
             peramban = webdriver.Chrome(options=opsi)
+            # Ukuran jendela ikut ditulis pada log: tata letak Ext JS Dapodik (dan baris
+            # «Jarak rumah ke sekolah») bisa berbeda pada jendela yang sempit, sehingga
+            # keterangan ini penting saat memeriksa kegagalan dari jarak jauh.
+            try:
+                peramban.set_window_size(1600, 1000)
+                ukuran = peramban.get_window_size()
+                pandangan = peramban.execute_script(
+                    "return window.innerWidth + 'x' + window.innerHeight;")
+                self._catat_kepala(f"[layar] jendela Chrome {ukuran.get('width')}x"
+                                   f"{ukuran.get('height')} · area tampil {pandangan}")
+            except Exception:  # noqa: BLE001 — keterangan tambahan saja
+                pass
             # Dapodik dimuat lambat pada PC sekolah: beri waktu halaman selesai.
             peramban.set_page_load_timeout(max(60.0, float(self.opsi.get("bot_timeout", "15") or 15)))
             return peramban
@@ -1199,6 +1211,10 @@ class BotDapodik:
             # Panelnya yang digulir dulu (area gulir sendiri), baru halaman sebagai pelengkap.
             self._gulir_panel_periodik(peramban, peta, catat=False)
             self._gulir(peramban, catat=False)
+            # Beri waktu Ext JS menggambar barisnya sebelum dicari lagi: tanpa jeda, empat
+            # percobaan gulir selesai dalam sekejap sementara barisnya belum dirender — dulu
+            # itulah yang membuat bot melaporkan «kolom tidak ada» pada PC sekolah.
+            self._tunggu(peramban, 1.2)
             unsur = self._cari_kolom_dengan_label(peramban, kunci, peta)
         return unsur
 
@@ -1210,6 +1226,12 @@ class BotDapodik:
                 return kotak
             self._gulir_panel_periodik(peramban, peta, catat=False)
             self._gulir(peramban, catat=False)
+            self._tunggu(peramban, 1.2)      # beri waktu Ext JS menggambar baris «Jarak …»
+            kotak = self._kandidat_kotak_jarak(peramban, peta)
+        if not kotak:
+            # Percobaan terakhir: satu kali lagi setelah menunggu — baris yang lambat dirender
+            # sering baru muncul setelah panelnya benar-benar diam sejenak.
+            self._tunggu(peramban, 2.0)
             kotak = self._kandidat_kotak_jarak(peramban, peta)
         return kotak
 
@@ -1274,16 +1296,30 @@ class BotDapodik:
         return "kolom belum berisi nilai yang benar"
 
     def _kotak_jarak(self, peramban, kunci: str, peta: dict[str, str]) -> list[Any]:
-        """Kotak pilihan jarak yang terlihat di halaman untuk satu kunci selector."""
+        """Kotak pilihan jarak untuk satu kunci selector.
+
+        Yang dicari lebih dulu adalah yang **terlihat**, karena Dapodik menolak klik pada
+        kolom yang belum tampil. Bila tidak satu pun terlihat, kandidat yang ada tetap
+        dipakai (nanti dibawa ke layar lebih dulu) — daripada melaporkan «tidak ada di
+        halaman ini» padahal kotaknya ada. Ini juga yang membuat log sekolah dulu berbunyi
+        «kotak … tidak ada di halaman ini» padahal pilihannya terlihat oleh guru.
+        """
+        semua: list[Any] = []
         for nilai in self._kandidat_selector(kunci, peta):
             try:
-                kotak = [unsur for unsur in peramban.find_elements(*self._locator_nilai(nilai))
-                         if unsur.is_displayed()]
+                kotak = list(peramban.find_elements(*self._locator_nilai(nilai)))
             except Exception:  # noqa: BLE001 — coba kandidat berikutnya
                 kotak = []
-            if kotak:
-                return kotak
-        return []
+            for unsur in kotak:
+                if unsur not in semua:
+                    semua.append(unsur)
+            terlihat = [unsur for unsur in kotak if self._terlihat(peramban, unsur)]
+            if terlihat:
+                return terlihat
+        if semua:
+            self._catat_kepala("[periodik] kotak «Jarak rumah ke sekolah» ditemukan tetapi "
+                               "belum terlihat — dibawa ke layar dulu.")
+        return semua
 
     def _kandidat_kotak_jarak(self, peramban, peta: dict[str, str]) -> list[Any]:
         """Kotak «Jarak rumah ke sekolah» — salah satu dari dua pilihan (kurang/lebih)."""
@@ -1456,6 +1492,192 @@ class BotDapodik:
         except Exception:  # noqa: BLE001 — jalur ini hanya upaya tambahan
             return False
 
+    def _kotak_lewat_teks(self, peramban, teks: str):
+        """Kotak radio/centang yang dilacak lewat **teks pilihannya**, dibaca JavaScript.
+
+        XPath bergantung pada tata letak Dapodik (``div[1]``, ``div[2]``, ``span/input``) yang
+        bisa berbeda antar versi — dan bila XPath-nya meleset, bot lama berhenti dengan
+        «kotak … tidak ada di halaman ini» padahal pilihannya jelas terlihat sekolah.
+        Cara ini menelusuri label pilihannya langsung di DOM (``for`` → input, atau input di
+        dalam ``.x-field`` yang sama), jadi tetap ketemu pada tata letak mana pun.
+        """
+        if not (teks or "").strip():
+            return None
+        try:
+            return peramban.execute_script(
+                """
+                /* cari-kotak-teks */
+                const cari = (arguments[0] || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                if (!cari) return null;
+                const normal = (t) => (t || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                const kotakDari = (label) => {
+                    const forId = label.getAttribute && label.getAttribute('for');
+                    if (forId) {
+                        let k = document.getElementById(forId);
+                        if (!k && forId.endsWith('-inputEl')) {
+                            k = document.getElementById(forId.slice(0, -8));
+                        }
+                        if (k) return k;
+                    }
+                    const wadah = (label.closest && label.closest('.x-field')) || label.parentElement;
+                    if (wadah && wadah.querySelector) {
+                        const k = wadah.querySelector('input[type=radio], input[type=checkbox]');
+                        if (k) return k;
+                    }
+                    return null;
+                };
+                const labelSemua = document.querySelectorAll("label");
+                let cadangan = null;
+                for (const label of labelSemua) {
+                    const t = normal(label.textContent);
+                    if (!t) continue;
+                    const pas = (t === cari) || t.includes(cari) || (cari.includes(t) && t.length > 3);
+                    if (!pas) continue;
+                    const k = kotakDari(label);
+                    if (!k) continue;
+                    if (t === cari) return k;          // yang persis lebih diutamakan
+                    if (!cadangan) cadangan = k;
+                }
+                if (cadangan) return cadangan;
+                for (const inp of document.querySelectorAll('input[type=radio], input[type=checkbox]')) {
+                    const wadah = (inp.closest && inp.closest('.x-field')) || inp.parentElement;
+                    const t = normal(wadah ? wadah.textContent : '');
+                    if (t && t.includes(cari)) return inp;
+                }
+                return null;
+                """, teks)
+        except Exception:  # noqa: BLE001 — jalur tambahan saja
+            return None
+
+    def _label_lewat_teks(self, peramban, teks: str):
+        """Label pilihan (``x-form-cb-label``) yang dilacak lewat teksnya, dibaca JavaScript."""
+        if not (teks or "").strip():
+            return None
+        try:
+            return peramban.execute_script(
+                """
+                /* label-teks */
+                const cari = (arguments[0] || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                if (!cari) return null;
+                const normal = (t) => (t || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                let cadangan = null;
+                for (const label of document.querySelectorAll("label")) {
+                    const t = normal(label.textContent);
+                    if (!t) continue;
+                    let pas = (t === cari) || t.includes(cari);
+                    if (!pas) continue;
+                    if (label.offsetParent === null && label.getClientRects().length === 0) continue;
+                    if (t === cari) return label;
+                    if (!cadangan) cadangan = label;
+                }
+                return cadangan;
+                """, teks)
+        except Exception:  # noqa: BLE001 — jalur tambahan saja
+            return None
+
+    def _ringkas_panel(self, peramban, peta: dict[str, str]) -> str:
+        """Ringkasan apa yang **benar-benar terlihat** di panel Data Periodik (untuk log).
+
+        Dipakai saat pilihan jarak tidak ketemu: lebih berguna daripada diam-diam gagal,
+        karena daftar ini menunjukkan apakah tata letak Dapodik sekolah memang berbeda.
+        """
+        try:
+            panel = (peta.get("periodik_panel") or "").strip()
+            return str(peramban.execute_script(
+                """
+                /* ringkas-panel */
+                let wadah = null;
+                if (arguments[0]) { try { wadah = document.evaluate(arguments[0], document,
+                    null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue; }
+                    catch (e) { wadah = null; } }
+                if (!wadah) wadah = document.body;
+                const label = [];
+                for (const l of wadah.querySelectorAll('label, .x-form-cb-label')) {
+                    const t = (l.textContent || '').replace(/\\s+/g, ' ').trim();
+                    if (t && !label.includes(t)) label.push(t);
+                    if (label.length >= 6) break;
+                }
+                const kolom = [];
+                for (const i of wadah.querySelectorAll('input')) {
+                    const n = i.getAttribute('name') || i.getAttribute('data-componentid') || i.type;
+                    if (n && !kolom.includes(n)) kolom.push(n);
+                    if (kolom.length >= 6) break;
+                }
+                const bagian = [];
+                if (label.length) bagian.push('label: ' + label.join(' | '));
+                if (kolom.length) bagian.push('kolom: ' + kolom.join(' | '));
+                return bagian.join(' · ');
+                """, panel) or "")
+        except Exception:  # noqa: BLE001 — keterangan tambahan saja
+            return ""
+
+    def _set_ext_pilihan(self, peramban, unsur, nama: str = "", teks: str = "") -> str:
+        """Setel pilihan lewat **model Ext JS** — bertingkat sampai nilainya benar berubah.
+
+        1. ``Ext.getCmp(id).setValue(true)`` — id dari ``data-componentid``/``.x-field[id]``/
+           label ``for="…-inputEl"``;
+        2. bila komponen itu tidak ada: komponen radio ber-``name`` sama yang ``getBoxLabel()``
+           memuat teks pilihannya (Dapodik kadang memindahkan komponennya);
+        3. bila masih tidak ada: komponen radio mana pun yang teksnya memuat pilihan itu.
+
+        Kembalikan keterangan singkat jalur yang dipakai ('' bila tidak ada yang berhasil).
+        """
+        komponen = self._komponen_id(peramban, unsur)
+        nama_kolom = ""
+        try:
+            nama_kolom = str(unsur.get_attribute("name") or "").strip()
+        except Exception:  # noqa: BLE001 — hanya untuk pencarian komponen
+            nama_kolom = ""
+        if komponen:
+            try:
+                if bool(peramban.execute_script(
+                        """
+                        if (typeof Ext === 'undefined' || !Ext.getCmp) return false;
+                        const c = Ext.getCmp(arguments[0]);
+                        if (!c || !c.setValue) return false;
+                        c.setValue(arguments[1]);
+                        return true;
+                        """, komponen, True)):
+                    keterangan = f"Ext.getCmp({komponen!r}).setValue"
+                    if nama:
+                        self._catat_kepala(f"[periodik] {nama}: dipilih lewat Ext JS sendiri "
+                                           f"({keterangan}).")
+                    return keterangan
+            except Exception:  # noqa: BLE001 — lanjut ke pencarian komponen
+                pass
+        if not komponen and (teks or "").strip():
+            # Tanpa id komponen, Ext.getCmp tidak bisa dipakai; jalur berikutnya masih ada
+            # (pencarian komponen radio lewat Ext.ComponentQuery) — jadi tidak langsung gagal.
+            if nama:
+                self._catat_kepala(f"[periodik] {nama}: id komponen Ext JS tidak terbaca "
+                                   "(data-componentid kosong) — dicari lewat Ext.ComponentQuery.")
+        if (teks or "").strip():
+            try:
+                keterangan = str(peramban.execute_script(
+                    """
+                    /* ext-cari-pilihan */
+                    if (typeof Ext === 'undefined' || !Ext.ComponentQuery) return '';
+                    const teks = (arguments[0] || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                    const nama = arguments[1] || '';
+                    const daftar = Ext.ComponentQuery.query(nama ? 'radio[name=' + nama + ']'
+                                                                 : 'radio');
+                    const kotak = (c) => (c.getBoxLabel ? String(c.getBoxLabel()) : '')
+                        .replace(/\\s+/g, ' ').trim().toLowerCase();
+                    let pakai = daftar.find((c) => kotak(c) === teks);
+                    if (!pakai) pakai = daftar.find((c) => kotak(c).includes(teks));
+                    if (!pakai) return '';
+                    pakai.setValue(true);
+                    return 'Ext.ComponentQuery radio' + (pakai.id ? ' ' + pakai.id : '') + '.setValue';
+                    """, teks, nama_kolom) or "")
+            except Exception:  # noqa: BLE001 — jalur tambahan saja
+                keterangan = ""
+            if keterangan:
+                if nama:
+                    self._catat_kepala(f"[periodik] {nama}: dipilih lewat Ext JS sendiri "
+                                       f"({keterangan}).")
+                return keterangan
+        return ""
+
     def _teks_kotak(self, peramban, unsur) -> str:
         """Teks label pilihan milik sebuah kotak centang/radio (``x-form-cb-label`` Ext JS)."""
         try:
@@ -1470,6 +1692,14 @@ class BotDapodik:
             return str(teks or "").strip()
         except Exception:  # noqa: BLE001 — keterangan tambahan saja
             return ""
+
+    @staticmethod
+    def _terlihat(peramban, unsur) -> bool:
+        """Apakah unsurnya benar-benar tampil (keterangan tambahan, bukan penentu)."""
+        try:
+            return bool(unsur.is_displayed())
+        except Exception:  # noqa: BLE001 — anggap tidak terbaca
+            return False
 
     def _tunggu_aktif(self, peramban, unsur, detik: float = 6.0) -> bool:
         """Tunggu sampai kolomnya benar-benar aktif.
@@ -1629,14 +1859,45 @@ class BotDapodik:
         kotaknya → klik pembungkus/labelnya → urutan tetikus lengkap lewat skrip.
         """
         unsur = self._unsur_kotak(peramban, unsur)
+        # Selector bisa mengembalikan kotak yang BUKAN kotak yang diminta (mis. cadangan
+        # `input[name*=jarak]` mengembalikan «kurang dari 1 km» padahal yang diminta «lebih
+        # dari 1 km»). Kotak yang jelas-jelas bertuliskan pilihan lain dilacak ulang lewat
+        # teks labelnya — dibaca langsung oleh JavaScript, bukan XPath yang bisa meleset.
+        if teks_label:
+            teks_unsur = (self._teks_kotak(peramban, unsur) or "").lower()
+            if teks_unsur and teks_label.lower() not in teks_unsur:
+                kotak_benar = self._kotak_lewat_teks(peramban, teks_label)
+                if kotak_benar is not None:
+                    self._catat_kepala(f"[periodik] {nama}: kotak yang ditemukan bertuliskan "
+                                       f"«{teks_unsur}» (bukan yang diminta) — kotak yang benar "
+                                       "dilacak lewat teks labelnya.")
+                    unsur = self._unsur_kotak(peramban, kotak_benar)
         if self._terpilih_grup(peramban, unsur):
             return True
         self._bawa_ke_layar(peramban, unsur)
+        if teks_label:
+            # Satu baris jelas: kotaknya ketemu, id komponennya terbaca atau tidak, dan urutan
+            # percobaan yang akan dijalankan — supaya log bisa dibaca tanpa menebak.
+            komponen_log = self._komponen_id(peramban, unsur)
+            rincian = (f" (id komponen {komponen_log})" if komponen_log
+                       else " (id komponen Ext JS tidak terbaca)")
+            self._catat_kepala(f"[periodik] {nama}: kotaknya ditemukan{rincian} — dicoba klik "
+                               "labelnya → kotaknya → pembungkusnya → Ext.getCmp.")
         # 1) Cara skrip yang terbukti berhasil: klik **labelnya** (bukan kotak radio-nya).
         #    Klik sungguhan dulu, bila tertelan baru klik lewat skrip — urutan persis itu.
         #    Hanya untuk teks yang khas (lihat _label_unik): «Ya» dicari lewat wadahnya.
-        for label in (self._label_pilihan(peramban, teks_label)
-                      if self._label_unik(teks_label) else []):
+        label_kandidat: list[Any] = []
+        if self._label_unik(teks_label):
+            label_kandidat = self._label_pilihan(peramban, teks_label)
+            if not label_kandidat and (teks_label or "").strip():
+                # XPath label bisa tidak cocok pada tata letak Dapodik yang berbeda:
+                # labelnya dicari langsung oleh JavaScript (teks pilihan → label → kotaknya).
+                label_js = self._label_lewat_teks(peramban, teks_label)
+                if label_js is not None:
+                    self._catat_kepala(f"[periodik] {nama}: label pilihannya ditemukan lewat "
+                                       "teksnya (JavaScript) — XPath label tidak cocok.")
+                    label_kandidat = [label_js]
+        for label in label_kandidat:
             self._bawa_ke_layar(peramban, label)
             time.sleep(0.3)
             try:
@@ -1701,26 +1962,28 @@ class BotDapodik:
             if self._terpilih_grup(peramban, unsur):
                 self._catat_kepala(f"[periodik] {nama}: dipilih lewat urutan tetikus skrip.")
                 return True
-        # 5) Bila DOM-nya sudah berubah tetapi penanda `x-form-cb-checked` belum pindah,
-        #    nilainya belum masuk ke model Ext JS — dan Dapodik baru mengaktifkan kolom
-        #    kilometer setelah nilai itu benar-benar berubah. Jadi jalur Ext.getCmp dipakai
-        #    di sini, bukan sebagai pilihan terakhir tanpa keterangan.
-        if self._terpilih(peramban, unsur) and not self._terpilih_grup(peramban, unsur):
+        # 5) Semua klik belum berhasil — dan pada DOM Dapodik inilah yang sering terjadi:
+        #    tampilannya berubah (input.checked) tetapi penanda `x-form-cb-checked` tetap di
+        #    pilihan lama, jadi **model Ext JS** belum berubah dan Dapodik masih menonaktifkan
+        #    kolom kilometer. Karena itu jalur Ext JS dipakai SEKARANG, dengan keterangan
+        #    yang jelas — bukan sebagai pilihan terakhir tanpa penjelasan.
+        keadaan = self._keadaan_pilihan(peramban, unsur)
+        sendiri = (keadaan or {}).get("sendiri") or {}
+        if sendiri and (sendiri.get("checked") or sendiri.get("aria")):
             self._catat_kepala(f"[periodik] {nama}: tampilan sudah berubah tetapi nilai Ext JS "
                                "belum (penanda x-form-cb-checked masih di pilihan lain) — "
                                "dipakai Ext.getCmp.")
-        #    Id komponennya diambil dari `data-componentid` (radiofield-1112), wadah
-        #    `.x-field[id]`, atau label `for="radiofield-1112-inputEl"`.
-        komponen = self._komponen_id(peramban, unsur)
-        if self._set_ext(peramban, unsur, terpilih=True):
+        else:
+            self._catat_kepala(f"[periodik] {nama}: semua klik belum mengubah nilai Ext JS — "
+                               "dipakai Ext.getCmp (jalur pamungkas).")
+        if self._set_ext_pilihan(peramban, unsur, nama, teks_label):
             time.sleep(0.3)
-            # Setelah Ext.getCmp, nilainya pasti masuk ke model Ext JS — jadi keadaan biasa
-            # (DOM benar-benar berubah) sudah cukup sebagai bukti, walau penanda kelas tidak
-            # dipakai pada versi Dapodik tertentu.
+            # Setelah Ext JS menyetel nilainya, DOM yang benar-benar berubah sudah cukup
+            # sebagai bukti — walau versi Dapodik tertentu tidak memakai penanda kelas.
             if self._terpilih_grup(peramban, unsur) or self._terpilih(peramban, unsur):
-                self._catat_kepala(f"[periodik] {nama}: dipilih lewat Ext JS sendiri "
-                                   f"(Ext.getCmp({komponen!r}).setValue).")
                 return True
+        self._catat_kepala(f"[periodik] {nama}: nilai Ext JS belum berubah juga — pilihan ini "
+                           "belum terpasang (mungkin perlu diklik manual sekali).")
         return self._terpilih_grup(peramban, unsur)
 
     def _pilih_jarak(self, peramban, peta: dict[str, str], jarak_km: str) -> tuple[str, bool]:
@@ -1749,16 +2012,32 @@ class BotDapodik:
         if not kotak:
             kotak = self._kotak_jarak(peramban, "periodik_jarak", peta)
             nama_pilihan += " (memakai selector bawaan skrip sekolah)"
+        # Selector bisa mengembalikan satu radio yang SALAH (mis. cadangan `name*=jarak`
+        # mengembalikan «kurang dari 1 km» padahal datanya lebih dari 1 km). Kandidat yang
+        # teksnya terbaca dan tidak cocok dibuang — jangan sampai bot memilih yang keliru.
+        teks_kandidat = [(unsur, self._teks_kotak(peramban, unsur) or "") for unsur in kotak]
+        cocok = [unsur for unsur, teks in teks_kandidat if teks_pilihan in teks.lower()]
+        if cocok:
+            if len(cocok) < len(kotak):
+                nama_pilihan += f" [disaring dari {len(kotak)} kandidat lewat teks labelnya]"
+            kotak = cocok
+        elif kotak and any(teks.strip() for _, teks in teks_kandidat):
+            kotak = []          # semua kandidat bertuliskan pilihan yang lain
         if not kotak:
-            return ("kotak «Jarak rumah ke sekolah» tidak ada di halaman ini", False)
-        if len(kotak) > 1:
-            # Selector cadangan bisa mengembalikan KEDUA radio; pilih yang teks labelnya cocok
-            # («lebih dari 1 km» vs «kurang dari 1 km») — bukan menekan keduanya.
-            cocok = [unsur for unsur in kotak
-                     if teks_pilihan in (self._teks_kotak(peramban, unsur) or "").lower()]
-            if cocok:
-                kotak = cocok
-                nama_pilihan += f" [dipilih dari {len(cocok)} kandidat lewat teks labelnya]"
+            # XPath bisa meleset (Dapodik mengubah tata letak): kotaknya dilacak lewat teks
+            # pilihannya — dibaca langsung oleh JavaScript, tidak bergantung XPath.
+            kotak_js = self._kotak_lewat_teks(peramban, teks_pilihan)
+            if kotak_js is not None:
+                kotak = [kotak_js]
+                nama_pilihan += " [kotaknya dilacak lewat teks labelnya]"
+        if not kotak:
+            # Tidak ada pilihan yang bisa dipakai — laporkan apa yang benar-benar terlihat di
+            # panel (bukan menebak), supaya jelas bila tata letak Dapodik sekolah berbeda.
+            rincian = self._ringkas_panel(peramban, peta)
+            pesan = "kotak «Jarak rumah ke sekolah» tidak ada di halaman ini"
+            if rincian:
+                pesan += f" — yang terlihat di panel: {rincian}"
+            return (pesan, False)
 
         dicentang = 0
         for unsur in kotak:

@@ -426,6 +426,15 @@ class PerambanPalsu:
         self.ext_mati = False
         #: berapa klik sungguhan pada kotak centang/radio yang ditelan
         self.klik_kotak_ditelan_kali = 0
+        #: True = XPath/CSS untuk baris «Jarak rumah ke sekolah» meleset (tata letak Dapodik
+        #: berbeda): bot harus menemukan pilihannya lewat teks labelnya (JavaScript).
+        self.jarak_tanpa_xpath = False
+        #: berapa kali bot melacak kotak lewat teks labelnya (jalur JavaScript)
+        self.kotak_lewat_teks_dipakai = 0
+        #: berapa kali bot melacak label pilihannya lewat teksnya (jalur JavaScript)
+        self.label_lewat_teks_dipakai = 0
+        #: True = halaman ini tidak punya baris «Jarak rumah ke sekolah» (versi Dapodik lain)
+        self.tanpa_baris_jarak = False
         #: berapa kali pilihan jarak dipilih lewat pembungkus/labelnya
         self.dipilih_lewat_pembungkus = 0
         #: True = popup pengumuman muncul saat pencarian ditekan; hasilnya tampil setelah ditutup
@@ -596,6 +605,10 @@ class PerambanPalsu:
                        periodik=True, simpan_periodik=True),
         ])
         self._pasang_pembungkus_kotak()
+        if getattr(self, "tanpa_baris_jarak", False):
+            # Versi Dapodik yang tidak punya baris «Jarak rumah ke sekolah»: radio & labelnya
+            # tidak dipasang sama sekali (dipakai uji kejujuran bot).
+            self.unsur = [u for u in self.unsur if not self._unsur_baris_jarak(u)]
         self.judul = "Dapodik - Peserta Didik"
 
     def popup_terbuka(self) -> bool:
@@ -656,6 +669,28 @@ class PerambanPalsu:
         if "x-form-cb-checked" not in (kurang.induk.kelas or ""):
             kurang.induk.kelas = (kurang.induk.kelas + " x-form-cb-checked").strip()
         self.perbarui_kolom_km()
+
+    def siapkan_jarak_tanpa_xpath(self) -> "PerambanPalsu":
+        """XPath/CSS baris «Jarak rumah ke sekolah» meleset (tata letak Dapodik berbeda).
+
+        Persis keadaan pada log sekolah: bot melaporkan «kotak … tidak ada di halaman ini»
+        walaupun pilihannya jelas terlihat. Dengan mode ini bot harus menemukan pilihannya
+        lewat **teks labelnya** (dibaca JavaScript), lalu mengisi kolom kilometer.
+        """
+        self.jarak_tanpa_xpath = True
+        return self
+
+    def hapus_baris_jarak(self) -> "PerambanPalsu":
+        """Versi Dapodik yang TIDAK punya baris «Jarak rumah ke sekolah» sama sekali.
+
+        Baris Data Periodik baru dibuat setelah baris siswa dipilih, jadi tombol ini memasang
+        penanda: saat panelnya dibangun, radio «… 1 km» tidak ikut dibuat. Dipakai untuk
+        memastikan bot tidak menebak-nebak: pilihannya tidak dipasang, kolom kilometer
+        dilewati, dan log menyebutkan apa yang benar-benar terlihat di panel.
+        """
+        self.tanpa_baris_jarak = True
+        self.unsur = [u for u in self.unsur if not self._unsur_baris_jarak(u)]
+        return self
 
     def siapkan_model_ext_tidak_ikut(self) -> "PerambanPalsu":
         """Keadaan pada DOM sekolah: «kurang dari 1 km» sudah tercentang (berpenanda),
@@ -978,7 +1013,19 @@ class PerambanPalsu:
                     tujuan = lanjut[0]
                 if tujuan not in hasil:
                     hasil.append(tujuan)
+        if getattr(self, "jarak_tanpa_xpath", False) and by != "name":
+            hasil = [u for u in hasil if not self._unsur_baris_jarak(u)]
         return [u for u in hasil if self._terjangkau(u)]
+
+    @staticmethod
+    def _unsur_baris_jarak(unsur: "UnsurPalsu") -> bool:
+        """Unsur milik baris «Jarak rumah ke sekolah» (radio «… 1 km» beserta labelnya)."""
+        if unsur.name == "jarak_rumah_ke_sekolah":
+            return True
+        if unsur.componentid in ("radiofield-1111", "radiofield-1112"):
+            return True
+        teks = " ".join([unsur.teks or "", unsur.label or "", unsur.pilihan or ""]).lower()
+        return "1 km" in teks
 
     @staticmethod
     def _bagian_ancestor(pola: str) -> str:
@@ -1049,6 +1096,69 @@ class PerambanPalsu:
     # ------------------------------------------------------------ skrip ----- #
     def execute_script(self, skrip: str, *argumen: Any) -> Any:
         self.skrip.append(skrip)
+        if "cari-kotak-teks" in skrip:
+            # Bot melacak kotak lewat TEKS pilihannya (bukan XPath): label → kotaknya.
+            teks = str(argumen[0] if argumen else "").strip().lower()
+            pilihan: list[UnsurPalsu] = []
+            for unsur in self.unsur:
+                if unsur.type not in ("radio", "checkbox"):
+                    continue
+                teks_unsur = (unsur.label or unsur.pilihan or unsur.teks or "").strip().lower()
+                if not teks_unsur or not teks:
+                    continue
+                if teks_unsur == teks:
+                    self.kotak_lewat_teks_dipakai += 1
+                    return unsur
+                if teks in teks_unsur or (teks_unsur in teks and len(teks_unsur) > 3):
+                    pilihan.append(unsur)
+            if pilihan:
+                self.kotak_lewat_teks_dipakai += 1
+                return pilihan[0]
+            return None
+        if "label-teks" in skrip:
+            # Bot melacak LABEL pilihannya lewat teksnya (klik label = cara skrip sekolah).
+            teks = str(argumen[0] if argumen else "").strip().lower()
+            for unsur in self.unsur:
+                if "x-form-cb-label" not in (unsur.kelas or ""):
+                    continue
+                teks_unsur = (unsur.teks or unsur.pilihan or "").strip().lower()
+                if teks_unsur and (teks_unsur == teks or teks in teks_unsur):
+                    self.label_lewat_teks_dipakai += 1
+                    return unsur
+            return None
+        if "ringkas-panel" in skrip:
+            # Ringkasan yang benar-benar terlihat di panel Data Periodik (untuk log).
+            label = []
+            for unsur in self.unsur:
+                if unsur.periodik and unsur.label and unsur.label not in label:
+                    label.append(unsur.label)
+            kolom = [u.name for u in self.unsur if u.periodik and u.name]
+            bagian = []
+            if label:
+                bagian.append("label: " + " | ".join(label[:6]))
+            if kolom:
+                bagian.append("kolom: " + " | ".join(kolom[:6]))
+            return " · ".join(bagian)
+        if "ext-cari-pilihan" in skrip:
+            # Ext.ComponentQuery: radio dengan getBoxLabel() yang memuat teks pilihannya.
+            if self.ext_mati:
+                return ""
+            teks = str(argumen[0] if argumen else "").strip().lower()
+            nama = str(argumen[1] if len(argumen) > 1 else "").strip()
+            for unsur in self.unsur:
+                if unsur.type != "radio":
+                    continue
+                if nama and unsur.name != nama:
+                    continue
+                teks_unsur = (unsur.label or "").strip().lower()
+                if not teks_unsur or not (teks_unsur == teks or (teks and teks in teks_unsur)):
+                    continue
+                if not self.panel_periodik_terbuka():
+                    return ""
+                unsur._pilih_kotak(dari_ext=True)
+                self.ext_setvalue_dipakai += 1
+                return f"Ext.ComponentQuery radio {unsur.componentid}.setValue"
+            return ""
         if "querySelectorAll('label')" in skrip:
             # Bot mencari kolom isian lewat teks labelnya (mis. «Sekolah Asal»).
             teks = str(argumen[0] if argumen else "").strip().lower()

@@ -162,7 +162,28 @@ def main() -> int:
     cek(p6.jarak_pilihan == "", f"radio seharusnya kosong: {p6.jarak_pilihan!r}")
     cek(any("Jarak Rumah ke Sekolah) kosong" in baris for baris in j6), j6[-4:])
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 7 skenario")
+    # 8) XPath/CSS meleset (tata letak Dapodik berbeda) → pilihannya dilacak lewat TEKS
+    #    labelnya, dibaca JavaScript. Inilah jalan keluar dari «kotak … tidak ada di halaman
+    #    ini» yang dulu membuat pemilihan jarak gagal di PC sekolah.
+    p8, j8 = jalankan("8. XPath meleset → kotak & label dilacak lewat teks (JavaScript)", 2,
+                      atur=lambda p: p.siapkan_jarak_tanpa_xpath(), tampilkan=True)
+    cek(p8.jarak_pilihan == "Lebih dari 1 km", f"radio salah: {p8.jarak_pilihan!r}")
+    cek(p8.kotak_lewat_teks_dipakai >= 1, "bot tidak melacak kotaknya lewat teks labelnya")
+    cek(any("lewat teks labelnya" in baris for baris in j8), j8[-6:])
+    cek(p8.data_periodik_tersimpan.get("jarak_rumah_ke_sekolah_km") == "2",
+        f"kolom km tidak tersimpan: {p8.data_periodik_tersimpan}")
+
+    # 9) Versi Dapodik tanpa baris «Jarak rumah ke sekolah» → tidak menebak, dilewati jujur,
+    #    dan log menyebutkan apa yang terlihat di panel (bukan sekadar gagal diam-diam).
+    p9, j9 = jalankan("9. baris jarak tidak ada → dilewati jujur + isi panel dilaporkan", 2,
+                      atur=lambda p: p.hapus_baris_jarak(), tampilkan=True)
+    cek(p9.jarak_pilihan == "", f"seharusnya tidak ada pilihan: {p9.jarak_pilihan!r}")
+    cek(any("tidak ada di halaman ini" in b and "yang terlihat di panel" in b for b in j9),
+        [b for b in j9 if "tidak ada di halaman ini" in b] or j9[-4:])
+    cek(not str(p9.data_periodik_tersimpan.get("jarak_rumah_ke_sekolah_km") or "").strip(),
+        "kolom km terisi padahal baris jaraknya tidak ada")
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 9 skenario")
     return 0
 
 

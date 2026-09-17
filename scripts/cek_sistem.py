@@ -2535,6 +2535,36 @@ def cek_bot_dapodik() -> str:
         assert (palsu_model.data_periodik_tersimpan.get("jarak_rumah_ke_sekolah_km")
                 == "7.9"), f"kolom km tidak tersimpan: {palsu_model.data_periodik_tersimpan}"
 
+        # Tata letak Dapodik bisa membuat XPath/CSS baris «Jarak rumah ke sekolah» meleset
+        # (dulu lognya: «kotak … tidak ada di halaman ini» padahal pilihannya terlihat).
+        # Bot harus tetap menemukan pilihannya — lewat TEKS labelnya, dibaca JavaScript —
+        # lalu mengisi kolom kilometer.
+        jejak.clear()
+        jam_teks = _WaktuCepat(time)
+        asli_waktu = bot_dapodik.time
+        bot_dapodik.time = jam_teks
+        try:
+            palsu_teks = peramban_palsu.buat("alur_penuh").pakai_jam(jam_teks.monotonic)
+            palsu_teks.popup_detik = None
+            palsu_teks.registrasi_otomatis = True
+            palsu_teks.siapkan_jarak_tanpa_xpath()
+            nisn_teks = siswa_periodik["nisn"]
+            palsu_teks.nisn_dicari = nisn_teks
+            palsu_teks.tambah_baris_siswa(nisn_teks)
+            bot_teks = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                              kepala=jejak.append)
+            bot_teks._login(palsu_teks)
+            bot_teks._proses_satu(palsu_teks, siswa_periodik, None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert palsu_teks.jarak_pilihan == "Lebih dari 1 km", \
+            f"radio tidak terpilih saat XPath meleset: {palsu_teks.jarak_pilihan!r}"
+        assert palsu_teks.kotak_lewat_teks_dipakai >= 1, \
+            "bot tidak melacak kotak jarak lewat teks labelnya (jalur JavaScript)"
+        assert any("lewat teks labelnya" in baris for baris in jejak), jejak[-6:]
+        assert (palsu_teks.data_periodik_tersimpan.get("jarak_rumah_ke_sekolah_km") == "7.9"), \
+            f"kolom km tidak tersimpan: {palsu_teks.data_periodik_tersimpan}"
+
         # Data periodik kosong → dicatat pada log, siswa tetap berhasil.
         jejak.clear()
         jam_kosong_p = _WaktuCepat(time)
