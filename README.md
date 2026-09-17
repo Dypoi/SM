@@ -435,6 +435,13 @@ ditambahkan lewat menu **Ekstrakurikuler**.
 
 ## 4. Bot Dapodik
 
+> **Sebelum mengubah bot ini, baca `CATATAN-KESALAHAN.md`.** Berkas itu memuat 10
+> kesalahpahaman yang pernah membuat perbaikan meleset (mis. memperbaiki jalur klik padahal
+> kotaknya tidak pernah ketemu), daftar periksa sebelum mengklaim "sudah beres", dan peta
+> *gejala → baris log → fungsi*. Ringkasan pelajarannya: **cocokkan kalimat log pengguna ke
+> baris kode yang mencetaknya sebelum menyimpulkan apa pun**, dan jangan pernah menganggap
+> "hijau di uji tiruan" berarti "beres di sekolah".
+
 Bot Dapodik **sudah aktif** di menu **Bot Dapodik** (khusus admin). Ringkasnya:
 
 1. **Pasang Chrome** di PC sekolah (bot memakai Chrome yang sudah terpasang).
@@ -598,6 +605,8 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 ├── run.py                     # peluncur: python run.py
 ├── requirements.txt
 ├── requirements-bot.txt      # selenium (hanya untuk bot Dapodik, opsional)
+├── CATATAN-KESALAHAN.md      # kesalahpahaman yang pernah terjadi pada bot — WAJIB DIBACA
+│                             # sebelum mengubah bot Dapodik (lihat §4)
 ├── app/
 │   ├── main.py                # rakit FastAPI, penangan kesalahan, /health
 │   ├── config.py              # konfigurasi & path (dapat dioverride via env SM_*)
