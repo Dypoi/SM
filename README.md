@@ -392,6 +392,15 @@ ditambahkan lewat menu **Ekstrakurikuler**.
   **Registrasi** → isi **NIS** → centang semua jawaban «Ya» → **Hobi** → **Cita-cita**
   → **Simpan dan Tutup**. Kolom lain (NIK, alamat, ayah/ibu, dst.) ditambahkan dengan
   pola yang sama begitu alur Dapodik untuk kolom tersebut diketahui.
+- **Versi kode dicantumkan pada log & halaman bot.** Setiap kali bot mulai bekerja, lognya
+  diawali baris `[versi] kode SM yang berjalan: <nomor revisi> — langkah tiap siswa: 1) cari
+  NISN & pilih barisnya → 2) Data Periodik (gulir panel → tinggi/berat/lingkar → pilih radio
+  jarak → km → saudara → Simpan dan Tutup) → 3) Registrasi (NIS → Sekolah Asal → «Ya» → Hobi →
+  Cita-cita → Simpan dan Tutup)`, dan halaman Bot Dapodik menampilkan lencana **Kode SM:
+  `<nomor revisi>`**. Jadi bila log PC sekolah belum memuat baris itu (atau nomornya belum
+  berubah setelah pembaruan), berarti kode barunya belum terpakai — **tutup `run.bat` lalu
+  jalankan ulang** (server tidak memuat ulang sendiri), dan perbarui lewat menu **Pembaruan
+  aplikasi** bila folder itu salinan git.
 - Siswa yang NISN-nya tidak ada di Dapodik dicatat *“tidak ditemukan”* sehingga mudah
   ditindaklanjuti (mis. NISN salah pada data SM).
 - **Antrean diambil dari data siswa aplikasi SM**, bukan dari berkas Excel:

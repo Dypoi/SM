@@ -2054,7 +2054,25 @@ class BotDapodik:
         time.sleep(2)
         self._siap_melanjutkan(peramban, "daftar peserta didik")
         self._singkirkan_popup(peramban, peta)
+        self._catat_kepala(f"[versi] kode SM yang berjalan: {self._versi_kode()} — langkah "
+                           "tiap siswa: 1) cari NISN & pilih barisnya → 2) Data Periodik "
+                           "(gulir panel → tinggi/berat/lingkar → pilih radio jarak → km → "
+                           "saudara → Simpan dan Tutup) → 3) Registrasi (NIS → Sekolah Asal → "
+                           "«Ya» → Hobi → Cita-cita → Simpan dan Tutup).")
+        if self._versi_kode() == "tidak diketahui":
+            self._catat_kepala("[versi] aplikasi ini bukan salinan git — pastikan berkas "
+                               "sudah diperbarui secara manual sebelum menjalankan bot.")
         self._catat_kepala("Siap memproses antrean.")
+
+    @staticmethod
+    def _versi_kode() -> str:
+        """Revisi pendek kode yang sedang berjalan (untuk log & halaman bot)."""
+        try:
+            from app import updater
+
+            return updater.versi_kerja() or "tidak diketahui"
+        except Exception:  # noqa: BLE001 — versi hanya keterangan
+            return "tidak diketahui"
 
     def _kandidat_selector(self, kunci: str, peta: dict[str, str]) -> list[str]:
         """Daftar selector yang akan dicoba: terpasang dulu, lalu cadangan berbasis teks."""

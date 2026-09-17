@@ -21,6 +21,17 @@
             <span class="badge badge-muted badge-lg" id="badge-keadaan">Menganggur</span>
           {% endif %}
         </h2>
+        <p class="soft" style="margin:0 0 .3rem" id="versi-kode">
+          <span class="badge badge-muted" title="Revisi kode yang sedang berjalan">
+            Kode SM: {{ versi_kode or 'tidak diketahui' }}</span>
+          {% if versi_kode and versi_kode != 'tidak diketahui' %}
+            <small>— bila nomornya belum berubah setelah pembaruan, tutup lalu jalankan ulang
+              <code>run.bat</code> supaya kode baru benar-benar dipakai.</small>
+          {% else %}
+            <small>— folder aplikasi ini bukan salinan git, jadi pembaruan otomatis tidak bisa
+              dipakai; salin berkas baru secara manual lalu jalankan ulang <code>run.bat</code>.</small>
+          {% endif %}
+        </p>
         <p class="soft" style="margin:0 0 .3rem">
           <strong>Memperbarui data Dapodik dari data aplikasi SM.</strong>
           Bot mengambil antrean siswa dari aplikasi ini, membuka Dapodik lewat peramban

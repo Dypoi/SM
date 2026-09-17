@@ -127,6 +127,17 @@ def jalankan_git(perintah: list[str], timeout: int = GIT_TIMEOUT) -> tuple[int, 
     return hasil.returncode, keluaran
 
 
+def versi_kerja() -> str:
+    """Revisi pendek kode yang sedang berjalan ('' bila bukan salinan git).
+
+    Dipakai bot untuk mencantumkan versi kodenya pada log: kalau PC sekolah masih
+    menjalankan kode lama, hal itu langsung terlihat dari baris pertama log.
+    """
+    if not AKTIF or _git_path() is None or not _ada_berkas_git():
+        return ""
+    return _rev("HEAD")
+
+
 def _rev(ref: str = "HEAD") -> str:
     kode, keluaran = jalankan_git(["rev-parse", "--short", ref])
     return keluaran if kode == 0 else ""

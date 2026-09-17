@@ -1950,6 +1950,13 @@ def cek_bot_dapodik() -> str:
             bot_alur = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
                                               kepala=jejak.append)
             bot_alur._login(palsu)
+            # Setiap kali bot mulai bekerja, log menyebut versi kode yang berjalan dan urutan
+            # langkahnya — supaya jelas apakah PC sekolah sudah memakai kode terbaru.
+            versi = [baris for baris in jejak if baris.startswith("[versi]")]
+            assert versi, f"log tidak mencantumkan versi kode: {jejak[:4]}"
+            assert "langkah tiap siswa" in versi[0] and "pilih barisnya" in versi[0], versi[0]
+            assert "pilih radio jarak" in versi[0], versi[0]
+            assert "«Ya»" in versi[0] and "Sekolah Asal" in versi[0], versi[0]
             assert palsu.sudah_masuk, "bot belum berhasil masuk pada alur penuh"
             assert palsu.unsur[0].nilai == "bot.uji@contoh.id", "kolom nama pengguna belum terisi"
             assert palsu.unsur[1].nilai == "rahasia", "kolom kata sandi belum terisi"

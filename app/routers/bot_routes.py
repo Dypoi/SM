@@ -89,7 +89,8 @@ def halaman_bot(request: Request, user: auth.SessionUser = Depends(auth.require_
             hanya_tanpa_nipd=bool(opsi["hanya_tanpa_nipd"]))
     return render(request, "bot_dapodik.html",
                   _konteks(request, opsi=opsi, pratinjau=pratinjau,
-                           antrean=antrean[:100], antrean_total=len(antrean)))
+                           antrean=antrean[:100], antrean_total=len(antrean),
+                           versi_kode=bot_dapodik.BotDapodik._versi_kode()))
 
 
 @router.post("/bot-dapodik/pengaturan")
