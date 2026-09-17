@@ -2292,8 +2292,10 @@ def cek_bot_dapodik() -> str:
             bot_dapodik.time = asli_waktu
         assert palsu_gulir.gulir and set(palsu_gulir.gulir) == {bot_dapodik.GULIR_PERIODIK}, \
             f"bot tidak memakai gulir {bot_dapodik.GULIR_PERIODIK} px seperti skrip: {palsu_gulir.gulir}"
-        assert len(palsu_gulir.gulir) >= 3, \
-            f"guliran belum diulang sampai kolom ketemu: {palsu_gulir.gulir}"
+        assert len(palsu_gulir.gulir_panel) >= 3, \
+            f"panel Data Periodik tidak dibawa ke layar berulang kali: {palsu_gulir.gulir_panel}"
+        assert any("[gulir] panel" in baris for baris in jejak), \
+            "bot tidak melaporkan bahwa panelnya yang digulir (bukan seluruh halaman)"
         assert palsu_gulir.data_periodik_tersimpan.get("tinggi_badan") == "155", \
             f"nilai periodik tidak tersimpan pada halaman yang perlu digulir: " \
             f"{palsu_gulir.data_periodik_tersimpan}"
@@ -2302,6 +2304,68 @@ def cek_bot_dapodik() -> str:
         # Pada halaman biasa pun bot tetap menggulir sekali sebelum mengisi Data Periodik.
         assert palsu_periodik.gulir and palsu_periodik.gulir[0] == bot_dapodik.GULIR_PERIODIK, \
             f"bot tidak menggulir sebelum mengisi Data Periodik: {palsu_periodik.gulir}"
+
+        # Ext JS/Dapodik bisa MENELAN klik pada kotak centang/radio (perintahnya seolah
+        # berhasil, tetapi centangnya tidak berubah) — inilah keluhan "bot masih gagal memilih
+        # radio". Bot wajib memeriksa ulang hasilnya, lalu memakai pembungkus/label kolomnya.
+        jejak.clear()
+        asli_waktu = bot_dapodik.time
+        jam_telan = _WaktuCepat(time)
+        bot_dapodik.time = jam_telan
+        try:
+            palsu_telan = peramban_palsu.buat("alur_penuh").pakai_jam(jam_telan.monotonic)
+            palsu_telan.popup_detik = None
+            palsu_telan.registrasi_otomatis = True
+            palsu_telan.klik_kotak_ditelan = True          # klik pada kotaknya ditelan
+            palsu_telan.siapkan_periodik_perlu_gulir(2)    # panelnya juga perlu dibawa ke layar
+            nisn_telan = siswa_periodik["nisn"]
+            palsu_telan.nisn_dicari = nisn_telan
+            palsu_telan.tambah_baris_siswa(nisn_telan)
+            bot_telan = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                               kepala=jejak.append)
+            bot_telan._login(palsu_telan)
+            bot_telan._proses_satu(palsu_telan, siswa_periodik, None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert palsu_telan.jarak_pilihan == "Lebih dari 1 km", \
+            f"radio jarak tetap tidak terpilih walau pembungkusnya bisa diklik: " \
+            f"{palsu_telan.jarak_pilihan!r}"
+        assert palsu_telan.data_periodik_tersimpan.get("jarak") == "1", \
+            f"pilihan jarak tidak tersimpan: {palsu_telan.data_periodik_tersimpan}"
+        assert palsu_telan.dipilih_lewat_pembungkus >= 1, \
+            "bot tidak memakai pembungkus/label kolom ketika klik pada kotaknya ditelan"
+        assert any("pembungkus/label" in baris for baris in jejak), jejak[-4:]
+
+        # Kalau SEMUA cara gagal (klik kotaknya ditelan DAN pembungkusnya tidak ada), bot tidak
+        # boleh mengaku berhasil: log harus jujur memperingatkan bahwa Dapodik belum menandainya.
+        jejak.clear()
+        asli_waktu = bot_dapodik.time
+        jam_gagal = _WaktuCepat(time)
+        bot_dapodik.time = jam_gagal
+        try:
+            palsu_gagal = peramban_palsu.buat("alur_penuh").pakai_jam(jam_gagal.monotonic)
+            palsu_gagal.popup_detik = None
+            palsu_gagal.registrasi_otomatis = True
+            palsu_gagal.klik_kotak_ditelan = True
+            nisn_gagal = siswa_periodik["nisn"]
+            palsu_gagal.nisn_dicari = nisn_gagal
+            palsu_gagal.tambah_baris_siswa(nisn_gagal)
+            bot_gagal = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                               kepala=jejak.append)
+            bot_gagal._login(palsu_gagal)
+            for unsur in palsu_gagal.unsur:      # pembungkus/labelnya tidak ada di halaman
+                if unsur.label == "Lebih dari 1 km":
+                    unsur.induk = None
+            bot_gagal._proses_satu(palsu_gagal, siswa_periodik, None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert palsu_gagal.jarak_pilihan == "", \
+            f"radio seharusnya tidak terpilih pada kasus terburuk: {palsu_gagal.jarak_pilihan!r}"
+        assert any("peringatan" in baris and "belum menandainya" in baris for baris in jejak), \
+            f"bot tidak jujur melaporkan pilihan jarak yang gagal: {jejak[-6:]}"
+        assert not any("dicentang: 1 dari 1" in baris for baris in jejak), \
+            "log mengaku berhasil padahal radionya tidak terpilih"
+        assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
 
         # Data periodik kosong → dicatat pada log, siswa tetap berhasil.
         jejak.clear()
@@ -2476,7 +2540,8 @@ def cek_bot_dapodik() -> str:
     return (f"{len(kunci)} selector · antrean dari tabel students · uji coba 2 siswa sukses · "
             f"siswa berstatus Lulus dilewati · alur skrip sekolah (masuk, menu, 1 siswa) "
             f"berjalan di peramban palsu, tahan klik tertelan lapisan pemuatan & popup "
-            f"pengumuman Dapodik · Sekolah Asal & Data Periodik terisi dari data siswa · "
+            f"pengumuman Dapodik · Sekolah Asal & Data Periodik terisi dari data siswa "
+            f"(panelnya dibawa ke layar & pilihan jaraknya diperiksa ulang) · "
             f"sekarang {len(services.bot_nisn_sukses())} NISN berhasil")
 
 

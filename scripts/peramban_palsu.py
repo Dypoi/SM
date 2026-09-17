@@ -8,9 +8,14 @@ Skenario yang tersedia: ``splash`` (halaman pembuka), ``kolom_tersembunyi`` (per
 laporan PC sekolah), ``siap``, ``mask`` (masih tertutup lapisan loading Ext JS),
 ``masuk`` (login berhasil setelah tombol ditekan), ``alur_penuh`` (halaman login,
 menu, tabel, dan formulir Registrasi persis skrip sekolah), ``xpath_bawaan``, ``kosong``.
-Panel «Data Periodik» bisa disetel baru tampil **setelah halaman digulir**
-(``siapkan_periodik_perlu_gulir(2)``) — menirukan panel yang letaknya di bawah layar,
-seperti kekhawatiran pada skrip sekolah (``window.scrollBy(0, 250)``).
+Panel «Data Periodik» berada di dalam **area gulir sendiri** (``div[4]`` pada halaman
+Dapodik) sehingga ``window.scrollBy`` TIDAK menjangkaunya; ``siapkan_periodik_perlu_gulir(n)``
+membuat kolomnya baru terjangkau setelah panelnya digulir dengan ``scrollIntoView``
+(mis. ``siapkan_periodik_perlu_gulir(2)``).
+Kotak centang/radio Ext JS juga ditirukan sebenarnya: klik lewat skrip
+(``arguments[0].click()``) **tidak** mengubah keadaan terpilih — hanya klik sungguhan,
+klik pembungkus/label (``x-form-cb-wrap-inner``), atau urutan tetikus lengkap
+(mousedown → mouseup → click) yang mengubahnya.
 Formulir Registrasi dapat diberi kolom «Sekolah Asal» (``tambah_formulir_registrasi(nisn,
 sekolah_asal="SD NEGERI …", nama_kolom="sekolah_asal")``) — kolom itu dicari bot lewat
 labelnya maupun lewat namanya, seperti di Dapodik.
@@ -66,6 +71,12 @@ class UnsurPalsu:
         self.label = str(sifat.get("label", ""))
         #: True = unsur milik panel «Data Periodik» (hanya hidup setelah baris siswa dipilih)
         self.periodik = bool(sifat.get("periodik", False))
+        #: True = wadah/panel «Data Periodik Peserta Didik» (area gulir sendiri)
+        self.panel_periodik = bool(sifat.get("panel_periodik", False))
+        #: Nama kolom yang dipilih oleh pembungkus ini (kotak centang/radio di dalamnya)
+        self.untuk = str(sifat.get("untuk", ""))
+        #: Unsur induk (untuk XPath leluhur sederhana, mis. mencari pembungkus)
+        self.induk: "UnsurPalsu | None" = None
         #: True = tombol «Simpan dan Tutup» milik panel Data Periodik
         self.simpan_periodik = bool(sifat.get("simpan_periodik", False))
         #: Nama kelompok pilihan (mis. "jarak") — mengklik satu anggota melepas yang lain
@@ -105,8 +116,19 @@ class UnsurPalsu:
             # Tombol pembuka halaman depan: formulir login baru terlihat sesudah ini.
             self.peramban.buka_formulir = True
 
-    def _klik_paksa(self) -> None:
-        """Klik seperti lewat skrip: tetap bekerja walau unsur tidak terlihat."""
+    def _klik_paksa(self, script: bool = False) -> None:
+        """Klik seperti lewat skrip: tetap bekerja walau unsur tidak terlihat.
+
+        ``script=True`` = klik dikirim lewat skrip halaman (``arguments[0].click()``).
+        Kotak centang/radio Data Periodik **tidak dihiraukan** dalam mode ini (persis
+        Ext JS/Dapodik: keadaan centangnya tidak berubah), kecuali pembungkus/labelnya.
+        """
+        if self.untuk:      # pembungkus/label Ext JS: mengkliknya memilih kotak di dalamnya
+            self.peramban.pilih_lewat_pembungkus(self.untuk)
+            return
+        if self.periodik and self.type in ("radio", "checkbox") and script:
+            self.peramban.diklik_skrip_diabaikan += 1
+            return
         if self.periodik and not self.peramban.panel_periodik_terbuka():
             self.peramban.klik_diabaikan += 1      # panel kelabu: Dapodik mengabaikan klik
             return
@@ -126,14 +148,6 @@ class UnsurPalsu:
         if self.name == "tombol_registrasi" or \
                 "x-btn-inner-soft-green-small" in (self.kelas or ""):
             self.peramban.buka_formulir_registrasi()
-        if self.periodik and self.type in ("checkbox", "radio"):
-            self.terpilih = True
-            if self.kelompok:      # seperti radio: pilihan lain pada kelompok ini dilepas
-                for lain in self.peramban.unsur:
-                    if lain is not self and lain.kelompok == self.kelompok:
-                        lain.terpilih = False
-            self.peramban.jarak_dicentang += 1
-            self.peramban.jarak_pilihan = (self.label or self.jalur).strip()
         if self.simpan_periodik:
             self.peramban.simpan_data_periodik()
         if self.jalur == "/html/body/div[1]/ul/li[2]/div/a/button":
@@ -163,8 +177,30 @@ class UnsurPalsu:
         self._pilih_baris()          # klik sungguhan memilih baris tabel (mousedown)
         self._klik_paksa()
 
+    def _pilih_kotak(self) -> None:
+        """Kotak centang/radio terpilih (klik sungguhan / urutan tetikus asli)."""
+        if self.terpilih:
+            return
+        self.terpilih = True
+        if self.kelompok:
+            for lain in self.peramban.unsur:
+                if lain is not self and lain.kelompok == self.kelompok:
+                    lain.terpilih = False
+        self.peramban.jarak_dicentang += 1
+        self.peramban.jarak_pilihan = (self.label or self.jalur).strip()
+
     def _pilih_baris(self) -> None:
-        """Klik sungguhan pada baris tabel = memilih baris itu (seperti Ext JS)."""
+        """Klik sungguhan pada baris tabel / kotak centang = memilihnya (seperti Ext JS)."""
+        if self.periodik and self.type in ("radio", "checkbox"):
+            if self.peramban.klik_kotak_ditelan:
+                self.peramban.klik_kotak_ditelan_kali += 1
+            elif self.peramban.panel_periodik_terbuka() and self.peramban.periodik_siap():
+                self._pilih_kotak()
+            else:
+                # Panelnya masih kelabu, atau kotaknya belum terjangkau karena area gulir
+                # panel belum digeser: klik ini tidak menghasilkan apa-apa.
+                self.peramban.klik_diabaikan += 1
+            return
         if self.tag_name == "tr" and "x-grid-row" in (self.kelas or ""):
             self.terpilih = True
             if "x-grid-row-selected" not in self.kelas:
@@ -175,9 +211,10 @@ class UnsurPalsu:
         """Meniru pengetikan: tombol pengubah (Ctrl+A) ditangani, bukan diketik apa adanya."""
         if not self.is_displayed():
             raise ElementNotInteractableException("unsur tidak terlihat")
-        if self.periodik and not self.peramban.panel_periodik_terbuka():
-            # Panel Data Periodik masih kelabu (belum ada baris terpilih): Dapodik
-            # mengabaikan ketikan ini — nilainya tidak tersimpan.
+        if self.periodik and (not self.peramban.panel_periodik_terbuka()
+                              or not self.peramban.periodik_siap()):
+            # Panel masih kelabu, atau kolomnya belum terjangkau karena area gulir panel
+            # belum digeser: Dapodik mengabaikan ketikan ini — nilainya tidak tersimpan.
             self.peramban.ketikan_diabaikan += 1
             return
         from selenium.webdriver.common.keys import Keys
@@ -210,7 +247,31 @@ class UnsurPalsu:
         self.diketik.clear()
 
     def find_elements(self, by: str = "", nilai: str = "") -> list["UnsurPalsu"]:
+        """Cari unsur di dalam unsur ini (yang didukung: XPath leluhur sederhana)."""
+        if by == "xpath" and nilai.startswith("ancestor"):
+            return self._leluhur(nilai)
         return []
+
+    def _leluhur(self, ekspresi: str) -> list["UnsurPalsu"]:
+        """Dukung ``ancestor(-or-self)::tag[contains(@class, "…")][1]`` seperti dipakai bot."""
+        termasuk_self = ekspresi.startswith("ancestor-or-self")
+        kelas = re.findall(r'contains\(@class,\s*[\'"]([^\'"]+)[\'"]\)', ekspresi)
+        tag = re.search(r"ancestor(?:-or-self)?::(\w+)", ekspresi)
+        kandidat: list["UnsurPalsu"] = [self] if termasuk_self else []
+        induk = self.induk
+        while induk is not None:
+            kandidat.append(induk)
+            induk = induk.induk
+        hasil: list["UnsurPalsu"] = []
+        for unsur in kandidat:
+            if tag and tag.group(1) != "*" and unsur.tag_name != tag.group(1):
+                continue
+            if any(k.lower() not in (unsur.kelas or "").lower() for k in kelas):
+                continue
+            hasil.append(unsur)
+            if "[1]" in ekspresi:
+                break
+        return hasil
 
     def find_element(self, by: str = "", nilai: str = "") -> "UnsurPalsu":
         raise NoSuchElementException(f"tidak ada {nilai}")
@@ -256,8 +317,20 @@ class PerambanPalsu:
         self.klik_diabaikan = 0
         #: semua jarak gulir halaman (px) — bukti bot memakai window.scrollBy seperti skrip
         self.gulir: list[int] = []
-        #: panel Data Periodik baru "ada" setelah sekian kali gulir (0 = langsung ada)
+        #: scrollIntoView pada panel/unsur Data Periodik — inilah yang menjangkau area
+        #: gulirnya sendiri (window.scrollBy tidak menolong, seperti di Dapodik)
+        self.gulir_panel: list[str] = []
+        #: kolom Data Periodik baru terjangkau setelah sekian kali scrollIntoView panelnya
         self.periodik_perlu_gulir = 0
+        #: berapa klik lewat skrip pada kotak centang/radio yang TIDAK dihiraukan Ext JS
+        self.diklik_skrip_diabaikan = 0
+        #: True = klik SUNGGUHAN pada kotak centang/radio juga ditelan (hanya pembungkus/
+        #: label di sekitarnya yang menerima) — persis bila ada lapisan di atas kotaknya
+        self.klik_kotak_ditelan = False
+        #: berapa klik sungguhan pada kotak centang/radio yang ditelan
+        self.klik_kotak_ditelan_kali = 0
+        #: berapa kali pilihan jarak dipilih lewat pembungkus/labelnya
+        self.dipilih_lewat_pembungkus = 0
         #: True = popup pengumuman muncul saat pencarian ditekan; hasilnya tampil setelah ditutup
         self._popup_setelah_cari = False
         self._nisn_tersembunyi = ""
@@ -327,6 +400,24 @@ class PerambanPalsu:
             self.unsur.append(UnsurPalsu(self, "input", type="password", name="password"))
             self.unsur.append(UnsurPalsu(self, "button", teks="Masuk", id="form2"))
 
+    def _pasang_pembungkus_periodik(self) -> None:
+        """Bungkus kolom Data Periodik dengan wadah Ext JS (``x-form-cb-wrap-inner`` dll).
+
+        Menirukan struktur Dapodik: kotak centang/radio berada di dalam pembungkus yang
+        dapat diklik, sedangkan klik lewat skrip pada kotaknya sendiri tidak dihiraukan.
+        """
+        for unsur in list(self.unsur):
+            if not unsur.periodik:
+                continue
+            kelas = ("x-form-cb-wrap-inner" if unsur.type in ("radio", "checkbox")
+                     else "x-form-item")
+            pembungkus = UnsurPalsu(self, "div", kelas=kelas,
+                                    untuk=unsur.name if unsur.type in ("radio", "checkbox") else "",
+                                    periodik=True)
+            pembungkus.induk = next((u for u in self.unsur if u.panel_periodik), None)
+            unsur.induk = pembungkus
+            self.unsur.append(pembungkus)
+
     def _menu_tujuan_diklik(self) -> None:
         """Menu tujuan dibuka: Dapodik menampilkan popup pengumuman versi."""
         if self.popup_detik is not None:
@@ -354,8 +445,12 @@ class PerambanPalsu:
             UnsurPalsu(self, "input", type="text", name="cari_text"),
             # Tombol Registrasi pada toolbar — sudah ada sebelum formulirnya dibuka.
             UnsurPalsu(self, "span", kelas="x-btn-inner-soft-green-small", teks="Registrasi"),
-            # Panel «Data Periodik Peserta Didik» — kelabu sampai ada baris siswa dipilih
-            # (persis yang terlihat pada screenshot PC sekolah).
+            # Panel «Data Periodik Peserta Didik» — punya area gulir SENDIRI (div[4] pada
+            # halaman Dapodik), kelabu sampai ada baris siswa dipilih, dan isinya baru
+            # terjangkau setelah panelnya digulir (bukan dengan window.scrollBy).
+            UnsurPalsu(self, "div", kelas="x-panel x-container",
+                       panel_periodik=True,
+                       jalur="/html/body/div[2]/div/div/div[2]/div/div/div/div[4]"),
             UnsurPalsu(self, "input", type="text", name="tinggi_badan", label="Tinggi Badan",
                        periodik=True),
             UnsurPalsu(self, "input", type="text", name="berat_badan", label="Berat Badan",
@@ -364,6 +459,8 @@ class PerambanPalsu:
                        label="Lingkar Kepala", periodik=True),
             # Baris «Jarak rumah ke sekolah» punya DUA pilihan, seperti Dapodik:
             # «kurang dari 1 km» (td/div[1]) dan «lebih dari 1 km» (td/div[2], persis skrip).
+            # Keduanya dibungkus `x-form-cb-wrap-inner` — klik pada pembungkusnya mengubah
+            # pilihannya, klik lewat skrip pada kotaknya TIDAK.
             UnsurPalsu(self, "input", type="radio", name="jarak_rumah",
                        label="Kurang dari 1 km", periodik=True, kelompok="jarak",
                        jalur="/html/body/div[2]/div/div/div[2]/div/div/div/div[3]/div[2]/div/div/"
@@ -382,6 +479,7 @@ class PerambanPalsu:
             UnsurPalsu(self, "span", kelas="x-btn-inner-default-small", teks="Simpan dan Tutup",
                        periodik=True, simpan_periodik=True),
         ])
+        self._pasang_pembungkus_periodik()
         self.judul = "Dapodik - Peserta Didik"
 
     def popup_terbuka(self) -> bool:
@@ -418,17 +516,18 @@ class PerambanPalsu:
         return self
 
     def siapkan_periodik_perlu_gulir(self, kali: int = 1) -> "PerambanPalsu":
-        """Panel Data Periodik baru tampil setelah halaman digulir ``kali`` kali.
+        """Kolom Data Periodik baru terjangkau setelah panelnya digulir ``kali`` kali.
 
-        Menirukan Dapodik: kolom Data Periodik ada di bawah halaman sehingga baru terjangkau
-        setelah digulir (``window.scrollBy(0, 250)``), persis seperti skrip sekolah.
+        Menirukan Dapodik: panel «Data Periodik Peserta Didik» berada di dalam **area gulir
+        sendiri**, jadi ``window.scrollBy`` tidak menolong — yang menjangkaunya adalah
+        ``scrollIntoView`` pada panel/kolomnya.
         """
         self.periodik_perlu_gulir = int(kali)
         return self
 
     def periodik_siap(self) -> bool:
-        """Apakah panel Data Periodik sudah dapat dijangkau (halaman sudah cukup digulir)."""
-        return len(self.gulir) >= self.periodik_perlu_gulir
+        """Apakah area gulir panel Data Periodik sudah dijangkau (bukan gulir halaman)."""
+        return len(self.gulir_panel) >= self.periodik_perlu_gulir
 
     def siapkan_popup(self, detik: float = 0.0) -> "PerambanPalsu":
         """Atur popup pengumuman: muncul ``detik`` setelah menu tujuan dibuka.
@@ -498,6 +597,13 @@ class PerambanPalsu:
             UnsurPalsu(self, "input", type="text", name="id_cita"),
             UnsurPalsu(self, "span", kelas="x-btn-inner-default-small", teks="Simpan dan Tutup"),
         ])
+
+    def pilih_lewat_pembungkus(self, nama: str) -> None:
+        """Klik pada pembungkus/label Ext JS = memilih kotak centang/radio di dalamnya."""
+        for unsur in self.unsur:
+            if unsur.name == nama and unsur.periodik and unsur.type in ("radio", "checkbox"):
+                unsur._pilih_kotak()
+        self.dipilih_lewat_pembungkus += 1
 
     def _terlihat_otomatis(self, unsur: UnsurPalsu) -> bool:
         """Skenario splash: kolom login baru terlihat setelah tombol pembuka diklik."""
@@ -688,11 +794,28 @@ class PerambanPalsu:
             return None
         if "el.value = nilai" in skrip:
             if argumen:
-                if argumen[0].periodik and not self.panel_periodik_terbuka():
+                if argumen[0].periodik and (not self.panel_periodik_terbuka()
+                                            or not self.periodik_siap()):
                     self.ketikan_diabaikan += 1      # panel kelabu: isian tidak tersimpan
                     return None
                 argumen[0].nilai = str(argumen[1])
                 argumen[0].diketik.append(str(argumen[1]))
+            return None
+        if "dispatchEvent" in skrip and argumen:
+            sasaran = argumen[0]
+            if getattr(sasaran, "untuk", ""):
+                # Urutan mousedown → mouseup → click pada pembungkus/label Ext JS.
+                self.pilih_lewat_pembungkus(sasaran.untuk)
+            elif getattr(sasaran, "periodik", False) and \
+                    getattr(sasaran, "type", "") in ("radio", "checkbox"):
+                self.diklik_skrip_diabaikan += 1
+            return None
+        if "scrollIntoView" in skrip and argumen:
+            sasaran = argumen[0]
+            if getattr(sasaran, "periodik", False) or getattr(sasaran, "panel_periodik", False):
+                # Inilah yang benar-benar menjangkau area gulir panel Data Periodik.
+                self.gulir_panel.append(getattr(sasaran, "name", "")
+                                        or getattr(sasaran, "teks", "") or "panel")
             return None
         if "window.scrollBy" in skrip:
             # Persis skrip sekolah: driver.execute_script("window.scrollBy(0, 250);")
@@ -702,8 +825,6 @@ class PerambanPalsu:
                 cocok = _re.search(r"scrollBy\(\s*0\s*,\s*(-?\d+)", skrip)
                 jarak = cocok.group(1) if cocok else 0
             self.gulir.append(int(jarak))
-            return None
-        if "arguments[0].scrollIntoView" in skrip:
             return None
         if "arguments[0].click()" in skrip:
             if argumen:

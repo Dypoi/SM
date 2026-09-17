@@ -75,6 +75,10 @@ SELECTOR_BAWAAN: dict[str, str] = {
     # Dipakai bila pilihan yang sesuai tidak ada (bawaan = skrip sekolah: lebih dari 1 km).
     "periodik_jarak": "/html/body/div[2]/div/div/div[2]/div/div/div/div[3]/div[2]/div/div/div/"
                       "div[1]/div/div/div[7]/div/div/table/tbody/tr/td/div[2]/div/div/span/input",
+    # Wadah/panel «Data Periodik Peserta Didik». Panel ini punya **area gulir sendiri**,
+    # jadi `window.scrollBy` tidak menjangkaunya — bot membawa panelnya ke layar dengan
+    # scrollIntoView (hanya panelnya yang bergeser, halaman lain tidak ikut).
+    "periodik_panel": "/html/body/div[2]/div/div/div[2]/div/div/div/div[4]",
     # Kolom teks di sebelah kotak «Jarak rumah ke sekolah»: «Sebutkan (dalam kilometer):»
     # namanya ``jarak_rumah_ke_sekolah_km``. Isinya jarak (km) dari data siswa SM.
     "periodik_jarak_km": "name:jarak_rumah_ke_sekolah_km",
@@ -169,6 +173,12 @@ SELECTOR_CADANGAN: dict[str, list[str]] = {
         "css:input[name*=sekolah_asal]",
         "css:input[name*=sekolahasal]",
         "css:input[name*=asal]",
+    ],
+    "periodik_panel": [
+        'xpath://div[contains(@class, "x-panel") or contains(@class, "x-container")]'
+        '[.//*[contains(normalize-space(), "Data Periodik")]][1]',
+        'xpath://*[contains(normalize-space(), "Data Periodik Peserta Didik")]'
+        '/ancestor::div[contains(@class, "x-panel") or contains(@class, "x-container")][1]',
     ],
     "periodik_tinggi": [
         "label:Tinggi Badan",
@@ -1092,6 +1102,59 @@ class BotDapodik:
             self._catat_kepala(f"[gulir] halaman digulir {int(jarak)} px ke bawah "
                                "(seperti skrip sekolah).")
 
+    def _bawa_ke_layar(self, peramban, unsur) -> None:
+        """Bawa satu unsur ke layar dengan menggulir **hanya wadah yang perlu**.
+
+        ``window.scrollBy`` menggulir seluruh halaman; panel seperti «Data Periodik
+        Peserta Didik» justru berada di dalam wadah bergulir sendiri, sehingga gulir
+        halaman tidak menolong (dan bisa menggeser bagian lain yang tidak perlu).
+        Yang benar: ``scrollIntoView`` pada unsurnya, lalu ``scrollTop`` setiap induk
+        yang memiliki gulir dibetulkan — halaman lain tidak ikut bergeser.
+        """
+        try:
+            peramban.execute_script(
+                """
+                const el = arguments[0];
+                el.scrollIntoView({block: 'center', inline: 'nearest'});
+                let p = el.parentElement;
+                while (p && p !== document.body) {
+                    const gaya = getComputedStyle(p);
+                    if ((gaya.overflowY === 'auto' || gaya.overflowY === 'scroll') &&
+                        p.scrollHeight > p.clientHeight + 4) {
+                        const kotakEl = el.getBoundingClientRect();
+                        const kotakP = p.getBoundingClientRect();
+                        if (kotakEl.top < kotakP.top || kotakEl.bottom > kotakP.bottom) {
+                            p.scrollTop += (kotakEl.top - kotakP.top)
+                                - (kotakP.height - kotakEl.height) / 2;
+                        }
+                    }
+                    p = p.parentElement;
+                }
+                """, unsur)
+        except Exception:  # noqa: BLE001 — gulir hanya upaya terbaik
+            pass
+
+    def _panel_periodik(self, peramban, peta: dict[str, str]):
+        """Wadah «Data Periodik Peserta Didik» (``None`` bila tidak ada di halaman)."""
+        for nilai in self._kandidat_selector("periodik_panel", peta):
+            try:
+                for unsur in peramban.find_elements(*self._locator_nilai(nilai)):
+                    return unsur
+            except Exception:  # noqa: BLE001 — coba kandidat berikutnya
+                continue
+        return None
+
+    def _gulir_panel_periodik(self, peramban, peta: dict[str, str], catat: bool = True) -> bool:
+        """Bawa panel Data Periodik ke layar — hanya panelnya, bukan seluruh halaman."""
+        panel = self._panel_periodik(peramban, peta)
+        if panel is None:
+            return False
+        self._bawa_ke_layar(peramban, panel)
+        if catat:
+            self._catat_kepala("[gulir] panel «Data Periodik Peserta Didik» dibawa ke layar "
+                               "(hanya panelnya yang digulir, halaman lain tidak ikut).")
+        return True
+
     def _cari_kolom_dengan_gulir(self, peramban, kunci: str, peta: dict[str, str]):
         """Cari kolom Data Periodik; bila belum ketemu, gulir 250 px lalu coba lagi.
 
@@ -1103,6 +1166,8 @@ class BotDapodik:
         for _ in range(GULIR_PERCOBAAN):
             if unsur is not None:
                 return unsur
+            # Panelnya yang digulir dulu (area gulir sendiri), baru halaman sebagai pelengkap.
+            self._gulir_panel_periodik(peramban, peta, catat=False)
             self._gulir(peramban, catat=False)
             unsur = self._cari_kolom_dengan_label(peramban, kunci, peta)
         return unsur
@@ -1113,6 +1178,7 @@ class BotDapodik:
         for _ in range(GULIR_PERCOBAAN):
             if kotak:
                 return kotak
+            self._gulir_panel_periodik(peramban, peta, catat=False)
             self._gulir(peramban, catat=False)
             kotak = self._kandidat_kotak_jarak(peramban, peta)
         return kotak
@@ -1126,8 +1192,9 @@ class BotDapodik:
                  else self._cari_kolom_dengan_gulir(peramban, kunci, peta))
         if unsur is None:
             return "kolomnya tidak ada di halaman ini"
-        # Kolom di bawah layar sering tidak menerima ketikan: tampilkan & bawa ke tengah
-        # layar (memakai scrollIntoView) sebelum diketik.
+        # Kolom di bawah layar sering tidak menerima ketikan: bawa dulu ke layar
+        # (menggulir wadahnya sendiri), lalu tampilkan bila memang tersembunyi.
+        self._bawa_ke_layar(peramban, unsur)
         self._paksa_terlihat(peramban, unsur)
         try:
             unsur.click()
@@ -1173,6 +1240,80 @@ class BotDapodik:
                 return kotak
         return []
 
+    def _terpilih(self, unsur) -> bool:
+        """Apakah kotak centang/radio ini **benar-benar** terpilih (dibaca dari halaman)."""
+        try:
+            if unsur.is_selected():
+                return True
+        except Exception:  # noqa: BLE001 — lanjut ke pemeriksaan berikutnya
+            pass
+        try:
+            return str(unsur.get_attribute("checked") or "").lower() in ("true", "checked", "1")
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _pembungkus_pilihan(self, peramban, unsur) -> list[Any]:
+        """Pembungkus/label Ext JS di sekitar kotak centang/radio (bila ada)."""
+        from selenium.webdriver.common.by import By
+
+        pembungkus: list[Any] = []
+        for xpath in ("ancestor-or-self::*[contains(@class, 'x-form-cb-wrap-inner')][1]",
+                      "ancestor-or-self::*[contains(@class, 'x-form-cb-wrap')][1]",
+                      "ancestor::label[1]"):
+            try:
+                pembungkus.extend(unsur.find_elements(By.XPATH, xpath))
+            except Exception:  # noqa: BLE001 — coba cara berikutnya
+                continue
+        return pembungkus
+
+    def _pilih_satu(self, peramban, unsur, nama: str) -> bool:
+        """Pilih satu kotak centang/radio sampai **benar-benar** terpilih.
+
+        Penting: Ext JS/Dapodik sering **tidak menghiraukan** klik yang dikirim lewat skrip
+        (``arguments[0].click()``) pada kotak centang/radio — perintahnya "berhasil" tetapi
+        keadaan centangnya tidak berubah (inilah keluhan "bot masih gagal memilih radio").
+        Karena itu setiap percobaan diperiksa ulang, lalu dicoba: klik sungguhan pada
+        kotaknya → klik pembungkus/labelnya → urutan tetikus lengkap lewat skrip.
+        """
+        if self._terpilih(unsur):
+            return True
+        self._bawa_ke_layar(peramban, unsur)
+        pembungkus = self._pembungkus_pilihan(peramban, unsur)
+        try:                       # 1) klik sungguhan pada kotaknya
+            unsur.click()
+        except Exception:  # noqa: BLE001 — coba cara berikutnya
+            pass
+        time.sleep(0.3)
+        if self._terpilih(unsur):
+            return True
+        for calon in pembungkus:   # 2) klik pembungkus/labelnya (cara Ext JS)
+            try:
+                calon.click()
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(0.3)
+            if self._terpilih(unsur):
+                self._catat_kepala(f"[periodik] {nama}: dipilih lewat pembungkus/label "
+                                   "kolomnya (klik pada kotaknya sendiri tidak diterima).")
+                return True
+        for calon in [unsur, *pembungkus]:   # 3) urutan tetikus lengkap lewat skrip
+            try:
+                peramban.execute_script(
+                    """
+                    const el = arguments[0];
+                    for (const tipe of ['mousedown', 'mouseup', 'click']) {
+                        el.dispatchEvent(new MouseEvent(tipe, {bubbles: true, cancelable: true,
+                                                              view: window}));
+                    }
+                    """, calon)
+            except Exception:  # noqa: BLE001
+                continue
+            time.sleep(0.3)
+            if self._terpilih(unsur):
+                self._catat_kepala(f"[periodik] {nama}: dipilih lewat urutan tetikus skrip.")
+                return True
+        return self._terpilih(unsur)
+
     def _pilih_jarak(self, peramban, peta: dict[str, str], jarak_km: str) -> str:
         """Pilih «kurang dari 1 km» / «lebih dari 1 km» sesuai data jarak siswa.
 
@@ -1202,32 +1343,25 @@ class BotDapodik:
 
         dicentang = 0
         for unsur in kotak:
-            try:
-                if unsur.is_selected():      # sudah tercentang: jangan dibalik jadi kosong
-                    dicentang += 1
-                    continue
-            except Exception:  # noqa: BLE001
-                pass
-            try:
-                unsur.click()
-            except Exception:  # noqa: BLE001 — klik tertelan: pakai jalur skrip
-                try:
-                    peramban.execute_script("arguments[0].click();", unsur)
-                except Exception:  # noqa: BLE001
-                    continue
-            dicentang += 1
+            if self._pilih_satu(peramban, unsur, f"pilihan jarak «{nama_pilihan}»"):
+                dicentang += 1
         # Jangan sampai kedua pilihan tercentang: pilihan lain dikosongkan lagi.
         for kunci_lain in ("periodik_jarak_kurang", "periodik_jarak_lebih"):
             if kunci_lain == kunci:
                 continue
             for unsur in self._kotak_jarak(peramban, kunci_lain, peta):
-                try:
-                    if unsur.is_selected():
+                if self._terpilih(unsur):
+                    try:
                         unsur.click()
-                except Exception:  # noqa: BLE001 — biarkan; Dapodik umumnya radio
-                    continue
-        return (f"kotak «Jarak rumah ke sekolah» ({nama_pilihan}) dicentang: "
-                f"{dicentang} dari {len(kotak)}")
+                    except Exception:  # noqa: BLE001 — biarkan; Dapodik umumnya radio
+                        pass
+                    time.sleep(0.3)
+        pesan = (f"kotak «Jarak rumah ke sekolah» ({nama_pilihan}) dicentang: "
+                 f"{dicentang} dari {len(kotak)}")
+        if dicentang < len(kotak):
+            pesan += (" — peringatan: Dapodik belum menandainya terpilih "
+                      "(mungkin perlu diklik manual sekali).")
+        return pesan
 
     def _isi_jarak_km(self, peramban, peta: dict[str, str], nilai: str) -> str:
         """Isi kolom «Sebutkan (dalam kilometer):» di baris «Jarak rumah ke sekolah».
@@ -1263,8 +1397,14 @@ class BotDapodik:
         Nilai diambil dari data siswa di aplikasi SM. Kolom yang tidak ada atau data yang
         kosong hanya dicatat pada log — pekerjaan siswa diteruskan.
         """
-        # Panel Data Periodik letaknya di bawah halaman: gulir dulu (persis skrip sekolah
-        # ``driver.execute_script("window.scrollBy(0, 250);")``) supaya kolomnya tampil.
+        # Panel Data Periodik letaknya di bawah halaman DAN punya area gulir sendiri.
+        # Karena itu panelnya dibawa ke layar lebih dulu (hanya panel itu yang bergeser),
+        # lalu halaman digulir 250 px seperti skrip sekolah sebagai pelengkap.
+        if self._gulir_panel_periodik(peramban, peta):
+            self._catat_kepala("[gulir] panel Data Periodik siap — lanjut seperti skrip sekolah.")
+        else:
+            self._catat_kepala("[gulir] panel «Data Periodik Peserta Didik» tidak ketemu — "
+                               "memakai gulir halaman seperti skrip sekolah.")
         self._gulir(peramban)
 
         # Dapodik versi lain bisa tidak punya panel ini sama sekali: jangan digagalkan,
