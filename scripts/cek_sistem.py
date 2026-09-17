@@ -2405,6 +2405,21 @@ def cek_bot_dapodik() -> str:
         # Kolom isian juga harus dibarengi peristiwa input → change → blur seperti skrip itu.
         assert palsu_label.peristiwa_dipicu >= 1, \
             "bot tidak memberi tahu Ext JS lewat peristiwa input/change/blur sesudah mengetik"
+        # Langkah memilih jarak harus tercatat jelas pada log (bukan hanya hasilnya).
+        assert any("memilih «Jarak rumah ke sekolah»" in baris for baris in jejak), \
+            f"langkah memilih jarak tidak tampak pada log: {jejak[-8:]}"
+        # Pilihan «Ya» pada formulir Registrasi: dua pertanyaan, satu sudah tercentang.
+        # Bot lama mengklik lewat skrip tanpa memeriksa sehingga mengaku berhasil padahal
+        # tidak (log sekolah: "pilihan «Ya» dicentang: 0 dari 2").
+        radio_ya = [unsur for unsur in palsu_label.unsur
+                    if unsur.name == "jawaban_ya" and unsur.type == "radio"]
+        assert len(radio_ya) == 2, f"peramban palsu tidak menyiapkan dua pilihan «Ya»: {radio_ya}"
+        assert any("pilihan «Ya» dicentang: 2 dari 2" in baris for baris in jejak), \
+            f"pilihan «Ya» tidak diverifikasi: {[b for b in jejak if 'Ya' in b]}"
+        assert not any("peringatan: Dapodik belum menandai semuanya" in baris for baris in jejak), \
+            "masih ada pilihan «Ya» yang gagal padahal pemeriksaan ulang sudah dilakukan"
+        assert all(unsur.terpilih for unsur in radio_ya), \
+            "pilihan «Ya» dilaporkan tercentang padahal keadaan di halaman tidak demikian"
 
         # Data periodik kosong → dicatat pada log, siswa tetap berhasil.
         jejak.clear()

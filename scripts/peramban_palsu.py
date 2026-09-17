@@ -126,15 +126,15 @@ class UnsurPalsu:
         Ext JS/Dapodik: keadaan centangnya tidak berubah), kecuali pembungkus/labelnya.
         """
         if self.untuk:      # pembungkus/label Ext JS: mengkliknya memilih kotak di dalamnya
-            if self.peramban.hanya_label_yang_menerima and "x-form-cb-label" not in \
-                    (self.kelas or ""):
+            if self.peramban.hanya_label_yang_menerima and self.periodik and \
+                    "x-form-cb-label" not in (self.kelas or ""):
                 # Hanya labellah yang menerima klik; pembungkusnya ditelan lapisan di atasnya.
                 self.peramban.klik_diabaikan += 1
                 return
             self.peramban.pilih_lewat_pembungkus(self.untuk, self.pilihan)
             return
-        if self.periodik and self.type in ("radio", "checkbox") and \
-                (script or self.peramban.hanya_label_yang_menerima):
+        if self.type in ("radio", "checkbox") and (self.periodik or self.induk is not None) \
+                and (script or (self.peramban.hanya_label_yang_menerima and self.periodik)):
             self.peramban.diklik_skrip_diabaikan += 1
             return
         if self.periodik and not self.peramban.panel_periodik_terbuka():
@@ -194,23 +194,26 @@ class UnsurPalsu:
             for lain in self.peramban.unsur:
                 if lain is not self and lain.kelompok == self.kelompok:
                     lain.terpilih = False
-        self.peramban.jarak_dicentang += 1
-        self.peramban.jarak_pilihan = (self.label or self.jalur).strip()
+        if self.name == "jarak_rumah" or (self.kelompok or "").startswith("jarak"):
+            # Hanya pilihan jarak yang dihitung (pilihan «Ya» tidak ikut tercampur).
+            self.peramban.jarak_dicentang += 1
+            self.peramban.jarak_pilihan = (self.label or self.jalur).strip()
 
     def _pilih_baris(self) -> None:
         """Klik sungguhan pada baris tabel / kotak centang = memilihnya (seperti Ext JS)."""
-        if self.periodik and self.type in ("radio", "checkbox"):
-            if self.peramban.hanya_label_yang_menerima:
-                # Hanya label `x-form-cb-label` yang menerima klik — kotaknya sendiri ditelan.
+        if self.type in ("radio", "checkbox") and (self.periodik or self.induk is not None):
+            if self.peramban.klik_kotak_ditelan or \
+                    (self.peramban.hanya_label_yang_menerima and self.periodik):
+                # Klik pada kotaknya ditelan lapisan di atasnya; pada baris «Jarak rumah ke
+                # sekolah» hanya labelnya yang menerima (pilihan «Ya» tetap bisa lewat wadah).
                 self.peramban.klik_kotak_ditelan_kali += 1
-            elif self.peramban.klik_kotak_ditelan:
-                self.peramban.klik_kotak_ditelan_kali += 1
-            elif self.peramban.panel_periodik_terbuka() and self.peramban.periodik_siap():
-                self._pilih_kotak()
-            else:
+            elif self.periodik and not (self.peramban.panel_periodik_terbuka()
+                                        and self.peramban.periodik_siap()):
                 # Panelnya masih kelabu, atau kotaknya belum terjangkau karena area gulir
                 # panel belum digeser: klik ini tidak menghasilkan apa-apa.
                 self.peramban.klik_diabaikan += 1
+            else:
+                self._pilih_kotak()
             return
         if self.tag_name == "tr" and "x-grid-row" in (self.kelas or ""):
             self.terpilih = True
@@ -258,10 +261,17 @@ class UnsurPalsu:
         self.diketik.clear()
 
     def find_elements(self, by: str = "", nilai: str = "") -> list["UnsurPalsu"]:
-        """Cari unsur di dalam unsur ini (yang didukung: XPath leluhur sederhana)."""
-        if by == "xpath" and nilai.startswith("ancestor"):
+        """Cari unsur di dalam unsur ini.
+
+        Didukung: XPath leluhur sederhana (``ancestor(-or-self)::…``) dan poros
+        ``preceding::``/``following::input[…]`` — dipakai bot untuk melacak kotak
+        centang/radio milik sebuah label.
+        """
+        if by != "xpath":
+            return []
+        if nilai.startswith("ancestor"):
             return self._leluhur(nilai)
-        return []
+        return self.peramban.poros_input(self, nilai)
 
     def _leluhur(self, ekspresi: str) -> list["UnsurPalsu"]:
         """Dukung ``ancestor(-or-self)::tag[contains(@class, "…")][1]`` seperti dipakai bot."""
@@ -417,31 +427,31 @@ class PerambanPalsu:
             self.unsur.append(UnsurPalsu(self, "input", type="password", name="password"))
             self.unsur.append(UnsurPalsu(self, "button", teks="Masuk", id="form2"))
 
-    def _pasang_pembungkus_periodik(self) -> None:
-        """Bungkus kolom Data Periodik dengan wadah Ext JS (``x-form-cb-wrap-inner`` dll).
+    def _pasang_pembungkus_kotak(self) -> None:
+        """Bungkus setiap kotak centang/radio dengan wadah Ext JS seperti Dapodik.
 
-        Menirukan struktur Dapodik: kotak centang/radio berada di dalam pembungkus yang
-        dapat diklik, sedangkan klik lewat skrip pada kotaknya sendiri tidak dihiraukan.
+        Wadahnya berkelas ``x-form-cb-wrap-inner`` dan didampingi label ``x-form-cb-label``
+        yang bertuliskan teks pilihannya; wadah diletakkan tepat di sebelah kotaknya (seperti
+        DOM sungguhan). Klik lewat skrip pada kotaknya sendiri tidak dihiraukan — mengklik
+        label (atau wadah) inilah cara skrip yang terbukti berhasil memilih radio.
         """
         for unsur in list(self.unsur):
-            if not unsur.periodik:
+            if unsur.type not in ("radio", "checkbox") or not unsur.kelompok:
                 continue
-            kotak = unsur.type in ("radio", "checkbox")
-            kelas = "x-form-cb-wrap-inner" if kotak else "x-form-item"
-            pembungkus = UnsurPalsu(self, "div", kelas=kelas,
-                                    untuk=unsur.name if kotak else "",
-                                    pilihan=(unsur.label or "") if kotak else "",
-                                    periodik=True)
-            pembungkus.induk = next((u for u in self.unsur if u.panel_periodik), None)
+            if unsur.induk is not None:
+                continue                       # sudah punya wadah, jangan dibungkus dua kali
+            pembungkus = UnsurPalsu(self, "div", kelas="x-form-cb-wrap-inner",
+                                    untuk=unsur.name, pilihan=unsur.label or "",
+                                    periodik=unsur.periodik)
+            if unsur.periodik:
+                pembungkus.induk = next((u for u in self.unsur if u.panel_periodik), None)
             unsur.induk = pembungkus
-            self.unsur.append(pembungkus)
-            if kotak:
-                # Label Ext JS di sebelah kotaknya — berkelas `x-form-cb-label` dan
-                # bertuliskan teks pilihannya, persis Dapodik. Mengklik label INILAH cara
-                # skrip yang terbukti berhasil memilih radio.
-                self.unsur.append(UnsurPalsu(
-                    self, "label", kelas="x-form-cb-label", teks=unsur.label or "",
-                    untuk=unsur.name, pilihan=unsur.label or "", periodik=True))
+            label = UnsurPalsu(self, "label", kelas="x-form-cb-label", teks=unsur.label or "",
+                               untuk=unsur.name, pilihan=unsur.label or "",
+                               periodik=unsur.periodik)
+            posisi = self.unsur.index(unsur) + 1
+            self.unsur.insert(posisi, pembungkus)
+            self.unsur.insert(posisi + 1, label)
 
     def _menu_tujuan_diklik(self) -> None:
         """Menu tujuan dibuka: Dapodik menampilkan popup pengumuman versi."""
@@ -504,7 +514,7 @@ class PerambanPalsu:
             UnsurPalsu(self, "span", kelas="x-btn-inner-default-small", teks="Simpan dan Tutup",
                        periodik=True, simpan_periodik=True),
         ])
-        self._pasang_pembungkus_periodik()
+        self._pasang_pembungkus_kotak()
         self.judul = "Dapodik - Peserta Didik"
 
     def popup_terbuka(self) -> bool:
@@ -622,6 +632,13 @@ class PerambanPalsu:
             UnsurPalsu(self, "input", type="text", name="id_cita"),
             UnsurPalsu(self, "span", kelas="x-btn-inner-default-small", teks="Simpan dan Tutup"),
         ])
+        # Dua pertanyaan «Ya/Tidak» seperti Dapodik: radio «Ya» berkelas Ext JS, satu di
+        # antaranya sudah tercentang (persis log sekolah: "pilihan «Ya» dicentang: 0 dari 2").
+        for nomor, terpilih_awal in enumerate((True, False), start=1):
+            self.unsur.append(UnsurPalsu(self, "input", type="radio", name="jawaban_ya",
+                                         label="Ya", kelompok=f"ya{nomor}",
+                                         terpilih=terpilih_awal))
+            self._pasang_pembungkus_kotak()
 
     def pilih_lewat_pembungkus(self, nama: str, pilihan: str = "") -> None:
         """Klik pada pembungkus/label Ext JS = memilih kotak centang/radio di dalamnya.
@@ -630,9 +647,9 @@ class PerambanPalsu:
         kotak itulah yang terpilih, seperti di Dapodik (satu wadah = satu radio).
         """
         for unsur in self.unsur:
-            if unsur.name != nama or not unsur.periodik:
-                continue
             if unsur.type not in ("radio", "checkbox"):
+                continue
+            if nama and unsur.name != nama:
                 continue
             if pilihan and (unsur.label or "").strip() != pilihan.strip():
                 continue
@@ -676,6 +693,11 @@ class PerambanPalsu:
     def _cocok_satu(unsur: UnsurPalsu, bagian: str) -> bool:
         if bagian.startswith("xpath:"):
             bagian = bagian[6:]
+        # Segala sesuatu mulai dari poros (preceding/following) BUKAN saringan unsur ini —
+        # poros itu dipakai untuk melacak kotak lain (lihat poros_input), jadi dipotong dulu.
+        potong = re.search(r"/(?:preceding|following)::", bagian)
+        if potong:
+            bagian = bagian[:potong.start()]
         if bagian.startswith("//"):
             # XPath sederhana: seluruh saringan yang dikenali harus cocok, dan pola yang
             # sama sekali tidak dikenali tidak dianggap cocok (supaya uji tidak lolos palsu).
@@ -789,14 +811,57 @@ class PerambanPalsu:
         return self.periodik_siap() or not unsur.periodik
 
     def find_elements(self, by: str, nilai: str) -> list[UnsurPalsu]:
-        """Cari unsur; kolom Data Periodik baru ketemu setelah halaman digulir cukup jauh."""
+        """Cari unsur; kolom Data Periodik baru ketemu setelah halaman digulir cukup jauh.
+
+        Pola XPath yang berujung ``/preceding::input[…]`` atau ``/following::input[…]``
+        (ada pada selector bawaan Dapodik) diselesaikan seperti XPath sungguhan: yang
+        dikembalikan bukan unsur teksnya, melainkan kotak input terdekat sebelum/sesudahnya.
+        """
         if by == "name":
             hasil = [u for u in self.unsur if u.name == nilai]
-        elif by == "xpath":
-            hasil = [u for u in self.unsur if self._cocokkan(u, nilai, xpath=True)]
         else:
-            hasil = [u for u in self.unsur if self._cocokkan(u, nilai)]
+            hasil = []
+            poros = self._bagian_poros(nilai)
+            for unsur in self.unsur:
+                if not self._cocokkan(unsur, nilai, xpath=(by == "xpath")):
+                    continue
+                tujuan = unsur
+                if poros:
+                    lanjut = self.poros_input(unsur, poros)
+                    if not lanjut:
+                        continue
+                    tujuan = lanjut[0]
+                if tujuan not in hasil:
+                    hasil.append(tujuan)
         return [u for u in hasil if self._terjangkau(u)]
+
+    @staticmethod
+    def _bagian_poros(pola: str) -> str:
+        """Ambil bagian poros input pada pola XPath, mis. ``preceding::input[@type="radio"]``."""
+        cocok = re.search(r"((?:preceding|following)::input"
+                          r"(?:\[\s*@type\s*=\s*['\"]\w+['\"]\s*\])?)", pola or "")
+        return cocok.group(1) if cocok else ""
+
+    def poros_input(self, unsur: UnsurPalsu, ekspresi: str) -> list[UnsurPalsu]:
+        """Kotak input terdekat sebelum/sesudah ``unsur`` (poros XPath ``preceding``/``following``)."""
+        bagian = ekspresi if ekspresi.startswith(("preceding", "following")) \
+            else self._bagian_poros(ekspresi)
+        if not bagian:
+            return []
+        arah = "preceding" if bagian.startswith("preceding") else "following"
+        tipe = re.search(r"@type\s*=\s*['\"](\w+)['\"]", bagian)
+        try:
+            posisi = self.unsur.index(unsur)
+        except ValueError:
+            return []
+        rentang = self.unsur[:posisi][::-1] if arah == "preceding" else self.unsur[posisi + 1:]
+        for kandidat in rentang:
+            if kandidat.tag_name != "input":
+                continue
+            if tipe and kandidat.type != tipe.group(1):
+                continue
+            return [kandidat]           # [1] = yang terdekat saja
+        return []
 
     def find_element(self, by: str, nilai: str) -> UnsurPalsu:
         hasil = self.find_elements(by, nilai)

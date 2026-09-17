@@ -1276,33 +1276,53 @@ class BotDapodik:
         except Exception:  # noqa: BLE001
             return False
 
-    def _kandidat_label_pilihan(self, nama: str) -> list[str]:
-        """XPath label pilihan jarak — persis kandidat pada skrip yang terbukti berhasil.
+    @staticmethod
+    def _label_unik(teks: str) -> bool:
+        """Apakah teks pilihan ini cukup khas untuk diklik lewat labelnya.
+
+        «lebih dari 1 km» hanya ada satu pada halaman sehingga aman diklik lewat labelnya
+        (persis skrip yang terbukti berhasil). Sebaliknya «Ya» bisa muncul berkali-kali
+        (tiap pertanyaan punya pasangan Ya/Tidak), jadi jalurnya lewat wadah
+        ``x-form-cb-wrap-inner`` milik kotaknya sendiri agar tidak salah pilih.
+        """
+        bersih = " ".join((teks or "").split())
+        if len(bersih.split()) >= 2:
+            return True
+        return bersih.lower() not in ("ya", "tidak", "iya")
+
+    def _kandidat_label_pilihan(self, teks: str) -> list[str]:
+        """XPath label pilihan — persis kandidat pada skrip yang terbukti berhasil.
 
         Skrip itu **tidak** mengklik kotak radio-nya, melainkan labelnya
-        (``x-form-cb-label`` / ``<label>`` bertuliskan «lebih dari 1 km»), dan huruf
-        besar/kecil disamakan lewat ``translate(..., "KM", "km")``. Kandidatnya disusun
-        sama: label → label translate → label berkelas Ext JS → teks umum.
+        (``x-form-cb-label`` / ``<label>`` yang bertuliskan teks pilihannya), dan huruf
+        besar/kecil disamakan lewat ``translate(..., "ABCDEFGHIJKLM", "abcdefghijklm")``.
         """
-        nama_rendah = nama.lower()
-        if "lebih" in nama_rendah:
-            teks = "lebih dari 1"
-        elif "kurang" in nama_rendah:
-            teks = "kurang dari 1"
-        else:
-            return []      # bukan pilihan jarak (mis. radio «Ya»): label tidak dicari
-        return [
-            f'xpath://label[contains(normalize-space(.), "{teks}")]',
-            f'xpath://label[contains(translate(normalize-space(.), "KM", "km"), "{teks}")]',
+        bersih = " ".join((teks or "").split())
+        if not bersih:
+            return []
+        aman = bersih.replace('"', "'")
+        rendah = aman.lower()
+        kandidat = [
+            f'xpath://label[normalize-space()="{aman}"]',
+            f'xpath://*[contains(@class, "x-form-cb-label") and normalize-space()="{aman}"]',
+            f'xpath://label[contains(normalize-space(.), "{aman}")]',
             f'xpath://*[contains(@class, "x-form-cb-label") and '
-            f'contains(translate(normalize-space(.), "KM", "km"), "{teks}")]',
-            f'xpath://*[contains(translate(normalize-space(.), "KM", "km"), "{teks} km")]',
+            f'contains(normalize-space(.), "{aman}")]',
         ]
+        if rendah != aman:
+            kandidat += [
+                'xpath://label[contains(translate(normalize-space(.), '
+                f'"ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "{rendah}")]',
+                'xpath://*[contains(@class, "x-form-cb-label") and contains(translate('
+                'normalize-space(.), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", '
+                f'"abcdefghijklmnopqrstuvwxyz"), "{rendah}")]',
+            ]
+        return kandidat
 
-    def _label_pilihan(self, peramban, nama: str) -> list[Any]:
-        """Label pilihan jarak yang terlihat di halaman (cara skrip yang terbukti berhasil)."""
+    def _label_pilihan(self, peramban, teks: str) -> list[Any]:
+        """Label pilihan yang terlihat di halaman (cara skrip yang terbukti berhasil)."""
         label: list[Any] = []
-        for nilai in self._kandidat_label_pilihan(nama):
+        for nilai in self._kandidat_label_pilihan(teks):
             try:
                 for unsur in peramban.find_elements(*self._locator_nilai(nilai)):
                     try:
@@ -1329,7 +1349,64 @@ class BotDapodik:
                 continue
         return pembungkus
 
-    def _pilih_satu(self, peramban, unsur, nama: str) -> bool:
+    def _unsur_kotak(self, peramban, unsur):
+        """Kotak centang/radio dari unsur yang ditemukan.
+
+        Selector Dapodik kadang mengembalikan label atau wadahnya, bukan kotaknya
+        (mis. ``//*[normalize-space()="Ya"]/preceding::input[@type="radio"][1]``). Supaya
+        pemeriksaan "sudah terpilih belum" membaca unsur yang benar, kotaknya dilacak dulu.
+        """
+        from selenium.webdriver.common.by import By
+
+        def jenis(nilai) -> str:
+            try:
+                return str(nilai.get_attribute("type") or "").lower()
+            except Exception:  # noqa: BLE001
+                return ""
+
+        if jenis(unsur) in ("checkbox", "radio"):
+            return unsur
+        for xpath in ('preceding::input[@type="radio"][1]',
+                      'preceding::input[@type="checkbox"][1]',
+                      'following::input[@type="radio"][1]',
+                      'following::input[@type="checkbox"][1]',
+                      './/input[@type="radio" or @type="checkbox"][1]'):
+            try:
+                for kandidat in unsur.find_elements(By.XPATH, xpath):
+                    if jenis(kandidat) in ("checkbox", "radio"):
+                        return kandidat
+            except Exception:  # noqa: BLE001 — coba cara berikutnya
+                continue
+        return unsur
+
+    def _kotak_ya(self, peramban, peta: dict[str, str]) -> list[Any]:
+        """Kotak pilihan «Ya» pada formulir Registrasi (semuanya, bila ada beberapa).
+
+        Bila selector mengembalikan label/wadahnya, kotaknya dilacak dulu lewat
+        ``_unsur_kotak`` supaya pemeriksaan terpilihnya membaca unsur yang benar.
+        """
+        nilai_daftar = [nilai for nilai in [(peta.get("radio_ya") or "").strip(),
+                                            *SELECTOR_CADANGAN.get("radio_ya", [])] if nilai]
+        for nilai in nilai_daftar:
+            ditemukan: list[Any] = []
+            try:
+                for unsur in peramban.find_elements(*self._locator_nilai(nilai)):
+                    kotak = self._unsur_kotak(peramban, unsur)
+                    try:
+                        if str(kotak.get_attribute("type") or "").lower() not in ("radio",
+                                                                                  "checkbox"):
+                            continue
+                    except Exception:  # noqa: BLE001 — bukan kotak: lewati
+                        continue
+                    if kotak not in ditemukan:
+                        ditemukan.append(kotak)
+            except Exception:  # noqa: BLE001 — coba selector berikutnya
+                continue
+            if ditemukan:
+                return ditemukan
+        return []
+
+    def _pilih_satu(self, peramban, unsur, nama: str, teks_label: str = "") -> bool:
         """Pilih satu kotak centang/radio sampai **benar-benar** terpilih.
 
         Penting: Ext JS/Dapodik sering **tidak menghiraukan** klik yang dikirim lewat skrip
@@ -1338,12 +1415,15 @@ class BotDapodik:
         Karena itu setiap percobaan diperiksa ulang, lalu dicoba: klik sungguhan pada
         kotaknya → klik pembungkus/labelnya → urutan tetikus lengkap lewat skrip.
         """
+        unsur = self._unsur_kotak(peramban, unsur)
         if self._terpilih(unsur):
             return True
         self._bawa_ke_layar(peramban, unsur)
         # 1) Cara skrip yang terbukti berhasil: klik **labelnya** (bukan kotak radio-nya).
         #    Klik sungguhan dulu, bila tertelan baru klik lewat skrip — urutan persis itu.
-        for label in self._label_pilihan(peramban, nama):
+        #    Hanya untuk teks yang khas (lihat _label_unik): «Ya» dicari lewat wadahnya.
+        for label in (self._label_pilihan(peramban, teks_label)
+                      if self._label_unik(teks_label) else []):
             self._bawa_ke_layar(peramban, label)
             time.sleep(0.3)
             try:
@@ -1428,8 +1508,10 @@ class BotDapodik:
             return "kotak «Jarak rumah ke sekolah» tidak ada di halaman ini"
 
         dicentang = 0
+        teks_pilihan = "Lebih dari 1 km" if lebih_dari else "Kurang dari 1 km"
         for unsur in kotak:
-            if self._pilih_satu(peramban, unsur, f"pilihan jarak «{nama_pilihan}»"):
+            if self._pilih_satu(peramban, unsur, f"pilihan jarak «{nama_pilihan}»",
+                                teks_pilihan):
                 dicentang += 1
         # Jangan sampai kedua pilihan tercentang: pilihan lain dikosongkan lagi.
         for kunci_lain in ("periodik_jarak_kurang", "periodik_jarak_lebih"):
@@ -1531,12 +1613,17 @@ class BotDapodik:
         if jarak_km:
             # Dapodik punya dua pilihan: «kurang dari 1 km» & «lebih dari 1 km» — dipilih
             # sesuai jarak siswa (> 1 km memakai pilihan div[2] seperti skrip sekolah).
-            self._catat_kepala(f"[periodik] {self._pilih_jarak(peramban, peta, jarak_km)}")
-            time.sleep(2)
+            # Langkah ini dicatat lebih dulu supaya jelas terlihat pada log.
             try:
                 lebih_dari_satu = float(jarak_km.replace(",", ".")) > 1.0
             except ValueError:
                 lebih_dari_satu = True
+            self._catat_kepala("[periodik] memilih «Jarak rumah ke sekolah» — data siswa "
+                               f"{jarak_km} km → pilihan «"
+                               + ("lebih dari 1 km" if lebih_dari_satu else "kurang dari 1 km")
+                               + "».")
+            self._catat_kepala(f"[periodik] {self._pilih_jarak(peramban, peta, jarak_km)}")
+            time.sleep(2)
             if lebih_dari_satu:
                 # Kolom «Sebutkan (dalam kilometer)» diisi bila pilihannya «lebih dari 1 km»
                 # (Dapodik meminta keterangan kilometernya).
@@ -2286,22 +2373,19 @@ class BotDapodik:
                 self._siap_melanjutkan(peramban, "kolom Sekolah Asal")
                 self._isi_sekolah_asal(peramban, peta, siswa.get("sekolah_asal") or "")
 
-            # 5) centang semua pilihan "Ya"
+            # 5) centang semua pilihan «Ya» — sama seperti radio jarak: hasilnya diperiksa
+            #    ulang, sebab Ext JS bisa menelan klik yang dikirim lewat skrip (inilah yang
+            #    dulu membuat log berkata "0 dari 2" padahal tidak ada yang tercentang).
             if self.opsi.get("bot_jawaban_ya", "1") == "1":
-                dicentang = 0
-                loc_ya = self._locator("radio_ya", peta)
-                kotak_ya = peramban.find_elements(*loc_ya)
-                if not kotak_ya:
-                    for kandidat in SELECTOR_CADANGAN.get("radio_ya", []):
-                        kotak_ya = peramban.find_elements(*self._locator_nilai(kandidat))
-                        if kotak_ya:
-                            break
-                for elemen in kotak_ya:
-                    if not elemen.is_selected():
-                        peramban.execute_script("arguments[0].click();", elemen)
-                        dicentang += 1
-                self._catat_kepala(f"[registrasi] pilihan «Ya» dicentang: {dicentang} dari "
-                                   f"{len(kotak_ya)}")
+                kotak_ya = self._kotak_ya(peramban, peta)
+                dicentang = sum(1 for elemen in kotak_ya
+                                if self._pilih_satu(peramban, elemen, "pilihan «Ya»", "Ya"))
+                pesan = (f"[registrasi] pilihan «Ya» dicentang: {dicentang} dari "
+                         f"{len(kotak_ya)}")
+                if kotak_ya and dicentang < len(kotak_ya):
+                    pesan += (" — peringatan: Dapodik belum menandai semuanya terpilih "
+                              "(periksa kotak «Ya» pada formulir).")
+                self._catat_kepala(pesan)
 
             # 6) hobi & 7) cita-cita (kolom pilihan Dapodik) — sama seperti skrip sekolah:
             #    klik → Ctrl+A → tulis → tunggu → Enter

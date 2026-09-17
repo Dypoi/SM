@@ -474,7 +474,7 @@
           <label class="cek-bot"><input type="checkbox" name="headless" value="1" {{ 'checked' if cfg.bot_headless == '1' }}>
             <span><strong>Bekerja di belakang layar</strong><br><small>Chrome tidak menampilkan jendela. Matikan bila perlu melihat prosesnya (mis. pemeriksaan tambahan saat login).</small></span></label>
           <label class="cek-bot"><input type="checkbox" name="jawaban_ya" value="1" {{ 'checked' if cfg.bot_jawaban_ya == '1' }}>
-            <span><strong>Centang semua jawaban «Ya»</strong><br><small>Sama seperti skrip bot asli.</small></span></label>
+            <span><strong>Centang semua jawaban «Ya»</strong><br><small>Sama seperti skrip bot asli, tetapi hasilnya <em>diperiksa ulang</em>: bila Dapodik menelan kliknya (pernah terjadi — Ext JS mengabaikan klik lewat skrip), lognya memberi peringatan dan kotaknya dicoba lagi lewat wadah <code>x-form-cb-wrap-inner</code>.</small></span></label>
           <label class="cek-bot"><input type="checkbox" name="pakai_nisn" value="1" {{ 'checked' if cfg.bot_pakai_nisn == '1' }}>
             <span><strong>Pakai NISN bila NIPD/NIS kosong</strong><br><small>Bila tidak dicentang, siswa tanpa NIPD akan dilewati.</small></span></label>
           <label class="cek-bot"><input type="checkbox" name="data_periodik" value="1" {{ 'checked' if cfg.bot_data_periodik == '1' }}>
