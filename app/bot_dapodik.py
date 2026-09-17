@@ -1182,6 +1182,9 @@ class BotDapodik:
         «lebih dari 1 km». Bila yang sesuai tidak ada di halaman, dipakai selector bawaan
         skrip sekolah (``periodik_jarak``).
         """
+        if not str(jarak_km or "").strip():
+            # Tidak ada data jarak: jangan menebak pilihan apa pun.
+            return "kotak «Jarak rumah ke sekolah» tidak dicentang — data jarak siswa kosong"
         try:
             angka = float(str(jarak_km).replace(",", "."))
         except (TypeError, ValueError):
