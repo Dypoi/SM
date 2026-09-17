@@ -62,6 +62,17 @@ SELECTOR_BAWAAN: dict[str, str] = {
     "periodik_berat": "name:berat_badan",
     "periodik_lingkar": "name:lingkar_kepala",
     "periodik_saudara": "name:jumlah_saudara_kandung",
+    # Baris «Jarak rumah ke sekolah» di Dapodik punya DUA pilihan:
+    #   «kurang dari 1 km» (td/div[1]) dan «lebih dari 1 km» (td/div[2]).
+    # XPath div[2] di bawah diambil apa adanya dari skrip sekolah (= lebih dari 1 km).
+    # Bot memilih salah satunya sesuai kolom «Jarak Rumah ke Sekolah (KM)» milik siswa.
+    "periodik_jarak_lebih": "/html/body/div[2]/div/div/div[2]/div/div/div/div[3]/div[2]/div/div/"
+                            "div/div[1]/div/div/div[7]/div/div/table/tbody/tr/td/div[2]/div/div/"
+                            "span/input",
+    "periodik_jarak_kurang": "/html/body/div[2]/div/div/div[2]/div/div/div/div[3]/div[2]/div/div/"
+                             "div/div[1]/div/div/div[7]/div/div/table/tbody/tr/td/div[1]/div/div/"
+                             "span/input",
+    # Dipakai bila pilihan yang sesuai tidak ada (bawaan = skrip sekolah: lebih dari 1 km).
     "periodik_jarak": "/html/body/div[2]/div/div/div[2]/div/div/div/div[3]/div[2]/div/div/div/"
                       "div[1]/div/div/div[7]/div/div/table/tbody/tr/td/div[2]/div/div/span/input",
     # Kolom teks di sebelah kotak «Jarak rumah ke sekolah»: «Sebutkan (dalam kilometer):»
@@ -175,12 +186,23 @@ SELECTOR_CADANGAN: dict[str, list[str]] = {
         "label:Jumlah Saudara Kandung",
         "css:input[name*=saudara]",
     ],
+    "periodik_jarak_lebih": [
+        'xpath://*[contains(translate(normalize-space(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", '
+        '"abcdefghijklmnopqrstuvwxyz"), "lebih dari 1")]/following::input[@type="checkbox"][1]',
+        'xpath://*[contains(translate(normalize-space(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", '
+        '"abcdefghijklmnopqrstuvwxyz"), "lebih dari 1")]/following::input[@type="radio"][1]',
+    ],
+    "periodik_jarak_kurang": [
+        'xpath://*[contains(translate(normalize-space(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", '
+        '"abcdefghijklmnopqrstuvwxyz"), "kurang dari 1")]/following::input[@type="checkbox"][1]',
+        'xpath://*[contains(translate(normalize-space(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", '
+        '"abcdefghijklmnopqrstuvwxyz"), "kurang dari 1")]/following::input[@type="radio"][1]',
+    ],
     "periodik_jarak": [
-        'xpath://label[contains(normalize-space(), "Jarak rumah ke sekolah")]'
-        '/following::input[@type="checkbox"][1]',
         'xpath://*[contains(normalize-space(), "Jarak rumah ke sekolah")]'
         '/following::input[@type="checkbox"][1]',
         "css:input[type=checkbox][name*=jarak]",
+        "css:input[type=radio][name*=jarak]",
     ],
     "periodik_jarak_km": [
         "label:Sebutkan",                       # labelnya «Sebutkan (dalam kilometer):»
@@ -1131,9 +1153,9 @@ class BotDapodik:
             return f"terisi: {isi}"
         return "kolom belum berisi nilai yang benar"
 
-    def _kandidat_kotak_jarak(self, peramban, peta: dict[str, str]) -> list[Any]:
-        """Kotak centang «Jarak rumah ke sekolah» yang terlihat di halaman (bila ada)."""
-        for nilai in self._kandidat_selector("periodik_jarak", peta):
+    def _kotak_jarak(self, peramban, kunci: str, peta: dict[str, str]) -> list[Any]:
+        """Kotak pilihan jarak yang terlihat di halaman untuk satu kunci selector."""
+        for nilai in self._kandidat_selector(kunci, peta):
             try:
                 kotak = [unsur for unsur in peramban.find_elements(*self._locator_nilai(nilai))
                          if unsur.is_displayed()]
@@ -1143,33 +1165,66 @@ class BotDapodik:
                 return kotak
         return []
 
-    def _centang_jarak(self, peramban, peta: dict[str, str]) -> str:
-        """Centang kotak «Jarak rumah ke sekolah» — bagian dari potongan skrip sekolah."""
-        for nilai in self._kandidat_selector("periodik_jarak", peta):
+    def _kandidat_kotak_jarak(self, peramban, peta: dict[str, str]) -> list[Any]:
+        """Kotak «Jarak rumah ke sekolah» — salah satu dari dua pilihan (kurang/lebih)."""
+        for kunci in ("periodik_jarak_lebih", "periodik_jarak_kurang", "periodik_jarak"):
+            kotak = self._kotak_jarak(peramban, kunci, peta)
+            if kotak:
+                return kotak
+        return []
+
+    def _pilih_jarak(self, peramban, peta: dict[str, str], jarak_km: str) -> str:
+        """Pilih «kurang dari 1 km» / «lebih dari 1 km» sesuai data jarak siswa.
+
+        Dapodik menyediakan **dua** pilihan pada baris «Jarak rumah ke sekolah»; skrip
+        sekolah selalu memakai pilihan **lebih dari 1 km** (``td/div[2]``). Bot memilih
+        yang sesuai: jarak ≤ 1 km → «kurang dari 1 km» (``td/div[1]``), lebih dari itu →
+        «lebih dari 1 km». Bila yang sesuai tidak ada di halaman, dipakai selector bawaan
+        skrip sekolah (``periodik_jarak``).
+        """
+        try:
+            angka = float(str(jarak_km).replace(",", "."))
+        except (TypeError, ValueError):
+            angka = 0.0
+        lebih_dari = angka > 1.0
+        kunci = "periodik_jarak_lebih" if lebih_dari else "periodik_jarak_kurang"
+        nama_pilihan = "lebih dari 1 km" if lebih_dari else "kurang dari 1 km"
+
+        kotak = self._kotak_jarak(peramban, kunci, peta)
+        if not kotak:
+            kotak = self._kotak_jarak(peramban, "periodik_jarak", peta)
+            nama_pilihan += " (memakai selector bawaan skrip sekolah)"
+        if not kotak:
+            return "kotak «Jarak rumah ke sekolah» tidak ada di halaman ini"
+
+        dicentang = 0
+        for unsur in kotak:
             try:
-                kotak = [unsur for unsur in peramban.find_elements(*self._locator_nilai(nilai))
-                         if unsur.is_displayed()]
-            except Exception:  # noqa: BLE001 — coba kandidat berikutnya
-                kotak = []
-            if not kotak:
-                continue
-            dicentang = 0
-            for unsur in kotak:
+                if unsur.is_selected():      # sudah tercentang: jangan dibalik jadi kosong
+                    dicentang += 1
+                    continue
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                unsur.click()
+            except Exception:  # noqa: BLE001 — klik tertelan: pakai jalur skrip
                 try:
-                    if unsur.is_selected():      # sudah tercentang: jangan dibalik jadi kosong
-                        continue
+                    peramban.execute_script("arguments[0].click();", unsur)
                 except Exception:  # noqa: BLE001
-                    pass
+                    continue
+            dicentang += 1
+        # Jangan sampai kedua pilihan tercentang: pilihan lain dikosongkan lagi.
+        for kunci_lain in ("periodik_jarak_kurang", "periodik_jarak_lebih"):
+            if kunci_lain == kunci:
+                continue
+            for unsur in self._kotak_jarak(peramban, kunci_lain, peta):
                 try:
-                    unsur.click()
-                except Exception:  # noqa: BLE001 — klik tertelan: pakai jalur skrip
-                    try:
-                        peramban.execute_script("arguments[0].click();", unsur)
-                    except Exception:  # noqa: BLE001
-                        continue
-                dicentang += 1
-            return (f"kotak «Jarak rumah ke sekolah» dicentang: {dicentang} dari {len(kotak)}")
-        return "kotak «Jarak rumah ke sekolah» tidak ada di halaman ini"
+                    if unsur.is_selected():
+                        unsur.click()
+                except Exception:  # noqa: BLE001 — biarkan; Dapodik umumnya radio
+                    continue
+        return (f"kotak «Jarak rumah ke sekolah» ({nama_pilihan}) dicentang: "
+                f"{dicentang} dari {len(kotak)}")
 
     def _isi_jarak_km(self, peramban, peta: dict[str, str], nilai: str) -> str:
         """Isi kolom «Sebutkan (dalam kilometer):» di baris «Jarak rumah ke sekolah».
@@ -1245,15 +1300,27 @@ class BotDapodik:
         jarak_km = self._nilai_teks(siswa.get("jarak_rumah")) \
             if self.opsi.get("bot_periodik_jarak", "1") == "1" else ""
         if jarak_km:
-            self._catat_kepala(f"[periodik] {self._centang_jarak(peramban, peta)}")
+            # Dapodik punya dua pilihan: «kurang dari 1 km» & «lebih dari 1 km» — dipilih
+            # sesuai jarak siswa (> 1 km memakai pilihan div[2] seperti skrip sekolah).
+            self._catat_kepala(f"[periodik] {self._pilih_jarak(peramban, peta, jarak_km)}")
             time.sleep(2)
-            keterangan_km = self._isi_jarak_km(peramban, peta, jarak_km)
-            self._catat_kepala("[periodik] Sebutkan (dalam kilometer)"
-                               + (keterangan_km if keterangan_km.startswith(" [")
-                                  else ": " + keterangan_km))
-            if "terisi" in keterangan_km:
-                terisi += 1
-            time.sleep(2)
+            try:
+                lebih_dari_satu = float(jarak_km.replace(",", ".")) > 1.0
+            except ValueError:
+                lebih_dari_satu = True
+            if lebih_dari_satu:
+                # Kolom «Sebutkan (dalam kilometer)» diisi bila pilihannya «lebih dari 1 km»
+                # (Dapodik meminta keterangan kilometernya).
+                keterangan_km = self._isi_jarak_km(peramban, peta, jarak_km)
+                self._catat_kepala("[periodik] Sebutkan (dalam kilometer)"
+                                   + (keterangan_km if keterangan_km.startswith(" [")
+                                      else ": " + keterangan_km))
+                if "terisi" in keterangan_km:
+                    terisi += 1
+                time.sleep(2)
+            else:
+                self._catat_kepala("[periodik] Sebutkan (dalam kilometer): tidak perlu diisi "
+                                   "(jarak siswa ≤ 1 km — pilihannya «kurang dari 1 km»).")
         elif self.opsi.get("bot_periodik_jarak", "1") != "1":
             self._catat_kepala("[periodik] kotak «Jarak rumah ke sekolah» dan kolom "
                                "kilometernya tidak diisi (sesuai pengaturan).")

@@ -2209,6 +2209,10 @@ def cek_bot_dapodik() -> str:
         assert tersimpan.get("jumlah_saudara_kandung") == "3", \
             f"jumlah saudara kandung tidak terisi: {tersimpan}"
         assert tersimpan.get("jarak") == "1", "kotak «Jarak rumah ke sekolah» tidak dicentang"
+        # Dapodik punya DUA pilihan: jarak 7.9 km harus memakai «lebih dari 1 km»
+        # (td/div[2] — sama seperti skrip sekolah), bukan «kurang dari 1 km».
+        assert palsu_periodik.jarak_pilihan == "Lebih dari 1 km", \
+            f"pilihan jarak salah: {palsu_periodik.jarak_pilihan!r}"
         assert tersimpan.get("jarak_rumah_ke_sekolah_km") == "7.9", \
             f"kolom «Sebutkan (dalam kilometer)» tidak terisi: {tersimpan}"
         assert any("Sebutkan (dalam kilometer) [jarak_rumah_ke_sekolah_km]" in baris
@@ -2235,6 +2239,33 @@ def cek_bot_dapodik() -> str:
         assert -1 < urut_centang < urut_km < urut_saudara, \
             f"urutan Data Periodik tidak seperti skrip sekolah: centang={urut_centang} " \
             f"kilometer={urut_km} saudara={urut_saudara}"
+        assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
+
+        # Jarak ≤ 1 km → pilihan «kurang dari 1 km» (td/div[1]) dan kolom «Sebutkan
+        # (dalam kilometer)» tidak perlu diisi (Dapodik hanya memintanya untuk > 1 km).
+        jejak.clear()
+        asli_waktu = bot_dapodik.time
+        jam_dekat = _WaktuCepat(time)
+        bot_dapodik.time = jam_dekat
+        try:
+            palsu_dekat = peramban_palsu.buat("alur_penuh").pakai_jam(jam_dekat.monotonic)
+            palsu_dekat.popup_detik = None
+            palsu_dekat.registrasi_otomatis = True
+            nisn_dekat = siswa_periodik["nisn"]
+            palsu_dekat.nisn_dicari = nisn_dekat
+            palsu_dekat.tambah_baris_siswa(nisn_dekat)
+            bot_dekat = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                               kepala=jejak.append)
+            bot_dekat._login(palsu_dekat)
+            bot_dekat._proses_satu(palsu_dekat, {**siswa_periodik, "jarak_rumah": 0.7}, None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert palsu_dekat.jarak_pilihan == "Kurang dari 1 km", \
+            f"siswa dengan jarak ≤ 1 km harus memakai pilihan «kurang dari 1 km»: " \
+            f"{palsu_dekat.jarak_pilihan!r}"
+        assert not palsu_dekat.data_periodik_tersimpan.get("jarak_rumah_ke_sekolah_km"), \
+            "kolom kilometer tidak perlu diisi bila jaraknya ≤ 1 km"
+        assert any("tidak perlu diisi" in baris for baris in jejak), jejak[-5:]
         assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
 
         # Halaman yang panel Data Periodiknya baru terjangkau setelah digulir (persis

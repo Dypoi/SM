@@ -68,6 +68,8 @@ class UnsurPalsu:
         self.periodik = bool(sifat.get("periodik", False))
         #: True = tombol «Simpan dan Tutup» milik panel Data Periodik
         self.simpan_periodik = bool(sifat.get("simpan_periodik", False))
+        #: Nama kelompok pilihan (mis. "jarak") — mengklik satu anggota melepas yang lain
+        self.kelompok = str(sifat.get("kelompok", ""))
         #: XPath absolut skrip sekolah, mis. /html/body/div[5]/div[2]/form/input
         self.jalur = sifat.get("jalur", "")
 
@@ -124,9 +126,14 @@ class UnsurPalsu:
         if self.name == "tombol_registrasi" or \
                 "x-btn-inner-soft-green-small" in (self.kelas or ""):
             self.peramban.buka_formulir_registrasi()
-        if self.periodik and self.type == "checkbox":
+        if self.periodik and self.type in ("checkbox", "radio"):
             self.terpilih = True
+            if self.kelompok:      # seperti radio: pilihan lain pada kelompok ini dilepas
+                for lain in self.peramban.unsur:
+                    if lain is not self and lain.kelompok == self.kelompok:
+                        lain.terpilih = False
             self.peramban.jarak_dicentang += 1
+            self.peramban.jarak_pilihan = (self.label or self.jalur).strip()
         if self.simpan_periodik:
             self.peramban.simpan_data_periodik()
         if self.jalur == "/html/body/div[1]/ul/li[2]/div/a/button":
@@ -242,6 +249,8 @@ class PerambanPalsu:
         self.data_periodik_tersimpan: dict[str, str] = {}
         #: berapa kali kotak «Jarak rumah ke sekolah» dicentang
         self.jarak_dicentang = 0
+        #: pilihan jarak yang sedang tercentang (labelnya)
+        self.jarak_pilihan = ""
         #: berapa ketikan/klik yang diabaikan karena panel Data Periodik masih kelabu
         self.ketikan_diabaikan = 0
         self.klik_diabaikan = 0
@@ -353,8 +362,15 @@ class PerambanPalsu:
                        periodik=True),
             UnsurPalsu(self, "input", type="text", name="lingkar_kepala",
                        label="Lingkar Kepala", periodik=True),
-            UnsurPalsu(self, "input", type="checkbox", name="jarak_rumah",
-                       label="Jarak rumah ke sekolah", periodik=True,
+            # Baris «Jarak rumah ke sekolah» punya DUA pilihan, seperti Dapodik:
+            # «kurang dari 1 km» (td/div[1]) dan «lebih dari 1 km» (td/div[2], persis skrip).
+            UnsurPalsu(self, "input", type="radio", name="jarak_rumah",
+                       label="Kurang dari 1 km", periodik=True, kelompok="jarak",
+                       jalur="/html/body/div[2]/div/div/div[2]/div/div/div/div[3]/div[2]/div/div/"
+                             "div/div[1]/div/div/div[7]/div/div/table/tbody/tr/td/div[1]/div/div/"
+                             "span/input"),
+            UnsurPalsu(self, "input", type="radio", name="jarak_rumah",
+                       label="Lebih dari 1 km", periodik=True, kelompok="jarak",
                        jalur="/html/body/div[2]/div/div/div[2]/div/div/div/div[3]/div[2]/div/div/"
                              "div/div[1]/div/div/div[7]/div/div/table/tbody/tr/td/div[2]/div/div/"
                              "span/input"),

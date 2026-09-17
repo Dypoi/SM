@@ -463,8 +463,9 @@ popup tampil, Dapodik mengabaikan klik di luarnya (akibatnya tombol *Registrasi*
 tidak berpengaruh). Karena itu popup juga diperiksa lagi **sebelum setiap langkah**
 berikutnya. Per siswa: cari NISN →
 klik baris hasilnya → **Data Periodik** (halaman digulir 250 px dulu — `window.scrollBy(0, 250)`
-seperti skrip sekolah, lalu tinggi badan, berat badan, lingkar kepala, centang «Jarak rumah ke
-sekolah» + kolom «Sebutkan (dalam kilometer):», jumlah saudara kandung → *Simpan dan Tutup*)
+seperti skrip sekolah, lalu tinggi badan, berat badan, lingkar kepala, pilihan «Jarak rumah ke
+sekolah» («kurang dari 1 km» / «lebih dari 1 km» sesuai data) + kolom «Sebutkan (dalam
+kilometer):», jumlah saudara kandung → *Simpan dan Tutup*)
 → *Registrasi* → isi NIS
 → isi **Sekolah Asal** (dari kolom Sekolah Asal pada data siswa SM) → centang semua «Ya» →
 Hobi → Cita-cita → *Simpan dan Tutup*. Yang berbeda hanya sumber antreannya (data siswa SM, bukan Excel) dan
@@ -473,7 +474,8 @@ detik** & **3 percobaan ulang** juga sama seperti skrip itu.
 
 **Data Periodik** dikenali lewat nama kolomnya (`tinggi_badan`, `berat_badan`,
 `lingkar_kepala`, `jumlah_saudara_kandung`, `jarak_rumah_ke_sekolah_km`) maupun lewat
-**label**nya, dan kotak «Jarak rumah ke sekolah» memakai XPath dari skrip sekolah dengan cadangan berbasis label.
+**label**nya, dan pilihan «Jarak rumah ke sekolah» memakai XPath dari skrip sekolah
+(`periodik_jarak_lebih` = div[2], `periodik_jarak_kurang` = div[1]) dengan cadangan berbasis label.
 Bila Dapodik sekolah menamainya lain, ubah pada *Peta tombol Dapodik*, mis.
 `{"periodik_saudara": "name:jml_saudara"}`.
 
@@ -497,7 +499,7 @@ Ada dua pilihan pada tombol itu (boleh dipakai bersamaan):
 | Pilihan | Gunanya |
 | --- | --- |
 | **Coba masuk** | Bot benar-benar mengisi kolom login & menekan tombol masuk (seperti skrip manual), lalu melaporkan hasilnya: **BERHASIL** atau pesan Dapodik yang menolak. Jadi tidak perlu menebak lagi. Bisa memakan waktu sampai ±1 menit. |
-| **Isi Data Periodik sebelum Registrasi** (centang pada Pengaturan Bot) | Persis skrip sekolah: halaman **digulir 250 px** lebih dulu (`window.scrollBy(0, 250)`); bila kolomnya belum ketemu, gulirannya diulang sampai 4× sebelum bot menyimpulkan kolom itu memang tidak ada. Setelah itu bot mengisi **tinggi badan, berat badan, lingkar kepala**, mencentang **«Jarak rumah ke sekolah»** sekaligus mengisi kolom **«Sebutkan (dalam kilometer):»** (`jarak_rumah_ke_sekolah_km`), lalu mengisi **jumlah saudara kandung** pada panel *Data Periodik Peserta Didik* — nilainya dari kolom Tinggi Badan / Berat Badan / Lingkar Kepala / Jumlah Saudara Kandung milik siswa di aplikasi SM — lalu menekan *Simpan dan Tutup*. Langkah ini dijalankan sesudah baris siswa dipilih dan **sebelum** tombol *Registrasi* ditekan. Kolom yang tidak ada pada versi Dapodik sekolah, atau data siswa yang kosong, hanya dicatat pada log — siswa tetap didaftarkan. Centang «Isi baris Jarak rumah ke sekolah» dapat dimatikan tersendiri bila sekolah tidak memakainya. Bila kolom **Jarak Rumah ke Sekolah (KM)** siswa kosong, kotaknya tidak dicentang dan kolom kilometernya tidak diisi — Dapodik menolak centang jarak tanpa keterangan kilometernya. |
+| **Isi Data Periodik sebelum Registrasi** (centang pada Pengaturan Bot) | Persis skrip sekolah: halaman **digulir 250 px** lebih dulu (`window.scrollBy(0, 250)`); bila kolomnya belum ketemu, gulirannya diulang sampai 4× sebelum bot menyimpulkan kolom itu memang tidak ada. Setelah itu bot mengisi **tinggi badan, berat badan, lingkar kepala**, memilih **«Jarak rumah ke sekolah»** — **≤ 1 km → «kurang dari 1 km»**, **> 1 km → «lebih dari 1 km»** (pilihan div[2], sama seperti skrip sekolah) — dan untuk yang lebih dari 1 km sekaligus mengisi kolom **«Sebutkan (dalam kilometer):»** (`jarak_rumah_ke_sekolah_km`), lalu mengisi **jumlah saudara kandung** pada panel *Data Periodik Peserta Didik* — nilainya dari kolom Tinggi Badan / Berat Badan / Lingkar Kepala / Jumlah Saudara Kandung milik siswa di aplikasi SM — lalu menekan *Simpan dan Tutup*. Langkah ini dijalankan sesudah baris siswa dipilih dan **sebelum** tombol *Registrasi* ditekan. Kolom yang tidak ada pada versi Dapodik sekolah, atau data siswa yang kosong, hanya dicatat pada log — siswa tetap didaftarkan. Centang «Isi baris Jarak rumah ke sekolah» dapat dimatikan tersendiri bila sekolah tidak memakainya. Tag `periodik_jarak_kurang`/`periodik_jarak_lebih` dapat ditimpa di «Peta tombol Dapodik» bila tata letak Dapodik berbeda. Bila kolom **Jarak Rumah ke Sekolah (KM)** siswa kosong, tidak ada pilihan yang dicentang — Dapodik menolak centang jarak tanpa keterangan kilometernya. |
 | **Isi kolom «Sekolah Asal»** (centang pada Pengaturan Bot) | Bot mengisi *Sekolah Asal* pada formulir Registrasi Dapodik dengan kolom **Sekolah Asal** milik siswa di aplikasi SM. Kolom itu dicari lewat namanya maupun lewat labelnya, jadi tetap jalan walau Dapodik menamai kolom berbeda antar versi. Bila Dapodik sekolah tidak punya kolom itu atau data siswanya kosong, langkah ini **dilewati dengan catatan pada log** — siswa tetap didaftarkan. |
 | **Jendela tampak** | Uji sekali ini dijalankan dengan jendela Chrome terlihat — berguna untuk membandingkan bila mode *di belakang layar* gagal. Pekerjaan bot yang sesungguhnya tetap di belakang layar. |
 
