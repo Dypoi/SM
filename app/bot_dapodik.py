@@ -72,6 +72,15 @@ SELECTOR_BAWAAN: dict[str, str] = {
               'and contains(normalize-space(), "Simpan dan Tutup")]',
 }
 
+#: Jarak gulir tiap langkah (px) — sama seperti skrip sekolah:
+#: ``driver.execute_script("window.scrollBy(0, 250);")`` sebelum mengisi Data Periodik.
+#: Panel «Data Periodik Peserta Didik» ada di bagian bawah halaman, jadi tanpa digulir
+#: kolom-kolomnya bisa tidak terjangkau/tertimpa bagian lain halaman.
+GULIR_PERIODIK = 250
+
+#: Berapa kali gulir tambahan dicoba bila kolom yang dicari belum ketemu.
+GULIR_PERCOBAAN = 4
+
 #: Penanda kelas baris tabel Ext JS tempat hasil pencarian muncul.
 BARIS_TABEL = 'x-grid-row'
 
@@ -1022,14 +1031,61 @@ class BotDapodik:
             return teks
         return str(int(angka)) if angka == int(angka) else str(angka)
 
+    def _gulir(self, peramban, jarak: int = GULIR_PERIODIK, catat: bool = True) -> None:
+        """Gulir halaman ke bawah — sama seperti ``window.scrollBy(0, 250)`` skrip sekolah.
+
+        Dipakai sebelum mengisi Data Periodik supaya kolom yang letaknya di bawah layar
+        benar-benar tampil (klik pada elemen di luar layar sering tidak diproses Dapodik).
+        """
+        try:
+            peramban.execute_script("window.scrollBy(0, arguments[0]);", int(jarak))
+        except Exception:  # noqa: BLE001 — sebagian cara menolak argumen
+            try:
+                peramban.execute_script(f"window.scrollBy(0, {int(jarak)});")
+            except Exception:  # noqa: BLE001 — gulir hanya upaya terbaik
+                if catat:
+                    self._catat_kepala("[gulir] halaman tidak dapat digulir lewat skrip.")
+                return
+        if catat:
+            self._catat_kepala(f"[gulir] halaman digulir {int(jarak)} px ke bawah "
+                               "(seperti skrip sekolah).")
+
+    def _cari_kolom_dengan_gulir(self, peramban, kunci: str, peta: dict[str, str]):
+        """Cari kolom Data Periodik; bila belum ketemu, gulir 250 px lalu coba lagi.
+
+        Kolom bisa belum tampil karena halaman belum digulir ke bagian Data Periodik —
+        persis kekhawatiran pada skrip sekolah, karena itu gulirannya diulang beberapa kali
+        sebelum bot memutuskan kolomnya memang tidak ada.
+        """
+        unsur = self._cari_kolom_dengan_label(peramban, kunci, peta)
+        for _ in range(GULIR_PERCOBAAN):
+            if unsur is not None:
+                return unsur
+            self._gulir(peramban, catat=False)
+            unsur = self._cari_kolom_dengan_label(peramban, kunci, peta)
+        return unsur
+
+    def _kotak_jarak_dengan_gulir(self, peramban, peta: dict[str, str]) -> list[Any]:
+        """Kotak «Jarak rumah ke sekolah»; bila belum terlihat, gulir dulu lalu cari lagi."""
+        kotak = self._kandidat_kotak_jarak(peramban, peta)
+        for _ in range(GULIR_PERCOBAAN):
+            if kotak:
+                return kotak
+            self._gulir(peramban, catat=False)
+            kotak = self._kandidat_kotak_jarak(peramban, peta)
+        return kotak
+
     def _isi_periodik_satu(self, peramban, peta: dict[str, str], kunci: str, label: str,
                            nilai: str, unsur=None) -> str:
         """Isi satu kolom Data Periodik (Ctrl+A lalu ketik, seperti potongan skrip sekolah)."""
         from selenium.webdriver.common.keys import Keys
 
-        unsur = unsur if unsur is not None else self._cari_kolom_dengan_label(peramban, kunci, peta)
+        unsur = (unsur if unsur is not None
+                 else self._cari_kolom_dengan_gulir(peramban, kunci, peta))
         if unsur is None:
             return "kolomnya tidak ada di halaman ini"
+        # Kolom di bawah layar sering tidak menerima ketikan: tampilkan & bawa ke tengah
+        # layar (memakai scrollIntoView) sebelum diketik.
         self._paksa_terlihat(peramban, unsur)
         try:
             unsur.click()
@@ -1104,11 +1160,15 @@ class BotDapodik:
         Nilai diambil dari data siswa di aplikasi SM. Kolom yang tidak ada atau data yang
         kosong hanya dicatat pada log — pekerjaan siswa diteruskan.
         """
+        # Panel Data Periodik letaknya di bawah halaman: gulir dulu (persis skrip sekolah
+        # ``driver.execute_script("window.scrollBy(0, 250);")``) supaya kolomnya tampil.
+        self._gulir(peramban)
+
         # Dapodik versi lain bisa tidak punya panel ini sama sekali: jangan digagalkan,
         # cukup dicatat (seperti kolom «Sekolah Asal» yang tidak ada).
-        ada_kolom = [self._cari_kolom_dengan_label(peramban, kunci_sel, peta)
+        ada_kolom = [self._cari_kolom_dengan_gulir(peramban, kunci_sel, peta)
                      for _, _, kunci_sel in self.PERIODIK]
-        ada_jarak = any(self._kandidat_kotak_jarak(peramban, peta)) \
+        ada_jarak = bool(self._kotak_jarak_dengan_gulir(peramban, peta)) \
             if self.opsi.get("bot_periodik_jarak", "1") == "1" else False
         if not any(ada_kolom) and not ada_jarak:
             self._catat_kepala("[periodik] halaman ini tidak punya panel Data Periodik "

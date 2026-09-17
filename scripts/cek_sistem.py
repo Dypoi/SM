@@ -2218,6 +2218,41 @@ def cek_bot_dapodik() -> str:
             "Data Periodik harus diisi & disimpan SEBELUM tombol Registrasi ditekan"
         assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
 
+        # Halaman yang panel Data Periodiknya baru terjangkau setelah digulir (persis
+        # kekhawatiran skrip sekolah: "takutnya ga ketemu elemennya karena belum di scrool").
+        # Bot harus memakai window.scrollBy(0, 250) seperti skrip, dan mengulang gulirannya
+        # sampai kolomnya ketemu — bukan langsung menyimpulkan panelnya tidak ada.
+        jejak.clear()
+        asli_waktu = bot_dapodik.time
+        jam_gulir = _WaktuCepat(time)
+        bot_dapodik.time = jam_gulir
+        try:
+            palsu_gulir = peramban_palsu.buat("alur_penuh").pakai_jam(jam_gulir.monotonic)
+            palsu_gulir.popup_detik = None
+            palsu_gulir.registrasi_otomatis = True
+            palsu_gulir.siapkan_periodik_perlu_gulir(3)   # butuh 3 kali gulir (3 × 250 px)
+            nisn_gulir = siswa_periodik["nisn"]
+            palsu_gulir.nisn_dicari = nisn_gulir
+            palsu_gulir.tambah_baris_siswa(nisn_gulir)
+            bot_gulir = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                               kepala=jejak.append)
+            bot_gulir._login(palsu_gulir)
+            bot_gulir._proses_satu(palsu_gulir, siswa_periodik, None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert palsu_gulir.gulir and set(palsu_gulir.gulir) == {bot_dapodik.GULIR_PERIODIK}, \
+            f"bot tidak memakai gulir {bot_dapodik.GULIR_PERIODIK} px seperti skrip: {palsu_gulir.gulir}"
+        assert len(palsu_gulir.gulir) >= 3, \
+            f"guliran belum diulang sampai kolom ketemu: {palsu_gulir.gulir}"
+        assert palsu_gulir.data_periodik_tersimpan.get("tinggi_badan") == "155", \
+            f"nilai periodik tidak tersimpan pada halaman yang perlu digulir: " \
+            f"{palsu_gulir.data_periodik_tersimpan}"
+        assert any("[gulir]" in baris for baris in jejak), "guliran tidak dilaporkan pada log"
+        assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
+        # Pada halaman biasa pun bot tetap menggulir sekali sebelum mengisi Data Periodik.
+        assert palsu_periodik.gulir and palsu_periodik.gulir[0] == bot_dapodik.GULIR_PERIODIK, \
+            f"bot tidak menggulir sebelum mengisi Data Periodik: {palsu_periodik.gulir}"
+
         # Data periodik kosong → dicatat pada log, siswa tetap berhasil.
         jejak.clear()
         jam_kosong_p = _WaktuCepat(time)

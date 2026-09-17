@@ -8,6 +8,9 @@ Skenario yang tersedia: ``splash`` (halaman pembuka), ``kolom_tersembunyi`` (per
 laporan PC sekolah), ``siap``, ``mask`` (masih tertutup lapisan loading Ext JS),
 ``masuk`` (login berhasil setelah tombol ditekan), ``alur_penuh`` (halaman login,
 menu, tabel, dan formulir Registrasi persis skrip sekolah), ``xpath_bawaan``, ``kosong``.
+Panel «Data Periodik» bisa disetel baru tampil **setelah halaman digulir**
+(``siapkan_periodik_perlu_gulir(2)``) — menirukan panel yang letaknya di bawah layar,
+seperti kekhawatiran pada skrip sekolah (``window.scrollBy(0, 250)``).
 Formulir Registrasi dapat diberi kolom «Sekolah Asal» (``tambah_formulir_registrasi(nisn,
 sekolah_asal="SD NEGERI …", nama_kolom="sekolah_asal")``) — kolom itu dicari bot lewat
 labelnya maupun lewat namanya, seperti di Dapodik.
@@ -242,6 +245,10 @@ class PerambanPalsu:
         #: berapa ketikan/klik yang diabaikan karena panel Data Periodik masih kelabu
         self.ketikan_diabaikan = 0
         self.klik_diabaikan = 0
+        #: semua jarak gulir halaman (px) — bukti bot memakai window.scrollBy seperti skrip
+        self.gulir: list[int] = []
+        #: panel Data Periodik baru "ada" setelah sekian kali gulir (0 = langsung ada)
+        self.periodik_perlu_gulir = 0
         #: True = popup pengumuman muncul saat pencarian ditekan; hasilnya tampil setelah ditutup
         self._popup_setelah_cari = False
         self._nisn_tersembunyi = ""
@@ -390,6 +397,19 @@ class PerambanPalsu:
         self._nisn_tersembunyi = nisn
         self.nisn_dicari = ""
         return self
+
+    def siapkan_periodik_perlu_gulir(self, kali: int = 1) -> "PerambanPalsu":
+        """Panel Data Periodik baru tampil setelah halaman digulir ``kali`` kali.
+
+        Menirukan Dapodik: kolom Data Periodik ada di bawah halaman sehingga baru terjangkau
+        setelah digulir (``window.scrollBy(0, 250)``), persis seperti skrip sekolah.
+        """
+        self.periodik_perlu_gulir = int(kali)
+        return self
+
+    def periodik_siap(self) -> bool:
+        """Apakah panel Data Periodik sudah dapat dijangkau (halaman sudah cukup digulir)."""
+        return len(self.gulir) >= self.periodik_perlu_gulir
 
     def siapkan_popup(self, detik: float = 0.0) -> "PerambanPalsu":
         """Atur popup pengumuman: muncul ``detik`` setelah menu tujuan dibuka.
@@ -588,12 +608,19 @@ class PerambanPalsu:
             return False
         return True
 
+    def _terjangkau(self, unsur: UnsurPalsu) -> bool:
+        """Kolom Data Periodik baru terjangkau setelah halaman digulir cukup jauh."""
+        return self.periodik_siap() or not unsur.periodik
+
     def find_elements(self, by: str, nilai: str) -> list[UnsurPalsu]:
+        """Cari unsur; kolom Data Periodik baru ketemu setelah halaman digulir cukup jauh."""
         if by == "name":
-            return [u for u in self.unsur if u.name == nilai]
-        if by == "xpath":
-            return [u for u in self.unsur if self._cocokkan(u, nilai, xpath=True)]
-        return [u for u in self.unsur if self._cocokkan(u, nilai)]
+            hasil = [u for u in self.unsur if u.name == nilai]
+        elif by == "xpath":
+            hasil = [u for u in self.unsur if self._cocokkan(u, nilai, xpath=True)]
+        else:
+            hasil = [u for u in self.unsur if self._cocokkan(u, nilai)]
+        return [u for u in hasil if self._terjangkau(u)]
 
     def find_element(self, by: str, nilai: str) -> UnsurPalsu:
         hasil = self.find_elements(by, nilai)
@@ -608,7 +635,8 @@ class PerambanPalsu:
             # Bot mencari kolom isian lewat teks labelnya (mis. «Sekolah Asal»).
             teks = str(argumen[0] if argumen else "").strip().lower()
             for unsur in self.unsur:
-                if unsur.label and unsur.label.strip().lower().startswith(teks):
+                if unsur.label and unsur.label.strip().lower().startswith(teks) \
+                        and self._terjangkau(unsur):
                     return unsur
             return None
         if "mousedown" in skrip and "dispatchEvent" in skrip:
@@ -646,6 +674,15 @@ class PerambanPalsu:
                     return None
                 argumen[0].nilai = str(argumen[1])
                 argumen[0].diketik.append(str(argumen[1]))
+            return None
+        if "window.scrollBy" in skrip:
+            # Persis skrip sekolah: driver.execute_script("window.scrollBy(0, 250);")
+            jarak = argumen[0] if argumen else None
+            if jarak is None:
+                import re as _re
+                cocok = _re.search(r"scrollBy\(\s*0\s*,\s*(-?\d+)", skrip)
+                jarak = cocok.group(1) if cocok else 0
+            self.gulir.append(int(jarak))
             return None
         if "arguments[0].scrollIntoView" in skrip:
             return None
