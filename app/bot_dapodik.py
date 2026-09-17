@@ -892,6 +892,23 @@ class BotDapodik:
         except Exception:  # noqa: BLE001 — upaya terbaik
             pass
 
+    def _picu_peristiwa(self, peramban, elemen) -> None:
+        """Beri tahu Ext JS bahwa isi kolom berubah (input → change → blur).
+
+        Skrip yang terbukti berhasil selalu menjalankan ketiga peristiwa ini sesudah
+        mengetik; tanpa itu Dapodik bisa menganggap kolomnya masih kosong.
+        """
+        try:
+            peramban.execute_script(
+                """
+                const el = arguments[0];
+                for (const nama of ['input', 'change', 'blur']) {
+                    el.dispatchEvent(new Event(nama, {bubbles: true}));
+                }
+                """, elemen)
+        except Exception:  # noqa: BLE001 — upaya terbaik
+            pass
+
     def _isi_lewat_js(self, peramban, elemen, nilai: str) -> None:
         """Isi kolom lewat skrip (dipakai bila kolom tidak dapat diketik langsung)."""
         peramban.execute_script(
@@ -1196,13 +1213,20 @@ class BotDapodik:
         # (menggulir wadahnya sendiri), lalu tampilkan bila memang tersembunyi.
         self._bawa_ke_layar(peramban, unsur)
         self._paksa_terlihat(peramban, unsur)
-        try:
+        try:                       # fokuskan dulu (klik sungguhan, bila tertelan → klik skrip)
             unsur.click()
         except Exception:  # noqa: BLE001 — lapisan pemuatan/popup bisa menelan klik
-            pass
+            try:
+                peramban.execute_script("arguments[0].click();", unsur)
+            except Exception:  # noqa: BLE001
+                pass
         try:
             unsur.send_keys(Keys.CONTROL, "a")
             unsur.send_keys(nilai)
+            # Persis skrip yang terbukti berhasil: setelah mengetik, Ext JS diberi tahu
+            # lewat peristiwa input → change → blur. Tanpa ini nilainya bisa tidak "terbaca"
+            # oleh Dapodik walaupun kotaknya sudah bertuliskan angka.
+            self._picu_peristiwa(peramban, unsur)
         except Exception:  # noqa: BLE001 — lanjut ke pemeriksaan hasil
             pass
         isi = ""
@@ -1252,6 +1276,45 @@ class BotDapodik:
         except Exception:  # noqa: BLE001
             return False
 
+    def _kandidat_label_pilihan(self, nama: str) -> list[str]:
+        """XPath label pilihan jarak — persis kandidat pada skrip yang terbukti berhasil.
+
+        Skrip itu **tidak** mengklik kotak radio-nya, melainkan labelnya
+        (``x-form-cb-label`` / ``<label>`` bertuliskan «lebih dari 1 km»), dan huruf
+        besar/kecil disamakan lewat ``translate(..., "KM", "km")``. Kandidatnya disusun
+        sama: label → label translate → label berkelas Ext JS → teks umum.
+        """
+        nama_rendah = nama.lower()
+        if "lebih" in nama_rendah:
+            teks = "lebih dari 1"
+        elif "kurang" in nama_rendah:
+            teks = "kurang dari 1"
+        else:
+            return []      # bukan pilihan jarak (mis. radio «Ya»): label tidak dicari
+        return [
+            f'xpath://label[contains(normalize-space(.), "{teks}")]',
+            f'xpath://label[contains(translate(normalize-space(.), "KM", "km"), "{teks}")]',
+            f'xpath://*[contains(@class, "x-form-cb-label") and '
+            f'contains(translate(normalize-space(.), "KM", "km"), "{teks}")]',
+            f'xpath://*[contains(translate(normalize-space(.), "KM", "km"), "{teks} km")]',
+        ]
+
+    def _label_pilihan(self, peramban, nama: str) -> list[Any]:
+        """Label pilihan jarak yang terlihat di halaman (cara skrip yang terbukti berhasil)."""
+        label: list[Any] = []
+        for nilai in self._kandidat_label_pilihan(nama):
+            try:
+                for unsur in peramban.find_elements(*self._locator_nilai(nilai)):
+                    try:
+                        if not unsur.is_displayed() or unsur in label:
+                            continue
+                    except Exception:  # noqa: BLE001 — periksa unsur berikutnya
+                        continue
+                    label.append(unsur)
+            except Exception:  # noqa: BLE001 — coba kandidat berikutnya
+                continue
+        return label
+
     def _pembungkus_pilihan(self, peramban, unsur) -> list[Any]:
         """Pembungkus/label Ext JS di sekitar kotak centang/radio (bila ada)."""
         from selenium.webdriver.common.by import By
@@ -1278,8 +1341,31 @@ class BotDapodik:
         if self._terpilih(unsur):
             return True
         self._bawa_ke_layar(peramban, unsur)
+        # 1) Cara skrip yang terbukti berhasil: klik **labelnya** (bukan kotak radio-nya).
+        #    Klik sungguhan dulu, bila tertelan baru klik lewat skrip — urutan persis itu.
+        for label in self._label_pilihan(peramban, nama):
+            self._bawa_ke_layar(peramban, label)
+            time.sleep(0.3)
+            try:
+                label.click()
+            except Exception:  # noqa: BLE001 — coba klik lewat skrip
+                pass
+            time.sleep(0.3)
+            if self._terpilih(unsur):
+                self._catat_kepala(f"[periodik] {nama}: dipilih lewat labelnya "
+                                   "(x-form-cb-label) — sama seperti skrip yang berhasil.")
+                return True
+            try:
+                peramban.execute_script("arguments[0].click();", label)
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(0.3)
+            if self._terpilih(unsur):
+                self._catat_kepala(f"[periodik] {nama}: dipilih lewat labelnya "
+                                   "(klik skrip) — sama seperti skrip yang berhasil.")
+                return True
         pembungkus = self._pembungkus_pilihan(peramban, unsur)
-        try:                       # 1) klik sungguhan pada kotaknya
+        try:                       # 2) klik sungguhan pada kotaknya
             unsur.click()
         except Exception:  # noqa: BLE001 — coba cara berikutnya
             pass

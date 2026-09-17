@@ -2334,7 +2334,8 @@ def cek_bot_dapodik() -> str:
             f"pilihan jarak tidak tersimpan: {palsu_telan.data_periodik_tersimpan}"
         assert palsu_telan.dipilih_lewat_pembungkus >= 1, \
             "bot tidak memakai pembungkus/label kolom ketika klik pada kotaknya ditelan"
-        assert any("pembungkus/label" in baris for baris in jejak), jejak[-4:]
+        assert any(("pembungkus/label" in baris) or ("labelnya" in baris) for baris in jejak), \
+            jejak[-4:]
 
         # Kalau SEMUA cara gagal (klik kotaknya ditelan DAN pembungkusnya tidak ada), bot tidak
         # boleh mengaku berhasil: log harus jujur memperingatkan bahwa Dapodik belum menandainya.
@@ -2353,8 +2354,13 @@ def cek_bot_dapodik() -> str:
             bot_gagal = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
                                                kepala=jejak.append)
             bot_gagal._login(palsu_gagal)
-            for unsur in palsu_gagal.unsur:      # pembungkus/labelnya tidak ada di halaman
-                if unsur.label == "Lebih dari 1 km":
+            # Semua jalur pencarian pilihan dihapus dari halaman: kotaknya ditelan, dan
+            # pembungkus/labelnya tidak ada — Dapodik benar-benar menolak centangnya.
+            palsu_gagal.unsur = [u for u in palsu_gagal.unsur
+                                 if not ("cb-label" in (getattr(u, "kelas", "") or "")
+                                         and getattr(u, "untuk", "") == "jarak_rumah")]
+            for unsur in palsu_gagal.unsur:
+                if unsur.type == "radio" and unsur.label in ("Kurang dari 1 km", "Lebih dari 1 km"):
                     unsur.induk = None
             bot_gagal._proses_satu(palsu_gagal, siswa_periodik, None)
         finally:
@@ -2366,6 +2372,39 @@ def cek_bot_dapodik() -> str:
         assert not any("dicentang: 1 dari 1" in baris for baris in jejak), \
             "log mengaku berhasil padahal radionya tidak terpilih"
         assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
+
+        # Keadaan pada skrip sekolah yang terbukti berhasil: klik pada kotak radio-nya
+        # (nyata maupun lewat skrip) DAN pada pembungkus `x-form-cb-wrap-inner` sama-sama
+        # ditelan; hanya label `x-form-cb-label` yang menerima. Bot harus tetap memilih.
+        jejak.clear()
+        asli_waktu = bot_dapodik.time
+        jam_label = _WaktuCepat(time)
+        bot_dapodik.time = jam_label
+        try:
+            palsu_label = peramban_palsu.buat("alur_penuh").pakai_jam(jam_label.monotonic)
+            palsu_label.popup_detik = None
+            palsu_label.registrasi_otomatis = True
+            palsu_label.hanya_label_yang_menerima = True    # persis kandidat label di skrip
+            palsu_label.siapkan_periodik_perlu_gulir(2)
+            nisn_label = siswa_periodik["nisn"]
+            palsu_label.nisn_dicari = nisn_label
+            palsu_label.tambah_baris_siswa(nisn_label)
+            bot_label = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                               kepala=jejak.append)
+            bot_label._login(palsu_label)
+            bot_label._proses_satu(palsu_label, siswa_periodik, None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert palsu_label.jarak_pilihan == "Lebih dari 1 km", \
+            f"radio tidak terpilih lewat label x-form-cb-label: {palsu_label.jarak_pilihan!r}"
+        assert palsu_label.data_periodik_tersimpan.get("jarak") == "1", \
+            f"pilihan jarak lewat label tidak tersimpan: {palsu_label.data_periodik_tersimpan}"
+        assert palsu_label.dipilih_lewat_pembungkus >= 1, \
+            "bot tidak memakai label x-form-cb-label seperti skrip yang terbukti berhasil"
+        assert any("labelnya" in baris and "x-form-cb-label" in baris for baris in jejak), jejak[-5:]
+        # Kolom isian juga harus dibarengi peristiwa input → change → blur seperti skrip itu.
+        assert palsu_label.peristiwa_dipicu >= 1, \
+            "bot tidak memberi tahu Ext JS lewat peristiwa input/change/blur sesudah mengetik"
 
         # Data periodik kosong → dicatat pada log, siswa tetap berhasil.
         jejak.clear()
@@ -2541,7 +2580,8 @@ def cek_bot_dapodik() -> str:
             f"siswa berstatus Lulus dilewati · alur skrip sekolah (masuk, menu, 1 siswa) "
             f"berjalan di peramban palsu, tahan klik tertelan lapisan pemuatan & popup "
             f"pengumuman Dapodik · Sekolah Asal & Data Periodik terisi dari data siswa "
-            f"(panelnya dibawa ke layar & pilihan jaraknya diperiksa ulang) · "
+            f"(panelnya dibawa ke layar, pilihan jaraknya ditekan lewat labelnya, "
+            f"kolom isian diberi peristiwa input/change/blur) · "
             f"sekarang {len(services.bot_nisn_sukses())} NISN berhasil")
 
 

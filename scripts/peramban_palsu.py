@@ -75,6 +75,8 @@ class UnsurPalsu:
         self.panel_periodik = bool(sifat.get("panel_periodik", False))
         #: Nama kolom yang dipilih oleh pembungkus ini (kotak centang/radio di dalamnya)
         self.untuk = str(sifat.get("untuk", ""))
+        #: Pilihan yang diwakili pembungkus/label ini (mis. "Lebih dari 1 km")
+        self.pilihan = str(sifat.get("pilihan", ""))
         #: Unsur induk (untuk XPath leluhur sederhana, mis. mencari pembungkus)
         self.induk: "UnsurPalsu | None" = None
         #: True = tombol «Simpan dan Tutup» milik panel Data Periodik
@@ -124,9 +126,15 @@ class UnsurPalsu:
         Ext JS/Dapodik: keadaan centangnya tidak berubah), kecuali pembungkus/labelnya.
         """
         if self.untuk:      # pembungkus/label Ext JS: mengkliknya memilih kotak di dalamnya
-            self.peramban.pilih_lewat_pembungkus(self.untuk)
+            if self.peramban.hanya_label_yang_menerima and "x-form-cb-label" not in \
+                    (self.kelas or ""):
+                # Hanya labellah yang menerima klik; pembungkusnya ditelan lapisan di atasnya.
+                self.peramban.klik_diabaikan += 1
+                return
+            self.peramban.pilih_lewat_pembungkus(self.untuk, self.pilihan)
             return
-        if self.periodik and self.type in ("radio", "checkbox") and script:
+        if self.periodik and self.type in ("radio", "checkbox") and \
+                (script or self.peramban.hanya_label_yang_menerima):
             self.peramban.diklik_skrip_diabaikan += 1
             return
         if self.periodik and not self.peramban.panel_periodik_terbuka():
@@ -192,7 +200,10 @@ class UnsurPalsu:
     def _pilih_baris(self) -> None:
         """Klik sungguhan pada baris tabel / kotak centang = memilihnya (seperti Ext JS)."""
         if self.periodik and self.type in ("radio", "checkbox"):
-            if self.peramban.klik_kotak_ditelan:
+            if self.peramban.hanya_label_yang_menerima:
+                # Hanya label `x-form-cb-label` yang menerima klik — kotaknya sendiri ditelan.
+                self.peramban.klik_kotak_ditelan_kali += 1
+            elif self.peramban.klik_kotak_ditelan:
                 self.peramban.klik_kotak_ditelan_kali += 1
             elif self.peramban.panel_periodik_terbuka() and self.peramban.periodik_siap():
                 self._pilih_kotak()
@@ -327,6 +338,12 @@ class PerambanPalsu:
         #: True = klik SUNGGUHAN pada kotak centang/radio juga ditelan (hanya pembungkus/
         #: label di sekitarnya yang menerima) — persis bila ada lapisan di atas kotaknya
         self.klik_kotak_ditelan = False
+        #: True = HANYA label `x-form-cb-label` yang menerima klik; klik pada kotaknya
+        #: (nyata maupun skrip) dan pada pembungkus `x-form-cb-wrap-inner` ditelan —
+        #: inilah keadaan yang diatasi skrip sekolah dengan mengklik labelnya
+        self.hanya_label_yang_menerima = False
+        #: berapa kali kolom isian menerima peristiwa input/change/blur dari bot
+        self.peristiwa_dipicu = 0
         #: berapa klik sungguhan pada kotak centang/radio yang ditelan
         self.klik_kotak_ditelan_kali = 0
         #: berapa kali pilihan jarak dipilih lewat pembungkus/labelnya
@@ -409,14 +426,22 @@ class PerambanPalsu:
         for unsur in list(self.unsur):
             if not unsur.periodik:
                 continue
-            kelas = ("x-form-cb-wrap-inner" if unsur.type in ("radio", "checkbox")
-                     else "x-form-item")
+            kotak = unsur.type in ("radio", "checkbox")
+            kelas = "x-form-cb-wrap-inner" if kotak else "x-form-item"
             pembungkus = UnsurPalsu(self, "div", kelas=kelas,
-                                    untuk=unsur.name if unsur.type in ("radio", "checkbox") else "",
+                                    untuk=unsur.name if kotak else "",
+                                    pilihan=(unsur.label or "") if kotak else "",
                                     periodik=True)
             pembungkus.induk = next((u for u in self.unsur if u.panel_periodik), None)
             unsur.induk = pembungkus
             self.unsur.append(pembungkus)
+            if kotak:
+                # Label Ext JS di sebelah kotaknya — berkelas `x-form-cb-label` dan
+                # bertuliskan teks pilihannya, persis Dapodik. Mengklik label INILAH cara
+                # skrip yang terbukti berhasil memilih radio.
+                self.unsur.append(UnsurPalsu(
+                    self, "label", kelas="x-form-cb-label", teks=unsur.label or "",
+                    untuk=unsur.name, pilihan=unsur.label or "", periodik=True))
 
     def _menu_tujuan_diklik(self) -> None:
         """Menu tujuan dibuka: Dapodik menampilkan popup pengumuman versi."""
@@ -598,11 +623,20 @@ class PerambanPalsu:
             UnsurPalsu(self, "span", kelas="x-btn-inner-default-small", teks="Simpan dan Tutup"),
         ])
 
-    def pilih_lewat_pembungkus(self, nama: str) -> None:
-        """Klik pada pembungkus/label Ext JS = memilih kotak centang/radio di dalamnya."""
+    def pilih_lewat_pembungkus(self, nama: str, pilihan: str = "") -> None:
+        """Klik pada pembungkus/label Ext JS = memilih kotak centang/radio di dalamnya.
+
+        ``pilihan`` = teks pilihan yang diwakili wadah itu (mis. «Lebih dari 1 km»): hanya
+        kotak itulah yang terpilih, seperti di Dapodik (satu wadah = satu radio).
+        """
         for unsur in self.unsur:
-            if unsur.name == nama and unsur.periodik and unsur.type in ("radio", "checkbox"):
-                unsur._pilih_kotak()
+            if unsur.name != nama or not unsur.periodik:
+                continue
+            if unsur.type not in ("radio", "checkbox"):
+                continue
+            if pilihan and (unsur.label or "").strip() != pilihan.strip():
+                continue
+            unsur._pilih_kotak()
         self.dipilih_lewat_pembungkus += 1
 
     def _terlihat_otomatis(self, unsur: UnsurPalsu) -> bool:
@@ -671,16 +705,33 @@ class PerambanPalsu:
                 dikenali = True
                 if unsur.tag_name not in tag_majemuk:
                     return False
-            # (d) teks: contains(normalize-space(), "…"), contains(., "…"), normalize-space()="…"
+            # (d) teks. Polanya dibaca persis seperti XPath 1.0 — penting supaya uji ini
+            #     menangkap selector yang keliru (dulu pola translate/`normalize-space(.)`
+            #     salah dibaca sehingga label «Lebih dari 1 km» dan «Kurang dari 1 km»
+            #     sama-sama dianggap cocok).
             teks_unsur = " ".join([unsur.teks or "", unsur.nilai or ""]).strip().lower()
-            for penanda in ("normalize-space(), ", "., "):
-                if penanda in bagian:
-                    dikenali = True
-                    sisa = bagian.split(penanda, 1)[1]
-                    cocok = re.search(r"['\"]([^'\"]+)['\"]", sisa)
-                    if not cocok or cocok.group(1).lower() not in teks_unsur:
-                        return False
-            for nilai_teks in re.findall(r'normalize-space\(\)\s*=\s*[\'"]([^\'"]+)[\'"]', bagian):
+            # contains(translate(normalize-space([.]), "X", "y"), "cari")
+            for asal, ganti, cari in re.findall(
+                    r"contains\(\s*translate\(\s*normalize-space\(\s*\.?\s*\)\s*,\s*"
+                    r"['\"]([^'\"]*)['\"]\s*,\s*['\"]([^'\"]*)['\"]\s*\)\s*,\s*"
+                    r"['\"]([^'\"]+)['\"]\s*\)", bagian):
+                dikenali = True
+                teks_terjemah = teks_unsur
+                for asal_abjad, ganti_abjad in zip(asal, ganti):
+                    teks_terjemah = teks_terjemah.replace(asal_abjad.lower(),
+                                                          ganti_abjad.lower())
+                if cari.lower() not in teks_terjemah:
+                    return False
+            # contains(normalize-space([.]), "…") / contains(text(), "…") / contains(., "…")
+            for cari in re.findall(
+                    r"contains\(\s*(?:normalize-space\(\s*\.?\s*\)|text\(\)|\.)\s*,"
+                    r"\s*['\"]([^'\"]+)['\"]\s*\)", bagian):
+                dikenali = True
+                if cari.lower() not in teks_unsur:
+                    return False
+            # normalize-space([.]) = "…"
+            for nilai_teks in re.findall(
+                    r"normalize-space\(\s*\.?\s*\)\s*=\s*['\"]([^'\"]+)['\"]", bagian):
                 dikenali = True
                 if teks_unsur != nilai_teks.strip().lower():
                     return False
@@ -801,11 +852,17 @@ class PerambanPalsu:
                 argumen[0].nilai = str(argumen[1])
                 argumen[0].diketik.append(str(argumen[1]))
             return None
+        if "dispatchEvent" in skrip and argumen and "new Event" in skrip and \
+                getattr(argumen[0], "periodik", False) and \
+                ("'input'" in skrip or '"input"' in skrip):
+            # Peristiwa input/change/blur dari bot sesudah mengetik (cara skrip sekolah).
+            self.peristiwa_dipicu += 1
+            return None
         if "dispatchEvent" in skrip and argumen:
             sasaran = argumen[0]
             if getattr(sasaran, "untuk", ""):
                 # Urutan mousedown → mouseup → click pada pembungkus/label Ext JS.
-                self.pilih_lewat_pembungkus(sasaran.untuk)
+                self.pilih_lewat_pembungkus(sasaran.untuk, sasaran.pilihan)
             elif getattr(sasaran, "periodik", False) and \
                     getattr(sasaran, "type", "") in ("radio", "checkbox"):
                 self.diklik_skrip_diabaikan += 1
@@ -828,7 +885,13 @@ class PerambanPalsu:
             return None
         if "arguments[0].click()" in skrip:
             if argumen:
-                argumen[0]._klik_paksa()
+                sasaran = argumen[0]
+                if "x-form-cb-label" in (getattr(sasaran, "kelas", "") or ""):
+                    # Klik SKRIP pada label Ext JS — inilah yang dipakai skrip sekolah bila
+                    # klik sungguhannya tertelan. Kotak radio-nya sendiri tetap menolak.
+                    self.pilih_lewat_pembungkus(sasaran.untuk, sasaran.pilihan)
+                    return None
+                sasaran._klik_paksa(script=True)
             return None
         if "return {" in skrip and "readyState:" in skrip.replace(" ", "") or "readyState" in skrip:
             return {"readyState": "complete", "overlay": 0, "iframe": 0,
