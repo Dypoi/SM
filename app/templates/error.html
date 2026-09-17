@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body text-center">
+    <div style="font-size:3rem;font-weight:800;color:var(--primary);letter-spacing:-.03em">{{ kode }}</div>
+    <h2>{{ pesan }}</h2>
+    {% if detail %}<p class="muted"><code>{{ detail }}</code></p>{% endif %}
+    <div class="btn-group mt-3" style="justify-content:center">
+      <a class="btn btn-primary" href="/">{{ icon('home') }} Ke dasbor</a>
+      <a class="btn btn-outline" href="javascript:history.back()">Kembali</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

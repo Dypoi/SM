@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, empty_state %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <div class="flex between flex-wrap" style="gap:1rem">
+      <div>
+        <h2 style="margin-bottom:.2rem">Ekstrakurikuler</h2>
+        <p class="soft" style="margin:0">
+          Pilih kegiatan yang ingin kamu ikuti, lalu tunggu persetujuan
+          <strong>pembina/pelatih</strong>. Setelah disetujui, namamu masuk daftar anggota.
+        </p>
+      </div>
+      <div class="btn-group">
+        <a class="btn btn-outline btn-sm" href="/portal">{{ icon('home') }} Beranda Saya</a>
+        <a class="btn btn-outline btn-sm" href="/portal/profil">{{ icon('user') }} Data Saya</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% set menunggu = pendaftaran.values() | selectattr('status', 'equalto', 'menunggu') | list %}
+{% if menunggu %}
+<div class="alert alert-info" role="status">
+  <span class="alert-icon">{{ icon('clock') }}</span>
+  <div>
+    Ada <strong>{{ menunggu | length }}</strong> pendaftaran yang masih menunggu persetujuan:
+    {% for item in menunggu %}{{ item.nama }}{{ ', ' if not loop.last }}{% endfor %}.
+    Pembina/pelatih akan memutuskan; kamu tidak perlu mengulang pendaftaran.
+  </div>
+</div>
+{% endif %}
+
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Kegiatan yang saya ikuti ({{ diikuti | length }})</h3>
+      <p>Keanggotaan yang sudah disetujui pembina/pelatih beserta nilai dan catatannya.</p>
+    </div>
+  </div>
+  <div class="card-body p-0 table-wrap">
+    <table class="data kartu">
+      <caption class="sr-only">Daftar ekstrakurikuler yang diikuti siswa</caption>
+      <thead>
+        <tr>
+          <th>Kegiatan</th><th>Jadwal</th><th>Pembina</th><th>Pelatih</th>
+          <th>Jabatan</th><th>Nilai</th><th>Catatan</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in diikuti %}
+        <tr>
+          <td data-label="Kegiatan"><strong>{{ item.nama }}</strong></td>
+          <td data-label="Jadwal" class="nowrap">
+            {% if item.hari %}{{ item.hari }}{% endif %}
+            {% if item.jam_mulai %}, {{ item.jam_mulai }}{% if item.jam_selesai %}–{{ item.jam_selesai }}{% endif %}{% endif %}
+            {% if not item.hari and not item.jam_mulai %}—{% endif %}
+          </td>
+          <td data-label="Pembina">{{ item.pembina or '—' }}</td>
+          <td data-label="Pelatih">{{ item.pelatih or '—' }}</td>
+          <td data-label="Jabatan">{{ item.jabatan }}</td>
+          <td data-label="Nilai">
+            {% if item.predikat %}<span class="badge badge-success">{{ item.predikat }}</span>
+            {% else %}<span class="muted">—</span>{% endif %}
+          </td>
+          <td data-label="Catatan">{{ item.catatan or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="empty-cell">
+          <p class="empty">Belum terdaftar pada ekstrakurikuler mana pun. Pilih kegiatan di bawah ini.</p>
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Pilihan Ekstrakurikuler di Sekolah ({{ tersedia | length }})</h3>
+      <p>Pada tahun ajaran ini. Tombol <em>Daftar</em> mengirim permintaan ke pembina/pelatih.</p>
+    </div>
+  </div>
+  <div class="card-body">
+    <div class="grid grid-3">
+      {% for item in tersedia %}
+      {% set daftar_ini = pendaftaran.get(item.id) %}
+      {% set anggota = diikuti | selectattr('nama', 'equalto', item.nama) | list %}
+      <div class="card card-tight">
+        <div class="card-body">
+          <div class="flex between flex-wrap" style="gap:.4rem">
+            <strong>{{ item.nama }}</strong>
+            <span class="badge badge-muted">{{ item.jumlah_anggota }} anggota</span>
+          </div>
+          <div class="muted" style="font-size:.8rem; margin-top:.35rem">
+            {% if item.hari %}{{ item.hari }}{% if item.jam_mulai %} {{ item.jam_mulai }}{% if item.jam_selesai %}–{{ item.jam_selesai }}{% endif %}{% endif %}
+            {% else %}jadwal belum ditetapkan{% endif %}
+          </div>
+          <div class="muted" style="font-size:.78rem">
+            {% if item.pembina %}Pembina: {{ item.pembina }}{% endif %}
+            {% if item.pembina and item.pelatih %} · {% endif %}
+            {% if item.pelatih %}Pelatih: {{ item.pelatih }}{% endif %}
+            {% if not item.pembina and not item.pelatih %}pembina/pelatih belum diisi{% endif %}
+          </div>
+
+          <div style="margin-top:.6rem">
+            {% if anggota %}
+              <span class="badge badge-success">{{ icon('check') }} Sudah menjadi anggota</span>
+            {% elif daftar_ini and daftar_ini.status == 'menunggu' %}
+              <span class="badge badge-warning">Menunggu persetujuan</span>
+              <form method="post" action="/portal/ekstrakurikuler/pendaftaran/{{ daftar_ini.id }}/batalkan"
+                    class="mt-1" data-confirm="Batalkan pendaftaran {{ item.nama }}?">
+                <button class="btn btn-outline btn-sm" type="submit">{{ icon('x') }} Batalkan</button>
+              </form>
+            {% elif daftar_ini and daftar_ini.status == 'ditolak' %}
+              <div class="muted" style="font-size:.8rem">
+                Pendaftaran sebelumnya ditolak{% if daftar_ini.catatan_pembina %}: {{ daftar_ini.catatan_pembina }}{% endif %}.
+              </div>
+              <form method="post" action="/portal/ekstrakurikuler/{{ item.id }}/daftar" class="mt-1">
+                <input type="text" name="catatan" maxlength="200" placeholder="Alasan/ catatan (opsional)">
+                <button class="btn btn-primary btn-sm mt-1" type="submit">{{ icon('plus') }} Daftar lagi</button>
+              </form>
+            {% else %}
+              <form method="post" action="/portal/ekstrakurikuler/{{ item.id }}/daftar">
+                <input type="text" name="catatan" maxlength="200"
+                       placeholder="Catatan untuk pembina (opsional)">
+                <button class="btn btn-primary btn-sm mt-1" type="submit">{{ icon('plus') }} Daftar</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% else %}
+      <p class="empty">Belum ada ekstrakurikuler aktif.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Riwayat Pendaftaran</h3>
+      <p>Semua permintaan yang pernah kamu kirim beserta keputusannya.</p>
+    </div>
+  </div>
+  <div class="card-body p-0 table-wrap">
+    <table class="data kartu">
+      <caption class="sr-only">Riwayat pendaftaran ekstrakurikuler siswa</caption>
+      <thead>
+        <tr><th>Kegiatan</th><th>Keadaan</th><th>Catatan saya</th><th>Catatan pembina</th><th>Diputuskan</th></tr>
+      </thead>
+      <tbody>
+        {% for item in pendaftaran.values() %}
+        <tr>
+          <td data-label="Kegiatan"><strong>{{ item.nama }}</strong></td>
+          <td data-label="Keadaan">
+            {% if item.status == 'menunggu' %}
+              <span class="badge badge-warning">{{ status_label.get(item.status, item.status) }}</span>
+            {% elif item.status == 'disetujui' %}
+              <span class="badge badge-success">{{ status_label.get(item.status, item.status) }}</span>
+            {% else %}
+              <span class="badge badge-muted">{{ status_label.get(item.status, item.status) }}</span>
+            {% endif %}
+          </td>
+          <td data-label="Catatan saya">{{ item.catatan_siswa or '—' }}</td>
+          <td data-label="Catatan pembina">{{ item.catatan_pembina or '—' }}</td>
+          <td data-label="Diputuskan" class="nowrap muted" style="font-size:.78rem">{{ item.diputus_at or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty-cell">
+          <p class="empty">Belum ada pendaftaran. Pilih kegiatan di atas untuk mulai mendaftar.</p>
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

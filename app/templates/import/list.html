@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, stat_card %}
+
+{% block content %}
+<div class="split">
+  <div>
+    <form class="card" method="post" action="/impor/unggah" enctype="multipart/form-data">
+      <div class="card-head">
+        <div>
+          <h3>Unggah berkas Excel / CSV</h3>
+          <p>Sistem akan membaca struktur berkas, mendeteksi kolom Dapodik, lalu menampilkan pratinjau sebelum data disimpan.</p>
+        </div>
+        <a class="btn btn-outline btn-sm" href="/impor/panduan">{{ icon('book') }} Panduan</a>
+      </div>
+      <div class="card-body">
+        <div class="upload-zone" data-upload-zone>
+          <input type="file" name="berkas" id="berkas" hidden
+                 accept=".xlsx,.xlsm,.xltx,.xltm,.xls,.xlsb,.ods,.csv,.txt,.tsv">
+          {{ icon('upload') }}
+          <h3>Letakkan berkas di sini atau klik untuk memilih</h3>
+          <p>
+            Mendukung
+            {% for ext, label in format_didukung %}<code>{{ ext }}</code>{{ ', ' if not loop.last }}{% endfor %}
+            — maksimal {{ maks_ukuran }} MB
+          </p>
+          <span class="chip" data-file-name></span>
+        </div>
+
+        <div class="form-grid mt-2">
+          <div class="field">
+            <label for="sheet_index">Worksheet</label>
+            <select id="sheet_index" name="sheet_index">
+              <option value="0">Worksheet pertama (otomatis)</option>
+              <option value="1">Worksheet ke-2</option>
+              <option value="2">Worksheet ke-3</option>
+            </select>
+            <span class="hint">Untuk berkas .csv/.txt hanya ada satu worksheet.</span>
+          </div>
+          <div class="field" style="justify-content:flex-end">
+            <label>&nbsp;</label>
+            <button class="btn btn-primary" type="submit">{{ icon('upload') }} Baca &amp; Pratinjau</button>
+          </div>
+        </div>
+      </div>
+    </form>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Riwayat Impor</h3>
+          <p>{{ riwayat | length }} kegiatan impor terakhir</p>
+        </div>
+      </div>
+      <div class="card-body p-0 table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Berkas</th><th>Format</th><th>Hasil</th><th class="num">Baris</th>
+              <th>Status</th><th>Waktu</th><th class="text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in riwayat %}
+            <tr>
+              <td>
+                <a href="/impor/{{ item.id }}"><strong>{{ item.filename | singkat(34) }}</strong></a>
+                <div class="muted" style="font-size:.76rem">
+                  {{ item.sheet_name or '-' }} · baris header {{ item.header_row or '-' }}
+                  {% if item.detected_kind == 'daftar_peserta_didik' %}
+                    <span class="badge badge-success">Dapodik</span>
+                  {% elif item.detected_kind %}
+                    <span class="badge badge-muted">{{ item.detected_kind }}</span>
+                  {% endif %}
+                </div>
+              </td>
+              <td><span class="chip chip-muted">{{ item.file_format or item.file_ext }}</span></td>
+              <td>
+                <span class="badge badge-primary" title="Siswa baru">{{ item.rows_imported }} baru</span>
+                <span class="badge badge-info" title="Diperbarui">{{ item.rows_updated }} ubah</span>
+                {% if item.rows_failed %}<span class="badge badge-danger">{{ item.rows_failed }} gagal</span>{% endif %}
+              </td>
+              <td class="num">{{ item.rows_total }}</td>
+              <td><span class="badge badge-{{ item.status | badge }}">{{ item.status }}</span></td>
+              <td class="nowrap muted" style="font-size:.8rem">{{ item.created_at | tanggal_waktu }}</td>
+              <td class="text-right nowrap">
+                <a class="btn btn-outline btn-sm" href="/impor/{{ item.id }}">{{ icon('search') }}</a>
+                {% if user.is_admin %}
+                <form method="post" action="/impor/{{ item.id }}/hapus" style="display:inline"
+                      data-confirm="Hapus riwayat impor '{{ item.filename }}'?">
+                  <button class="btn btn-outline btn-sm" type="submit">{{ icon('trash') }}</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="empty">Belum ada impor. Silakan unggah berkas pertama Anda.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <aside>
+    <div class="card">
+      <div class="card-head"><h3>Status Data Saat Ini</h3></div>
+      <div class="card-body">
+        <dl class="kv" style="grid-template-columns:1fr 1fr">
+          <dt>Total siswa</dt><dd><strong>{{ stats.total | angka_id }}</strong></dd>
+          <dt>Rombel</dt><dd><strong>{{ stats.rombel | angka_id }}</strong></dd>
+          <dt>Penerima KIP</dt><dd>{{ stats.penerima_kip | angka_id }}</dd>
+          <dt>Layak PIP</dt><dd>{{ stats.layak_pip | angka_id }}</dd>
+        </dl>
+        <a class="btn btn-outline btn-block mt-2" href="/data-siswa">{{ icon('users') }} Lihat Data Siswa</a>
+      </div>
+    </div>
+
+    {% if contoh_berkas %}
+    <div class="card mt-2">
+      <div class="card-head"><h3>Berkas Contoh Terdeteksi</h3></div>
+      <div class="card-body">
+        <p class="soft" style="font-size:.84rem">
+          Berkas berikut ada di folder <code>sample-data/</code> dan otomatis diimpor saat aplikasi
+          pertama kali dijalankan.
+        </p>
+        <ul style="margin:0;padding-left:1.1rem;font-size:.83rem">
+          {% for nama in contoh_berkas %}<li>{{ nama }}</li>{% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card mt-2">
+      <div class="card-head"><h3>Tips Impor</h3></div>
+      <div class="card-body">
+        <ol class="soft" style="font-size:.84rem;padding-left:1.1rem;margin:0;display:flex;flex-direction:column;gap:.45rem">
+          <li>Ekspor berkas langsung dari aplikasi Dapodik agar seluruh kolom terbaca otomatis.</li>
+          <li>Perhatikan baris judul (1–4); sistem melompatinya dan mencari baris header sendiri.</li>
+          <li>Kolom <em>Data Ayah/Ibu/Wali</em> yang bergabung (merge) tetap terbaca berkat sub-header.</li>
+          <li>Gunakan mode <strong>Perbarui (upsert)</strong> agar data lama tidak hilang saat impor ulang.</li>
+        </ol>
+      </div>
+    </div>
+  </aside>
+</div>
+{% endblock %}

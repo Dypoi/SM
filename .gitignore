@@ -1,0 +1,33 @@
+# --- Data & rahasia (JANGAN di-commit) ---
+data/
+*.sqlite3
+*.db
+.env
+secrets.env
+
+# Data contoh berisi data pribadi siswa (NIK, NISN, alamat) -> tidak di-commit
+sample-data/
+*.xlsx
+*.xls
+*.xlsb
+*.ods
+!template-import/*.xlsx
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- Uji antarmuka (jsdom) di luar aplikasi ---
+node_modules/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- OS/editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log

@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, stat_card %}
+
+{% set label_grup = {'identitas':'Identitas','alamat':'Alamat & Kontak','ayah':'Data Ayah','ibu':'Data Ibu',
+                     'wali':'Data Wali','akademik':'Rombel & Akademik','bantuan':'Bantuan & Kesejahteraan',
+                     'kesehatan':'Kesehatan & Keluarga'} %}
+
+{% block content %}
+<div class="grid grid-4">
+  {{ stat_card('Total Siswa', kualitas.total | angka_id, 'users', 'primary') }}
+  {{ stat_card('Siap Sinkron', kualitas.siap_sinkron | angka_id, 'check', 'success', 'Data wajib lengkap') }}
+  {{ stat_card('Perlu Perbaikan', kualitas.belum_lengkap | angka_id, 'warning', 'warning', 'Ada kolom wajib kosong') }}
+  {{ stat_card('Temuan Dapodik', (kualitas.temuan | map(attribute='jumlah') | sum) | angka_id, 'info', 'violet', 'Perlu ditindaklanjuti') }}
+</div>
+
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Temuan yang perlu ditindaklanjuti</h3>
+      <p>
+        Pemeriksaan ini meniru validasi Dapodik sehingga data lebih siap saat disinkronkan.
+        Tombol <strong>Perbaiki</strong> membuka daftar siswa yang terkena temuan itu saja,
+        sudah ditandai kolom mana yang perlu dibetulkan.
+      </p>
+      {% if kualitas.wali_dibersihkan %}
+      <p class="muted" style="font-size:.82rem;margin-top:.3rem">
+        Data wali di bawah ini akan dihapus <strong>otomatis oleh sistem</strong>
+        (tanpa persetujuan) — baik saat datanya disimpan ulang maupun lewat tombol rapikan.
+      </p>
+      {% endif %}
+    </div>
+    <a class="btn btn-outline btn-sm" href="/data-siswa?lengkap=0">
+      {{ icon('search') }} Daftar siswa bermasalah ({{ kualitas.belum_lengkap | angka_id }})
+    </a>
+    {% if kualitas.wali_dibersihkan %}
+    <form method="post" action="/kualitas-data/rapikan-wali" class="inline-form">
+      <button class="btn btn-warning btn-sm" type="submit"
+              onclick="return confirm('Hapus data wali otomatis untuk {{ kualitas.wali_dibersihkan | length }} siswa? Data wali akan dikosongkan.')">
+        {{ icon('warning') }} Rapikan data wali ({{ kualitas.wali_dibersihkan | length }})
+      </button>
+    </form>
+    {% endif %}
+  </div>
+  <div class="card-body p-0 table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>Kode</th><th>Temuan</th><th class="num">Jumlah siswa</th>
+          <th>Perbaikan</th><th class="text-right">Tindakan</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in kualitas.temuan %}
+        <tr class="{{ 'row-error' if item.jumlah and item.jumlah > 10 }}">
+          <td><code>{{ item.kode }}</code></td>
+          <td>{{ item.label }}</td>
+          <td class="num">
+            {% if item.jumlah %}
+              <span class="badge badge-{{ 'danger' if item.jumlah > 10 else 'warning' }}">{{ item.jumlah | angka_id }}</span>
+            {% else %}
+              <span class="badge badge-success">0</span>
+            {% endif %}
+          </td>
+          <td class="muted" style="font-size:.8rem">{{ item.saran or '—' }}</td>
+          <td class="text-right">
+            {% if item.jumlah %}
+              <a class="btn btn-outline btn-sm" href="/data-siswa?masalah={{ item.kode }}"
+                 title="Buka daftar siswa dengan temuan {{ item.label }}">
+                {{ icon('search') }} Perbaiki
+              </a>
+            {% else %}
+              <span class="muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if kualitas.wali_dibersihkan %}
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Data Wali yang Dihapus Otomatis ({{ kualitas.wali_dibersihkan | length }})</h3>
+      <p>Sistem tidak menyimpan data wali pada kondisi di bawah ini.</p>
+    </div>
+  </div>
+  <div class="card-body p-0 table-wrap">
+    <table class="data tabel-kecil">
+      <thead>
+        <tr><th>Nama siswa</th><th>NISN</th><th>Rombel</th><th>Wali tersimpan</th><th>Alasan</th></tr>
+      </thead>
+      <tbody>
+        {% for item in kualitas.wali_dibersihkan[:50] %}
+        <tr>
+          <td><a href="/data-siswa/{{ item.id }}">{{ item.nama }}</a></td>
+          <td class="mono">{{ item.nisn or '—' }}</td>
+          <td>{{ item.rombel or '—' }}</td>
+          <td>{{ item.wali_nama or '—' }}</td>
+          <td class="muted">{{ item.alasan }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if kualitas.wali_dibersihkan | length > 50 %}
+    <div class="card-body"><p class="muted mb-0">Menampilkan 50 siswa pertama.</p></div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="split mt-2">
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h3>Kelengkapan per Kolom</h3>
+        <p>Persentase siswa yang datanya sudah terisi pada setiap kolom.</p>
+      </div>
+    </div>
+    <div class="card-body p-0 table-wrap compact">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Kolom</th><th>Grup</th><th class="num">Terisi</th><th class="num">Kosong</th>
+            <th style="width:180px">Kelengkapan</th><th class="text-right">Tindakan</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in kualitas.fields %}
+          <tr>
+            <td>
+              {{ item.label }}
+              {% if item.wajib %}<span class="badge badge-primary" title="Kolom wajib">wajib</span>{% endif %}
+            </td>
+            <td class="muted">{{ label_grup.get(item.group, item.group) }}</td>
+            <td class="num">{{ item.terisi | angka_id }}</td>
+            <td class="num">
+              {% if item.kosong %}
+                <a href="/data-siswa?kosong={{ item.key }}"
+                   title="Lihat {{ item.kosong | angka_id }} siswa yang kolom {{ item.label }} masih kosong">{{ item.kosong | angka_id }}</a>
+              {% else %}
+                {{ item.kosong | angka_id }}
+              {% endif %}
+            </td>
+            <td>
+              <div class="flex gap-1">
+                <div class="progress {{ 'danger' if item.persen < 50 else ('warn' if item.persen < 90 else '') }}" style="flex:1">
+                  <span style="width: {{ item.persen }}%"></span>
+                </div>
+                <small class="muted" style="min-width:46px;text-align:right">{{ item.persen }}%</small>
+              </div>
+            </td>
+            <td class="text-right">
+              {% if item.kosong %}
+                <a class="btn btn-outline btn-sm" href="/data-siswa?kosong={{ item.key }}">Perbaiki</a>
+              {% else %}
+                <span class="muted" style="font-size:.8rem">lengkap</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <aside>
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3>{{ icon('robot') }} Kesiapan Bot Dapodik</h3>
+          <p>Rencana otomatisasi sinkronisasi data</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <p class="note" style="font-size:.83rem">
+          Modul ini sudah menyiapkan <strong>antrean pekerjaan</strong>, <strong>jejak perubahan
+          per kolom</strong>, dan <strong>API</strong> yang akan dipakai bot Dapodik pada tahap
+          pengembangan berikutnya.
+        </p>
+
+        <dl class="kv mt-2" style="grid-template-columns:1fr">
+          <dt>Data siap sinkron</dt><dd><strong>{{ readiness.siap | angka_id }}</strong> siswa</dd>
+          <dt>Perlu perbaikan</dt><dd>{{ readiness.perlu_perbaikan | angka_id }} siswa</dd>
+          <dt>Status sinkronisasi</dt>
+          <dd>
+            <span class="badge badge-{{ 'success' if readiness.sync_aktif else 'muted' }}">
+              {{ 'Aktif' if readiness.sync_aktif else 'Belum diaktifkan' }}
+            </span>
+          </dd>
+        </dl>
+
+        <div class="section-title">Antrean Pekerjaan</div>
+        {% if jobs %}
+          <table class="data tabel-kecil">
+            <thead><tr><th>#</th><th>Jenis</th><th>Mode</th><th>Status</th></tr></thead>
+            <tbody>
+              {% for job in jobs %}
+              <tr>
+                <td>{{ job.id }}</td>
+                <td>{{ job.jenis }}</td>
+                <td>{{ job.mode }}</td>
+                <td><span class="badge badge-{{ job.status | badge }}">{{ job.status }}</span></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="empty" style="padding:.6rem 0">Belum ada antrean pekerjaan.</p>
+        {% endif %}
+
+        {% if user.is_admin %}
+        <a class="btn btn-outline btn-block mt-2" href="/pengaturan/dokumentasi-api">{{ icon('book') }} Dokumentasi API</a>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if duplikat %}
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>NISN Ganda</h3>
+          <p>{{ duplikat | length }} NISN dipakai lebih dari satu siswa</p>
+        </div>
+      </div>
+      <div class="card-body p-0 table-wrap compact">
+        <table class="data tabel-kecil">
+          <thead><tr><th>NISN</th><th class="num">Jml</th><th>Nama</th></tr></thead>
+          <tbody>
+            {% for item in duplikat %}
+            <tr>
+              <td class="mono"><a href="/data-siswa?q={{ item.nisn }}">{{ item.nisn }}</a></td>
+              <td class="num"><a href="/data-siswa?masalah=NISN_GANDA" class="badge badge-danger">{{ item.jumlah }}</a></td>
+              <td class="muted" style="font-size:.78rem">{{ item.nama | singkat(40) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

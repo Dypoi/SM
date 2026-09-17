@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, nilai %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <div class="profile-head">
+      <div class="avatar-lg">{{ siswa.nama[:1] }}</div>
+      <div style="flex:1;min-width:220px">
+        <h2 style="margin-bottom:.15rem">Halo, {{ siswa.nama | title }}!</h2>
+        <div class="flex flex-wrap gap-1">
+          <span class="chip">{{ icon('user') }} NISN {{ siswa.nisn }}</span>
+          {% if siswa.rombel %}<span class="chip chip-muted">Kelas {{ siswa.rombel }}</span>{% endif %}
+          <span class="badge badge-{{ siswa.status | badge }} badge-lg">{{ siswa.status }}</span>
+        </div>
+        <p class="muted mt-1" style="font-size:.83rem">
+          {{ siswa.tempat_lahir or '—' }}, {{ siswa.tanggal_lahir | tanggal_id }}
+          {% if siswa.tanggal_lahir %}· {{ siswa.tanggal_lahir | umur }}{% endif %}
+        </p>
+      </div>
+      <div class="btn-group">
+        <a class="btn btn-outline btn-sm" href="/portal/profil">{{ icon('edit') }} Perbaiki data saya</a>
+        <a class="btn btn-outline btn-sm" href="/portal/ekstrakurikuler">{{ icon('flag') }} Ekstrakurikuler</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-2 mt-2">
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h3>Kelengkapan Data Saya</h3>
+        <p>{{ kelengkapan.persen }}% kolom penting sudah terisi</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="progress {{ 'warn' if kelengkapan.persen < 80 else '' }}">
+        <span style="width: {{ kelengkapan.persen }}%"></span>
+      </div>
+      {% if kelengkapan.belum %}
+        <p class="soft mt-2" style="font-size:.86rem">Data berikut belum ada — silakan lengkapi:</p>
+        <div class="tag-list">
+          {% for item in kelengkapan.belum %}
+            <span class="badge badge-warning">{{ item.label }}</span>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="note mt-2">{{ icon('check') }} Semua data penting sudah lengkap. Terima kasih!</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h3>Data Identitas</h3>
+        <p>Data ini berasal dari Dapodik. Jika ada yang salah, ajukan perbaikan.</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <dl class="kv" style="grid-template-columns:150px 1fr">
+        <dt>NISN</dt><dd class="mono">{{ siswa.nisn }}</dd>
+        <dt>NIS lokal</dt><dd>{{ nilai(siswa.nipd) }}</dd>
+        <dt>Jenis kelamin</dt><dd>{{ 'Laki-laki' if siswa.jk == 'L' else ('Perempuan' if siswa.jk == 'P' else '—') }}</dd>
+        <dt>Agama</dt><dd>{{ nilai(siswa.agama) }}</dd>
+        <dt>Alamat</dt><dd>{{ nilai(siswa.alamat) }}{% if siswa.rt or siswa.rw %} RT {{ siswa.rt or '-' }}/RW {{ siswa.rw or '-' }}{% endif %}</dd>
+        <dt>Desa/Kelurahan</dt><dd>{{ nilai(siswa.kelurahan) }}</dd>
+        <dt>Kecamatan</dt><dd>{{ nilai(siswa.kecamatan) }}</dd>
+        <dt>Sekolah asal</dt><dd>{{ nilai(siswa.sekolah_asal) }}</dd>
+        <dt>Kontak</dt><dd>{{ nilai(siswa.hp) }}</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Ekstrakurikuler Saya</h3>
+      <p>{{ ekskul | length }} kegiatan diikuti</p>
+    </div>
+    <a class="btn btn-outline btn-sm" href="/portal/ekstrakurikuler">Lihat semua pilihan</a>
+  </div>
+  <div class="card-body">
+    {% set menunggu_ekskul = (pendaftaran_ekskul | default([])) | selectattr('status', 'equalto', 'menunggu') | list %}
+    {% if menunggu_ekskul %}
+    <div class="alert alert-info mb-2" role="status">
+      <span class="alert-icon">{{ icon('clock') }}</span>
+      <div>
+        Menunggu persetujuan pembina/pelatih:
+        {% for item in menunggu_ekskul %}<strong>{{ item.nama }}</strong>{{ ', ' if not loop.last }}{% endfor %}.
+      </div>
+    </div>
+    {% endif %}
+    {% if ekskul %}
+      <div class="grid grid-3">
+        {% for item in ekskul %}
+        <div class="card card-tight">
+          <div class="card-body">
+            <strong>{{ item.nama }}</strong>
+            <div class="muted" style="font-size:.78rem">{{ item.jabatan }}</div>
+            <div class="muted" style="font-size:.78rem">
+              {% if item.hari %}{{ item.hari }}{% endif %}
+              {% if item.jam_mulai %} {{ item.jam_mulai }}{% if item.jam_selesai %}–{{ item.jam_selesai }}{% endif %}{% endif %}
+            </div>
+            <div class="muted" style="font-size:.78rem">
+              {% if item.pembina %}Pembina: {{ item.pembina }}{% endif %}
+              {% if item.pelatih %}{% if item.pembina %} · {% endif %}Pelatih: {{ item.pelatih }}{% endif %}
+            </div>
+            {% if item.predikat %}<span class="badge badge-success mt-1">Nilai {{ item.predikat }}</span>{% endif %}
+            {% if item.catatan %}<div class="muted" style="font-size:.76rem">Catatan: {{ item.catatan }}</div>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">
+        Belum mengikuti ekstrakurikuler.
+        <a href="/portal/ekstrakurikuler">Lihat kegiatan yang tersedia</a> dan hubungi pembina untuk mendaftar.
+      </p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mt-2">
+  <div class="card-head"><h3>Informasi Sekolah</h3></div>
+  <div class="card-body">
+    <dl class="kv kv-2">
+      <dt>Nama sekolah</dt><dd>{{ profil.nama }}</dd>
+      <dt>Tahun ajaran</dt><dd>{{ profil.tahun_ajaran }} · Semester {{ profil.semester }}</dd>
+      <dt>Alamat</dt><dd>{{ nilai(profil.alamat) }}</dd>
+      <dt>Kontak</dt><dd>{{ nilai(profil.telepon) }}{% if profil.email %} · {{ profil.email }}{% endif %}</dd>
+      <dt>Kepala sekolah</dt><dd>{{ nilai(profil.kepala) }}</dd>
+      <dt>Pertanyaan data</dt><dd>Hubungi tata usaha / wali kelas</dd>
+    </dl>
+  </div>
+</div>
+{% endblock %}

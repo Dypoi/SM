@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, nilai, pengajuan_badge %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <div class="profile-head">
+      <div class="avatar-lg">{{ (p.nama or '?')[:1] }}</div>
+      <div style="flex:1;min-width:240px">
+        <h2 style="margin-bottom:.15rem">{{ p.nama or 'Tanpa nama' }}</h2>
+        <div class="flex flex-wrap gap-1">
+          <span class="chip">{{ icon('user') }} NISN {{ p.nisn or '-' }}</span>
+          {% if p.rombel %}<span class="chip chip-muted">{{ p.rombel }}</span>{% endif %}
+          {{ pengajuan_badge(p.status) }}
+        </div>
+        <p class="muted mt-1" style="font-size:.82rem">
+          Diajukan {{ p.diajukan_at | tanggal_waktu }}
+          {%- if p.diputuskan_at %} · diputuskan {{ p.diputuskan_at | tanggal_waktu }} oleh {{ p.diputuskan_oleh or '-' }}{% endif %}
+        </p>
+      </div>
+      <div class="btn-group">
+        <a class="btn btn-outline btn-sm" href="/pengajuan">{{ icon('file') }} Daftar pengajuan</a>
+        <a class="btn btn-outline btn-sm" href="/data-siswa/{{ p.student_id }}">{{ icon('users') }} Data siswa</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if p.catatan_siswa %}
+<div class="alert alert-info mt-2">
+  {{ icon('info') }}
+  <span><strong>Catatan siswa:</strong> {{ p.catatan_siswa }}</span>
+</div>
+{% endif %}
+
+<div class="split mt-2">
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3>Perubahan yang Diusulkan</h3>
+          <p>{{ items | length }} kolom berbeda dari data sekarang.</p>
+        </div>
+      </div>
+      {% if items %}
+      <div class="card-body p-0 table-wrap">
+        <table class="data">
+          <thead><tr><th>Kolom</th><th>Data sekarang</th><th>Diusulkan siswa</th></tr></thead>
+          <tbody>
+            {% for item in items %}
+            <tr>
+              <td>{{ item.label or item.field }}</td>
+              <td class="muted">{{ item.nilai_lama if item.nilai_lama not in (None, '') else '—' }}</td>
+              <td><strong>{{ item.nilai_baru if item.nilai_baru not in (None, '') else '—' }}</strong></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card-body"><p class="muted mb-0">Pengajuan ini hanya berisi berkas pendukung.</p></div>
+      {% endif %}
+    </div>
+
+    {% if p.status == 'menunggu' %}
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Keputusan Admin</h3>
+          <p>Setujui bila bukti sesuai; tolak bila berkas tidak jelas atau data tidak cocok.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <form method="post" action="/pengajuan/{{ p.id }}/putuskan">
+          <div class="field span-2">
+            <label for="catatan">Catatan untuk siswa (opsional)</label>
+            <textarea id="catatan" name="catatan" rows="2"
+                      placeholder="Contoh: berkas kurang jelas, mohon difoto ulang."></textarea>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-success" type="submit" name="keputusan" value="terima">
+              {{ icon('check') }} Setujui &amp; terapkan data
+            </button>
+            <button class="btn btn-danger" type="submit" name="keputusan" value="tolak"
+                    formnovalidate>
+              {{ icon('warning') }} Tolak
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% else %}
+    <div class="alert {{ 'alert-ok' if p.status == 'disetujui' else 'alert-warn' }} mt-2">
+      {{ icon('info') }}
+      <span>
+        Pengajuan ini <strong>{{ p.status }}</strong>
+        {%- if p.catatan_admin %} dengan catatan: {{ p.catatan_admin }}{% endif %}.
+      </span>
+    </div>
+    {% endif %}
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Riwayat Perubahan Data Siswa</h3>
+          <p>10 perubahan terakhir yang tercatat pada siswa ini.</p>
+        </div>
+      </div>
+      <div class="card-body p-0 table-wrap">
+        {% if riwayat_siswa %}
+        <table class="data">
+          <thead><tr><th>Waktu</th><th>Kolom</th><th>Lama</th><th>Baru</th><th>Sumber</th></tr></thead>
+          <tbody>
+            {% for r in riwayat_siswa %}
+            <tr>
+              <td class="nowrap">{{ r.created_at | tanggal_waktu }}</td>
+              <td>{{ field_label(r.field) }}</td>
+              <td class="muted">{{ r.old_value if r.old_value not in (None, '') else '—' }}</td>
+              <td>{{ r.new_value if r.new_value not in (None, '') else '—' }}</td>
+              <td><span class="badge badge-muted">{{ r.source }}</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="card-body"><p class="muted mb-0">Belum ada riwayat perubahan.</p></div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3>Berkas Bukti</h3>
+          <p>{{ dokumen | length }} berkas pada pengajuan ini.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        {% for jenis, label, _ in dokumen_jenis %}
+          {% set kirim = (dokumen | selectattr('jenis', 'equalto', jenis) | list | first) %}
+          {% set simpan = dokumen_siswa.get(jenis) %}
+          <div class="mb-2">
+            <div class="flex between">
+              <strong>{{ label }}</strong>
+              {% if kirim %}<span class="badge badge-success">dilampirkan</span>
+              {% elif simpan %}<span class="badge badge-info">tersimpan</span>
+              {% else %}<span class="badge badge-warning">belum ada</span>{% endif %}
+            </div>
+            {% set berkas = kirim or simpan %}
+            {% if berkas %}
+              <div class="mt-1">
+                <a class="mono" href="/pengajuan/dokumen/{{ berkas.id }}" target="_blank" rel="noopener">
+                  {{ berkas.nama_asli | singkat(30) }}
+                </a>
+                <div class="muted" style="font-size:.76rem">
+                  {{ (berkas.ukuran or 0) | angka_id }} byte · {{ berkas.diunggah_at | tanggal_waktu }}
+                </div>
+              </div>
+            {% endif %}
+          </div>
+        {% endfor %}
+
+        {% for berkas in dokumen %}
+          {% if berkas.nama_asli and berkas.nama_asli.split('.')[-1] | lower in ['jpg','jpeg','png','webp'] %}
+            <a href="/pengajuan/dokumen/{{ berkas.id }}" target="_blank" rel="noopener">
+              <img src="/pengajuan/dokumen/{{ berkas.id }}" alt="Berkas {{ berkas.jenis }}"
+                   style="width:100%;border-radius:10px;border:1px solid var(--border);margin-top:.4rem">
+            </a>
+          {% endif %}
+        {% endfor %}
+        {% if not dokumen %}
+          <div class="note mt-2">Pengajuan ini tidak melampirkan berkas baru — bukti yang ada
+            sebelumnya dipakai (lihat "tersimpan").</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head"><h3>Kelengkapan Berkas</h3></div>
+      <div class="card-body">
+        <p class="{{ 'badge badge-success' if wajib_lengkap else 'badge badge-warning' }}">
+          {{ 'Tiga berkas wajib sudah ada' if wajib_lengkap else 'Berkas wajib belum lengkap' }}
+        </p>
+        <p class="muted mb-0" style="font-size:.82rem">
+          Akta kelahiran, kartu keluarga, dan ijazah disimpan pada folder
+          <span class="mono">data/uploads/dokumen/</span> dan hanya dapat dibuka oleh siswa
+          yang bersangkutan dan admin.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% from "_macros.html" import icon %}
+<header class="topbar">
+  <button type="button" class="icon-btn only-mobile" data-sidebar-open aria-label="Buka menu">
+    {{ icon('menu') }}
+  </button>
+
+  <div class="topbar-title">
+    <h1>{{ page_title }}</h1>
+    <p class="topbar-sub">{{ profil.nama }}{% if profil.kecamatan %} · {{ profil.kecamatan }}{% endif %}</p>
+  </div>
+
+  {% if user and user.is_staff %}
+  <form class="quick-search no-print" method="get" action="/data-siswa" role="search">
+    <label class="sr-only" for="cari-cepat">Cari siswa (nama, NISN, NIPD)</label>
+    {{ icon('search') }}
+    <input type="search" id="cari-cepat" name="q" placeholder="Cari siswa…" autocomplete="off">
+    <kbd title="Pintasan papan tunas">Ctrl K</kbd>
+  </form>
+  {% endif %}
+
+  <div class="topbar-actions">
+    {% if user and user.is_staff %}
+      <a class="btn btn-primary btn-sm" href="/impor">{{ icon('upload') }} <span class="hide-sm">Impor Berkas</span></a>
+      <a class="btn btn-outline btn-sm" href="/data-siswa/baru">{{ icon('plus') }} <span class="hide-sm">Siswa</span></a>
+    {% endif %}
+    <div class="avatar" title="{{ user.nama if user else '' }}">{{ user.inisial if user else '?' }}</div>
+  </div>
+</header>

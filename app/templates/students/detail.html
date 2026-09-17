@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, input_medan, nilai, bagian_wali %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <div class="profile-head">
+      <div class="avatar-lg">{{ siswa.nama[:1] if siswa.nama else '?' }}</div>
+      <div style="flex:1;min-width:220px">
+        <h2 style="margin-bottom:.15rem">{{ siswa.nama }}</h2>
+        <div class="flex flex-wrap gap-1">
+          <span class="chip">{{ icon('user') }} NISN {{ siswa.nisn or '-' }}</span>
+          {% if siswa.rombel %}<span class="chip chip-muted">{{ siswa.rombel }}</span>{% endif %}
+          <span class="badge badge-{{ siswa.status | badge }} badge-lg">{{ siswa.status }}</span>
+          {% if siswa.is_kip %}<span class="badge badge-success badge-lg">Penerima KIP</span>{% endif %}
+          {% if siswa.is_kps %}<span class="badge badge-info badge-lg">Penerima KPS</span>{% endif %}
+          {% if siswa.is_layak_pip %}<span class="badge badge-warning badge-lg">Layak PIP</span>{% endif %}
+        </div>
+        <p class="muted mt-1" style="font-size:.82rem">
+          {{ siswa.tempat_lahir or '—' }}, {{ siswa.tanggal_lahir | tanggal_id }}
+          · {{ siswa.umur if siswa.tanggal_lahir else '' }}
+          {% if siswa.tanggal_lahir %}({{ siswa.tanggal_lahir | umur }}){% endif %}
+          · Terakhir diubah {{ siswa.updated_at | tanggal_waktu }}
+        </p>
+      </div>
+      <div class="btn-group">
+        <a class="btn btn-outline btn-sm" href="/data-siswa">{{ icon('users') }} Daftar</a>
+        {% if user.is_admin %}
+        <form method="post" action="/data-siswa/{{ siswa.id }}/hapus"
+              data-confirm="Hapus data {{ siswa.nama }}? Tindakan ini tidak bisa dibatalkan.">
+          <button class="btn btn-danger btn-sm" type="submit">{{ icon('trash') }} Hapus</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="split mt-2">
+  <div>
+    <form method="post" action="/data-siswa/{{ siswa.id }}" class="card">
+      <div class="card-head">
+        <div>
+          <h3>Data Lengkap Siswa</h3>
+          <p>
+            Perbarui kolom yang perlu diperbaiki, lalu simpan. Setiap perubahan tercatat di riwayat.
+            Kolom <strong>Rombel Saat Ini</strong> dan <strong>Tingkat</strong> tidak dapat diubah di
+            sini — perubahannya hanya lewat <strong>impor Excel</strong>.
+          </p>
+        </div>
+      </div>
+      <div class="card-body">
+        {% for grup, daftar in grup_field.items() %}
+          {% if grup == 'wali' %}
+            {{ bagian_wali(daftar, siswa) }}
+          {% else %}
+            <div class="section-title">{{ GROUP_LABELS.get(grup, grup) }}</div>
+            <div class="form-grid">
+              {% for spec in daftar %}
+                {{ input_medan(spec, siswa.get(spec.key), agama_options,
+                     nonaktif=spec.key in FIELD_TERKUNCI) }}
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endfor %}
+
+        <div class="section-title">Status & Catatan</div>
+        <div class="form-grid">
+          <div class="field">
+            <label for="status">Status siswa</label>
+            <select id="status" name="status">
+              {% for opsi in status_options %}
+                <option value="{{ opsi }}" {{ 'selected' if siswa.status == opsi }}>{{ opsi }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field span-2">
+            <label for="catatan">Catatan internal</label>
+            <textarea id="catatan" name="catatan" placeholder="Catatan tata usaha, misalnya berkas yang belum lengkap…">{{ siswa.catatan or '' }}</textarea>
+          </div>
+        </div>
+
+        <div class="form-actions sticky-actions">
+          <button class="btn btn-primary" type="submit">{{ icon('check') }} Simpan Perubahan</button>
+          <a class="btn btn-outline" href="/data-siswa/{{ siswa.id }}">Batalkan perubahan</a>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <aside>
+    <div class="card">
+      <div class="card-head"><h3>Ringkasan Cepat</h3></div>
+      <div class="card-body">
+        <dl class="kv" style="grid-template-columns:1fr">
+          <dt>NIPD / NIS lokal</dt><dd>{{ nilai(siswa.nipd) }}</dd>
+          <dt>NIK</dt><dd class="mono">{{ nilai(siswa.nik) }}</dd>
+          <dt>No. Kartu Keluarga</dt><dd class="mono">{{ nilai(siswa.no_kk) }}</dd>
+          <dt>Alamat</dt><dd>{{ nilai(siswa.alamat) }}{% if siswa.rt or siswa.rw %}, RT {{ siswa.rt or '-' }}/RW {{ siswa.rw or '-' }}{% endif %}</dd>
+          <dt>Desa/Kelurahan</dt><dd>{{ nilai(siswa.kelurahan) }}</dd>
+          <dt>Kecamatan</dt><dd>{{ nilai(siswa.kecamatan) }}</dd>
+          <dt>Kontak</dt><dd>{{ nilai(siswa.hp) }}</dd>
+          <dt>Sekolah asal</dt><dd>{{ nilai(siswa.sekolah_asal) }}</dd>
+          <dt>Jarak ke sekolah</dt><dd>{{ siswa.jarak_rumah ~ ' km' if siswa.jarak_rumah is not none else '—' }}</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <h3>Ekstrakurikuler</h3>
+        <a class="btn btn-outline btn-sm" href="/ekstrakurikuler">{{ icon('plus') }} Kelola</a>
+      </div>
+      <div class="card-body">
+        {% if ekskul %}
+          <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:.5rem">
+            {% for item in ekskul %}
+              <li>
+                <strong>{{ item.nama }}</strong>
+                <div class="muted" style="font-size:.78rem">
+                  {{ item.jabatan }}{% if item.hari %} · {{ item.hari }}{% endif %}
+                  {% if item.pembina %} · Pembina {{ item.pembina }}{% endif %}
+                  {% if item.pelatih %} · Pelatih {{ item.pelatih }}{% endif %}
+                  {% if item.predikat %} · Nilai {{ item.predikat }}{% endif %}
+                  {% if item.catatan %}<div class="muted" style="font-size:.76rem">Catatan: {{ item.catatan }}</div>{% endif %}
+                  {% if item.predikat %} · Predikat {{ item.predikat }}{% endif %}
+                </div>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty">Siswa belum terdaftar di ekstrakurikuler.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Riwayat Perubahan</h3>
+          <p>{{ perubahan | length }} catatan terakhir</p>
+        </div>
+      </div>
+      <div class="card-body p-0 table-wrap compact">
+        <table class="data tabel-kecil">
+          <tbody>
+            {% for item in perubahan %}
+            <tr>
+              <td>
+                <strong>{{ field_by_key[item.field].label if item.field in field_by_key else item.field }}</strong>
+                <div class="muted" style="font-size:.76rem">
+                  <span style="text-decoration:line-through">{{ item.old_value | singkat(26) }}</span>
+                  → <span style="color:var(--success)">{{ item.new_value | singkat(26) }}</span>
+                </div>
+                <div class="muted" style="font-size:.72rem">
+                  {{ item.source }} · {{ item.actor or 'sistem' }} · {{ item.created_at | tanggal_waktu }}
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td class="empty">Belum ada perubahan tercatat.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </aside>
+</div>
+{% endblock %}
