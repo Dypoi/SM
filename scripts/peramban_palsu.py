@@ -358,6 +358,9 @@ class PerambanPalsu:
                        jalur="/html/body/div[2]/div/div/div[2]/div/div/div/div[3]/div[2]/div/div/"
                              "div/div[1]/div/div/div[7]/div/div/table/tbody/tr/td/div[2]/div/div/"
                              "span/input"),
+            # Kolom teks di sebelah kotak «Jarak rumah ke sekolah» — persis Dapodik.
+            UnsurPalsu(self, "input", type="text", name="jarak_rumah_ke_sekolah_km",
+                       label="Sebutkan (dalam kilometer)", periodik=True),
             UnsurPalsu(self, "input", type="text", name="jumlah_saudara_kandung",
                        label="Jumlah Saudara Kandung", periodik=True),
             UnsurPalsu(self, "span", kelas="x-btn-inner-default-small", teks="Simpan dan Tutup",

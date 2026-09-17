@@ -1777,8 +1777,8 @@ def bot_antrean(rombel: str = "", limit: int = 0, nisn_manual: str = "",
             syarat.append("(s.nipd IS NULL OR TRIM(s.nipd) = '')")
     sql = (
         "SELECT s.id, s.nama, s.nisn, s.nipd, s.rombel, s.tingkat, s.status, "
-        "s.sekolah_asal, s.tinggi_badan, s.berat_badan, s.lingkar_kepala, s.jml_saudara "
-        "FROM students s "
+        "s.sekolah_asal, s.tinggi_badan, s.berat_badan, s.lingkar_kepala, s.jml_saudara, "
+        "s.jarak_rumah FROM students s "
         "WHERE " + " AND ".join(syarat) +
         " ORDER BY s.rombel COLLATE NOCASE, s.nama COLLATE NOCASE"
     )

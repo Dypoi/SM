@@ -2183,7 +2183,8 @@ def cek_bot_dapodik() -> str:
         #      dipilih, jadi urutannya harus benar: pilih baris dulu, baru mengisi.
         siswa_periodik = {"nisn": "3137492873", "nipd": "3144", "nama": "Uji",
                           "sekolah_asal": "SDN UJI", "tinggi_badan": 155.0,
-                          "berat_badan": 47.5, "lingkar_kepala": 52, "jml_saudara": 3}
+                          "berat_badan": 47.5, "lingkar_kepala": 52, "jml_saudara": 3,
+                          "jarak_rumah": 7.9}
         jejak.clear()
         asli_waktu = bot_dapodik.time
         jam_periodik = _WaktuCepat(time)
@@ -2208,6 +2209,10 @@ def cek_bot_dapodik() -> str:
         assert tersimpan.get("jumlah_saudara_kandung") == "3", \
             f"jumlah saudara kandung tidak terisi: {tersimpan}"
         assert tersimpan.get("jarak") == "1", "kotak «Jarak rumah ke sekolah» tidak dicentang"
+        assert tersimpan.get("jarak_rumah_ke_sekolah_km") == "7.9", \
+            f"kolom «Sebutkan (dalam kilometer)» tidak terisi: {tersimpan}"
+        assert any("Sebutkan (dalam kilometer) [jarak_rumah_ke_sekolah_km]" in baris
+                   for baris in jejak), f"log kolom kilometer tidak memuat nama kolomnya: {jejak[-6:]}"
         assert palsu_periodik.ketikan_diabaikan == 0, \
             "ada ketikan yang diabaikan — panel Data Periodik belum hidup saat diisi"
         assert palsu_periodik.baris_siswa_terpilih(), "baris siswa tidak terpilih saat mengisi"
@@ -2216,6 +2221,20 @@ def cek_bot_dapodik() -> str:
         urut_nis = [i for i, b in enumerate(jejak) if "kolom NIS:" in b]
         assert urut_periodik and urut_nis and urut_periodik[0] < urut_nis[0], \
             "Data Periodik harus diisi & disimpan SEBELUM tombol Registrasi ditekan"
+        # Urutan seperti skrip sekolah: tinggi → berat → lingkar → jarak (+ kilometer)
+        # → jumlah saudara kandung.
+        def urut(penanda: str) -> int:
+            for indeks, baris in enumerate(jejak):
+                if penanda in baris:
+                    return indeks
+            return -1
+        urut_centang = urut("dicatat: 1 dari 1") if urut("dicatat: 1 dari 1") >= 0 \
+            else urut("dicentang: 1 dari 1")
+        urut_km = urut("jarak_rumah_ke_sekolah_km]: terisi")
+        urut_saudara = urut("Jumlah saudara kandung: terisi")
+        assert -1 < urut_centang < urut_km < urut_saudara, \
+            f"urutan Data Periodik tidak seperti skrip sekolah: centang={urut_centang} " \
+            f"kilometer={urut_km} saudara={urut_saudara}"
         assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
 
         # Halaman yang panel Data Periodiknya baru terjangkau setelah digulir (persis
@@ -2276,6 +2295,10 @@ def cek_bot_dapodik() -> str:
             bot_dapodik.time = asli_waktu
         assert any("data siswa kosong" in baris for baris in jejak), jejak[-5:]
         assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
+        # Jarak kosong → kotak «Jarak rumah ke sekolah» TIDAK dicentang (Dapodik menolak
+        # centang tanpa keterangan kilometernya).
+        assert palsu_kosong_p.jarak_dicentang == 0, \
+            "kotak jarak tidak boleh dicentang saat data jaraknya kosong"
 
         # Halaman Dapodik tanpa panel Data Periodik → langkah dilewati, siswa tetap berhasil.
         jejak.clear()
@@ -2311,7 +2334,8 @@ def cek_bot_dapodik() -> str:
         contoh_antrean = services.bot_antrean(limit=1, lewati_sukses=False)
         assert contoh_antrean and "sekolah_asal" in contoh_antrean[0], \
             "antrean bot tidak membawa kolom sekolah asal"
-        for kolom_periodik in ("tinggi_badan", "berat_badan", "lingkar_kepala", "jml_saudara"):
+        for kolom_periodik in ("tinggi_badan", "berat_badan", "lingkar_kepala", "jml_saudara",
+                               "jarak_rumah"):
             assert kolom_periodik in contoh_antrean[0], \
                 f"antrean bot tidak membawa kolom {kolom_periodik}"
 

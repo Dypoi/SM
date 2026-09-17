@@ -64,6 +64,9 @@ SELECTOR_BAWAAN: dict[str, str] = {
     "periodik_saudara": "name:jumlah_saudara_kandung",
     "periodik_jarak": "/html/body/div[2]/div/div/div[2]/div/div/div/div[3]/div[2]/div/div/div/"
                       "div[1]/div/div/div[7]/div/div/table/tbody/tr/td/div[2]/div/div/span/input",
+    # Kolom teks di sebelah kotak «Jarak rumah ke sekolah»: «Sebutkan (dalam kilometer):»
+    # namanya ``jarak_rumah_ke_sekolah_km``. Isinya jarak (km) dari data siswa SM.
+    "periodik_jarak_km": "name:jarak_rumah_ke_sekolah_km",
     "simpan_periodik": '//span[contains(@class, "x-btn-inner-default-small") '
                        'and contains(text(), "Simpan dan Tutup")]',
     "hobi": "name:id_hobby",
@@ -175,8 +178,15 @@ SELECTOR_CADANGAN: dict[str, list[str]] = {
     "periodik_jarak": [
         'xpath://label[contains(normalize-space(), "Jarak rumah ke sekolah")]'
         '/following::input[@type="checkbox"][1]',
-        'xpath://*[contains(normalize-space(), "Jarak rumah ke sekolah")]/following::input[1]',
-        "css:input[name*=jarak]",
+        'xpath://*[contains(normalize-space(), "Jarak rumah ke sekolah")]'
+        '/following::input[@type="checkbox"][1]',
+        "css:input[type=checkbox][name*=jarak]",
+    ],
+    "periodik_jarak_km": [
+        "label:Sebutkan",                       # labelnya «Sebutkan (dalam kilometer):»
+        "css:input[name=jarak_rumah_ke_sekolah_km]",
+        "css:input[name*=sekolah_km]",
+        "css:input[type=text][name*=jarak]",
     ],
     "simpan_periodik": [
         'xpath://span[contains(@class, "x-btn-inner-default-small") '
@@ -954,8 +964,9 @@ class BotDapodik:
                 const cari = String(arguments[0] || '').replace(/\s+/g, ' ').trim().toLowerCase();
                 if (!cari) return null;
                 const rapi = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                const bersih = (t) => rapi(t).replace(/[*:\u00a0]+$/g, '').trim();
                 const etiket = [...document.querySelectorAll('label')].find((l) => {
-                    const teks = rapi(l.textContent).replace(/\*$/, '').trim();
+                    const teks = bersih(l.textContent);
                     return teks === cari || teks.startsWith(cari);
                 });
                 if (etiket) {
@@ -974,7 +985,7 @@ class BotDapodik:
                 }
                 // Sebagian formulir Ext JS tidak memakai <label>: teks polos di sebelah kolom.
                 const semua = [...document.querySelectorAll('div, span, td')];
-                const pemilik = semua.find((d) => rapi(d.textContent).replace(/\*$/, '').trim() === cari);
+                const pemilik = semua.find((d) => bersih(d.textContent) === cari);
                 if (pemilik) {
                     return pemilik.parentElement
                         ? pemilik.parentElement.querySelector('input:not([type=hidden]), textarea, select')
@@ -1012,12 +1023,21 @@ class BotDapodik:
     #: Kolom Data Periodik: (kunci data siswa, label, kunci selector). Urutan mengikuti
     #: potongan skrip sekolah: tinggi badan → berat badan → lingkar kepala → (jarak) →
     #: jumlah saudara kandung → Simpan dan Tutup.
-    PERIODIK: tuple[tuple[str, str, str], ...] = (
+    PERIODIK_AWAL: tuple[tuple[str, str, str], ...] = (
         ("tinggi_badan", "Tinggi badan", "periodik_tinggi"),
         ("berat_badan", "Berat badan", "periodik_berat"),
         ("lingkar_kepala", "Lingkar kepala", "periodik_lingkar"),
+    )
+    #: Kolom yang diisi SESUDAH baris «Jarak rumah ke sekolah» (urutan sama seperti skrip
+    #: sekolah: centang jarak & kolom kilometernya lebih dulu, baru jumlah saudara kandung).
+    PERIODIK_AKHIR: tuple[tuple[str, str, str], ...] = (
         ("jml_saudara", "Jumlah saudara kandung", "periodik_saudara"),
     )
+
+    @property
+    def PERIODIK(self) -> tuple[tuple[str, str, str], ...]:
+        """Semua kolom Data Periodik (untuk pemeriksaan keberadaan panel)."""
+        return self.PERIODIK_AWAL + self.PERIODIK_AKHIR
 
     @staticmethod
     def _nilai_teks(nilai: Any) -> str:
@@ -1151,6 +1171,31 @@ class BotDapodik:
             return (f"kotak «Jarak rumah ke sekolah» dicentang: {dicentang} dari {len(kotak)}")
         return "kotak «Jarak rumah ke sekolah» tidak ada di halaman ini"
 
+    def _isi_jarak_km(self, peramban, peta: dict[str, str], nilai: str) -> str:
+        """Isi kolom «Sebutkan (dalam kilometer):» di baris «Jarak rumah ke sekolah».
+
+        Namanya di Dapodik: ``jarak_rumah_ke_sekolah_km``. Nilainya jarak (km) dari data
+        siswa SM. Nama kolom ikut dicatat pada log supaya mudah diperiksa.
+        """
+        unsur = self._cari_kolom_dengan_gulir(peramban, "periodik_jarak_km", peta)
+        if unsur is not None:
+            try:      # kotak centang/radio bukan kolom isian kilometer
+                if str(unsur.get_attribute("type") or "").lower() in ("checkbox", "radio"):
+                    unsur = None
+            except Exception:  # noqa: BLE001 — tidak terbaca: biarkan
+                pass
+        if unsur is None:
+            return "kolom «Sebutkan (dalam kilometer)» tidak ada di halaman ini"
+        nama = ""
+        try:
+            nama = str(unsur.get_attribute("name") or "").strip()
+        except Exception:  # noqa: BLE001 — nama kolom hanya untuk log
+            nama = ""
+        tanda = f" [{nama}]" if nama else ""
+        keterangan = self._isi_periodik_satu(peramban, peta, "periodik_jarak_km",
+                                             "Sebutkan (dalam kilometer)", nilai, unsur)
+        return f"{tanda}: {keterangan}" if keterangan.startswith("terisi") else keterangan
+
     def _isi_data_periodik(self, peramban, peta: dict[str, str],
                            siswa: dict[str, Any]) -> bool:
         """Isi panel Data Periodik lalu simpan — **sebelum** tombol Registrasi ditekan.
@@ -1176,24 +1221,49 @@ class BotDapodik:
             return False
 
         self._catat_kepala("[periodik] mengisi Data Periodik (tinggi, berat, lingkar kepala, "
-                           "jarak, jumlah saudara kandung) — sesuai skrip sekolah.")
+                           "jarak + kilometer, jumlah saudara kandung) — urutan skrip sekolah.")
         terisi = 0
-        for (kunci, label, kunci_sel), unsur in zip(self.PERIODIK, ada_kolom):
+
+        def isi(kunci: str, label: str, kunci_sel: str, unsur) -> None:
+            nonlocal terisi
             nilai = self._nilai_teks(siswa.get(kunci))
             if not nilai:
                 self._catat_kepala(f"[periodik] {label}: data siswa kosong — dilewati.")
-                continue
+                return
             keterangan = self._isi_periodik_satu(peramban, peta, kunci_sel, label, nilai, unsur)
             self._catat_kepala(f"[periodik] {label}: {keterangan}")
             if keterangan.startswith("terisi"):
                 terisi += 1
             time.sleep(2)          # jeda antar kolom, sama seperti skrip sekolah
-        if self.opsi.get("bot_periodik_jarak", "1") == "1":
+
+        # 1) kolom sebelum baris «Jarak rumah ke sekolah» (tinggi, berat, lingkar kepala)
+        for (kunci, label, kunci_sel), unsur in zip(self.PERIODIK_AWAL, ada_kolom):
+            isi(kunci, label, kunci_sel, unsur)
+        # 2) baris «Jarak rumah ke sekolah»: kotak centang + kolom «Sebutkan (dalam kilometer)».
+        #    Bila data jaraknya kosong, keduanya dilewati — Dapodik biasanya menolak
+        #    «jarak rumah ke sekolah» yang dicentang tanpa menyebutkan kilometernya.
+        jarak_km = self._nilai_teks(siswa.get("jarak_rumah")) \
+            if self.opsi.get("bot_periodik_jarak", "1") == "1" else ""
+        if jarak_km:
             self._catat_kepala(f"[periodik] {self._centang_jarak(peramban, peta)}")
             time.sleep(2)
+            keterangan_km = self._isi_jarak_km(peramban, peta, jarak_km)
+            self._catat_kepala("[periodik] Sebutkan (dalam kilometer)"
+                               + (keterangan_km if keterangan_km.startswith(" [")
+                                  else ": " + keterangan_km))
+            if "terisi" in keterangan_km:
+                terisi += 1
+            time.sleep(2)
+        elif self.opsi.get("bot_periodik_jarak", "1") != "1":
+            self._catat_kepala("[periodik] kotak «Jarak rumah ke sekolah» dan kolom "
+                               "kilometernya tidak diisi (sesuai pengaturan).")
         else:
-            self._catat_kepala("[periodik] kotak «Jarak rumah ke sekolah» tidak dicentang "
-                               "(sesuai pengaturan).")
+            self._catat_kepala("[periodik] kotak «Jarak rumah ke sekolah» tidak dicentang — "
+                               "data siswa (Jarak Rumah ke Sekolah) kosong.")
+        # 3) kolom sesudahnya (jumlah saudara kandung)
+        for (kunci, label, kunci_sel), unsur in zip(self.PERIODIK_AKHIR,
+                                                    ada_kolom[len(self.PERIODIK_AWAL):]):
+            isi(kunci, label, kunci_sel, unsur)
 
         # Simpan panel Data Periodik (persis: tombol «Simpan dan Tutup»).
         loc_simpan, _, _ = self._cari_dengan_cadangan(peramban, "simpan_periodik", peta,
