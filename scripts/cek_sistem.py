@@ -2500,6 +2500,41 @@ def cek_bot_dapodik() -> str:
                 == "7.9"), f"kolom km tidak tersimpan lewat jalur Ext JS: " \
                            f"{palsu_ext.data_periodik_tersimpan}"
 
+        # Keadaan pada DOM sekolah yang paling halus: «kurang dari 1 km» sudah tercentang
+        # (berpenanda x-form-cb-checked), dan klik berikutnya hanya mengubah DOM tanpa
+        # memindahkan penanda itu → nilai Ext JS belum berubah, sehingga kolom kilometer
+        # TETAP nonaktif. Bot harus menyadarinya dan naik ke Ext.getCmp(...).setValue(...).
+        jejak.clear()
+        asli_waktu = bot_dapodik.time
+        jam_model = _WaktuCepat(time)
+        bot_dapodik.time = jam_model
+        try:
+            palsu_model = peramban_palsu.buat("alur_penuh").pakai_jam(jam_model.monotonic)
+            palsu_model.popup_detik = None
+            palsu_model.registrasi_otomatis = True
+            palsu_model.siapkan_model_ext_tidak_ikut()
+            nisn_model = siswa_periodik["nisn"]
+            palsu_model.nisn_dicari = nisn_model
+            palsu_model.tambah_baris_siswa(nisn_model)
+            bot_model = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                               kepala=jejak.append)
+            bot_model._login(palsu_model)
+            bot_model._proses_satu(palsu_model, siswa_periodik, None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert palsu_model.jarak_pilihan == "Lebih dari 1 km", \
+            f"radio tidak terpilih pada keadaan model-Ext-tidak-ikut: {palsu_model.jarak_pilihan!r}"
+        assert any("nilai Ext JS belum" in baris for baris in jejak), \
+            f"bot tidak menyadari penanda x-form-cb-checked belum pindah: {jejak[-8:]}"
+        assert palsu_model.ext_setvalue_dipakai >= 1, \
+            "bot tidak naik ke Ext.getCmp saat nilai Ext JS belum berubah"
+        km_model = next(unsur for unsur in palsu_model.unsur
+                        if unsur.name == "jarak_rumah_ke_sekolah_km")
+        assert km_model.enabled, \
+            "kolom «Sebutkan (dalam kilometer)» tetap nonaktif setelah Ext.getCmp dipakai"
+        assert (palsu_model.data_periodik_tersimpan.get("jarak_rumah_ke_sekolah_km")
+                == "7.9"), f"kolom km tidak tersimpan: {palsu_model.data_periodik_tersimpan}"
+
         # Data periodik kosong → dicatat pada log, siswa tetap berhasil.
         jejak.clear()
         jam_kosong_p = _WaktuCepat(time)

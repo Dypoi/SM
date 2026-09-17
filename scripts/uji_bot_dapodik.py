@@ -138,18 +138,31 @@ def main() -> int:
     cek(any("belum menandainya terpilih" in baris for baris in j4), j4[-4:])
     cek(any("dilewati" in baris and "belum terpasang" in baris for baris in j4), j4[-4:])
 
-    # 5) Data jarak ≤ 1 km → pilihan «kurang dari 1 km», km tidak diisi.
-    p5, _ = jalankan("5. jarak 0,7 km → «kurang dari 1 km», km tidak diisi", 0.7)
+    # 5) Keadaan paling halus: klik mengubah DOM (input checked) TETAPI model Ext JS tidak
+    #    ikut — penanda x-form-cb-checked tetap di pilihan lama, sehingga kolom kilometer
+    #    tetap NONAKTIF. Bot harus menyadarinya dan naik ke Ext.getCmp(...).setValue(...).
+    p7, j7 = jalankan("5. DOM berubah tapi model Ext JS tidak → naik ke Ext.getCmp", 2,
+                      atur=lambda p: p.siapkan_model_ext_tidak_ikut(), tampilkan=True)
+    cek(p7.jarak_pilihan == "Lebih dari 1 km", f"radio salah: {p7.jarak_pilihan!r}")
+    cek(p7.ext_setvalue_dipakai >= 1, "bot tidak naik ke Ext.getCmp saat penandanya tidak pindah")
+    cek(any("nilai Ext JS belum" in baris for baris in j7), [b for b in j7 if "periodik" in b])
+    km7 = next(unsur for unsur in p7.unsur if unsur.name == "jarak_rumah_ke_sekolah_km")
+    cek(km7.enabled, "kolom km tetap nonaktif setelah Ext.getCmp menyetel nilainya")
+    cek(p7.data_periodik_tersimpan.get("jarak_rumah_ke_sekolah_km") == "2",
+        f"kolom km tidak tersimpan: {p7.data_periodik_tersimpan}")
+
+    # 6) Data jarak ≤ 1 km → pilihan «kurang dari 1 km», km tidak diisi.
+    p5, _ = jalankan("6. jarak 0,7 km → «kurang dari 1 km», km tidak diisi", 0.7)
     cek(p5.jarak_pilihan == "Kurang dari 1 km", f"radio salah: {p5.jarak_pilihan!r}")
     cek(not str(p5.data_periodik_tersimpan.get("jarak_rumah_ke_sekolah_km") or "").strip(),
         "kolom km terisi untuk jarak ≤ 1 km")
 
     # 6) Data jarak kosong → tidak ada pilihan yang ditebak.
-    p6, j6 = jalankan("6. jarak kosong → tidak ada pilihan ditebak", "")
+    p6, j6 = jalankan("7. jarak kosong → tidak ada pilihan ditebak", "")
     cek(p6.jarak_pilihan == "", f"radio seharusnya kosong: {p6.jarak_pilihan!r}")
     cek(any("Jarak Rumah ke Sekolah) kosong" in baris for baris in j6), j6[-4:])
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 6 skenario")
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 7 skenario")
     return 0
 
 

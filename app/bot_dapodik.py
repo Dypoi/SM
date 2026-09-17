@@ -1325,12 +1325,114 @@ class BotDapodik:
         except Exception:  # noqa: BLE001
             return False
 
-    def _komponen_id(self, unsur) -> str:
-        """Id komponen Ext JS (``data-componentid``) — kunci untuk ``Ext.getCmp(...)``."""
+    def _komponen_id(self, peramban, unsur) -> str:
+        """Id komponen Ext JS untuk ``Ext.getCmp(...)``.
+
+        Dicari berurutan: ``data-componentid`` milik unsurnya sendiri (itulah yang tertulis
+        pada DOM sekolah: ``radiofield-1112``, ``numberfield-1113``) → ``id`` wadah
+        ``.x-field`` terdekat → atribut ``for`` label di dekatnya (mis.
+        ``for="radiofield-1112-inputEl"`` → ``radiofield-1112``).
+        """
         try:
-            return str(unsur.get_attribute("data-componentid") or "").strip()
-        except Exception:  # noqa: BLE001
+            nilai = peramban.execute_script(
+                """
+                /* komponen-id */
+                const el = arguments[0];
+                const bersih = (t) => (t || '').trim();
+                const dari = el.getAttribute && el.getAttribute('data-componentid');
+                if (bersih(dari)) return bersih(dari);
+                const bidang = el.closest ? el.closest('.x-field[id]') : null;
+                if (bidang && bersih(bidang.id)) return bersih(bidang.id);
+                const label = (el.tagName === 'LABEL' && el.getAttribute('for'))
+                    ? el
+                    : (el.querySelector ? el.querySelector('label[for]') : null);
+                if (label) {
+                    const target = bersih(label.getAttribute('for')).replace(/-inputEl$/, '');
+                    if (target) return target;
+                }
+                return '';
+                """, unsur)
+            return str(nilai or "").strip()
+        except Exception:  # noqa: BLE001 — keterangan tambahan saja
             return ""
+
+    def _keadaan_pilihan(self, peramban, unsur) -> dict[str, Any]:
+        """Keadaan pilihan menurut DOM: sendiri tercentang? pasangan masih tercentang?
+
+        Pada DOM sekolah, penanda tercentang adalah kelas ``x-form-cb-checked`` pada
+        pembungkus ``div.x-field`` (input-nya tidak membawa atribut ``checked``). Untuk radio,
+        pilihan dianggap benar hanya bila **penandanya sudah pindah** ke radio yang diminta
+        dan radio pasangannya tidak lagi bertanda. Bila DOM berubah tetapi penandanya tidak
+        pindah, nilai Ext JS-nya belum berubah — di situlah jalur ``Ext.getCmp`` diperlukan,
+        sebab Dapodik baru mengaktifkan kolom kilometer setelah nilai Ext JS-nya berubah.
+        """
+        try:
+            return dict(peramban.execute_script(
+                """
+                /* keadaan-pilihan */
+                const el = arguments[0];
+                const bertanda = (x) => !!(x && x.closest && x.closest('.x-form-cb-checked'));
+                const sendiri = {
+                    checked: el.checked === true,
+                    kelas: bertanda(el),
+                    aria: !!(el.getAttribute && el.getAttribute('aria-checked') === 'true'),
+                };
+                let pasangan = false;
+                if (el.type === 'radio' && el.name) {
+                    const daftar = document.querySelectorAll(
+                        'input[type=radio][name="' + el.name + '"]');
+                    for (const lain of daftar) {
+                        if (lain === el) continue;
+                        if (lain.checked === true || bertanda(lain) ||
+                                (lain.getAttribute &&
+                                 lain.getAttribute('aria-checked') === 'true')) {
+                            pasangan = true;
+                            break;
+                        }
+                    }
+                }
+                return {sendiri: sendiri, pasangan: pasangan};
+                """, unsur) or {})
+        except Exception:  # noqa: BLE001 — kembali ke pemeriksaan sederhana
+            return {}
+
+    def _penanda_dipakai(self, peramban) -> bool:
+        """Apakah halaman ini memakai penanda ``x-form-cb-checked`` (ciri DOM Dapodik).
+
+        Bila dipakai, **radio** dinilai dari penanda itu: kelas itulah tanda bahwa nilai Ext JS
+        benar-benar berubah, dan Dapodik baru mengaktifkan kolom kilometer setelah itu. Versi
+        Dapodik yang tidak memakai penanda tetap dinilai dari keadaan biasa.
+        """
+        try:
+            return bool(peramban.execute_script(
+                "/* penanda-dipakai */ return !!document.querySelector('.x-form-cb-checked');"))
+        except Exception:  # noqa: BLE001 — anggap tidak dipakai
+            return False
+
+    def _terpilih_grup(self, peramban, unsur) -> bool:
+        """Terpilih menurut penanda Ext JS (radio) dan bukan hanya perubahan tampilan.
+
+        Pada DOM Dapodik, ``radiofield-1111`` yang terpilih ditandai kelas
+        ``x-form-cb-checked`` pada pembungkus ``div.x-field``-nya. Klik yang hanya mengubah
+        input (tanpa memindahkan penanda itu) berarti **model Ext JS belum berubah** — dan
+        Dapodik tetap menonaktifkan kolom kilometer sampai modelnya benar.
+        """
+        keadaan = self._keadaan_pilihan(peramban, unsur)
+        sendiri = (keadaan or {}).get("sendiri") or {}
+        if not sendiri:
+            return self._terpilih(peramban, unsur)
+        radio = self._jenis_kotak(peramban, unsur) == "radio"
+        if radio and self._penanda_dipakai(peramban):
+            if not sendiri.get("kelas"):
+                return False
+            if (keadaan or {}).get("pasangan"):
+                return False          # penandanya masih di pilihan lain
+            return True
+        if not (sendiri.get("checked") or sendiri.get("kelas") or sendiri.get("aria")):
+            return False
+        if radio and (keadaan or {}).get("pasangan"):
+            return False
+        return True
 
     def _set_ext(self, peramban, unsur, nilai=None, terpilih: bool = True) -> bool:
         """Pilih/isi lewat Ext JS sendiri: ``Ext.getCmp(id).setValue(...)``.
@@ -1339,7 +1441,7 @@ class BotDapodik:
         ``data-componentid``, dan ``Ext.getCmp`` memberi komponennya langsung — jadi
         nilainya masuk ke model Ext JS (bukan hanya ke DOM).
         """
-        komponen = self._komponen_id(unsur)
+        komponen = self._komponen_id(peramban, unsur)
         if not komponen:
             return False
         try:
@@ -1527,7 +1629,7 @@ class BotDapodik:
         kotaknya → klik pembungkus/labelnya → urutan tetikus lengkap lewat skrip.
         """
         unsur = self._unsur_kotak(peramban, unsur)
-        if self._terpilih(peramban, unsur):
+        if self._terpilih_grup(peramban, unsur):
             return True
         self._bawa_ke_layar(peramban, unsur)
         # 1) Cara skrip yang terbukti berhasil: klik **labelnya** (bukan kotak radio-nya).
@@ -1542,7 +1644,7 @@ class BotDapodik:
             except Exception:  # noqa: BLE001 — coba klik lewat skrip
                 pass
             time.sleep(0.3)
-            if self._terpilih(peramban, unsur):
+            if self._terpilih_grup(peramban, unsur):
                 self._catat_kepala(f"[periodik] {nama}: dipilih lewat labelnya "
                                    "(x-form-cb-label) — sama seperti skrip yang berhasil.")
                 return True
@@ -1551,7 +1653,7 @@ class BotDapodik:
             except Exception:  # noqa: BLE001
                 pass
             time.sleep(0.3)
-            if self._terpilih(peramban, unsur):
+            if self._terpilih_grup(peramban, unsur):
                 self._catat_kepala(f"[periodik] {nama}: dipilih lewat labelnya "
                                    "(klik skrip) — sama seperti skrip yang berhasil.")
                 return True
@@ -1561,7 +1663,7 @@ class BotDapodik:
         except Exception:  # noqa: BLE001 — coba cara berikutnya
             pass
         time.sleep(0.3)
-        if self._terpilih(peramban, unsur):
+        if self._terpilih_grup(peramban, unsur):
             return True
         for calon in pembungkus:   # 2) klik pembungkus/labelnya (cara Ext JS)
             try:
@@ -1569,7 +1671,7 @@ class BotDapodik:
             except Exception:  # noqa: BLE001
                 pass
             time.sleep(0.3)
-            if self._terpilih(peramban, unsur):
+            if self._terpilih_grup(peramban, unsur):
                 self._catat_kepala(f"[periodik] {nama}: dipilih lewat pembungkus/label "
                                    "kolomnya (klik pada kotaknya sendiri tidak diterima).")
                 return True
@@ -1579,7 +1681,7 @@ class BotDapodik:
             except Exception:  # noqa: BLE001
                 pass
             time.sleep(0.3)
-            if self._terpilih(peramban, unsur):
+            if self._terpilih_grup(peramban, unsur):
                 self._catat_kepala(f"[periodik] {nama}: dipilih lewat klik skrip pada "
                                    f"{'kotaknya' if calon is unsur else 'pembungkusnya'}.")
                 return True
@@ -1596,19 +1698,30 @@ class BotDapodik:
             except Exception:  # noqa: BLE001
                 continue
             time.sleep(0.3)
-            if self._terpilih(peramban, unsur):
+            if self._terpilih_grup(peramban, unsur):
                 self._catat_kepala(f"[periodik] {nama}: dipilih lewat urutan tetikus skrip.")
                 return True
-        # 5) Jalur pamungkas Ext JS: komponennya dipilih lewat Ext.getCmp(...).setValue(true).
-        #    Setiap unsur Ext JS membawa `data-componentid`, jadi nilainya masuk ke model
-        #    Ext JS — bukan hanya ke DOM.
+        # 5) Bila DOM-nya sudah berubah tetapi penanda `x-form-cb-checked` belum pindah,
+        #    nilainya belum masuk ke model Ext JS — dan Dapodik baru mengaktifkan kolom
+        #    kilometer setelah nilai itu benar-benar berubah. Jadi jalur Ext.getCmp dipakai
+        #    di sini, bukan sebagai pilihan terakhir tanpa keterangan.
+        if self._terpilih(peramban, unsur) and not self._terpilih_grup(peramban, unsur):
+            self._catat_kepala(f"[periodik] {nama}: tampilan sudah berubah tetapi nilai Ext JS "
+                               "belum (penanda x-form-cb-checked masih di pilihan lain) — "
+                               "dipakai Ext.getCmp.")
+        #    Id komponennya diambil dari `data-componentid` (radiofield-1112), wadah
+        #    `.x-field[id]`, atau label `for="radiofield-1112-inputEl"`.
+        komponen = self._komponen_id(peramban, unsur)
         if self._set_ext(peramban, unsur, terpilih=True):
             time.sleep(0.3)
-            if self._terpilih(peramban, unsur):
+            # Setelah Ext.getCmp, nilainya pasti masuk ke model Ext JS — jadi keadaan biasa
+            # (DOM benar-benar berubah) sudah cukup sebagai bukti, walau penanda kelas tidak
+            # dipakai pada versi Dapodik tertentu.
+            if self._terpilih_grup(peramban, unsur) or self._terpilih(peramban, unsur):
                 self._catat_kepala(f"[periodik] {nama}: dipilih lewat Ext JS sendiri "
-                                   f"(Ext.getCmp({self._komponen_id(unsur)!r}).setValue).")
+                                   f"(Ext.getCmp({komponen!r}).setValue).")
                 return True
-        return self._terpilih(peramban, unsur)
+        return self._terpilih_grup(peramban, unsur)
 
     def _pilih_jarak(self, peramban, peta: dict[str, str], jarak_km: str) -> tuple[str, bool]:
         """Pilih «kurang dari 1 km» / «lebih dari 1 km» sesuai data jarak siswa.

@@ -216,28 +216,36 @@ class UnsurPalsu:
         self._pilih_baris()          # klik sungguhan memilih baris tabel (mousedown)
         self._klik_paksa()
 
-    def _pilih_kotak(self) -> None:
-        """Kotak centang/radio terpilih (klik sungguhan / urutan tetikus asli / Ext JS)."""
+    def _pilih_kotak(self, dari_ext: bool = False) -> None:
+        """Kotak centang/radio terpilih (klik sungguhan / urutan tetikus asli / Ext JS).
+
+        ``dari_ext=True`` = dipilih lewat ``Ext.getCmp(...).setValue(...)`` so model Ext JS-nya
+        ikut berubah (penanda ``x-form-cb-checked`` berpindah). Klik biasa bisa jadi hanya
+        mengubah DOM tanpa memindahkan penanda — persis keluhan di PC sekolah.
+        """
         if self.terpilih and "x-form-cb-checked" in ((self.induk.kelas if self.induk else "")):
             return
         self.terpilih = True
-        # Ext JS menandai keadaan tercentang lewat kelas pada pembungkusnya — persis DOM
-        # sekolah: <div class="x-field ... x-form-cb-checked" id="radiofield-1111">.
-        if self.induk is not None and "x-form-cb-checked" not in (self.induk.kelas or ""):
-            self.induk.kelas = (self.induk.kelas + " x-form-cb-checked").strip()
-        if self.kelompok:
+        jarak = self.name.startswith("jarak") or (self.kelompok or "").startswith("jarak")
+        if jarak:
+            # Hindari hitungan ganda ketika pilihan yang sama disentuh lagi lewat Ext.getCmp.
+            self.peramban.jarak_dicentang += 1
+            self.peramban.jarak_pilihan = (self.label or self.jalur).strip()
+        if self.peramban.kelas_tidak_ikut_pindah and not dari_ext:
+            # Model Ext JS tidak ikut: penanda tetap di pilihan lama dan kolom km tetap
+            # nonaktif — inilah keadaan yang membuat bot harus naik ke Ext.getCmp.
+            self.peramban.perbarui_kolom_km()
+            return
+        if self.kelompok:              # model Ext JS ikut: penandanya pindah
             for lain in self.peramban.unsur:
                 if lain is not self and lain.kelompok == self.kelompok:
                     lain.terpilih = False
                     if lain.induk is not None:
                         lain.induk.kelas = lain.induk.kelas.replace(
                             "x-form-cb-checked", "").strip()
-            self.peramban.perbarui_kolom_km()
-        if self.name == "jarak_rumah" or (self.kelompok or "").startswith("jarak"):
-            # Hanya pilihan jarak yang dihitung (pilihan «Ya» tidak ikut tercampur).
-            self.peramban.jarak_dicentang += 1
-            self.peramban.jarak_pilihan = (self.label or self.jalur).strip()
-            self.peramban.perbarui_kolom_km()
+        if self.induk is not None and "x-form-cb-checked" not in (self.induk.kelas or ""):
+            self.induk.kelas = (self.induk.kelas + " x-form-cb-checked").strip()
+        self.peramban.perbarui_kolom_km()
 
     def _pilih_baris(self) -> None:
         """Klik sungguhan pada baris tabel / kotak centang = memilihnya (seperti Ext JS)."""
@@ -404,6 +412,12 @@ class PerambanPalsu:
         self.keadaan_lewat_kelas = False
         #: berapa kali Ext.getCmp(...).setValue(...) dipakai
         self.ext_setvalue_dipakai = 0
+        #: True = klik mengubah DOM (input ``checked``) TETAPI model Ext JS tidak ikut:
+        #: penanda ``x-form-cb-checked`` tetap di pilihan lama dan kolom kilometer tetap
+        #: nonaktif. Inilah keadaan yang membuat bot harus naik ke ``Ext.getCmp``.
+        self.kelas_tidak_ikut_pindah = False
+        #: berapa kali bot naik ke Ext.getCmp karena penandanya tidak pindah
+        self.naik_ke_ext_kali = 0
         #: berapa kali bot menanyakan is_selected() pada kotak centang/radio
         self.is_selected_diminta = 0
         #: berapa kali keadaan tercentang terbaca dari kelas x-form-cb-checked
@@ -511,6 +525,9 @@ class PerambanPalsu:
             posisi = self.unsur.index(unsur) + 1
             self.unsur.insert(posisi, pembungkus)
             self.unsur.insert(posisi + 1, label)
+        if getattr(self, "kelas_tidak_ikut_pindah", False):
+            # Radio baru saja dibungkus: keadaan awal DOM sekolah = «kurang dari 1 km» tercentang.
+            self.pasang_kurang_tercentang()
 
     def _menu_tujuan_diklik(self) -> None:
         """Menu tujuan dibuka: Dapodik menampilkan popup pengumuman versi."""
@@ -624,6 +641,31 @@ class PerambanPalsu:
         self.periodik_perlu_gulir = int(kali)
         return self
 
+    def pasang_kurang_tercentang(self) -> None:
+        """Tandai «kurang dari 1 km» sebagai pilihan yang sedang tercentang (DOM sekolah).
+
+        Dipakai bersama ``kelas_tidak_ikut_pindah``: keadaan awal pada HTML sekolah adalah
+        «kurang dari 1 km» yang berpenanda ``x-form-cb-checked``.
+        """
+        kurang = next((unsur for unsur in self.unsur
+                       if unsur.type == "radio"
+                       and (unsur.label or "") == "Kurang dari 1 km"), None)
+        if kurang is None or kurang.induk is None:
+            return
+        kurang.terpilih = True
+        if "x-form-cb-checked" not in (kurang.induk.kelas or ""):
+            kurang.induk.kelas = (kurang.induk.kelas + " x-form-cb-checked").strip()
+        self.perbarui_kolom_km()
+
+    def siapkan_model_ext_tidak_ikut(self) -> "PerambanPalsu":
+        """Keadaan pada DOM sekolah: «kurang dari 1 km» sudah tercentang (berpenanda),
+        sementara klik berikutnya hanya mengubah DOM tanpa memindahkan penandanya —
+        sehingga kolom kilometer tetap nonaktif sampai ``Ext.getCmp`` menyetel nilainya.
+        """
+        self.kelas_tidak_ikut_pindah = True
+        self.pasang_kurang_tercentang()      # radio mungkin belum dibuat: diulang saat dibuat
+        return self
+
     def periodik_siap(self) -> bool:
         """Apakah area gulir panel Data Periodik sudah dijangkau (bukan gulir halaman)."""
         return len(self.gulir_panel) >= self.periodik_perlu_gulir
@@ -714,8 +756,11 @@ class PerambanPalsu:
                    if unsur.name == "jarak_rumah_ke_sekolah_km"), None)
         if km is None:
             return
-        km.enabled = any(unsur.kelompok == "jarak" and unsur.terpilih and
-                         (unsur.label or "").strip() == "Lebih dari 1 km"
+        # Dapodik mengaktifkan kolom km hanya setelah MODEL Ext JS-nya berubah — yaitu saat
+        # penanda x-form-cb-checked benar-benar pindah ke «lebih dari 1 km» (DOM saja tidak cukup).
+        km.enabled = any(unsur.kelompok == "jarak"
+                         and (unsur.label or "").strip() == "Lebih dari 1 km"
+                         and "x-form-cb-checked" in (unsur.induk.kelas if unsur.induk else "")
                          for unsur in self.unsur)
 
     def ext_set_value(self, componentid: str, nilai) -> bool:
@@ -726,7 +771,9 @@ class PerambanPalsu:
             if unsur.componentid and unsur.componentid == componentid:
                 if unsur.type in ("radio", "checkbox"):
                     if bool(nilai) and self.panel_periodik_terbuka():
-                        unsur._pilih_kotak()
+                        # Ext.getCmp memilih lewat MODEL Ext JS: penandanya ikut pindah dan
+                        # kolom kilometer pun jadi aktif.
+                        unsur._pilih_kotak(dari_ext=True)
                     return True
                 unsur.nilai = "" if nilai is None else str(nilai)
                 return True
@@ -1047,6 +1094,39 @@ class PerambanPalsu:
                 argumen[0].nilai = str(argumen[1])
                 argumen[0].diketik.append(str(argumen[1]))
             return None
+        if "keadaan-pilihan" in skrip and argumen:
+            # Keadaan pilihan: apakah unsurnya sendiri tercentang (properti checked / kelas
+            # x-form-cb-checked / aria-checked) dan apakah radio pasangannya masih tercentang.
+            sasaran = argumen[0]
+            bertanda = lambda u: (u is not None and u.induk is not None
+                                  and "x-form-cb-checked" in (u.induk.kelas or ""))
+            sendiri = {"checked": bool(sasaran.terpilih),
+                       "kelas": bertanda(sasaran),      # HANYA penanda kelas yang dihitung
+                       "aria": bertanda(sasaran)}
+            pasangan = False
+            if sasaran.type == "radio" and sasaran.kelompok:
+                for lain in self.unsur:
+                    if lain is sasaran or lain.kelompok != sasaran.kelompok:
+                        continue
+                    if lain.terpilih or bertanda(lain):
+                        pasangan = True
+                        break
+            if self.keadaan_lewat_kelas:
+                # Keadaan hanya terbaca dari kelas x-form-cb-checked (persis DOM sekolah).
+                sendiri = {"checked": False, "kelas": bertanda(sasaran), "aria": False}
+                self.dibaca_lewat_kelas += 1
+            return {"sendiri": sendiri, "pasangan": pasangan}
+        if "penanda-dipakai" in skrip:
+            return any("x-form-cb-checked" in ((unsur.induk.kelas if unsur.induk else ""))
+                       for unsur in self.unsur)
+        if "komponen-id" in skrip and argumen:
+            # Id komponen Ext JS: data-componentid → id wadah .x-field → `for` label.
+            sasaran = argumen[0]
+            if sasaran.componentid:
+                return sasaran.componentid
+            if sasaran.induk is not None and sasaran.induk.id:
+                return sasaran.induk.id
+            return ""
         if "Ext.getCmp" in skrip and len(argumen) >= 2:
             # Ext.getCmp(id).setValue(...) — jalur pamungkas Ext JS.
             berhasil = self.ext_set_value(str(argumen[0]), argumen[1])
