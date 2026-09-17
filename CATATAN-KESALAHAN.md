@@ -13,6 +13,22 @@ permanen), `scripts/peramban_palsu.py` (Dapodik tiruan), `scripts/cek_sistem.py`
 
 ---
 
+## 0a. Aturan emas (baca ini dulu bila sedang buru-buru)
+
+1. **Cocokkan kalimat log pengguna ke baris kode yang mencetaknya** (`grep` kalimat itu di
+   `app/bot_dapodik.py`) — jangan mulai dari jalur yang paling mudah diperbaiki.
+2. **Reproduksi sampai uji GAGAL lebih dulu**, baru perbaiki; uji hijau **tidak** berarti
+   beres di sekolah (uji tiruan ≠ Dapodik).
+3. **Tunggu, jangan menyimpulkan "tidak ada"**: Ext JS merender bertahap; popup/mask menelan
+   klik berikutnya.
+4. **Bedakan "perintah dikirim" dari "nilai berubah"** — selalu verifikasi keadaan halaman dan
+   laporkan jujur.
+5. **Jangan andalkan satu XPath** dan jangan tuduh kredensial/selector pengguna; skrip
+   Selenium yang bekerja = spesifikasi alur.
+6. **Pastikan versi kode di PC pengguna** (`Kode SM: …` / `[versi]`) sebelum menganalisis.
+
+---
+
 ## 0. Cara memakai catatan ini
 
 1. Nomor 1–10 di bawah adalah kesalahpahaman yang **sudah pernah terjadi**. Baca dulu
