@@ -77,6 +77,8 @@ class UnsurPalsu:
         self.untuk = str(sifat.get("untuk", ""))
         #: Pilihan yang diwakili pembungkus/label ini (mis. "Lebih dari 1 km")
         self.pilihan = str(sifat.get("pilihan", ""))
+        #: Id komponen Ext JS (``data-componentid`` pada DOM sekolah, mis. radiofield-1112)
+        self.componentid = str(sifat.get("componentid", ""))
         #: Unsur induk (untuk XPath leluhur sederhana, mis. mencari pembungkus)
         self.induk: "UnsurPalsu | None" = None
         #: True = tombol «Simpan dan Tutup» milik panel Data Periodik
@@ -90,7 +92,16 @@ class UnsurPalsu:
     def get_attribute(self, nama: str) -> str | None:
         peta = {"type": self.type, "name": self.name, "id": self.id,
                 "placeholder": self.placeholder, "aria-label": self.aria,
-                "value": self.nilai, "class": self.kelas, "label": self.label}
+                "value": self.nilai, "class": self.kelas, "label": self.label,
+                "data-componentid": self.componentid}
+        if nama == "checked":
+            # Pada mode keadaan_lewat_kelas atribut `checked` memang tidak ada di DOM —
+            # persis DOM Dapodik: keadaannya hanya ditandai kelas x-form-cb-checked.
+            if self.peramban.keadaan_lewat_kelas and self.type in ("radio", "checkbox"):
+                return None
+            return "checked" if self.terpilih else None
+        if nama == "disabled":
+            return None if self.enabled else "true"
         return peta.get(nama, self.nilai if nama == "value" else None)
 
     @property
@@ -109,7 +120,15 @@ class UnsurPalsu:
         return bool(self.enabled)
 
     def is_selected(self) -> bool:
-        """Terpilih — dipakai untuk baris tabel & kotak centang."""
+        """Terpilih — dipakai untuk baris tabel & kotak centang.
+
+        Pada mode ``keadaan_lewat_kelas`` (menirukan DOM Dapodik) keadaan tercentang TIDAK
+        terbaca dari sini: yang menandainya kelas ``x-form-cb-checked`` pada pembungkusnya,
+        sehingga bot harus memeriksanya lewat skrip.
+        """
+        if self.peramban.keadaan_lewat_kelas and self.type in ("radio", "checkbox"):
+            self.peramban.is_selected_diminta += 1
+            return False
         return bool(self.terpilih)
 
     # ------------------------------------------------------------ aksi ------ #
@@ -119,6 +138,13 @@ class UnsurPalsu:
             self.peramban.buka_formulir = True
 
     def _klik_paksa(self, script: bool = False) -> None:
+        if self.peramban.hanya_ext_yang_menerima and \
+                (self.untuk or self.type in ("radio", "checkbox")):
+            # Keadaan paling keras: Dapodik mengabaikan SEMUA klik pada pilihan itu —
+            # baik pada kotaknya, pembungkusnya, maupun labelnya. Yang menerima hanya
+            # Ext.getCmp(...).setValue(true) (lewat data-componentid).
+            self.peramban.klik_diabaikan += 1
+            return
         """Klik seperti lewat skrip: tetap bekerja walau unsur tidak terlihat.
 
         ``script=True`` = klik dikirim lewat skrip halaman (``arguments[0].click()``).
@@ -134,7 +160,8 @@ class UnsurPalsu:
             self.peramban.pilih_lewat_pembungkus(self.untuk, self.pilihan)
             return
         if self.type in ("radio", "checkbox") and (self.periodik or self.induk is not None) \
-                and (script or (self.peramban.hanya_label_yang_menerima and self.periodik)):
+                and (script or self.peramban.hanya_ext_yang_menerima
+                     or (self.peramban.hanya_label_yang_menerima and self.periodik)):
             self.peramban.diklik_skrip_diabaikan += 1
             return
         if self.periodik and not self.peramban.panel_periodik_terbuka():
@@ -173,6 +200,10 @@ class UnsurPalsu:
         """Klik sungguhan (mouse event asli) — inilah yang memilih baris di Ext JS."""
         if not self.is_displayed():
             raise ElementNotInteractableException("unsur tidak terlihat")
+        if not self.enabled:
+            # Selenium menolak mengklik/mengetik unsur yang nonaktif — persis kolom km
+            # Dapodik sebelum pilihan «lebih dari 1 km» terpasang.
+            raise ElementNotInteractableException("unsur nonaktif (disabled)")
         if self.peramban.popup_terbuka() and not self.popup:
             # Popup pengumuman (beserta lapisan modalnya) menutupi halaman ini.
             raise ElementClickInterceptedException(
@@ -186,23 +217,32 @@ class UnsurPalsu:
         self._klik_paksa()
 
     def _pilih_kotak(self) -> None:
-        """Kotak centang/radio terpilih (klik sungguhan / urutan tetikus asli)."""
-        if self.terpilih:
+        """Kotak centang/radio terpilih (klik sungguhan / urutan tetikus asli / Ext JS)."""
+        if self.terpilih and "x-form-cb-checked" in ((self.induk.kelas if self.induk else "")):
             return
         self.terpilih = True
+        # Ext JS menandai keadaan tercentang lewat kelas pada pembungkusnya — persis DOM
+        # sekolah: <div class="x-field ... x-form-cb-checked" id="radiofield-1111">.
+        if self.induk is not None and "x-form-cb-checked" not in (self.induk.kelas or ""):
+            self.induk.kelas = (self.induk.kelas + " x-form-cb-checked").strip()
         if self.kelompok:
             for lain in self.peramban.unsur:
                 if lain is not self and lain.kelompok == self.kelompok:
                     lain.terpilih = False
+                    if lain.induk is not None:
+                        lain.induk.kelas = lain.induk.kelas.replace(
+                            "x-form-cb-checked", "").strip()
+            self.peramban.perbarui_kolom_km()
         if self.name == "jarak_rumah" or (self.kelompok or "").startswith("jarak"):
             # Hanya pilihan jarak yang dihitung (pilihan «Ya» tidak ikut tercampur).
             self.peramban.jarak_dicentang += 1
             self.peramban.jarak_pilihan = (self.label or self.jalur).strip()
+            self.peramban.perbarui_kolom_km()
 
     def _pilih_baris(self) -> None:
         """Klik sungguhan pada baris tabel / kotak centang = memilihnya (seperti Ext JS)."""
         if self.type in ("radio", "checkbox") and (self.periodik or self.induk is not None):
-            if self.peramban.klik_kotak_ditelan or \
+            if self.peramban.hanya_ext_yang_menerima or self.peramban.klik_kotak_ditelan or \
                     (self.peramban.hanya_label_yang_menerima and self.periodik):
                 # Klik pada kotaknya ditelan lapisan di atasnya; pada baris «Jarak rumah ke
                 # sekolah» hanya labelnya yang menerima (pilihan «Ya» tetap bisa lewat wadah).
@@ -225,6 +265,8 @@ class UnsurPalsu:
         """Meniru pengetikan: tombol pengubah (Ctrl+A) ditangani, bukan diketik apa adanya."""
         if not self.is_displayed():
             raise ElementNotInteractableException("unsur tidak terlihat")
+        if not self.enabled:
+            raise ElementNotInteractableException("unsur nonaktif (disabled)")
         if self.periodik and (not self.peramban.panel_periodik_terbuka()
                               or not self.peramban.periodik_siap()):
             # Panel masih kelabu, atau kolomnya belum terjangkau karena area gulir panel
@@ -354,6 +396,20 @@ class PerambanPalsu:
         self.hanya_label_yang_menerima = False
         #: berapa kali kolom isian menerima peristiwa input/change/blur dari bot
         self.peristiwa_dipicu = 0
+        #: True = SEMUA klik pada kotak centang/radio ditelan; hanya
+        #: ``Ext.getCmp(...).setValue(...)`` yang bisa memilihnya (keadaan paling keras)
+        self.hanya_ext_yang_menerima = False
+        #: True = keadaan tercentang TIDAK terbaca dari input (``checked``/``is_selected``),
+        #: hanya dari kelas ``x-form-cb-checked`` pada pembungkusnya — persis DOM sekolah
+        self.keadaan_lewat_kelas = False
+        #: berapa kali Ext.getCmp(...).setValue(...) dipakai
+        self.ext_setvalue_dipakai = 0
+        #: berapa kali bot menanyakan is_selected() pada kotak centang/radio
+        self.is_selected_diminta = 0
+        #: berapa kali keadaan tercentang terbaca dari kelas x-form-cb-checked
+        self.dibaca_lewat_kelas = 0
+        #: True = Ext JS tidak tersedia (Ext.getCmp tidak ada) — jalur pamungkas mati
+        self.ext_mati = False
         #: berapa klik sungguhan pada kotak centang/radio yang ditelan
         self.klik_kotak_ditelan_kali = 0
         #: berapa kali pilihan jarak dipilih lewat pembungkus/labelnya
@@ -440,7 +496,9 @@ class PerambanPalsu:
                 continue
             if unsur.induk is not None:
                 continue                       # sudah punya wadah, jangan dibungkus dua kali
-            pembungkus = UnsurPalsu(self, "div", kelas="x-form-cb-wrap-inner",
+            # Struktur DOM sekolah: div.x-field (pembungkus) > div.x-form-cb-wrap-inner,
+            # dengan label x-form-cb-label SESUDAH input di dalam wadah yang sama.
+            pembungkus = UnsurPalsu(self, "div", kelas="x-field x-form-cb-wrap-inner",
                                     untuk=unsur.name, pilihan=unsur.label or "",
                                     periodik=unsur.periodik)
             if unsur.periodik:
@@ -449,6 +507,7 @@ class PerambanPalsu:
             label = UnsurPalsu(self, "label", kelas="x-form-cb-label", teks=unsur.label or "",
                                untuk=unsur.name, pilihan=unsur.label or "",
                                periodik=unsur.periodik)
+            label.induk = pembungkus
             posisi = self.unsur.index(unsur) + 1
             self.unsur.insert(posisi, pembungkus)
             self.unsur.insert(posisi + 1, label)
@@ -496,19 +555,24 @@ class PerambanPalsu:
             # «kurang dari 1 km» (td/div[1]) dan «lebih dari 1 km» (td/div[2], persis skrip).
             # Keduanya dibungkus `x-form-cb-wrap-inner` — klik pada pembungkusnya mengubah
             # pilihannya, klik lewat skrip pada kotaknya TIDAK.
-            UnsurPalsu(self, "input", type="radio", name="jarak_rumah",
+            UnsurPalsu(self, "input", type="radio", name="jarak_rumah_ke_sekolah",
+                       componentid="radiofield-1111",
                        label="Kurang dari 1 km", periodik=True, kelompok="jarak",
                        jalur="/html/body/div[2]/div/div/div[2]/div/div/div/div[3]/div[2]/div/div/"
                              "div/div[1]/div/div/div[7]/div/div/table/tbody/tr/td/div[1]/div/div/"
                              "span/input"),
-            UnsurPalsu(self, "input", type="radio", name="jarak_rumah",
+            UnsurPalsu(self, "input", type="radio", name="jarak_rumah_ke_sekolah",
+                       componentid="radiofield-1112",
                        label="Lebih dari 1 km", periodik=True, kelompok="jarak",
                        jalur="/html/body/div[2]/div/div/div[2]/div/div/div/div[3]/div[2]/div/div/"
                              "div/div[1]/div/div/div[7]/div/div/table/tbody/tr/td/div[2]/div/div/"
                              "span/input"),
             # Kolom teks di sebelah kotak «Jarak rumah ke sekolah» — persis Dapodik.
+            # Kolom km nonaktif (disabled) sampai pilihan «lebih dari 1 km» terpasang —
+            # persis DOM sekolah: `x-item-disabled` + `disabled=""` + aria-disabled="true".
             UnsurPalsu(self, "input", type="text", name="jarak_rumah_ke_sekolah_km",
-                       label="Sebutkan (dalam kilometer)", periodik=True),
+                       componentid="numberfield-1113", label="Sebutkan (dalam kilometer)",
+                       periodik=True, enabled=False),
             UnsurPalsu(self, "input", type="text", name="jumlah_saudara_kandung",
                        label="Jumlah Saudara Kandung", periodik=True),
             UnsurPalsu(self, "span", kelas="x-btn-inner-default-small", teks="Simpan dan Tutup",
@@ -640,6 +704,34 @@ class PerambanPalsu:
                                          terpilih=terpilih_awal))
             self._pasang_pembungkus_kotak()
 
+    def perbarui_kolom_km(self) -> None:
+        """Dapodik menonaktifkan kolom km sampai pilihan «lebih dari 1 km» terpasang.
+
+        Persis DOM sekolah: ``<div class="x-field ... x-item-disabled">`` dengan
+        ``<input ... disabled>`` pada kolom ``jarak_rumah_ke_sekolah_km``.
+        """
+        km = next((unsur for unsur in self.unsur
+                   if unsur.name == "jarak_rumah_ke_sekolah_km"), None)
+        if km is None:
+            return
+        km.enabled = any(unsur.kelompok == "jarak" and unsur.terpilih and
+                         (unsur.label or "").strip() == "Lebih dari 1 km"
+                         for unsur in self.unsur)
+
+    def ext_set_value(self, componentid: str, nilai) -> bool:
+        """Ext.getCmp(id).setValue(...) — jalur pamungkas Ext JS (data-componentid)."""
+        if self.ext_mati:
+            return False
+        for unsur in self.unsur:
+            if unsur.componentid and unsur.componentid == componentid:
+                if unsur.type in ("radio", "checkbox"):
+                    if bool(nilai) and self.panel_periodik_terbuka():
+                        unsur._pilih_kotak()
+                    return True
+                unsur.nilai = "" if nilai is None else str(nilai)
+                return True
+        return False
+
     def pilih_lewat_pembungkus(self, nama: str, pilihan: str = "") -> None:
         """Klik pada pembungkus/label Ext JS = memilih kotak centang/radio di dalamnya.
 
@@ -695,7 +787,7 @@ class PerambanPalsu:
             bagian = bagian[6:]
         # Segala sesuatu mulai dari poros (preceding/following) BUKAN saringan unsur ini —
         # poros itu dipakai untuk melacak kotak lain (lihat poros_input), jadi dipotong dulu.
-        potong = re.search(r"/(?:preceding|following)::", bagian)
+        potong = re.search(r"/(?:preceding|following|ancestor)::", bagian)
         if potong:
             bagian = bagian[:potong.start()]
         if bagian.startswith("//"):
@@ -822,11 +914,17 @@ class PerambanPalsu:
         else:
             hasil = []
             poros = self._bagian_poros(nilai)
+            poros_lelehur = self._bagian_ancestor(nilai)
             for unsur in self.unsur:
                 if not self._cocokkan(unsur, nilai, xpath=(by == "xpath")):
                     continue
                 tujuan = unsur
-                if poros:
+                if poros_lelehur:
+                    lanjut = self._poros_ancestor(unsur, poros_lelehur)
+                    if not lanjut:
+                        continue
+                    tujuan = lanjut[0]
+                elif poros:
                     lanjut = self.poros_input(unsur, poros)
                     if not lanjut:
                         continue
@@ -834,6 +932,38 @@ class PerambanPalsu:
                 if tujuan not in hasil:
                     hasil.append(tujuan)
         return [u for u in hasil if self._terjangkau(u)]
+
+    @staticmethod
+    def _bagian_ancestor(pola: str) -> str:
+        """Ambil bagian poros leluhur, mis. ``ancestor::div[…][1]//input[@type="radio"][1]``."""
+        posisi = (pola or "").find("/ancestor::")
+        return pola[posisi + 1:] if posisi >= 0 else ""
+
+    def _poros_ancestor(self, unsur: UnsurPalsu, bagian: str) -> list[UnsurPalsu]:
+        """Selesaikan poros leluhur: ``ancestor::div[…]`` lalu input di dalamnya.
+
+        Dipakai selector bot untuk melacak radio dari labelnya — pada DOM Dapodik label
+        ``x-form-cb-label`` berada SESUDAH input di dalam wadah ``.x-field`` yang sama.
+        """
+        kelas = re.findall(r'contains\(\s*@class\s*,\s*[\'"]([^\'"]+)[\'"]\s*\)', bagian)
+        tag = re.search(r"ancestor::(\w+)", bagian)
+        wadah = None
+        p = unsur.induk
+        while p is not None:
+            if (not tag or tag.group(1) == p.tag_name) and \
+                    all(k.lower() in (p.kelas or "").lower() for k in kelas):
+                wadah = p
+                break
+            p = p.induk
+        if wadah is None:
+            return []
+        if "//input" in bagian:
+            tipe = set(re.findall(r"@type\s*=\s*[\'\"](\w+)[\'\"]", bagian))
+            hasil = [u for u in self.unsur
+                     if u.tag_name == "input" and (not tipe or u.type in tipe)
+                     and u.induk is wadah]
+            return hasil[:1] if "[1]" in bagian.split("//input", 1)[1] else hasil
+        return [wadah]
 
     @staticmethod
     def _bagian_poros(pola: str) -> str:
@@ -917,6 +1047,31 @@ class PerambanPalsu:
                 argumen[0].nilai = str(argumen[1])
                 argumen[0].diketik.append(str(argumen[1]))
             return None
+        if "Ext.getCmp" in skrip and len(argumen) >= 2:
+            # Ext.getCmp(id).setValue(...) — jalur pamungkas Ext JS.
+            berhasil = self.ext_set_value(str(argumen[0]), argumen[1])
+            if berhasil:
+                self.ext_setvalue_dipakai += 1
+            return berhasil
+        if "x-form-cb-checked" in skrip and "closest" in skrip and \
+                "aria-checked" in skrip and argumen:
+            # Pembacaan keadaan tercentang: properti checked → kelas x-form-cb-checked →
+            # aria-checked. Pada DOM Dapodik, kelas itulah yang menandai pilihannya.
+            sasaran = argumen[0]
+            if getattr(sasaran, "terpilih", False):
+                if self.keadaan_lewat_kelas:
+                    self.dibaca_lewat_kelas += 1
+                return True
+            return False
+        if "x-form-cb-label" in skrip and "closest" in skrip and argumen:
+            # Teks label pilihan milik sebuah kotak (dari wadah .x-field-nya).
+            sasaran = argumen[0]
+            wadah = getattr(sasaran, "induk", None)
+            for unsur in self.unsur:
+                if getattr(unsur, "induk", None) is wadah and "x-form-cb-label" in \
+                        (unsur.kelas or ""):
+                    return unsur.teks
+            return ""
         if "dispatchEvent" in skrip and argumen and "new Event" in skrip and \
                 getattr(argumen[0], "periodik", False) and \
                 ("'input'" in skrip or '"input"' in skrip):
@@ -927,6 +1082,9 @@ class PerambanPalsu:
             sasaran = argumen[0]
             if getattr(sasaran, "untuk", ""):
                 # Urutan mousedown → mouseup → click pada pembungkus/label Ext JS.
+                if self.hanya_ext_yang_menerima:
+                    self.klik_diabaikan += 1
+                    return None
                 self.pilih_lewat_pembungkus(sasaran.untuk, sasaran.pilihan)
             elif getattr(sasaran, "periodik", False) and \
                     getattr(sasaran, "type", "") in ("radio", "checkbox"):
@@ -954,6 +1112,9 @@ class PerambanPalsu:
                 if "x-form-cb-label" in (getattr(sasaran, "kelas", "") or ""):
                     # Klik SKRIP pada label Ext JS — inilah yang dipakai skrip sekolah bila
                     # klik sungguhannya tertelan. Kotak radio-nya sendiri tetap menolak.
+                    if self.hanya_ext_yang_menerima:
+                        self.klik_diabaikan += 1
+                        return None
                     self.pilih_lewat_pembungkus(sasaran.untuk, sasaran.pilihan)
                     return None
                 sasaran._klik_paksa(script=True)

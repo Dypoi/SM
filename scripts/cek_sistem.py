@@ -2354,7 +2354,11 @@ def cek_bot_dapodik() -> str:
             palsu_gagal = peramban_palsu.buat("alur_penuh").pakai_jam(jam_gagal.monotonic)
             palsu_gagal.popup_detik = None
             palsu_gagal.registrasi_otomatis = True
-            palsu_gagal.klik_kotak_ditelan = True
+            # "Kasus terburuk" = SEMUA klik (kotak, pembungkus, label) ditelan Dapodik DAN
+            # jalur Ext JS mati; tanpa keduanya bot masih bisa memilih lewat labelnya atau
+            # Ext.getCmp(...).setValue(...) — lihat sub-blok berikutnya.
+            palsu_gagal.hanya_ext_yang_menerima = True
+            palsu_gagal.ext_mati = True
             nisn_gagal = siswa_periodik["nisn"]
             palsu_gagal.nisn_dicari = nisn_gagal
             palsu_gagal.tambah_baris_siswa(nisn_gagal)
@@ -2365,7 +2369,7 @@ def cek_bot_dapodik() -> str:
             # pembungkus/labelnya tidak ada — Dapodik benar-benar menolak centangnya.
             palsu_gagal.unsur = [u for u in palsu_gagal.unsur
                                  if not ("cb-label" in (getattr(u, "kelas", "") or "")
-                                         and getattr(u, "untuk", "") == "jarak_rumah")]
+                                         and getattr(u, "untuk", "").startswith("jarak"))]
             for unsur in palsu_gagal.unsur:
                 if unsur.type == "radio" and unsur.label in ("Kurang dari 1 km", "Lebih dari 1 km"):
                     unsur.induk = None
@@ -2427,6 +2431,74 @@ def cek_bot_dapodik() -> str:
             "masih ada pilihan «Ya» yang gagal padahal pemeriksaan ulang sudah dilakukan"
         assert all(unsur.terpilih for unsur in radio_ya), \
             "pilihan «Ya» dilaporkan tercentang padahal keadaan di halaman tidak demikian"
+
+        # DOM sekolah yang sebenarnya (dari halaman Dapodik sekolah):
+        #   * label `x-form-cb-label` berada SESUDAH input — radio dilacak lewat wadah
+        #     `.x-field` (poros `ancestor::`)/`preceding::`, bukan `following::`;
+        #   * keadaan tercentang hanya terbaca dari kelas `x-form-cb-checked` pembungkusnya;
+        #   * kolom «Sebutkan (dalam kilometer)» NONAKTIF sampai «lebih dari 1 km» terpasang,
+        #     jadi Dapodik mengabaikan ketikan yang datang terlalu dini;
+        #   * tiap unsur membawa `data-componentid` → `Ext.getCmp(...).setValue(...)` adalah
+        #     jalur pamungkas bila semua klik ditelan Dapodik.
+        jejak.clear()
+        asli_waktu = bot_dapodik.time
+        jam_dom = _WaktuCepat(time)
+        bot_dapodik.time = jam_dom
+        try:
+            palsu_dom = peramban_palsu.buat("alur_penuh").pakai_jam(jam_dom.monotonic)
+            palsu_dom.popup_detik = None
+            palsu_dom.registrasi_otomatis = True
+            palsu_dom.keadaan_lewat_kelas = True      # hanya kelas x-form-cb-checked
+            nisn_dom = siswa_periodik["nisn"]
+            palsu_dom.nisn_dicari = nisn_dom
+            palsu_dom.tambah_baris_siswa(nisn_dom)
+            bot_dom = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                             kepala=jejak.append)
+            bot_dom._login(palsu_dom)
+            bot_dom._proses_satu(palsu_dom, siswa_periodik, None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert palsu_dom.jarak_pilihan == "Lebih dari 1 km", \
+            f"radio tidak terpilih pada DOM sekolah: {palsu_dom.jarak_pilihan!r}"
+        assert palsu_dom.dibaca_lewat_kelas >= 1, \
+            "bot tidak membaca keadaan tercentang dari kelas x-form-cb-checked"
+        km_dom = next(unsur for unsur in palsu_dom.unsur
+                      if unsur.name == "jarak_rumah_ke_sekolah_km")
+        assert km_dom.enabled, \
+            "kolom «Sebutkan (dalam kilometer)» tetap nonaktif walau radionya sudah terpasang"
+        assert (palsu_dom.data_periodik_tersimpan.get("jarak_rumah_ke_sekolah_km")
+                == "7.9"), f"kolom km tidak tersimpan: {palsu_dom.data_periodik_tersimpan}"
+        assert all(unsur.label != "Kurang dari 1 km" or not unsur.terpilih
+                   for unsur in palsu_dom.unsur if unsur.type == "radio"), \
+            "pilihan «kurang dari 1 km» ikut tercentang padahal radionya sepasang"
+
+        # Jalur pamungkas Ext JS: semua klik (kotak, pembungkus, label) ditelan Dapodik.
+        jejak.clear()
+        asli_waktu = bot_dapodik.time
+        jam_ext = _WaktuCepat(time)
+        bot_dapodik.time = jam_ext
+        try:
+            palsu_ext = peramban_palsu.buat("alur_penuh").pakai_jam(jam_ext.monotonic)
+            palsu_ext.popup_detik = None
+            palsu_ext.registrasi_otomatis = True
+            palsu_ext.hanya_ext_yang_menerima = True
+            nisn_ext = siswa_periodik["nisn"]
+            palsu_ext.nisn_dicari = nisn_ext
+            palsu_ext.tambah_baris_siswa(nisn_ext)
+            bot_ext = bot_dapodik.BotDapodik(0, [], [], dict(opsi_uji, bot_simulasi="0"),
+                                             kepala=jejak.append)
+            bot_ext._login(palsu_ext)
+            bot_ext._proses_satu(palsu_ext, siswa_periodik, None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert palsu_ext.jarak_pilihan == "Lebih dari 1 km", \
+            f"Ext.getCmp tidak berhasil memilih radio: {palsu_ext.jarak_pilihan!r}"
+        assert palsu_ext.ext_setvalue_dipakai >= 1, \
+            "bot tidak memakai Ext.getCmp(data-componentid) sebagai jalur pamungkas"
+        assert any("Ext JS sendiri" in baris for baris in jejak), jejak[-5:]
+        assert (palsu_ext.data_periodik_tersimpan.get("jarak_rumah_ke_sekolah_km")
+                == "7.9"), f"kolom km tidak tersimpan lewat jalur Ext JS: " \
+                           f"{palsu_ext.data_periodik_tersimpan}"
 
         # Data periodik kosong → dicatat pada log, siswa tetap berhasil.
         jejak.clear()

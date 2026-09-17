@@ -196,23 +196,36 @@ SELECTOR_CADANGAN: dict[str, list[str]] = {
         "label:Jumlah Saudara Kandung",
         "css:input[name*=saudara]",
     ],
+    # Struktur DOM Dapodik (Ext JS modern) yang sebenarnya, dari sekolah:
+    #   <div class="x-field x-form-type-radio" id="radiofield-1112">
+    #     <div class="x-form-cb-wrap-inner">
+    #       <span class="x-form-cb"><input type="radio" name="jarak_rumah_ke_sekolah"
+    #                                      data-componentid="radiofield-1112"></span>
+    #       <label class="x-form-cb-label" for="radiofield-1112-inputEl">lebih dari 1 km</label>
+    # Labelnya berada SESUDAH input, dan yang tercentang ditandai kelas `x-form-cb-checked`
+    # pada pembungkusnya. Karena itu kotaknya dilacak dari labelnya lewat wadah `.x-field`
+    # atau poros `preceding::` — bukan `following::` yang justru menunjuk radio berikutnya.
     "periodik_jarak_lebih": [
-        'xpath://*[contains(translate(normalize-space(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", '
-        '"abcdefghijklmnopqrstuvwxyz"), "lebih dari 1")]/following::input[@type="checkbox"][1]',
-        'xpath://*[contains(translate(normalize-space(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", '
-        '"abcdefghijklmnopqrstuvwxyz"), "lebih dari 1")]/following::input[@type="radio"][1]',
+        'xpath://label[contains(translate(normalize-space(.), "KM", "km"), "lebih dari 1")]'
+        '/ancestor::div[contains(@class, "x-field")][1]//input[@type="radio" or '
+        '@type="checkbox"][1]',
+        'xpath://label[contains(translate(normalize-space(.), "KM", "km"), "lebih dari 1")]'
+        '/preceding::input[@type="radio"][1]',
     ],
     "periodik_jarak_kurang": [
-        'xpath://*[contains(translate(normalize-space(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", '
-        '"abcdefghijklmnopqrstuvwxyz"), "kurang dari 1")]/following::input[@type="checkbox"][1]',
-        'xpath://*[contains(translate(normalize-space(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", '
-        '"abcdefghijklmnopqrstuvwxyz"), "kurang dari 1")]/following::input[@type="radio"][1]',
+        'xpath://label[contains(translate(normalize-space(.), "KM", "km"), "kurang dari 1")]'
+        '/ancestor::div[contains(@class, "x-field")][1]//input[@type="radio" or '
+        '@type="checkbox"][1]',
+        'xpath://label[contains(translate(normalize-space(.), "KM", "km"), "kurang dari 1")]'
+        '/preceding::input[@type="radio"][1]',
     ],
     "periodik_jarak": [
-        'xpath://*[contains(normalize-space(), "Jarak rumah ke sekolah")]'
-        '/following::input[@type="checkbox"][1]',
-        "css:input[type=checkbox][name*=jarak]",
+        "css:input[type=radio][name=jarak_rumah_ke_sekolah]",   # nama kolom pada DOM sekolah
         "css:input[type=radio][name*=jarak]",
+        'xpath://*[contains(normalize-space(), "Jarak rumah ke sekolah")]'
+        '/ancestor::div[contains(@class, "x-field")][1]//input[@type="radio" or '
+        '@type="checkbox"][1]',
+        "css:input[type=checkbox][name*=jarak]",
     ],
     "periodik_jarak_km": [
         "label:Sebutkan",                       # labelnya «Sebutkan (dalam kilometer):»
@@ -1210,8 +1223,13 @@ class BotDapodik:
         if unsur is None:
             return "kolomnya tidak ada di halaman ini"
         # Kolom di bawah layar sering tidak menerima ketikan: bawa dulu ke layar
-        # (menggulir wadahnya sendiri), lalu tampilkan bila memang tersembunyi.
+        # (menggulir wadahnya sendiri). Dapodik juga bisa MENONAKTIFKAN kolomnya sampai
+        # langkah sebelumnya benar (mis. kolom km menunggu pilihan «lebih dari 1 km»), jadi
+        # bot menunggu kolomnya aktif lebih dulu.
         self._bawa_ke_layar(peramban, unsur)
+        if not self._tunggu_aktif(peramban, unsur):
+            self._catat_kepala(f"[periodik] {label}: kolom masih nonaktif saat akan diisi — "
+                               "dicoba apa adanya (Dapodik bisa mengabaikannya).")
         self._paksa_terlihat(peramban, unsur)
         try:                       # fokuskan dulu (klik sungguhan, bila tertelan → klik skrip)
             unsur.click()
@@ -1240,6 +1258,17 @@ class BotDapodik:
                 isi = str(unsur.get_attribute("value") or "").strip()
             except Exception:  # noqa: BLE001
                 isi = ""
+        if nilai not in isi:
+            # Jalur pamungkas Ext JS: nilainya dimasukkan ke model Ext JS lewat komponennya
+            # sendiri (data-componentid → Ext.getCmp(...)), bukan hanya ke DOM.
+            if self._set_ext(peramban, unsur, nilai=nilai):
+                time.sleep(0.3)
+                try:
+                    isi = str(unsur.get_attribute("value") or "").strip()
+                except Exception:  # noqa: BLE001
+                    isi = ""
+                if nilai in isi:
+                    return f"terisi lewat Ext JS: {isi}"
         if nilai in isi:
             return f"terisi: {isi}"
         return "kolom belum berisi nilai yang benar"
@@ -1264,10 +1293,30 @@ class BotDapodik:
                 return kotak
         return []
 
-    def _terpilih(self, unsur) -> bool:
-        """Apakah kotak centang/radio ini **benar-benar** terpilih (dibaca dari halaman)."""
+    def _terpilih(self, peramban, unsur) -> bool:
+        """Apakah kotak centang/radio ini **benar-benar** terpilih (dibaca dari halaman).
+
+        Tiga sumber dibaca karena Ext JS menyimpan keadaannya di beberapa tempat: properti
+        ``checked`` milik input, kelas ``x-form-cb-checked`` pada pembungkusnya (inilah
+        penanda yang terlihat pada DOM Dapodik: ``<div class="x-field ... x-form-cb-checked">``),
+        dan atribut ``aria-checked``. Tanpa memeriksa ketiganya, bot bisa mengira pemilihannya
+        gagal (atau sebaliknya) padahal keadaan sebenarnya berbeda.
+        """
         try:
             if unsur.is_selected():
+                return True
+        except Exception:  # noqa: BLE001 — lanjut ke pemeriksaan berikutnya
+            pass
+        try:
+            if bool(peramban.execute_script(
+                    """
+                    const el = arguments[0];
+                    if (el.checked === true) return true;
+                    const wadah = el.closest ? el.closest('.x-form-cb-checked') : null;
+                    if (wadah) return true;
+                    if (el.getAttribute && el.getAttribute('aria-checked') === 'true') return true;
+                    return false;
+                    """, unsur)):
                 return True
         except Exception:  # noqa: BLE001 — lanjut ke pemeriksaan berikutnya
             pass
@@ -1275,6 +1324,68 @@ class BotDapodik:
             return str(unsur.get_attribute("checked") or "").lower() in ("true", "checked", "1")
         except Exception:  # noqa: BLE001
             return False
+
+    def _komponen_id(self, unsur) -> str:
+        """Id komponen Ext JS (``data-componentid``) — kunci untuk ``Ext.getCmp(...)``."""
+        try:
+            return str(unsur.get_attribute("data-componentid") or "").strip()
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _set_ext(self, peramban, unsur, nilai=None, terpilih: bool = True) -> bool:
+        """Pilih/isi lewat Ext JS sendiri: ``Ext.getCmp(id).setValue(...)``.
+
+        Jalur pamungkas bila semua cara klik ditelan Dapodik: setiap unsur Ext JS punya
+        ``data-componentid``, dan ``Ext.getCmp`` memberi komponennya langsung — jadi
+        nilainya masuk ke model Ext JS (bukan hanya ke DOM).
+        """
+        komponen = self._komponen_id(unsur)
+        if not komponen:
+            return False
+        try:
+            return bool(peramban.execute_script(
+                """
+                if (typeof Ext === 'undefined' || !Ext.getCmp) return false;
+                const c = Ext.getCmp(arguments[0]);
+                if (!c) return false;
+                c.setValue(arguments[1]);
+                return true;
+                """, komponen, nilai if nilai is not None else terpilih))
+        except Exception:  # noqa: BLE001 — jalur ini hanya upaya tambahan
+            return False
+
+    def _teks_kotak(self, peramban, unsur) -> str:
+        """Teks label pilihan milik sebuah kotak centang/radio (``x-form-cb-label`` Ext JS)."""
+        try:
+            teks = peramban.execute_script(
+                """
+                const el = arguments[0];
+                const field = el.closest ? el.closest('.x-field') : null;
+                const isi = field || el;
+                const label = isi.querySelector ? isi.querySelector('.x-form-cb-label') : null;
+                return label ? (label.textContent || '').trim() : '';
+                """, unsur)
+            return str(teks or "").strip()
+        except Exception:  # noqa: BLE001 — keterangan tambahan saja
+            return ""
+
+    def _tunggu_aktif(self, peramban, unsur, detik: float = 6.0) -> bool:
+        """Tunggu sampai kolomnya benar-benar aktif.
+
+        Penting pada baris «Jarak rumah ke sekolah»: Dapodik **menonaktifkan** kolom
+        «Sebutkan (dalam kilometer)» (``disabled``) sampai pilihan «lebih dari 1 km»
+        terpasang, jadi mengetik sebelum itu tidak akan tersimpan.
+        """
+        akhir = time.time() + detik
+        while True:
+            try:
+                if unsur.is_enabled():
+                    return True
+            except Exception:  # noqa: BLE001 — anggap belum aktif
+                return False
+            if time.time() >= akhir:
+                return False
+            time.sleep(0.3)
 
     @staticmethod
     def _label_unik(teks: str) -> bool:
@@ -1416,7 +1527,7 @@ class BotDapodik:
         kotaknya → klik pembungkus/labelnya → urutan tetikus lengkap lewat skrip.
         """
         unsur = self._unsur_kotak(peramban, unsur)
-        if self._terpilih(unsur):
+        if self._terpilih(peramban, unsur):
             return True
         self._bawa_ke_layar(peramban, unsur)
         # 1) Cara skrip yang terbukti berhasil: klik **labelnya** (bukan kotak radio-nya).
@@ -1431,7 +1542,7 @@ class BotDapodik:
             except Exception:  # noqa: BLE001 — coba klik lewat skrip
                 pass
             time.sleep(0.3)
-            if self._terpilih(unsur):
+            if self._terpilih(peramban, unsur):
                 self._catat_kepala(f"[periodik] {nama}: dipilih lewat labelnya "
                                    "(x-form-cb-label) — sama seperti skrip yang berhasil.")
                 return True
@@ -1440,7 +1551,7 @@ class BotDapodik:
             except Exception:  # noqa: BLE001
                 pass
             time.sleep(0.3)
-            if self._terpilih(unsur):
+            if self._terpilih(peramban, unsur):
                 self._catat_kepala(f"[periodik] {nama}: dipilih lewat labelnya "
                                    "(klik skrip) — sama seperti skrip yang berhasil.")
                 return True
@@ -1450,7 +1561,7 @@ class BotDapodik:
         except Exception:  # noqa: BLE001 — coba cara berikutnya
             pass
         time.sleep(0.3)
-        if self._terpilih(unsur):
+        if self._terpilih(peramban, unsur):
             return True
         for calon in pembungkus:   # 2) klik pembungkus/labelnya (cara Ext JS)
             try:
@@ -1458,11 +1569,21 @@ class BotDapodik:
             except Exception:  # noqa: BLE001
                 pass
             time.sleep(0.3)
-            if self._terpilih(unsur):
+            if self._terpilih(peramban, unsur):
                 self._catat_kepala(f"[periodik] {nama}: dipilih lewat pembungkus/label "
                                    "kolomnya (klik pada kotaknya sendiri tidak diterima).")
                 return True
-        for calon in [unsur, *pembungkus]:   # 3) urutan tetikus lengkap lewat skrip
+        for calon in [unsur, *pembungkus]:   # 3) klik lewat skrip (input-nya sendiri)
+            try:
+                peramban.execute_script("arguments[0].click();", calon)
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(0.3)
+            if self._terpilih(peramban, unsur):
+                self._catat_kepala(f"[periodik] {nama}: dipilih lewat klik skrip pada "
+                                   f"{'kotaknya' if calon is unsur else 'pembungkusnya'}.")
+                return True
+        for calon in [unsur, *pembungkus]:   # 4) urutan tetikus lengkap lewat skrip
             try:
                 peramban.execute_script(
                     """
@@ -1475,12 +1596,21 @@ class BotDapodik:
             except Exception:  # noqa: BLE001
                 continue
             time.sleep(0.3)
-            if self._terpilih(unsur):
+            if self._terpilih(peramban, unsur):
                 self._catat_kepala(f"[periodik] {nama}: dipilih lewat urutan tetikus skrip.")
                 return True
-        return self._terpilih(unsur)
+        # 5) Jalur pamungkas Ext JS: komponennya dipilih lewat Ext.getCmp(...).setValue(true).
+        #    Setiap unsur Ext JS membawa `data-componentid`, jadi nilainya masuk ke model
+        #    Ext JS — bukan hanya ke DOM.
+        if self._set_ext(peramban, unsur, terpilih=True):
+            time.sleep(0.3)
+            if self._terpilih(peramban, unsur):
+                self._catat_kepala(f"[periodik] {nama}: dipilih lewat Ext JS sendiri "
+                                   f"(Ext.getCmp({self._komponen_id(unsur)!r}).setValue).")
+                return True
+        return self._terpilih(peramban, unsur)
 
-    def _pilih_jarak(self, peramban, peta: dict[str, str], jarak_km: str) -> str:
+    def _pilih_jarak(self, peramban, peta: dict[str, str], jarak_km: str) -> tuple[str, bool]:
         """Pilih «kurang dari 1 km» / «lebih dari 1 km» sesuai data jarak siswa.
 
         Dapodik menyediakan **dua** pilihan pada baris «Jarak rumah ke sekolah»; skrip
@@ -1491,7 +1621,8 @@ class BotDapodik:
         """
         if not str(jarak_km or "").strip():
             # Tidak ada data jarak: jangan menebak pilihan apa pun.
-            return "kotak «Jarak rumah ke sekolah» tidak dicentang — data jarak siswa kosong"
+            return ("kotak «Jarak rumah ke sekolah» tidak dicentang — data jarak siswa kosong",
+                    False)
         try:
             angka = float(str(jarak_km).replace(",", "."))
         except (TypeError, ValueError):
@@ -1500,36 +1631,57 @@ class BotDapodik:
         kunci = "periodik_jarak_lebih" if lebih_dari else "periodik_jarak_kurang"
         nama_pilihan = "lebih dari 1 km" if lebih_dari else "kurang dari 1 km"
 
+        teks_pilihan = "lebih dari 1 km" if lebih_dari else "kurang dari 1 km"
         kotak = self._kotak_jarak(peramban, kunci, peta)
         if not kotak:
             kotak = self._kotak_jarak(peramban, "periodik_jarak", peta)
             nama_pilihan += " (memakai selector bawaan skrip sekolah)"
         if not kotak:
-            return "kotak «Jarak rumah ke sekolah» tidak ada di halaman ini"
+            return ("kotak «Jarak rumah ke sekolah» tidak ada di halaman ini", False)
+        if len(kotak) > 1:
+            # Selector cadangan bisa mengembalikan KEDUA radio; pilih yang teks labelnya cocok
+            # («lebih dari 1 km» vs «kurang dari 1 km») — bukan menekan keduanya.
+            cocok = [unsur for unsur in kotak
+                     if teks_pilihan in (self._teks_kotak(peramban, unsur) or "").lower()]
+            if cocok:
+                kotak = cocok
+                nama_pilihan += f" [dipilih dari {len(cocok)} kandidat lewat teks labelnya]"
 
         dicentang = 0
-        teks_pilihan = "Lebih dari 1 km" if lebih_dari else "Kurang dari 1 km"
         for unsur in kotak:
             if self._pilih_satu(peramban, unsur, f"pilihan jarak «{nama_pilihan}»",
                                 teks_pilihan):
                 dicentang += 1
-        # Jangan sampai kedua pilihan tercentang: pilihan lain dikosongkan lagi.
+        # Jangan sampai kedua pilihan tercentang: pilihan lain dikosongkan lagi — **hanya
+        # untuk kotak centang**. Pada radio, mengklik pilihan lain justru membatalkan pilihan
+        # yang baru saja dipasang.
         for kunci_lain in ("periodik_jarak_kurang", "periodik_jarak_lebih"):
             if kunci_lain == kunci:
                 continue
             for unsur in self._kotak_jarak(peramban, kunci_lain, peta):
-                if self._terpilih(unsur):
+                if self._jenis_kotak(peramban, unsur) == "radio":
+                    continue
+                if self._terpilih(peramban, unsur):
                     try:
                         unsur.click()
-                    except Exception:  # noqa: BLE001 — biarkan; Dapodik umumnya radio
+                    except Exception:  # noqa: BLE001 — biarkan
                         pass
                     time.sleep(0.3)
+        berhasil = bool(kotak) and dicentang == len(kotak)
         pesan = (f"kotak «Jarak rumah ke sekolah» ({nama_pilihan}) dicentang: "
                  f"{dicentang} dari {len(kotak)}")
-        if dicentang < len(kotak):
+        if not berhasil:
             pesan += (" — peringatan: Dapodik belum menandainya terpilih "
                       "(mungkin perlu diklik manual sekali).")
-        return pesan
+        return pesan, berhasil
+
+    @staticmethod
+    def _jenis_kotak(peramban, unsur) -> str:
+        """Jenis kotak: ``radio``/``checkbox`` (dari atribut type)."""
+        try:
+            return str(unsur.get_attribute("type") or "").lower()
+        except Exception:  # noqa: BLE001
+            return ""
 
     def _isi_jarak_km(self, peramban, peta: dict[str, str], nilai: str) -> str:
         """Isi kolom «Sebutkan (dalam kilometer):» di baris «Jarak rumah ke sekolah».
@@ -1622,9 +1774,17 @@ class BotDapodik:
                                f"{jarak_km} km → pilihan «"
                                + ("lebih dari 1 km" if lebih_dari_satu else "kurang dari 1 km")
                                + "».")
-            self._catat_kepala(f"[periodik] {self._pilih_jarak(peramban, peta, jarak_km)}")
+            pesan_jarak, jarak_terpasang = self._pilih_jarak(peramban, peta, jarak_km)
+            self._catat_kepala(f"[periodik] {pesan_jarak}")
             time.sleep(2)
-            if lebih_dari_satu:
+            if lebih_dari_satu and not jarak_terpasang:
+                # Dapodik MENONAKTIFKAN kolom «Sebutkan (dalam kilometer)» sampai pilihan
+                # «lebih dari 1 km» benar-benar terpasang — jadi kolomnya dilewati dengan
+                # jujur, bukan diisi paksa lalu dianggap berhasil.
+                self._catat_kepala("[periodik] Sebutkan (dalam kilometer): dilewati — "
+                                   "pilihan «lebih dari 1 km» belum terpasang (Dapodik "
+                                   "menonaktifkan kolom ini sampai pilihannya benar).")
+            elif lebih_dari_satu:
                 # Kolom «Sebutkan (dalam kilometer)» diisi bila pilihannya «lebih dari 1 km»
                 # (Dapodik meminta keterangan kilometernya).
                 keterangan_km = self._isi_jarak_km(peramban, peta, jarak_km)
