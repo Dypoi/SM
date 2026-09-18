@@ -162,13 +162,22 @@ class UnsurPalsu:
         self.trigger_combo = bool(sifat.get("trigger_combo", False))
         #: True = satu pilihan di daftar dropdown yang sedang terbuka
         self.item_dropdown = bool(sifat.get("item_dropdown", False))
+        #: Elemen daftar dropdown (div.x-boundlist) milik sebuah combo, atau combo pemiliknya
+        self.daftar_dropdown = sifat.get("daftar_dropdown")
+        #: Isi atribut ``aria-owns`` (DOM Dapodik: "…-inputEl …-picker-listEl")
+        self.aria_owns = str(sifat.get("aria_owns", ""))
+        #: Elemen daftar milik combo ini (diisi saat jendela «Ubah» dibangun)
+        self.daftar_el: "UnsurPalsu | None" = None
 
     # ------------------------------------------------------------ atribut --- #
     def get_attribute(self, nama: str) -> str | None:
         peta = {"type": self.type, "name": self.name, "id": self.id,
                 "placeholder": self.placeholder, "aria-label": self.aria,
                 "value": self.nilai, "class": self.kelas, "label": self.label,
-                "data-componentid": self.componentid}
+                "data-componentid": self.componentid, "aria-owns": self.aria_owns,
+                "role": getattr(self, "role", ""),
+                "aria-expanded": ("true" if self.peramban.dropdown_terbuka is self
+                                  and not self.peramban.dropdown_tak_bisa_dibuka else "false")}
         if nama == "checked":
             # Pada mode keadaan_lewat_kelas atribut `checked` memang tidak ada di DOM —
             # persis DOM Dapodik: keadaannya hanya ditandai kelas x-form-cb-checked.
@@ -392,6 +401,14 @@ class UnsurPalsu:
             return
         from selenium.webdriver.common.keys import Keys
 
+        for bagian in tombol:
+            if isinstance(bagian, str) and bagian in (Keys.ARROW_DOWN, Keys.DOWN, Keys.ALT):
+                # Dapodik/Ext JS membuka daftar dropdown combo lewat tombol panah bawah —
+                # inilah cara yang tetap bekerja walaupun Ext tidak terjangkau dari skrip.
+                if self.daftar_pilihan and self.peramban.bio_terbuka:
+                    self.peramban.buka_dropdown(self)
+                    return
+
         pengubah = (Keys.CONTROL, Keys.SHIFT, Keys.ALT, Keys.COMMAND)
         kontrol = False
         for bagian in tombol:
@@ -434,8 +451,14 @@ class UnsurPalsu:
 
         Didukung: XPath leluhur sederhana (``ancestor(-or-self)::…``) dan poros
         ``preceding::``/``following::input[…]`` — dipakai bot untuk melacak kotak
-        centang/radio milik sebuah label.
+        centang/radio milik sebuah label — serta pencarian pilihan di dalam elemen daftar
+        dropdown (``div.x-boundlist`` → ``li.x-boundlist-item``).
         """
+        if by in ("css selector", "css") and "boundlist-item" in (nilai or ""):
+            combo = getattr(self, "daftar_dropdown", None)
+            if combo is None:
+                return []
+            return self.peramban.daftar_dropdown_terlihat(combo)
         if by != "xpath":
             return []
         if nilai.startswith("ancestor"):
@@ -621,6 +644,13 @@ class PerambanPalsu:
         self.dropdown_gulir_kali = 0
         #: Berapa kali bot mencoba mengklik pilihan yang belum terlihat di daftar
         self.dropdown_item_tak_terlihat = 0
+        #: True = ``Ext`` tidak terjangkau dari skrip (semua jalur Ext.js gagal) — persis
+        #: Dapodik yang komponennya tidak bisa dipanggil lewat Ext.getCmp dari luar.
+        self.dropdown_tanpa_ext = False
+        #: Berapa kali bot membaca pilihan lewat elemen daftar (aria-owns)
+        self.dropdown_aria_dipakai = 0
+        #: True = combo tidak punya elemen tombol panah (hanya bisa dibuka lewat tombol ↓)
+        self.dropdown_tanpa_panah = False
         #: Isi kolom BIO yang benar-benar tersimpan (name → nilai saat «Simpan» ditekan)
         self.data_bio_tersimpan: dict[str, str] = {}
         #: berapa kali pilihan jarak dipilih lewat pembungkus/labelnya
@@ -997,13 +1027,23 @@ class PerambanPalsu:
                 combo = UnsurPalsu(self, "input", type="text", name=nama, label=label,
                                    bio=True, nilai="", nilai_model="", nilai_id="",
                                    aria="combobox", role="combobox", readonly="readonly",
+                                   aria_owns=(f"combobox-{1300 + nomor}-inputEl "
+                                              f"combobox-{1300 + nomor}-picker-listEl"),
                                    daftar_pilihan=pilihan_dropdown_dapodik(jenis),
                                    componentid=f"combobox-{1300 + nomor}")
                 self.unsur.append(combo)
-                panah = UnsurPalsu(self, "div", kelas="x-form-trigger x-form-arrow-trigger",
-                                   trigger_combo=True)
-                panah.induk = combo
-                self.unsur.append(panah)
+                if not self.dropdown_tanpa_panah:
+                    panah = UnsurPalsu(self, "div",
+                                       kelas="x-form-trigger x-form-arrow-trigger",
+                                       trigger_combo=True)
+                    panah.induk = combo
+                    self.unsur.append(panah)
+                # Elemen daftar dropdownnya (div.x-boundlist) + pilihan-pilihannya. Persis DOM
+                # sekolah, daftar itu bisa ditemukan lewat ``aria-owns`` …-picker-listEl.
+                daftar_el = UnsurPalsu(self, "div", kelas="x-boundlist",
+                                       daftar_dropdown=combo)
+                combo.daftar_el = daftar_el
+                self.unsur.append(daftar_el)
                 for opsi in combo.daftar_pilihan:
                     item = UnsurPalsu(self, "li", kelas="x-boundlist-item", teks=opsi,
                                       item_dropdown=True)
@@ -1294,6 +1334,11 @@ class PerambanPalsu:
 
     def _terlihat_otomatis(self, unsur: UnsurPalsu) -> bool:
         """Skenario splash: kolom login baru terlihat setelah tombol pembuka diklik."""
+        if getattr(unsur, "daftar_dropdown", None) is not None:
+            # Elemen daftar dropdown (div.x-boundlist) hanya terlihat saat daftarnya terbuka —
+            # persis Ext JS: elemennya ada di DOM, tetapi tersembunyi selama belum dibuka.
+            return (not self.dropdown_tak_bisa_dibuka
+                    and self.dropdown_terbuka is unsur.daftar_dropdown)
         if getattr(unsur, "item_dropdown", False):
             # Pilihan dropdown hanya terlihat selagi daftar dropdownnya terbuka.
             return self.dropdown_terbuka is unsur.induk
@@ -1626,7 +1671,7 @@ class PerambanPalsu:
             # Jalur terakhir bot: Ext.getCmp(id).expand() (bila tombol panahnya ditelan).
             sasaran = argumen[0] if argumen else None
             if sasaran is None or not sasaran.daftar_pilihan or self.dropdown_ext_mati \
-                    or self.dropdown_tak_bisa_dibuka:
+                    or self.dropdown_tak_bisa_dibuka or self.dropdown_tanpa_ext:
                 return False
             self.dropdown_ext_dipakai += 1
             self.buka_dropdown(sasaran)
@@ -1661,6 +1706,10 @@ class PerambanPalsu:
             sasaran = argumen[0] if argumen else None
             if sasaran is None:
                 return {}
+            if self.dropdown_tanpa_ext:
+                # Tanpa Ext: yang terbaca hanya tulisan di kotaknya (seperti membaca
+                # ``input.value`` biasa) — nilai modelnya tidak terjangkau.
+                return {"tampil": sasaran.nilai, "model": sasaran.nilai, "id": ""}
             return {"tampil": sasaran.nilai, "model": sasaran.nilai_model,
                     "id": sasaran.nilai_id}
         if "dropdown-terbuka" in skrip:
@@ -1668,18 +1717,28 @@ class PerambanPalsu:
             sasaran = argumen[0] if argumen else None
             return bool(not self.dropdown_tak_bisa_dibuka and sasaran is not None
                         and self.dropdown_terbuka is sasaran)
+        if "dropdown-aria" in skrip:
+            # Elemen daftar dropdown milik kolom ini (DOM Dapodik: aria-owns memuat
+            # "…-picker-listEl"). Inilah jalan yang TIDAK bergantung pada Ext JS sama sekali.
+            sasaran = argumen[0] if argumen else None
+            if sasaran is None or not sasaran.daftar_pilihan:
+                return None
+            self.dropdown_aria_dipakai += 1
+            return sasaran.daftar_el
         if "dropdown-store" in skrip:
             # Pilihan dibaca dari DATA komponen Ext JS (store) — tidak perlu daftarnya
             # terbuka. Inilah cara yang paling andal di Dapodik sungguhan.
             sasaran = argumen[0] if argumen else None
-            if sasaran is None or not sasaran.daftar_pilihan:
-                return []
+            if sasaran is None or not sasaran.daftar_pilihan or self.dropdown_tanpa_ext:
+                return []           # Ext tidak terjangkau: store-nya pun tidak terbaca
             return [{"teks": p, "nilai": i + 1}
                     for i, p in enumerate(sasaran.daftar_pilihan)]
         if "dropdown-pilih" in skrip:
             # Pilih lewat model Ext JS: select(record) / setValue(id).
             sasaran = argumen[0] if argumen else None
             dicari = str(argumen[1] if len(argumen) > 1 else "")
+            if self.dropdown_tanpa_ext or self.dropdown_ext_mati:
+                return False        # Ext tidak terjangkau
             return self.pilih_dropdown_lewat_ext(sasaran, dicari)
         if "/* gulir-daftar-dropdown */" in skrip:
             # Bot menggeser ISI daftar dropdown (daftarnya punya area gulirnya sendiri):
@@ -1688,8 +1747,10 @@ class PerambanPalsu:
                 return 0
             jauh = int(argumen[1]) if len(argumen) > 1 else 150
             self.gulir_daftar += 1
-            self.gulir_daftar_px += jauh
-            self.dropdown_gulir_kali += 1
+            # Jarak negatif = kembali ke atas (persis ``scrollTop`` yang mentok di 0).
+            self.gulir_daftar_px = max(0, self.gulir_daftar_px + jauh)
+            if jauh > 0:
+                self.dropdown_gulir_kali += 1
             return self.gulir_daftar_px
         if "dropdown-tutup" in skrip:
             self.tutup_dropdown()

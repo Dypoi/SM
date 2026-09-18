@@ -2626,6 +2626,51 @@ def cek_bot_dapodik() -> str:
         assert palsu_bio.dropdown_item_tak_terlihat == 0, \
             (f"bot mencoba mengklik pilihan dropdown yang belum terlihat: "
              f"{palsu_bio.dropdown_item_tak_terlihat}x")
+        assert palsu_bio.dropdown_aria_dipakai >= 6, \
+            ("daftar dropdown tidak dibaca dari elemen daftarnya sendiri (DOM/aria-owns): "
+             f"{palsu_bio.dropdown_aria_dipakai}x — pilihannya jadi bergantung pada Ext JS")
+        # Keadaan terberat: ``Ext`` tidak bisa dipanggil dari skrip DAN tombol panah combonya
+        # tidak ada. Yang tersisa hanya menekan tombol ↓ pada kolomnya lalu membaca daftarnya
+        # dari DOM. Bot harus tetap sanggup mengisi keenam kolom dropdown dari daftarnya.
+        jejak.clear()
+        jam_tanpa_ext = _WaktuCepat(time)
+        asli_waktu = bot_dapodik.time
+        bot_dapodik.time = jam_tanpa_ext
+        try:
+            palsu_tanpa_ext = peramban_palsu.buat("alur_penuh").pakai_jam(jam_tanpa_ext.monotonic)
+            palsu_tanpa_ext.popup_detik = None
+            palsu_tanpa_ext.registrasi_otomatis = True
+            palsu_tanpa_ext.siapkan_bio(panel_rincian=True)
+            palsu_tanpa_ext.dropdown_tanpa_ext = True     # Ext.getCmp/store/select mati
+            palsu_tanpa_ext.dropdown_tanpa_panah = True   # tombol panah combo tidak ada
+            palsu_tanpa_ext.dropdown_muat_perlu = 2       # daftar muncul setelah ditunggu
+            palsu_tanpa_ext.dropdown_band = 5             # hanya 5 pilihan terlihat sekaligus
+            palsu_tanpa_ext.nisn_dicari = nisn_bio
+            palsu_tanpa_ext.tambah_baris_siswa(nisn_bio)
+            bot_tanpa_ext = bot_dapodik.BotDapodik(
+                0, [], [], dict(opsi_uji, bot_simulasi="0", bot_isi_bio="1"), kepala=jejak.append)
+            bot_tanpa_ext._login(palsu_tanpa_ext)
+            bot_tanpa_ext._proses_satu(palsu_tanpa_ext, siswa_bio, None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert palsu_tanpa_ext.bio_tersimpan, \
+            "jendela «Ubah» tidak disimpan saat Ext & tombol panah tidak ada"
+        assert palsu_tanpa_ext.dropdown_item_diklik >= 6, \
+            ("bot tidak memilih dari daftar saat Ext & tombol panah tidak ada: "
+             f"{palsu_tanpa_ext.dropdown_item_diklik} pilihan diklik")
+        assert palsu_tanpa_ext.dropdown_aria_dipakai >= 6, \
+            ("daftar dropdown tidak dibaca dari DOM saat Ext mati: "
+             f"{palsu_tanpa_ext.dropdown_aria_dipakai}x")
+        assert palsu_tanpa_ext.dropdown_item_tak_terlihat == 0, \
+            (f"bot mengklik pilihan yang belum terlihat saat Ext mati: "
+             f"{palsu_tanpa_ext.dropdown_item_tak_terlihat}x")
+        assert palsu_tanpa_ext.data_bio_tersimpan.get("pekerjaan_id_ayah") == "Petani", \
+            ("pekerjaan ayah tidak terisi saat Ext & tombol panah tidak ada: "
+             f"{palsu_tanpa_ext.data_bio_tersimpan.get('pekerjaan_id_ayah')!r}")
+        assert palsu_tanpa_ext.data_bio_tersimpan.get("jenjang_pendidikan_ayah") == "SMA", \
+            ("pilihan yang sama persis («SMA») tidak dipilih saat daftarnya disusuri: "
+             f"{palsu_tanpa_ext.data_bio_tersimpan.get('jenjang_pendidikan_ayah')!r}")
+        assert any("tombol ↓" in b for b in jejak), [b for b in jejak if "dropdown" in b][:6]
         assert palsu_bio.data_bio_tersimpan.get("reg_akta_lahir") == "LAMA", \
             "kolom «No. Registrasi Akta Lahir» dikosongkan padahal datanya kosong di SM"
         assert all(nilai != "LAMA" for nama, nilai in palsu_bio.data_bio_tersimpan.items()

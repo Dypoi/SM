@@ -485,7 +485,44 @@ def main() -> int:
     cek(not salah22, f"kolom yang tidak terisi pada uji terberat: {salah22}")
     cek(any("dipilih lewat model Ext JS" in b for b in j22), [b for b in j22 if "[bio]" in b][:8])
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 22 skenario")
+    # 23) Keadaan paling berat di sekolah: ``Ext`` TIDAK BISA DIPANGGIL dari skrip (semua
+    #     jalur Ext.getCmp/store/select mati) DAN tombol panah combonya tidak ada — jadi
+    #     satu-satunya jalan adalah menekan tombol ↓ pada kolomnya lalu membaca daftarnya
+    #     LANGSUNG DARI DOM (``aria-owns="…-picker-listEl"``, persis DOM yang dikirim
+    #     sekolah), menggulirnya sampai bawah, lalu mengklik pilihannya. Daftarnya juga
+    #     panjang (hanya sebagian terlihat) dan lambat muncul.
+    p23, j23 = jalankan("23. tanpa Ext & tanpa tombol panah → tombol ↓ + daftar dibaca dari DOM",
+                        2,
+                        atur=lambda p: (p.siapkan_bio(),
+                                        setattr(p, "dropdown_tanpa_ext", True),
+                                        setattr(p, "dropdown_tanpa_panah", True),
+                                        setattr(p, "dropdown_muat_perlu", 2),
+                                        setattr(p, "dropdown_band", 5)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p23.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji tanpa Ext")
+    cek(p23.dropdown_aria_dipakai >= 6,
+        f"bot tidak membaca daftar dropdown dari DOM/aria-owns: {p23.dropdown_aria_dipakai}x")
+    cek(any("tombol ↓" in b for b in j23),
+        [b for b in j23 if "[bio]" in b][:10] or j23[-6:])
+    cek(p23.dropdown_dibuka >= 6,
+        f"bot tidak membuka daftar dropdownnya tanpa tombol panah: {p23.dropdown_dibuka}x")
+    cek(p23.dropdown_gulir_kali >= 1,
+        "bot tidak menggulir isi daftar dropdown pada uji tanpa Ext")
+    cek(p23.dropdown_item_tak_terlihat == 0,
+        f"bot mencoba mengklik pilihan yang belum terlihat: {p23.dropdown_item_tak_terlihat}x")
+    cek(p23.dropdown_item_diklik >= 6,
+        f"bot tidak memilih dari daftar: {p23.dropdown_item_diklik} pilihan diklik "
+        "(seharusnya 6 kolom dropdown)")
+    salah23 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if str(p23.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah23, f"kolom yang tidak terisi pada uji tanpa Ext: {salah23}")
+    cek(str(p23.data_bio_tersimpan.get("jenjang_pendidikan_ayah") or "") == "SMA",
+        "pilihan yang SAMA PERSIS («SMA») tidak didahulukan atas nama lain («SLTA»): "
+        f"{p23.data_bio_tersimpan.get('jenjang_pendidikan_ayah')!r}")
+    cek(any("disusuri" in b for b in j23),
+        [b for b in j23 if "Pendidikan ayah" in b][:4] or j23[-6:])
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 23 skenario")
     return 0
 
 

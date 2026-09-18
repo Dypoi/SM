@@ -2745,6 +2745,68 @@ class BotDapodik:
         jenis = str(jenis or "").strip().lower()
         return "combo" if jenis == "combo" else "teks"
 
+    def _daftar_aria(self, peramban, unsur):
+        """Elemen daftar dropdown milik kolom ini — dibaca dari **DOM**, tanpa ``Ext``.
+
+        DOM Dapodik membawa ``aria-owns="…-inputEl …-picker-listEl"``: dari situ (atau dari
+        ``…-picker-listEl``/``.x-boundlist`` di sekitar kolomnya) elemen daftar dropdownnya
+        bisa ditemukan langsung. Inilah jalan yang tetap bekerja walaupun ``Ext`` tidak bisa
+        dipanggil dari skrip — keadaan yang membuat semua jalur Ext JS gagal di sekolah.
+        """
+        try:
+            return peramban.execute_script(
+                """
+                /* dropdown-aria */
+                const el = arguments[0];
+                if (!el) return null;
+                const kandidat = [];
+                const tambah = (n) => { if (n && kandidat.indexOf(n) < 0) kandidat.push(n); };
+                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
+                const bersih = String(id).replace(/-inputEl$/, '');
+                const owns = String((el.getAttribute && el.getAttribute('aria-owns')) || '')
+                    .split(/\s+/).filter(Boolean);
+                for (const o of owns) tambah(document.getElementById(o));
+                if (bersih) {
+                    tambah(document.getElementById(bersih + '-picker-listEl'));
+                    tambah(document.getElementById(bersih + '-picker'));
+                    const wadah = el.closest ? el.closest('.x-field') : null;
+                    if (wadah && wadah.querySelector) tambah(wadah.querySelector('.x-boundlist'));
+                    const induk = wadah && wadah.parentElement;
+                    if (induk && induk.querySelector) tambah(induk.querySelector('.x-boundlist'));
+                }
+                for (const n of kandidat) {
+                    if ((n.textContent || '').trim()) return n;      # yang ada isinya
+                }
+                return kandidat.length ? kandidat[0] : null;
+                """, unsur)
+        except Exception:  # noqa: BLE001 — hanya jalur tambahan
+            return None
+
+    def _pilihan_dari_daftar_dom(self, peramban, unsur) -> list[str]:
+        """Pilihan yang terbaca langsung dari elemen daftar dropdown (tanpa Ext)."""
+        daftar = self._daftar_aria(peramban, unsur)
+        if daftar is None:
+            return []
+        from selenium.webdriver.common.by import By
+
+        try:
+            item = daftar.find_elements(
+                By.CSS_SELECTOR,
+                "li.x-boundlist-item, div.x-boundlist-item, .x-combo-list-item") or []
+        except Exception:  # noqa: BLE001
+            return []
+        hasil: list[str] = []
+        for k in item:
+            try:
+                if not k.is_displayed():
+                    continue
+                teks = " ".join(str(k.text or "").split())
+            except Exception:  # noqa: BLE001
+                continue
+            if teks and teks not in hasil:
+                hasil.append(teks)
+        return hasil
+
     def _data_dropdown(self, peramban, unsur) -> list[tuple[str, Any]]:
         """(teks pilihan, nilainya) tiap pilihan dropdown — dibaca dari **data komponen** Ext JS.
 
@@ -2842,6 +2904,9 @@ class BotDapodik:
         pilihan yang benar-benar terlihat, karena hanya itu yang bisa diklik; daftar lengkap
         untuk mencocokkan dibaca dari data komponen (``_data_dropdown``).
         """
+        lewat_dom = self._pilihan_dari_daftar_dom(peramban, unsur)
+        if lewat_dom:
+            return lewat_dom
         try:
             hasil = peramban.execute_script(
                 """
@@ -2890,6 +2955,15 @@ class BotDapodik:
                         'li.x-boundlist-item, div.x-boundlist-item, .x-combo-list-item')) {
                     if (lihat(el2)) return true;
                 }
+                // Tanpa Ext: keadaan daftarnya dibaca dari DOM — aria-expanded & elemen
+                // daftar yang benar-benar terlihat adalah penanda standar combo Ext JS.
+                if (el.getAttribute && el.getAttribute('aria-expanded') === 'true') return true;
+                const owns = String((el.getAttribute && el.getAttribute('aria-owns')) || '')
+                    .split(/\s+/).filter(Boolean);
+                for (const o of owns) {
+                    const n = document.getElementById(o);
+                    if (n && lihat(n)) return true;
+                }
                 return false;
                 """, unsur))
         except Exception:  # noqa: BLE001 — tidak terbaca: anggap tertutup
@@ -2899,6 +2973,26 @@ class BotDapodik:
         """Buka daftar sebuah dropdown: lewat tombol panah, kolomnya, atau Ext ``expand()``."""
         from selenium.webdriver.common.by import By
 
+        if cara == "panah-bawah":
+            # Combo Ext JS juga dibuka dengan menekan tombol ↓ pada kolomnya — cara ini tidak
+            # membutuhkan Ext sama sekali, jadi tetap bekerja walau ``Ext.getCmp`` tidak bisa
+            # dipanggil dari skrip (dugaan terkuat mengapa dropdown sekolah belum berhasil).
+            from selenium.webdriver.common.keys import Keys
+
+            self._paksa_terlihat(peramban, unsur)
+            for tombol in ((Keys.ARROW_DOWN,), (Keys.ALT, Keys.ARROW_DOWN)):
+                try:
+                    unsur.click()
+                except Exception:  # noqa: BLE001 — klik bisa tertelan lapisan pemuatan
+                    pass
+                try:
+                    unsur.send_keys(*tombol)
+                except Exception:  # noqa: BLE001 — kolom readonly bisa menolaknya
+                    continue
+                self._tunggu(peramban, 0.4)
+                if self._dropdown_terbuka(peramban, unsur):
+                    return True
+            return False
         if cara == "panah":
             # Tombol panah Ext JS di sebelah kolomnya. Dicari lewat ``find_elements`` (bukan
             # ``find_element``): sebagian versi Selenium menolak pencarian relatif dari sebuah
@@ -2962,12 +3056,12 @@ class BotDapodik:
             self._tunggu(peramban, 0.5)
         return []
 
-    def _gulir_daftar_dropdown(self, peramban, unsur) -> int:
-        """Geser **isi daftar dropdown** 150 px ke bawah — daftarnya punya area gulir sendiri.
+    def _gulir_daftar_dropdown(self, peramban, unsur, jauh: int = 150) -> int:
+        """Geser **isi daftar dropdown** (positif = ke bawah, negatif = kembali ke atas).
 
-        Kembalikan posisi gulir barunya (0 = tidak ada yang bisa digulir). Dipakai untuk
-        mencari pilihan yang letaknya di bawah bagian daftar yang terlihat; pilihan yang belum
-        terlihat memang tidak bisa diklik (persis Dapodik).
+        Kembalikan posisi gulir barunya (0 = mentok/tidak bisa digulir). Dipakai untuk mencari
+        pilihan yang letaknya di luar bagian daftar yang terlihat — pilihan yang belum terlihat
+        memang tidak bisa diklik (persis Dapodik).
         """
         try:
             hasil = peramban.execute_script(
@@ -2977,14 +3071,31 @@ class BotDapodik:
                 const jauh = Number(arguments[1] || 150);
                 if (!el) return 0;
                 const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
+                const lihat = (el2) => !!(el2 && el2.getClientRects && el2.getClientRects().length);
                 const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
                     ? Ext.getCmp(String(id).replace(/-inputEl$/, '')) : null;
                 let akar = null;
                 const picker = (c && (c.getPicker ? c.getPicker() : c.picker)) || null;
                 if (picker && picker.getEl && picker.getEl()) akar = picker.getEl().dom;
                 if (!akar) {
+                    // Tanpa Ext: elemen daftarnya dicari dari DOM (aria-owns / id picker).
+                    const bersih = String(id).replace(/-inputEl$/, '');
+                    const owns = String((el.getAttribute && el.getAttribute('aria-owns')) || '')
+                        .split(/\s+/).filter(Boolean);
+                    for (const o of owns) {
+                        if (akar) break;
+                        const n = document.getElementById(o);
+                        if (n && lihat(n)) akar = n;
+                    }
+                    if (!akar && bersih) {
+                        const n = document.getElementById(bersih + '-picker-listEl')
+                            || document.getElementById(bersih + '-picker');
+                        if (n && lihat(n)) akar = n;
+                    }
+                }
+                if (!akar) {
                     for (const el2 of document.querySelectorAll('.x-boundlist')) {
-                        if (el2.getClientRects && el2.getClientRects().length) { akar = el2; break; }
+                        if (lihat(el2)) { akar = el2; break; }
                     }
                 }
                 if (!akar) return 0;
@@ -2992,7 +3103,7 @@ class BotDapodik:
                     || akar.querySelector('ul.x-boundlist-list') || akar;
                 kontainer.scrollTop = (kontainer.scrollTop || 0) + jauh;
                 return kontainer.scrollTop || 0;
-                """, unsur, 150)
+                """, unsur, int(jauh))
         except Exception:  # noqa: BLE001 — gulir hanya upaya terbaik
             return 0
         try:
@@ -3011,6 +3122,9 @@ class BotDapodik:
         from selenium.webdriver.common.by import By
 
         geser = 0
+        # Selalu mulai dari ATAS: pilihan yang berada di atas posisi gulir saat ini tidak akan
+        # pernah ketemu bila daftarnya hanya digulir ke bawah.
+        self._gulir_daftar_dropdown(peramban, unsur, jauh=-100000)
         for _ in range(max(1, percobaan)):
             posisi = self._posisi_pilihan_dropdown(peramban, unsur, teks)
             if posisi >= 0:
@@ -3117,6 +3231,22 @@ class BotDapodik:
         except Exception:  # noqa: BLE001 — daftar yang menutupi akan menutup sendiri
             pass
 
+    def _bukti_dropdown(self, peramban, label: str) -> None:
+        """Simpan tangkapan layar **saat daftar dropdown terbuka** (bukti untuk sekolah).
+
+        Kalau sebuah kolom dropdown tetap tidak berhasil, gambar ini menunjukkan apa yang
+        benar-benar tampil di layar (daftar terbuka? pilihannya apa saja?) — jadi keadaannya
+        bisa diperiksa tanpa perlu menebak atau meminta pengguna memotret ulang.
+        """
+        if getattr(self, "_bukti_dropdown_diambil", False):
+            return                      # cukup sekali per siswa supaya berkas tidak menumpuk
+        self._bukti_dropdown_diambil = True
+        nama_berkas = re.sub(r"[^A-Za-z0-9]+", "-", str(label or "kolom")).strip("-").lower()
+        bukti = self._bukti(peramban, f"bio-dropdown-{nama_berkas or 'kolom'}")
+        if bukti:
+            self._catat_kepala(f"[bio] bukti layar daftar dropdown disimpan: {bukti} "
+                               "(beserta berkas .html di folder yang sama).")
+
     def _isi_dropdown_bio(self, peramban, peta: dict[str, str], label: str, nilai: str,
                           unsur, awalan: str = "[bio]") -> str:
         """Isi satu kolom **dropdown** jendela «Ubah» — pilihannya diambil dari daftarnya.
@@ -3135,7 +3265,7 @@ class BotDapodik:
         # 1) Klik dropdownnya (persis orang memakai Dapodik: tombol panahnya).
         terbuka = False
         cara_dipakai = ""
-        for cara in ("panah", "kolom", "Ext JS"):
+        for cara in ("panah", "panah-bawah", "kolom", "Ext JS"):
             if self._buka_dropdown(peramban, unsur, cara):
                 terbuka = True
                 cara_dipakai = cara
@@ -3147,13 +3277,25 @@ class BotDapodik:
         #    tetap terbaca walau daftarnya tidak mau terbuka.
         data = self._data_dropdown(peramban, unsur)
         pilihan: list[str] = [teks for teks, _ in data] or list(tampil)
+        if not pilihan and not tampil:
+            # Jalur terakhir untuk mengenali pilihan: baca langsung elemen daftarnya (DOM).
+            dari_dom = self._pilihan_dari_daftar_dom(peramban, unsur)
+            if dari_dom:
+                pilihan = dari_dom
+                tampil = dari_dom
+                cara_dipakai = (cara_dipakai or "elemen daftar") + " + daftar dibaca dari DOM"
+        nama_cara = {"panah": "tombol panahnya",
+                     "panah-bawah": "tombol ↓ pada kolomnya (tanpa Ext)",
+                     "kolom": "kolomnya sendiri",
+                     "Ext JS": "Ext JS (expand)",
+                     "": "elemen daftarnya"}.get(cara_dipakai, cara_dipakai)
         if terbuka and tampil:
             tunggu = (f" (menunggu {self._baca_daftar_terakhir}x baca)"
                       if getattr(self, "_baca_daftar_terakhir", 1) > 1 else "")
-            self._catat_kepala(f"{awalan} {label}: dropdown dibuka lewat {cara_dipakai} — "
+            self._catat_kepala(f"{awalan} {label}: dropdown dibuka lewat {nama_cara} — "
                                f"{len(tampil)} pilihan tampil{tunggu}.")
         elif terbuka and pilihan:
-            self._catat_kepala(f"{awalan} {label}: dropdown dibuka lewat {cara_dipakai}, "
+            self._catat_kepala(f"{awalan} {label}: dropdown dibuka lewat {nama_cara}, "
                                "tetapi pilihannya belum tampil — dibaca dari data komponen "
                                f"Ext JS ({len(pilihan)} pilihan).")
         elif pilihan:
@@ -3167,11 +3309,44 @@ class BotDapodik:
             return ("dilewati — daftar dropdown tidak terbaca (nilainya tidak diketik paksa, "
                     "karena Dapodik hanya menyimpan pilihan yang ada di daftar).")
         cocok, catatan = self._cocokkan_pilihan(nilai, pilihan)
+        geser_cari = 0
+        if not cocok and terbuka:
+            # Pilihan belum ketemu di bagian yang TERLIHAT. Jangan langsung menyimpulkan
+            # "tidak ada": daftarnya bisa panjang — susuri dari atas ke bawah sambil
+            # mengumpulkan semua pilihan yang pernah terlihat, lalu cocokkan lagi.
+            semua = list(pilihan)
+            cari_norm = self._norm_pilihan(nilai)
+            self._gulir_daftar_dropdown(peramban, unsur, jauh=-100000)
+            for _ in range(14):
+                posisi_gulir = self._gulir_daftar_dropdown(peramban, unsur)
+                if not posisi_gulir:
+                    break
+                geser_cari += 1
+                baru = (self._pilihan_dropdown(peramban, unsur)
+                        or self._pilihan_dari_daftar_dom(peramban, unsur))
+                for teks_baru in baru:
+                    if teks_baru not in semua:
+                        semua.append(teks_baru)
+                if cari_norm and any(self._norm_pilihan(t) == cari_norm for t in semua):
+                    break        # pilihannya sudah ketemu: tidak perlu disusuri sampai mentok
+            pilihan = semua
+            # Daftarnya sudah disusuri; pencocokan dilakukan SEKALI atas seluruh pilihan yang
+            # terlihat. Dengan begitu pilihan yang sama persis didahulukan atas nama lain
+            # («SMA» dipilih, bukan «SLTA» yang kebetulan muncul lebih dulu).
+            cocok, catatan = self._cocokkan_pilihan(nilai, semua)
+            if cocok:
+                catatan = (f"{catatan} (ketemu setelah daftarnya disusuri {geser_cari}x "
+                           f"ke bawah)" if geser_cari else catatan)
+            elif geser_cari:
+                self._catat_kepala(f"{awalan} {label}: daftar dropdown sudah disusuri "
+                                   f"{geser_cari}x ke bawah ({len(semua)} pilihan terlihat) — "
+                                   f"«{nilai}» tetap tidak ada.")
         if not cocok:
             ringkas = ", ".join(pilihan[:10]) + (" …" if len(pilihan) > 10 else "")
             self._catat_kepala(f"{awalan} {label}: pilihan «{nilai}» TIDAK ADA di daftar "
                                f"dropdown Dapodik — yang terlihat: {ringkas} "
                                "(dilewati, tidak ditebak).")
+            self._bukti_dropdown(peramban, label)
             self._tutup_dropdown(peramban, unsur)
             return (f"dilewati — «{nilai}» tidak ada di daftar dropdown Dapodik "
                     f"({len(pilihan)} pilihan terbaca).")
@@ -3215,8 +3390,9 @@ class BotDapodik:
             if self._norm_pilihan(model or nilai_tampil) == self._norm_pilihan(cocok):
                 return (f"terisi lewat Ext JS (dipilih dari daftar): "
                         f"{nilai_tampil or model}")
+        self._bukti_dropdown(peramban, label)
         self._tutup_dropdown(peramban, unsur)
-        return (f"gagal terisi — pilihan «{cocok}» tidak masuk ke model Ext JS "
+        return (f"gagal terisi — pilihan «{cocok}» tidak masuk ke nilai kolomnya "
                 f"(tampil: «{nilai_tampil}», model: «{model}»).")
 
     def _isi_bio(self, peramban, peta: dict[str, str], siswa: dict[str, Any]) -> bool:
@@ -3235,6 +3411,7 @@ class BotDapodik:
         # Laporan mandiri: dua kalimat keadaan jendela cukup dicatat sekali per siswa.
         self._bio_global_dilaporkan = False
         self._bio_gulir_dilaporkan = False
+        self._bukti_dropdown_diambil = False
         kandidat = self._tombol_ubah_semua(peramban, peta)
         if not kandidat:
             self._catat_kepala("[bio] tombol «Ubah» tidak ada di halaman ini — langkah BIO "
