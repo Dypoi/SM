@@ -233,6 +233,8 @@ Semua di `app/bot_dapodik.py` (nama fungsi, bukan nomor baris — nomornya berge
 | 15s | `9b5e368` | DOM sekolah: label sesudah input, keadaan lewat kelas `x-form-cb-checked`, kolom km nonaktif ditunggu |
 | 15t | `3b9da31` | Penanda `x-form-cb-checked` menentukan → eskalasi `Ext.getCmp(...).setValue(...)` |
 | 15u | `e6c35ca` | Pilihan jarak tidak lagi bergantung XPath (dilacak lewat teksnya), jeda render, log `[layar]`, laporan isi panel |
+| 15v | (lihat commit) | Aturan kerja repo (`AGENTS.md` + `CLAUDE.md`) supaya catatan ini benar-benar dibaca |
+| 15w | (lihat commit) | **BIO lewat tombol «Ubah»** (14 kolom persis skrip sekolah, jendela dibawa ke layar, disimpan dengan «Simpan») dijalankan **sebelum** Data Periodik |
 
 ---
 

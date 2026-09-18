@@ -82,6 +82,28 @@ SELECTOR_BAWAAN: dict[str, str] = {
     # Kolom teks di sebelah kotak «Jarak rumah ke sekolah»: «Sebutkan (dalam kilometer):»
     # namanya ``jarak_rumah_ke_sekolah_km``. Isinya jarak (km) dari data siswa SM.
     "periodik_jarak_km": "name:jarak_rumah_ke_sekolah_km",
+    # --- Jendela «Ubah» (BIO) pada halaman Peserta Didik — persis skrip sekolah.
+    #     Tombol «Ubah» (ungu) dibuka SESUDAH baris siswa dipilih & SEBELUM Data Periodik;
+    #     nama kolom di bawah diambil apa adanya dari skrip sekolah (By.NAME).
+    "bio_ubah": '//span[contains(@class, "x-btn-inner-soft-purple-small") and '
+                'normalize-space()="Ubah"]',
+    "bio_jendela": "css:div.x-window",
+    "bio_no_kk": "name:no_kk",
+    "bio_reg_akta": "name:reg_akta_lahir",
+    "bio_alamat": "name:alamat_jalan",
+    "bio_rt": "name:rt",
+    "bio_rw": "name:rw",
+    "bio_kode_pos": "name:kode_pos",
+    "bio_anak_ke": "name:anak_keberapa",
+    "bio_ayah_nama": "name:nama_ayah",
+    "bio_ayah_nik": "name:nik_ayah",
+    "bio_ayah_tahun": "name:tahun_lahir_ayah",
+    "bio_ayah_pendidikan": "name:jenjang_pendidikan_ayah",
+    "bio_ibu_nik": "name:nik_ibu",
+    "bio_ibu_tahun": "name:tahun_lahir_ibu",
+    "bio_ibu_pendidikan": "name:jenjang_pendidikan_ibu",
+    "bio_simpan": '//span[contains(@class, "x-btn-inner-default-small") and '
+                  'normalize-space()="Simpan"]',
     "simpan_periodik": '//span[contains(@class, "x-btn-inner-default-small") '
                        'and contains(text(), "Simpan dan Tutup")]',
     "hobi": "name:id_hobby",
@@ -218,6 +240,31 @@ SELECTOR_CADANGAN: dict[str, list[str]] = {
         '@type="checkbox"][1]',
         'xpath://label[contains(translate(normalize-space(.), "KM", "km"), "kurang dari 1")]'
         '/preceding::input[@type="radio"][1]',
+    ],
+    # Jendela «Ubah» (BIO): tombol ungu bisa berubah kelasnya antar versi Dapodik — teks
+    # «Ubah» pada tombolnya yang paling tetap. Kolomnya dicari lewat nama (persis skrip
+    # sekolah), dengan cadangan lewat labelnya untuk kolom yang labelnya khas.
+    "bio_ubah": [
+        'xpath://*[self::span or self::a or self::button][normalize-space()="Ubah"]',
+        'xpath://span[contains(@class, "x-btn-inner-soft-purple-small")]',
+    ],
+    "bio_no_kk": ["label:No. Kartu Keluarga", "css:input[name*=no_kk]"],
+    "bio_reg_akta": ["label:No. Registrasi Akta Lahir", "css:input[name*=akta]"],
+    "bio_alamat": ["label:Alamat (Jalan)", "label:Alamat", "css:input[name*=alamat_jalan]"],
+    "bio_rt": ["label:RT", "css:input[name=rt]"],
+    "bio_rw": ["label:RW", "css:input[name=rw]"],
+    "bio_kode_pos": ["label:Kode Pos", "css:input[name*=kode_pos]"],
+    "bio_anak_ke": ["label:Anak ke-berapa", "label:Anak ke", "css:input[name*=anak]"],
+    "bio_ayah_nama": ["css:input[name*=nama_ayah]"],
+    "bio_ayah_nik": ["css:input[name*=nik_ayah]"],
+    "bio_ayah_tahun": ["css:input[name*=tahun_lahir_ayah]"],
+    "bio_ayah_pendidikan": ["css:input[name*=jenjang_pendidikan_ayah]"],
+    "bio_ibu_nik": ["css:input[name*=nik_ibu]"],
+    "bio_ibu_tahun": ["css:input[name*=tahun_lahir_ibu]"],
+    "bio_ibu_pendidikan": ["css:input[name*=jenjang_pendidikan_ibu]"],
+    "bio_simpan": [
+        'xpath://span[contains(@class, "x-btn-inner") and normalize-space()="Simpan"]',
+        'xpath://*[self::a or self::button][normalize-space()="Simpan"]',
     ],
     "periodik_jarak": [
         "css:input[type=radio][name=jarak_rumah_ke_sekolah]",   # nama kolom pada DOM sekolah
@@ -1108,6 +1155,27 @@ class BotDapodik:
         ("jml_saudara", "Jumlah saudara kandung", "periodik_saudara"),
     )
 
+    #: Kolom jendela «Ubah» (BIO) yang diisi bot — persis potongan skrip sekolah, termasuk
+    #: urutannya: No. KK → No. Registrasi Akta Lahir → alamat/RT/RW/kode pos → anak ke-berapa
+    #: → data ayah (nama, NIK, tahun lahir, pendidikan) → data ibu (NIK, tahun lahir,
+    #: pendidikan). «Nama Ibu» tidak diisi karena skrip sekolah pun tidak mengisinya.
+    BIO_KOLOM: tuple[tuple[str, str, str], ...] = (
+        ("no_kk", "No. Kartu Keluarga", "bio_no_kk"),
+        ("no_registrasi_akta", "No. Registrasi Akta Lahir", "bio_reg_akta"),
+        ("alamat", "Alamat (Jalan)", "bio_alamat"),
+        ("rt", "RT", "bio_rt"),
+        ("rw", "RW", "bio_rw"),
+        ("kode_pos", "Kode Pos", "bio_kode_pos"),
+        ("anak_ke", "Anak ke-berapa", "bio_anak_ke"),
+        ("ayah_nama", "Nama ayah", "bio_ayah_nama"),
+        ("ayah_nik", "NIK ayah", "bio_ayah_nik"),
+        ("ayah_tahun_lahir", "Tahun lahir ayah", "bio_ayah_tahun"),
+        ("ayah_pendidikan", "Pendidikan ayah", "bio_ayah_pendidikan"),
+        ("ibu_nik", "NIK ibu", "bio_ibu_nik"),
+        ("ibu_tahun_lahir", "Tahun lahir ibu", "bio_ibu_tahun"),
+        ("ibu_pendidikan", "Pendidikan ibu", "bio_ibu_pendidikan"),
+    )
+
     @property
     def PERIODIK(self) -> tuple[tuple[str, str, str], ...]:
         """Semua kolom Data Periodik (untuk pemeriksaan keberadaan panel)."""
@@ -1236,8 +1304,13 @@ class BotDapodik:
         return kotak
 
     def _isi_periodik_satu(self, peramban, peta: dict[str, str], kunci: str, label: str,
-                           nilai: str, unsur=None) -> str:
-        """Isi satu kolom Data Periodik (Ctrl+A lalu ketik, seperti potongan skrip sekolah)."""
+                           nilai: str, unsur=None, awalan: str = "[periodik]") -> str:
+        """Isi satu kolom isian (Ctrl+A lalu ketik, seperti potongan skrip sekolah).
+
+        Dipakai untuk panel Data Periodik **dan** jendela «Ubah» (BIO): langkahnya sama —
+        bawa kolom ke layar, tunggu aktif, Ctrl+A, ketik, lalu beri peristiwa
+        input → change → blur, dengan cadangan lewat JavaScript dan Ext JS.
+        """
         from selenium.webdriver.common.keys import Keys
 
         unsur = (unsur if unsur is not None
@@ -1250,7 +1323,7 @@ class BotDapodik:
         # bot menunggu kolomnya aktif lebih dulu.
         self._bawa_ke_layar(peramban, unsur)
         if not self._tunggu_aktif(peramban, unsur):
-            self._catat_kepala(f"[periodik] {label}: kolom masih nonaktif saat akan diisi — "
+            self._catat_kepala(f"{awalan} {label}: kolom masih nonaktif saat akan diisi — "
                                "dicoba apa adanya (Dapodik bisa mengabaikannya).")
         self._paksa_terlihat(peramban, unsur)
         try:                       # fokuskan dulu (klik sungguhan, bila tertelan → klik skrip)
@@ -2100,6 +2173,161 @@ class BotDapodik:
                                              "Sebutkan (dalam kilometer)", nilai, unsur)
         return f"{tanda}: {keterangan}" if keterangan.startswith("terisi") else keterangan
 
+    # ------------------------------------------------------ jendela «Ubah» (BIO) --- #
+    def _bawa_jendela_bio_ke_layar(self, peramban, peta: dict[str, str]) -> bool:
+        """Bawa jendela «Ubah» ke layar.
+
+        Jendela BIO itu panjang dan punya area gulirnya sendiri (seperti panel Data
+        Periodik), sehingga kolom yang di bawah perlu dibawa ke layar dulu — halaman saja
+        tidak cukup, dan sebaliknya pun tidak. Kembalikan True bila jendelanya ketemu.
+        """
+        for nilai in self._kandidat_selector("bio_jendela", peta):
+            try:
+                for unsur in peramban.find_elements(*self._locator_nilai(nilai)):
+                    if self._terlihat(peramban, unsur):
+                        self._bawa_ke_layar(peramban, unsur)
+                        return True
+            except Exception:  # noqa: BLE001 — coba kandidat berikutnya
+                continue
+        return False
+
+    def _cari_kolom_bio(self, peramban, kunci: str, peta: dict[str, str]):
+        """Cari kolom jendela «Ubah»; bila belum ketemu, gulir jendela **dan** halaman dulu.
+
+        Sama seperti kolom Data Periodik: Ext JS menggambar kolomnya bertahap, jadi tiap
+        percobaan diberi jeda kecil, dan bila kolomnya memang tidak ada, ``None`` dikembalikan
+        (pemanggil yang mencatatnya dengan jujur).
+        """
+        unsur = self._cari_kolom_dengan_label(peramban, kunci, peta)
+        for _ in range(GULIR_PERCOBAAN):
+            if unsur is not None:
+                return unsur
+            self._bawa_jendela_bio_ke_layar(peramban, peta)   # jendelanya digulir …
+            self._gulir(peramban, catat=False)                # … lalu halaman (keduanya dicoba)
+            self._tunggu(peramban, 1.0)                       # beri waktu Ext JS menggambar
+            unsur = self._cari_kolom_dengan_label(peramban, kunci, peta)
+        return unsur
+
+    def _kotak_bio(self, peramban, peta: dict[str, str], kunci: str, detik: float = 4.0):
+        """Cari satu unsur jendela «Ubah» (tombol «Ubah»/«Simpan») dengan pemeriksaan cepat.
+
+        Sengaja tidak memakai penantian panjang seperti kolom formulir: bila halaman ini
+        memang tidak punya tombol «Ubah» (versi Dapodik lain), bot tidak perlu menunggu
+        lama sebelum berkata jujur bahwa langkah BIO dilewati.
+        """
+        akhir = time.time() + detik
+        while True:
+            for nilai in self._kandidat_selector(kunci, peta):
+                try:
+                    kotak = [unsur for unsur in peramban.find_elements(*self._locator_nilai(nilai))
+                             if self._terlihat(peramban, unsur)]
+                except Exception:  # noqa: BLE001 — coba kandidat berikutnya
+                    kotak = []
+                if kotak:
+                    return kotak[0], nilai
+            if time.time() >= akhir:
+                return None, ""
+            time.sleep(0.5)
+
+    def _jendela_bio_terbuka(self, peramban, peta: dict[str, str]) -> bool:
+        """Apakah jendela «Ubah» masih terlihat (dibaca dari kolom pertamanya)."""
+        unsur = self._cari_kolom_dengan_label(peramban, self.BIO_KOLOM[0][2], peta)
+        return unsur is not None and self._terlihat(peramban, unsur)
+
+    def _isi_bio(self, peramban, peta: dict[str, str], siswa: dict[str, Any]) -> bool:
+        """Buka jendela «Ubah» lalu isi BIO siswa — persis potongan skrip sekolah.
+
+        Urutan skrip sekolah: tombol «Ubah» (ungu) ditekan sesudah baris siswa dipilih, jeda
+        tiga detik, lalu tiap kolom diisi dengan Ctrl+A → ketik, dan disimpan dengan tombol
+        «Simpan». Kolom yang datanya kosong di SM **tidak** dikosongkan — hanya dilewati dan
+        dicatat pada log, karena mengosongkan data Dapodik bukan maksud langkah ini.
+        """
+        tombol, nilai_tombol = self._kotak_bio(peramban, peta, "bio_ubah")
+        if tombol is None:
+            self._catat_kepala("[bio] tombol «Ubah» tidak ada di halaman ini — langkah BIO "
+                               "dilewati (versi Dapodik sekolah mungkin berbeda).")
+            return False
+        self._catat_kepala(f"[bio] membuka jendela «Ubah» — tombol {nilai_tombol} "
+                           "(siswa dipilih lebih dulu, seperti skrip sekolah).")
+        try:
+            tombol.click()
+        except Exception:  # noqa: BLE001 — klik sungguhan bisa tertelan; lanjut lewat skrip
+            try:
+                peramban.execute_script("arguments[0].click();", tombol)
+            except Exception:  # noqa: BLE001 — diperiksa lewat kolom pertamanya di bawah
+                pass
+        # Skrip sekolah menunggu 3 detik setelah menekan «Ubah» sebelum mengisi kolomnya.
+        self._tunggu(peramban, 3)
+        if self._cari_kolom_bio(peramban, self.BIO_KOLOM[0][2], peta) is None:
+            self._catat_kepala("[bio] jendela «Ubah» belum menampilkan kolomnya — langkah BIO "
+                               "dilewati supaya siswa tetap diproses.")
+            return False
+        self._catat_kepala(f"[bio] mengisi BIO ({len(self.BIO_KOLOM)} kolom seperti skrip "
+                           "sekolah): No. KK, akta, alamat/RT/RW/kode pos, anak ke-berapa, "
+                           "data ayah & ibu — kolomnya dibawa ke layar lebih dulu.")
+        terisi = 0
+        kosong: list[str] = []
+        for kunci_data, label, kunci_sel in self.BIO_KOLOM:
+            nilai = self._nilai_teks(siswa.get(kunci_data))
+            if not nilai:
+                kosong.append(label)
+                self._catat_kepala(f"[bio] {label}: data siswa kosong — dilewati "
+                                   "(kolom Dapodik tidak dikosongkan).")
+                continue
+            unsur = self._cari_kolom_bio(peramban, kunci_sel, peta)
+            if unsur is None:
+                self._catat_kepala(f"[bio] {label}: kolomnya tidak ada di jendela ini — "
+                                   "dilewati.")
+                continue
+            keterangan = self._isi_periodik_satu(peramban, peta, kunci_sel, label, nilai,
+                                                 unsur, awalan="[bio]")
+            self._catat_kepala(f"[bio] {label}: {keterangan}")
+            if keterangan.startswith("terisi"):
+                terisi += 1
+            time.sleep(0.6)          # jeda antar kolom supaya Ext JS selesai memproses
+        # Simpan: tombol «Simpan» jendela «Ubah» (bukan «Simpan dan Tutup» panel periodik).
+        simpan, nilai_simpan = self._kotak_bio(peramban, peta, "bio_simpan")
+        if simpan is None:
+            self._catat_kepala("[bio] tombol «Simpan» tidak ada di jendela ini — kolom yang "
+                               f"sudah terisi ({terisi}) dicatat, tetapi belum bisa dipastikan "
+                               "tersimpan. Kunci selectornya: bio_simpan.")
+            return False
+        self._catat_kepala(f"[bio] menyimpan lewat {nilai_simpan}.")
+        try:
+            simpan.click()
+        except Exception:  # noqa: BLE001 — klik sungguhan bisa tertelan; lanjut lewat skrip
+            try:
+                peramban.execute_script("arguments[0].click();", simpan)
+            except Exception:  # noqa: BLE001 — keadaan jendelanya diperiksa di bawah
+                pass
+        self._tunggu(peramban, 2)
+        if self._jendela_bio_terbuka(peramban, peta):
+            self._catat_kepala("[bio] peringatan: tombol «Simpan» sudah ditekan tetapi jendela "
+                               "«Ubah» masih terlihat — periksa hasilnya di Dapodik.")
+            return False
+        rincian = f", {len(kosong)} kolom dilewati (data kosong)" if kosong else ""
+        self._catat_kepala(f"[bio] jendela «Ubah» tertutup — data BIO dikirim "
+                           f"({terisi} kolom terisi{rincian}).")
+        return True
+
+    def _pastikan_baris_setelah_bio(self, peramban, xpath_baris: str, nisn: str, loc_cari) -> None:
+        """Setelah jendela «Ubah» disimpan, daftar peserta didik kadang tersegar.
+
+        Jangan menyerah: cari NISN-nya sekali lagi lalu pastikan barisnya tetap terpilih —
+        langkah Data Periodik & Registrasi sesudahnya membutuhkan baris yang terpilih.
+        """
+        if not self._ada_baris(peramban, xpath_baris):
+            self._catat_kepala("[bio] daftar peserta didik tersegarkan — mencari NISN sekali lagi.")
+            self._kirim_enter(peramban, loc_cari)
+            self._siap_melanjutkan(peramban, "hasil pencarian NISN")
+            for _ in range(20):
+                if self._ada_baris(peramban, xpath_baris):
+                    break
+                time.sleep(0.5)
+        if not self._pastikan_baris_terpilih(peramban, xpath_baris, nisn):
+            self._catat_kepala("[bio] peringatan: baris siswa belum terpilih setelah menyimpan "
+                               "BIO — langkah berikutnya mungkin perlu baris itu terpilih.")
+
     def _isi_data_periodik(self, peramban, peta: dict[str, str],
                            siswa: dict[str, Any]) -> bool:
         """Isi panel Data Periodik lalu simpan — **sebelum** tombol Registrasi ditekan.
@@ -2885,6 +3113,13 @@ class BotDapodik:
                 self._catat_kepala("[registrasi] peringatan: baris siswa belum terpilih — "
                                    "Dapodik biasanya perlu baris terpilih untuk Registrasi.")
             time.sleep(1)
+
+            # 2a) BIO lewat tombol «Ubah» — persis potongan skrip sekolah (No. KK, akta,
+            #     alamat/RT/RW/kode pos, anak ke-berapa, data ayah & ibu) dan dijalankan
+            #     SESUDAH baris siswa dipilih, **sebelum** Data Periodik & Registrasi.
+            if self.opsi.get("bot_isi_bio", "1") == "1":
+                self._isi_bio(peramban, peta, siswa)
+                self._pastikan_baris_setelah_bio(peramban, xpath_baris, nisn, loc_cari)
 
             # 2b) Data Periodik — persis potongan skrip sekolah, dan **sebelum** tombol
             #     Registrasi ditekan: tinggi badan, berat badan, lingkar kepala, centang

@@ -2565,6 +2565,56 @@ def cek_bot_dapodik() -> str:
         assert (palsu_teks.data_periodik_tersimpan.get("jarak_rumah_ke_sekolah_km") == "7.9"), \
             f"kolom km tidak tersimpan: {palsu_teks.data_periodik_tersimpan}"
 
+        # Langkah BIO lewat tombol «Ubah» (persis skrip sekolah): jendelanya panjang sehingga
+        # kolomnya harus DIBawa KE LAYAR dulu (jendela & halaman), lalu diisi dari data siswa
+        # dan disimpan dengan tombol «Simpan» — dijalankan SEBELUM Data Periodik.
+        jejak.clear()
+        jam_bio = _WaktuCepat(time)
+        asli_waktu = bot_dapodik.time
+        bot_dapodik.time = jam_bio
+        try:
+            palsu_bio = peramban_palsu.buat("alur_penuh").pakai_jam(jam_bio.monotonic)
+            palsu_bio.popup_detik = None
+            palsu_bio.registrasi_otomatis = True
+            palsu_bio.siapkan_bio()
+            nisn_bio = siswa_periodik["nisn"]
+            palsu_bio.nisn_dicari = nisn_bio
+            palsu_bio.tambah_baris_siswa(nisn_bio)
+            siswa_bio = dict(siswa_periodik, no_kk="3201234567890001",
+                             no_registrasi_akta="",       # sengaja kosong: tidak dikosongkan
+                             alamat="Jl. Melati No. 7",
+                             rt="3", rw="5", kode_pos="15157", anak_ke=2,
+                             ayah_nama="Bapak Uji", ayah_nik="3201234567890002",
+                             ayah_tahun_lahir=1980, ayah_pendidikan="SMA / sederajat",
+                             ibu_nik="3201234567890003", ibu_tahun_lahir=1983,
+                             ibu_pendidikan="SMP / sederajat")
+            bot_bio = bot_dapodik.BotDapodik(0, [], [],
+                                             dict(opsi_uji, bot_simulasi="0", bot_isi_bio="1"),
+                                             kepala=jejak.append)
+            bot_bio._login(palsu_bio)
+            bot_bio._proses_satu(palsu_bio, siswa_bio, None)
+        finally:
+            bot_dapodik.time = asli_waktu
+        assert palsu_bio.bio_tersimpan, "jendela «Ubah» (BIO) tidak disimpan bot"
+        assert palsu_bio.data_bio_tersimpan.get("no_kk") == "3201234567890001", \
+            f"No. KK tidak terisi: {palsu_bio.data_bio_tersimpan.get('no_kk')!r}"
+        assert palsu_bio.data_bio_tersimpan.get("jenjang_pendidikan_ibu") == "SMP / sederajat", \
+            f"pendidikan ibu tidak terisi: {palsu_bio.data_bio_tersimpan.get('jenjang_pendidikan_ibu')!r}"
+        assert palsu_bio.data_bio_tersimpan.get("reg_akta_lahir") == "LAMA", \
+            "kolom «No. Registrasi Akta Lahir» dikosongkan padahal datanya kosong di SM"
+        assert all(nilai != "LAMA" for nama, nilai in palsu_bio.data_bio_tersimpan.items()
+                   if nama != "reg_akta_lahir"), \
+            f"masih ada kolom BIO yang berisi data lama Dapodik: {palsu_bio.data_bio_tersimpan}"
+        assert palsu_bio.bio_siap(), \
+            "jendela «Ubah» tidak pernah dibawa ke layar — kolom yang di bawah tidak terjangkau"
+        assert any("membuka jendela «Ubah»" in baris for baris in jejak), jejak[:5]
+        assert any("jendela «Ubah» tertutup" in baris for baris in jejak), jejak[-6:]
+        i_bio = next((i for i, b in enumerate(jejak) if "membuka jendela «Ubah»" in b), -1)
+        i_periodik = next((i for i, b in enumerate(jejak) if "mengisi Data Periodik" in b), -1)
+        assert 0 <= i_bio < i_periodik, \
+            f"urutan langkah salah: BIO#{i_bio} lalu Data Periodik#{i_periodik}"
+        assert any("berhasil dikirim" in baris for baris in jejak), jejak[-3:]
+
         # Data periodik kosong → dicatat pada log, siswa tetap berhasil.
         jejak.clear()
         jam_kosong_p = _WaktuCepat(time)
@@ -2739,7 +2789,8 @@ def cek_bot_dapodik() -> str:
             f"siswa berstatus Lulus dilewati · alur skrip sekolah (masuk, menu, 1 siswa) "
             f"berjalan di peramban palsu, tahan klik tertelan lapisan pemuatan & popup "
             f"pengumuman Dapodik · Sekolah Asal & Data Periodik terisi dari data siswa "
-            f"(panelnya dibawa ke layar, pilihan jaraknya ditekan lewat labelnya, "
+            f"(BIO lewat tombol «Ubah» terisi & tersimpan, panel Data Periodik dibawa ke layar, "
+            f"pilihan jaraknya ditekan lewat labelnya, "
             f"kolom isian diberi peristiwa input/change/blur) · "
             f"sekarang {len(services.bot_nisn_sukses())} NISN berhasil")
 

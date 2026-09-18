@@ -33,12 +33,39 @@ OPSI = {
     "bot_simulasi": "0", "bot_timeout": "15", "bot_jeda_muat": "5", "bot_max_retries": "3",
     "bot_hobi": "Olah Raga", "bot_cita": "Pegawai Negeri Sipil / PNS", "bot_jawaban_ya": "1",
     "bot_sekolah_asal": "1", "bot_data_periodik": "1", "bot_periodik_jarak": "1",
+    "bot_isi_bio": "0",          # dinyalakan pada skenario BIO (lihat skenario 10-11)
 }
 SISWA = {
     "nisn": "0113374384", "nipd": "24257001", "nama": "Uji",
     "sekolah_asal": "SD NEGERI TAMAN SUKARYA 1", "tinggi_badan": 155.0,
     "berat_badan": 45.0, "lingkar_kepala": 52, "jml_saudara": 1, "jarak_rumah": 2,
+    # Kolom jendela «Ubah» (BIO) — persis kolom yang diisi skrip sekolah. «No. Registrasi
+    # Akta Lahir» sengaja dibiarkan kosong: bot harus melewatinya dengan jujur, bukan
+    # mengosongkan kolom Dapodik.
+    "no_kk": "3201234567890001", "no_registrasi_akta": "", "alamat": "Jl. Melati No. 7",
+    "rt": "3", "rw": "5", "kode_pos": "15157", "anak_ke": 2,
+    "ayah_nama": "Bapak Uji", "ayah_nik": "3201234567890002",
+    "ayah_tahun_lahir": 1980, "ayah_pendidikan": "SMA / sederajat",
+    "ibu_nik": "3201234567890003", "ibu_tahun_lahir": 1983,
+    "ibu_pendidikan": "SMP / sederajat",
 }
+
+#: Kolom BIO yang diisi skrip sekolah — (kunci data siswa, nama kolom Dapodik, nilai uji).
+BIO_UJI: tuple[tuple[str, str, str], ...] = (
+    ("no_kk", "no_kk", "3201234567890001"),
+    ("alamat", "alamat_jalan", "Jl. Melati No. 7"),
+    ("rt", "rt", "3"),
+    ("rw", "rw", "5"),
+    ("kode_pos", "kode_pos", "15157"),
+    ("anak_ke", "anak_keberapa", "2"),
+    ("ayah_nama", "nama_ayah", "Bapak Uji"),
+    ("ayah_nik", "nik_ayah", "3201234567890002"),
+    ("ayah_tahun_lahir", "tahun_lahir_ayah", "1980"),
+    ("ayah_pendidikan", "jenjang_pendidikan_ayah", "SMA / sederajat"),
+    ("ibu_nik", "nik_ibu", "3201234567890003"),
+    ("ibu_tahun_lahir", "tahun_lahir_ibu", "1983"),
+    ("ibu_pendidikan", "jenjang_pendidikan_ibu", "SMP / sederajat"),
+)
 
 
 class _WaktuCepat:
@@ -62,8 +89,11 @@ class _WaktuCepat:
         self._asli.sleep(min(float(detik or 0), 0.02))
 
 
-def jalankan(judul: str, jarak, atur=None, tampilkan: bool = False):
-    """Jalankan bot untuk satu siswa pada keadaan halaman tertentu."""
+def jalankan(judul: str, jarak, atur=None, tampilkan: bool = False, opsi: dict | None = None):
+    """Jalankan bot untuk satu siswa pada keadaan halaman tertentu.
+
+    ``opsi`` menimpa pengaturan bot untuk skenario ini (mis. menyalakan langkah BIO).
+    """
     jejak: list[str] = []
     jam = _WaktuCepat(time)
     asli = bot_dapodik.time
@@ -76,7 +106,7 @@ def jalankan(judul: str, jarak, atur=None, tampilkan: bool = False):
             atur(peramban)
         peramban.nisn_dicari = SISWA["nisn"]
         peramban.tambah_baris_siswa(SISWA["nisn"])
-        bot = bot_dapodik.BotDapodik(0, [], [], dict(OPSI), kepala=jejak.append)
+        bot = bot_dapodik.BotDapodik(0, [], [], dict(OPSI, **(opsi or {})), kepala=jejak.append)
         bot._login(peramban)
         bot._proses_satu(peramban, {**SISWA, "jarak_rumah": jarak}, None)
     finally:
@@ -90,6 +120,11 @@ def jalankan(judul: str, jarak, atur=None, tampilkan: bool = False):
           f"{peramban.data_periodik_tersimpan.get('jarak_rumah_ke_sekolah_km')!r}")
     print(f"    Ext.setValue {peramban.ext_setvalue_dipakai}x · dibaca lewat kelas "
           f"{peramban.dibaca_lewat_kelas}x · klik ditelan {peramban.klik_diabaikan}x")
+    if peramban.bio_aktif:
+        print(f"    BIO tersimpan: {peramban.bio_tersimpan} · kolom terisi: "
+              f"{sum(1 for nilai in peramban.data_bio_tersimpan.values() if nilai != 'LAMA')}"
+              f"/{len(peramban.data_bio_tersimpan)} · gulir: {len(peramban.gulir_panel)}"
+              f" panel + {len(peramban.gulir)} halaman")
     hasil = [baris for baris in jejak if baris.startswith(("[OK]", "[GAGAL]"))]
     print(f"    hasil: {hasil[-1] if hasil else '(tidak ada hasil)'}")
     return peramban, jejak
@@ -183,7 +218,43 @@ def main() -> int:
     cek(not str(p9.data_periodik_tersimpan.get("jarak_rumah_ke_sekolah_km") or "").strip(),
         "kolom km terisi padahal baris jaraknya tidak ada")
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 9 skenario")
+    # 10) BIO lewat tombol «Ubah»: jendelanya panjang, jadi kolomnya harus DIBawa KE LAYAR
+    #     dulu (jendela & halaman) — lalu diisi dari data siswa SM dan disimpan dengan
+    #     tombol «Simpan». Urutannya: pilih baris → BIO → Data Periodik → Registrasi.
+    p10, j10 = jalankan("10. BIO lewat «Ubah»: kolom dibawa ke layar → diisi → Simpan", 2,
+                        atur=lambda p: p.siapkan_bio(), tampilkan=True,
+                        opsi={"bot_isi_bio": "1"})
+    cek(p10.bio_tersimpan, "tombol «Simpan» jendela «Ubah» tidak ditekan bot")
+    for kunci, nama_kolom, nilai in BIO_UJI:
+        tersimpan = str(p10.data_bio_tersimpan.get(nama_kolom) or "").strip()
+        cek(tersimpan == nilai,
+            f"kolom BIO {nama_kolom} salah: {tersimpan!r} (seharusnya {nilai!r})")
+    cek(str(p10.data_bio_tersimpan.get("reg_akta_lahir") or "") == "LAMA",
+        "kolom akta dikosongkan padahal datanya kosong (seharusnya dibiarkan)")
+    cek(p10.bio_siap(), "jendela «Ubah» tidak pernah digulir — kolomnya tidak akan terjangkau")
+    cek(any("membuka jendela «Ubah»" in b for b in j10), j10[:6])
+    cek(any("No. Registrasi Akta Lahir: data siswa kosong — dilewati" in b for b in j10),
+        [b for b in j10 if "[bio]" in b])
+    cek(any("jendela «Ubah» tertutup" in b for b in j10), [b for b in j10 if "[bio]" in b])
+    i_bio = next((i for i, b in enumerate(j10) if "membuka jendela «Ubah»" in b), -1)
+    i_periodik = next((i for i, b in enumerate(j10) if "mengisi Data Periodik" in b), -1)
+    cek(0 <= i_bio < i_periodik, f"urutan salah: BIO#{i_bio} periodik#{i_periodik}")
+    cek(p10.jarak_pilihan == "Lebih dari 1 km" and
+        p10.data_periodik_tersimpan.get("jarak_rumah_ke_sekolah_km") == "2",
+        "langkah Data Periodik terganggu oleh langkah BIO")
+
+    # 11) Versi Dapodik tanpa tombol «Ubah» → langkah BIO dilewati dengan jujur, siswa tetap
+    #     diproses sampai Registrasi berhasil.
+    p11, j11 = jalankan("11. tombol «Ubah» tidak ada → BIO dilewati jujur", 2,
+                        atur=lambda p: p.siapkan_bio(ada_tombol=False), tampilkan=True,
+                        opsi={"bot_isi_bio": "1"})
+    cek(not p11.bio_tersimpan, "jendela BIO terbuat padahal tombol «Ubah» tidak ada")
+    cek(any("tombol «Ubah» tidak ada" in b and "dilewati" in b for b in j11),
+        [b for b in j11 if "[bio]" in b] or j11[-5:])
+    hasil11 = [b for b in j11 if b.startswith(("[OK]", "[GAGAL]"))]
+    cek(bool(hasil11) and hasil11[-1].startswith("[OK]"), hasil11[-2:] or j11[-3:])
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 11 skenario")
     return 0
 
 

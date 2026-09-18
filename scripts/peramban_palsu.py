@@ -43,6 +43,25 @@ from selenium.common.exceptions import (ElementClickInterceptedException,
                                         NoSuchElementException)
 
 
+#: Kolom jendela «Ubah» (BIO) — nama kolomnya diambil apa adanya dari skrip sekolah.
+BIO_KOLOM_PALSU: tuple[tuple[str, str], ...] = (
+    ("no_kk", "No. Kartu Keluarga"),
+    ("reg_akta_lahir", "No. Registrasi Akta Lahir"),
+    ("alamat_jalan", "Alamat (Jalan)"),
+    ("rt", "RT"),
+    ("rw", "RW"),
+    ("kode_pos", "Kode Pos"),
+    ("anak_keberapa", "Anak ke-berapa"),
+    ("nama_ayah", "Nama ayah"),
+    ("nik_ayah", "NIK ayah"),
+    ("tahun_lahir_ayah", "Tahun lahir ayah"),
+    ("jenjang_pendidikan_ayah", "Pendidikan ayah"),
+    ("nik_ibu", "NIK ibu"),
+    ("tahun_lahir_ibu", "Tahun lahir ibu"),
+    ("jenjang_pendidikan_ibu", "Pendidikan ibu"),
+)
+
+
 class UnsurPalsu:
     """Satu elemen halaman palsu (input/tombol/tautan)."""
 
@@ -87,6 +106,12 @@ class UnsurPalsu:
         self.kelompok = str(sifat.get("kelompok", ""))
         #: XPath absolut skrip sekolah, mis. /html/body/div[5]/div[2]/form/input
         self.jalur = sifat.get("jalur", "")
+        #: True = unsur milik jendela «Ubah» (BIO) — hanya hidup saat jendelanya terbuka
+        self.bio = bool(sifat.get("bio", False))
+        #: True = wadah/jendela «Ubah» (punya area gulir sendiri)
+        self.bio_panel = bool(sifat.get("bio_panel", False))
+        #: True = tombol «Simpan» jendela «Ubah»
+        self.simpan_bio = bool(sifat.get("simpan_bio", False))
 
     # ------------------------------------------------------------ atribut --- #
     def get_attribute(self, nama: str) -> str | None:
@@ -185,6 +210,11 @@ class UnsurPalsu:
             self.peramban.buka_formulir_registrasi()
         if self.simpan_periodik:
             self.peramban.simpan_data_periodik()
+        if self.simpan_bio:
+            self.peramban.simpan_bio()
+        if "x-btn-inner-soft-purple-small" in (self.kelas or ""):
+            # Tombol «Ubah» pada toolbar (ungu): membuka jendela BIO siswa.
+            self.peramban.buka_jendela_bio()
         if self.jalur == "/html/body/div[1]/ul/li[2]/div/a/button":
             # Menu Peserta Didik dibuka → Dapodik menampilkan popup pengumuman versi.
             self.peramban._menu_tujuan_diklik()
@@ -279,6 +309,11 @@ class UnsurPalsu:
                               or not self.peramban.periodik_siap()):
             # Panel masih kelabu, atau kolomnya belum terjangkau karena area gulir panel
             # belum digeser: Dapodik mengabaikan ketikan ini — nilainya tidak tersimpan.
+            self.peramban.ketikan_diabaikan += 1
+            return
+        if self.bio and not (self.peramban.bio_terbuka and self.peramban.bio_siap()):
+            # Jendela «Ubah» tertutup, atau kolomnya belum terjangkau karena jendelanya
+            # belum digulir: seperti Dapodik, ketikan ini tidak menghasilkan apa-apa.
             self.peramban.ketikan_diabaikan += 1
             return
         from selenium.webdriver.common.keys import Keys
@@ -435,6 +470,19 @@ class PerambanPalsu:
         self.label_lewat_teks_dipakai = 0
         #: True = halaman ini tidak punya baris «Jarak rumah ke sekolah» (versi Dapodik lain)
         self.tanpa_baris_jarak = False
+        #: True = halaman ini punya tombol «Ubah» & jendela BIO (versi Dapodik sekolah)
+        self.bio_aktif = False
+        #: False = tombol «Ubah» tidak dipasang (versi Dapodik lain) — untuk uji kejujuran bot
+        self.bio_ada_tombol = True
+        #: True = jendela «Ubah» sedang terbuka
+        self.bio_terbuka = False
+        #: True = tombol «Simpan» jendela «Ubah» sudah ditekan
+        self.bio_tersimpan = False
+        #: Berapa kali area gulir harus digeser sebelum kolom BIO terjangkau (persis Dapodik:
+        #: jendela «Ubah» panjang, kolomnya harus dibawa ke layar dulu)
+        self.bio_perlu_gulir = 2
+        #: Isi kolom BIO yang benar-benar tersimpan (name → nilai saat «Simpan» ditekan)
+        self.data_bio_tersimpan: dict[str, str] = {}
         #: berapa kali pilihan jarak dipilih lewat pembungkus/labelnya
         self.dipilih_lewat_pembungkus = 0
         #: True = popup pengumuman muncul saat pencarian ditekan; hasilnya tampil setelah ditutup
@@ -605,6 +653,8 @@ class PerambanPalsu:
                        periodik=True, simpan_periodik=True),
         ])
         self._pasang_pembungkus_kotak()
+        if getattr(self, "bio_aktif", False):
+            self.tambah_tombol_ubah()
         if getattr(self, "tanpa_baris_jarak", False):
             # Versi Dapodik yang tidak punya baris «Jarak rumah ke sekolah»: radio & labelnya
             # tidak dipasang sama sekali (dipakai uji kejujuran bot).
@@ -669,6 +719,61 @@ class PerambanPalsu:
         if "x-form-cb-checked" not in (kurang.induk.kelas or ""):
             kurang.induk.kelas = (kurang.induk.kelas + " x-form-cb-checked").strip()
         self.perbarui_kolom_km()
+
+    def siapkan_bio(self, ada_tombol: bool = True) -> "PerambanPalsu":
+        """Pasang tombol «Ubah» & jendela BIO seperti halaman Dapodik sekolah.
+
+        ``ada_tombol=False`` meniru versi Dapodik yang tidak punya tombol «Ubah» — dipakai
+        untuk memastikan bot melewati langkah BIO dengan jujur, bukan menebak-nebak.
+        """
+        self.bio_aktif = True
+        self.bio_ada_tombol = bool(ada_tombol)
+        if self.sudah_masuk:
+            self.tambah_tombol_ubah()
+        return self
+
+    def bio_siap(self) -> bool:
+        """Apakah jendela «Ubah» sudah digulir cukup jauh sehingga kolomnya terjangkau."""
+        return len(self.gulir_panel) + len(self.gulir) >= self.bio_perlu_gulir
+
+    def tambah_tombol_ubah(self) -> None:
+        """Tombol «Ubah» (ungu) pada toolbar — membuka jendela BIO siswa."""
+        if not self.bio_ada_tombol:
+            return
+        if any("x-btn-inner-soft-purple-small" in (u.kelas or "") for u in self.unsur):
+            return
+        self.unsur.append(UnsurPalsu(self, "span", kelas="x-btn-inner-soft-purple-small",
+                                     teks="Ubah"))
+
+    def buka_jendela_bio(self) -> None:
+        """Tombol «Ubah» ditekan → jendela BIO terbuka (butuh baris siswa terpilih)."""
+        if not self.baris_siswa_terpilih():
+            return
+        self.bio_terbuka = True
+        if not any(unsur.bio for unsur in self.unsur):
+            self.tambah_jendela_bio()
+
+    def tambah_jendela_bio(self) -> None:
+        """Jendela «Ubah» beserta kolom-kolomnya (nama kolom dari skrip sekolah).
+
+        Nilai awalnya sengaja diisi "LAMA" (data lama Dapodik): uji bisa memastikan bot
+        benar-benar MENIMPA-nya dengan data siswa dari aplikasi SM.
+        """
+        self.unsur.append(UnsurPalsu(self, "div", kelas="x-window",
+                                     teks="Ubah Data Peserta Didik", bio=True, bio_panel=True))
+        for nama, label in BIO_KOLOM_PALSU:
+            self.unsur.append(UnsurPalsu(self, "input", type="text", name=nama, label=label,
+                                         bio=True, nilai="LAMA"))
+        self.unsur.append(UnsurPalsu(self, "span", kelas="x-btn-inner-default-small",
+                                     teks="Simpan", bio=True, simpan_bio=True))
+
+    def simpan_bio(self) -> None:
+        """Tombol «Simpan» jendela «Ubah» ditekan: nilai tersimpan, jendelanya tertutup."""
+        self.bio_tersimpan = True
+        for unsur in self.unsur:
+            if unsur.bio and unsur.type == "text" and unsur.name:
+                self.data_bio_tersimpan[unsur.name] = unsur.nilai
+        self.bio_terbuka = False
 
     def siapkan_jarak_tanpa_xpath(self) -> "PerambanPalsu":
         """XPath/CSS baris «Jarak rumah ke sekolah» meleset (tata letak Dapodik berbeda).
@@ -832,6 +937,9 @@ class PerambanPalsu:
 
     def _terlihat_otomatis(self, unsur: UnsurPalsu) -> bool:
         """Skenario splash: kolom login baru terlihat setelah tombol pembuka diklik."""
+        if unsur.bio:
+            # Jendela «Ubah» (BIO) hanya tampil setelah tombol «Ubah» ditekan.
+            return self.bio_terbuka
         if unsur.periodik:
             # Panel Data Periodik kelabu sampai baris siswa dipilih (persis screenshot PC).
             return self.panel_periodik_terbuka()
@@ -981,7 +1089,9 @@ class PerambanPalsu:
         return True
 
     def _terjangkau(self, unsur: UnsurPalsu) -> bool:
-        """Kolom Data Periodik baru terjangkau setelah halaman digulir cukup jauh."""
+        """Kolom Data Periodik/BIO baru terjangkau setelah panelnya digulir cukup jauh."""
+        if unsur.bio:
+            return self.bio_terbuka and self.bio_siap()
         return self.periodik_siap() or not unsur.periodik
 
     def find_elements(self, by: str, nilai: str) -> list[UnsurPalsu]:
