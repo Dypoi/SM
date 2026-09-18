@@ -1787,7 +1787,9 @@ def bot_antrean(rombel: str = "", limit: int = 0, nisn_manual: str = "",
         # Kolom untuk jendela «Ubah» (BIO) — diambil apa adanya dari data siswa:
         "s.no_kk, s.no_registrasi_akta, s.alamat, s.rt, s.rw, s.kode_pos, s.anak_ke, "
         "s.ayah_nama, s.ayah_nik, s.ayah_tahun_lahir, s.ayah_pendidikan, "
-        "s.ibu_nik, s.ibu_tahun_lahir, s.ibu_pendidikan "
+        "s.ibu_nik, s.ibu_tahun_lahir, s.ibu_pendidikan, "
+        # Kolom dropdown (combo) pada jendela «Ubah»: pekerjaan & penghasilan ayah dan ibu.
+        "s.ayah_pekerjaan, s.ayah_penghasilan, s.ibu_pekerjaan, s.ibu_penghasilan "
         "FROM students s "
         "WHERE " + " AND ".join(syarat) +
         " ORDER BY s.rombel COLLATE NOCASE, s.nama COLLATE NOCASE"

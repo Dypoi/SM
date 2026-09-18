@@ -24,6 +24,8 @@ Alur tiap siswa (sama dengan skrip asli):
 
 from __future__ import annotations
 
+import re
+
 import json
 import threading
 import time
@@ -102,6 +104,14 @@ SELECTOR_BAWAAN: dict[str, str] = {
     "bio_ibu_nik": "name:nik_ibu",
     "bio_ibu_tahun": "name:tahun_lahir_ibu",
     "bio_ibu_pendidikan": "name:jenjang_pendidikan_ibu",
+    # Kolom dropdown (combo) — nama kolomnya belum ada pada skrip sekolah, jadi dipakai nama
+    # Dapodik yang paling lazim («pekerjaan_ayah», sejajar dengan «nama_ayah»/«nik_ayah»).
+    # Bila di sekolah namanya berbeda, kolomnya masih dicari lewat labelnya, dan kunci ini
+    # bisa ditimpa di «Peta tombol Dapodik».
+    "bio_ayah_pekerjaan": "name:pekerjaan_ayah",
+    "bio_ayah_penghasilan": "name:penghasilan_ayah",
+    "bio_ibu_pekerjaan": "name:pekerjaan_ibu",
+    "bio_ibu_penghasilan": "name:penghasilan_ibu",
     "bio_simpan": '//span[contains(@class, "x-btn-inner-default-small") and '
                   'normalize-space()="Simpan"]',
     "simpan_periodik": '//span[contains(@class, "x-btn-inner-default-small") '
@@ -262,6 +272,16 @@ SELECTOR_CADANGAN: dict[str, list[str]] = {
     "bio_ibu_nik": ["css:input[name*=nik_ibu]"],
     "bio_ibu_tahun": ["css:input[name*=tahun_lahir_ibu]"],
     "bio_ibu_pendidikan": ["css:input[name*=jenjang_pendidikan_ibu]"],
+    # Kolom dropdown (combo Ext JS): nama kolom Dapodik bisa «pekerjaan_ayah» atau
+    # «ayah_pekerjaan» — keduanya dicoba, lalu lewat labelnya.
+    "bio_ayah_pekerjaan": ["label:Pekerjaan ayah", "css:input[name*=pekerjaan_ayah]",
+                           "css:input[name*=ayah_pekerjaan]"],
+    "bio_ayah_penghasilan": ["label:Penghasilan ayah", "css:input[name*=penghasilan_ayah]",
+                             "css:input[name*=ayah_penghasilan]"],
+    "bio_ibu_pekerjaan": ["label:Pekerjaan ibu", "css:input[name*=pekerjaan_ibu]",
+                          "css:input[name*=ibu_pekerjaan]"],
+    "bio_ibu_penghasilan": ["label:Penghasilan ibu", "css:input[name*=penghasilan_ibu]",
+                            "css:input[name*=ibu_penghasilan]"],
     "bio_simpan": [
         'xpath://span[contains(@class, "x-btn-inner") and normalize-space()="Simpan"]',
         'xpath://*[self::a or self::button][normalize-space()="Simpan"]',
@@ -1171,9 +1191,13 @@ class BotDapodik:
         ("ayah_nik", "NIK ayah", "bio_ayah_nik"),
         ("ayah_tahun_lahir", "Tahun lahir ayah", "bio_ayah_tahun"),
         ("ayah_pendidikan", "Pendidikan ayah", "bio_ayah_pendidikan"),
+        ("ayah_pekerjaan", "Pekerjaan ayah", "bio_ayah_pekerjaan"),
+        ("ayah_penghasilan", "Penghasilan ayah", "bio_ayah_penghasilan"),
         ("ibu_nik", "NIK ibu", "bio_ibu_nik"),
         ("ibu_tahun_lahir", "Tahun lahir ibu", "bio_ibu_tahun"),
         ("ibu_pendidikan", "Pendidikan ibu", "bio_ibu_pendidikan"),
+        ("ibu_pekerjaan", "Pekerjaan ibu", "bio_ibu_pekerjaan"),
+        ("ibu_penghasilan", "Penghasilan ibu", "bio_ibu_penghasilan"),
     )
 
     @property
@@ -2633,9 +2657,333 @@ class BotDapodik:
         potongan.append(f"wadah gulir: {rincian.get('gulir') or '-'}")
         potongan.append(f"tombol «Simpan»: {rincian.get('simpan', 0)} "
                         f"(milik panel «Data Rincian»: {rincian.get('simpan_rincian', 0)})")
+        potongan.append(f"kolom dropdown: {rincian.get('dropdown') or '-'}")
         if label:
             potongan.insert(0, label)
         return "[bio-rincian] " + " | ".join(potongan)
+
+    #: Nama lain sebuah pilihan di daftar Dapodik (daftar sekolah kadang berbeda dengan
+    #: daftar di aplikasi SM, mis. «SMA / sederajat» di Dapodik bernama «SLTA»).
+    PADANAN_PILIHAN: dict[str, tuple[str, ...]] = {
+        "sma": ("slta", "smu"),
+        "smp": ("sltp",),
+        "sd": ("sekolah dasar",),
+        "tidak sekolah": ("tidak tamat sd", "belum sekolah"),
+    }
+
+    @staticmethod
+    def _norm_pilihan(teks: Any) -> str:
+        """Bentuk pembanding pilihan: huruf kecil, spasi rapi, tanpa tanda & «sederajat».
+
+        «SMA / sederajat» → «sma»; «Rp. 500,000 - Rp. 999,999» → «rp 500000 rp 999999».
+        """
+        hasil = " ".join(str(teks or "").split()).lower()
+        hasil = re.sub(r"[.,;]", "", hasil)
+        hasil = hasil.replace(" / ", "/").replace("sederajat", "")
+        hasil = hasil.replace("/", " ").replace("-", " ")
+        return " ".join(hasil.split())
+
+    def _cocokkan_pilihan(self, nilai: str, pilihan: list[str]) -> tuple[str, str]:
+        """Pilihan dropdown yang paling cocok untuk sebuah nilai + keterangan pencocokannya.
+
+        Urutannya: (1) sama persis, (2) sama setelah dirapikan & kata «sederajat» dibuang,
+        (3) nama lain yang lazim dipakai Dapodik (SLTA/SMU ↔ SMA, SLTP ↔ SMP), (4) satunya
+        pilihan yang sepadan. Bila tidak ada yang cocok, kembalikan kosong — bot **tidak**
+        menebak pilihan yang tidak ada di daftar.
+        """
+        cari = self._norm_pilihan(nilai)
+        if not cari or not pilihan:
+            return "", ""
+        for opsi in pilihan:
+            if opsi.strip() == str(nilai).strip():
+                return opsi, "sama persis"
+        for opsi in pilihan:
+            if self._norm_pilihan(opsi) == cari:
+                return opsi, f"«{nilai}» dibaca sebagai «{opsi}»"
+        for nama_lain in self.PADANAN_PILIHAN.get(cari, ()):
+            for opsi in pilihan:
+                if self._norm_pilihan(opsi) == nama_lain:
+                    return opsi, f"«{nilai}» bernama lain «{opsi}» di Dapodik"
+        kandidat = [opsi for opsi in pilihan
+                    if cari and (cari in self._norm_pilihan(opsi)
+                                 or self._norm_pilihan(opsi) in cari)]
+        if len(kandidat) == 1:
+            return kandidat[0], f"«{nilai}» dicocokkan dengan «{kandidat[0]}»"
+        return "", ""
+
+    def _tipe_kolom(self, peramban, unsur) -> str:
+        """Jenis kolom: ``combo`` (dropdown Ext JS) atau ``teks``.
+
+        Penandanya — persis DOM Ext JS: ``role="combobox"``, tombol panah
+        (``.x-form-trigger``) di dalam wadah kolomnya, kolom yang tidak bisa diketik
+        (readonly), atau komponen Ext JS-nya sendiri ber-xtype combobox. Kalau tidak
+        terbaca, kolom diperlakukan sebagai kolom teks — sama seperti perilaku sebelumnya.
+        """
+        try:
+            jenis = peramban.execute_script(
+                """
+                /* tipe-kolom */
+                const el = arguments[0];
+                if (!el) return '';
+                if ((el.getAttribute && el.getAttribute('role')) === 'combobox') return 'combo';
+                const wadah = (el.closest && el.closest('.x-field')) || el.parentElement;
+                const isi = (wadah && wadah.innerHTML) ? wadah.innerHTML : '';
+                if (/x-form-trigger|x-form-arrow/i.test(isi)) return 'combo';
+                if (el.readOnly) return 'combo';
+                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
+                const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
+                    ? Ext.getCmp(String(id).replace(/-inputEl$/, '')) : null;
+                const xt = (c && c.getXType) ? String(c.getXType() || '') : '';
+                return /combo|picklist|multiselect/i.test(xt) ? 'combo' : 'teks';
+                """, unsur)
+        except Exception:  # noqa: BLE001 — tidak terbaca: anggap kolom teks
+            jenis = ""
+        jenis = str(jenis or "").strip().lower()
+        return "combo" if jenis == "combo" else "teks"
+
+    def _pilihan_dropdown(self, peramban, unsur) -> list[str]:
+        """Pilihan pada daftar dropdown **milik kolom ini** (kosong = belum terbuka).
+
+        Penting: daftarnya dibaca dari komponen Ext JS-nya sendiri (``getPicker()``) dan
+        hanya bila komponen itu memang sedang terbuka. Tanpa itu, daftar milik dropdown lain
+        yang masih terbuka bisa terbaca sebagai daftar kolom ini — pernah terjadi pada uji:
+        daftar «Pekerjaan» dipakai untuk mencocokkan nilai «Penghasilan».
+        """
+        try:
+            hasil = peramban.execute_script(
+                """
+                /* dropdown-daftar */
+                const el = arguments[0];
+                if (!el) return [];
+                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
+                const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
+                    ? Ext.getCmp(String(id).replace(/-inputEl$/, '')) : null;
+                if (c && c.isExpanded && !c.isExpanded()) return [];
+                let akar = document;
+                const picker = (c && (c.getPicker ? c.getPicker() : c.picker)) || null;
+                if (picker && picker.getEl && picker.getEl()) akar = picker.getEl().dom;
+                const lihat = (el2) => !!(el2 && el2.getClientRects && el2.getClientRects().length);
+                const daftar = [];
+                for (const el2 of akar.querySelectorAll(
+                        'li.x-boundlist-item, div.x-boundlist-item, .x-combo-list-item')) {
+                    if (!lihat(el2)) continue;
+                    const t = (el2.textContent || '').replace(/\s+/g, ' ').trim();
+                    if (t && daftar.indexOf(t) < 0) daftar.push(t);
+                }
+                return daftar;
+                """, unsur)
+        except Exception:  # noqa: BLE001 — daftar hanya keterangan tambahan
+            return []
+        return [str(x) for x in (hasil or []) if str(x).strip()]
+
+    def _buka_dropdown(self, peramban, unsur, cara: str) -> bool:
+        """Buka daftar sebuah dropdown: lewat tombol panah, kolomnya, atau Ext ``expand()``."""
+        from selenium.webdriver.common.by import By
+
+        if cara == "panah":
+            # Tombol panah Ext JS di sebelah kolomnya. Dicari lewat ``find_elements`` (bukan
+            # ``find_element``): sebagian versi Selenium menolak pencarian relatif dari sebuah
+            # elemen, dan pencarian yang gagal membuat jalur paling wajar ini tidak pernah
+            # dicoba — di uji tiruan pun begitu.
+            try:
+                panah = next((k for k in unsur.find_elements(
+                    By.XPATH, "following::*[contains(@class, 'x-form-trigger')][1]")
+                    if k.is_displayed()), None)
+            except Exception:  # noqa: BLE001 — tidak terbaca: coba cara berikutnya
+                panah = None
+            if panah is None:
+                return False
+            self._bawa_ke_layar(peramban, panah)
+            try:
+                panah.click()
+            except Exception:  # noqa: BLE001 — lapisan pemuatan bisa menelan klik
+                peramban.execute_script("arguments[0].click();", panah)
+            return bool(self._pilihan_dropdown(peramban, unsur))
+        if cara == "kolom":
+            try:
+                self._paksa_terlihat(peramban, unsur)
+                try:
+                    unsur.click()
+                except Exception:  # noqa: BLE001 — klik bisa tertelan lapisan pemuatan
+                    peramban.execute_script("arguments[0].click();", unsur)
+                return bool(self._pilihan_dropdown(peramban, unsur))
+            except Exception:  # noqa: BLE001
+                return False
+        try:      # jalur pamungkas: komponen Ext JS-nya sendiri
+            berhasil = peramban.execute_script(
+                """
+                /* dropdown-buka */
+                if (typeof Ext === 'undefined' || !Ext.getCmp) return false;
+                const el = arguments[0];
+                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
+                const c = Ext.getCmp(String(id).replace(/-inputEl$/, ''));
+                if (!c) return false;
+                if (c.expand) { c.expand(); return true; }
+                if (c.onTriggerClick) { c.onTriggerClick(); return true; }
+                return false;
+                """, unsur)
+        except Exception:  # noqa: BLE001
+            return False
+        return bool(berhasil) and bool(self._pilihan_dropdown(peramban, unsur))
+
+    def _klik_pilihan_dropdown(self, peramban, unsur, teks: str) -> bool:
+        """Klik pilihan yang cocok pada daftar dropdown **milik kolom ini**.
+
+        Indeks dihitung oleh JavaScript dari pilihan yang benar-benar terlihat pada daftar
+        kolom itu, lalu elemennya dicari ulang di Python (dengan penyaringan
+        ``is_displayed()``) — supaya tidak salah mengklik item milik dropdown lain.
+        """
+        from selenium.webdriver.common.by import By
+
+        try:
+            posisi = int(peramban.execute_script(
+                """
+                /* dropdown-item */
+                const el = arguments[0];
+                const cari = (arguments[1] || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                if (!el) return -1;
+                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
+                const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
+                    ? Ext.getCmp(String(id).replace(/-inputEl$/, '')) : null;
+                if (c && c.isExpanded && !c.isExpanded()) return -1;
+                let akar = document;
+                const picker = (c && (c.getPicker ? c.getPicker() : c.picker)) || null;
+                if (picker && picker.getEl && picker.getEl()) akar = picker.getEl().dom;
+                const tampil = (el2) => !!(el2 && el2.getClientRects && el2.getClientRects().length);
+                const item = [];
+                for (const el2 of akar.querySelectorAll(
+                        'li.x-boundlist-item, div.x-boundlist-item, .x-combo-list-item')) {
+                    if (tampil(el2)) item.push(el2);
+                }
+                for (let i = 0; i < item.length; i += 1) {
+                    const t = (item[i].textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                    if (t === cari) {
+                        item[i].scrollIntoView({block: 'center'});
+                        return i;
+                    }
+                }
+                return -1;
+                """, unsur, teks))
+        except Exception:  # noqa: BLE001
+            return False
+        if posisi < 0:
+            return False
+        try:
+            kotak = [k for k in (peramban.find_elements(
+                By.CSS_SELECTOR,
+                "li.x-boundlist-item, div.x-boundlist-item, .x-combo-list-item") or [])
+                if k.is_displayed()]
+            if posisi >= len(kotak):
+                return False
+            item = kotak[posisi]
+            self._bawa_ke_layar(peramban, item)
+            try:
+                item.click()
+            except Exception:  # noqa: BLE001 — klik bisa tertelan lapisan pemuatan
+                peramban.execute_script("arguments[0].click();", item)
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _nilai_dropdown(self, peramban, unsur) -> tuple[str, str]:
+        """(tulisan di layar, nilai model Ext JS) sebuah dropdown — dua hal yang bisa berbeda."""
+        try:
+            hasil = peramban.execute_script(
+                """
+                /* dropdown-nilai */
+                const el = arguments[0];
+                if (!el) return {};
+                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
+                const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
+                    ? Ext.getCmp(String(id).replace(/-inputEl$/, '')) : null;
+                return {tampil: el.value || '',
+                        model: (c && c.getValue) ? (c.getValue() || '') : ''};
+                """, unsur)
+        except Exception:  # noqa: BLE001
+            hasil = {}
+        if not isinstance(hasil, dict):
+            hasil = {}
+        return str(hasil.get("tampil") or ""), str(hasil.get("model") or "")
+
+    def _tutup_dropdown(self, peramban, unsur=None) -> None:
+        """Tutup daftar dropdown supaya tidak menutupi kolom berikutnya."""
+        if unsur is None:
+            return
+        try:
+            peramban.execute_script(
+                """
+                /* dropdown-tutup */
+                if (typeof Ext === 'undefined' || !Ext.getCmp) return false;
+                const el = arguments[0];
+                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
+                const c = Ext.getCmp(String(id).replace(/-inputEl$/, ''));
+                if (!c || !c.collapse) return false;
+                c.collapse();
+                return true;
+                """, unsur)
+        except Exception:  # noqa: BLE001 — daftar yang menutupi akan menutup sendiri
+            pass
+
+    def _isi_dropdown_bio(self, peramban, peta: dict[str, str], label: str, nilai: str,
+                          unsur, awalan: str = "[bio]") -> str:
+        """Isi satu kolom **dropdown** jendela «Ubah» — pilihannya diambil dari daftarnya.
+
+        Kolom seperti «Pendidikan ayah», «Pekerjaan ayah», dan «Penghasilan ayah» adalah
+        combo Ext JS: mengetikkan teksnya **tidak** menyimpan apa pun bila teks itu tidak
+        ada di daftar. Jadi bot membuka daftarnya (panah → kolomnya → ``Ext.expand()``),
+        membaca pilihannya, mencocokkan nilainya, mengklik pilihan itu, lalu memeriksa
+        **nilai model Ext JS**-nya — bukan hanya tulisan di layar. Bila pilihannya tidak
+        ada di daftar, bot mencatat pilihan yang terlihat dan **tidak menebak**.
+        """
+        self._bawa_ke_layar(peramban, unsur)
+        if not self._tunggu_aktif(peramban, unsur):
+            self._catat_kepala(f"{awalan} {label}: kolom dropdown masih nonaktif saat akan "
+                               "diisi — dicoba apa adanya.")
+        pilihan: list[str] = []
+        cara_dipakai = ""
+        for cara in ("panah", "kolom", "Ext JS"):
+            if self._buka_dropdown(peramban, unsur, cara):
+                pilihan = self._pilihan_dropdown(peramban, unsur)
+                if pilihan:
+                    cara_dipakai = cara
+                    break
+            self._tunggu(peramban, 0.8 if cara != "Ext JS" else 0.5)
+        if pilihan:
+            self._catat_kepala(f"{awalan} {label}: dropdown dibuka lewat {cara_dipakai} — "
+                               f"{len(pilihan)} pilihan terbaca.")
+        else:
+            self._catat_kepala(f"{awalan} {label}: daftar dropdown TIDAK terbaca (tombol "
+                               "panah, kolomnya, dan Ext.getCmp sudah dicoba) — dilewati.")
+            return ("dilewati — daftar dropdown tidak terbaca (nilainya tidak diketik paksa, "
+                    "karena Dapodik hanya menyimpan pilihan yang ada di daftar).")
+        cocok, catatan = self._cocokkan_pilihan(nilai, pilihan)
+        if not cocok:
+            ringkas = ", ".join(pilihan[:10]) + (" …" if len(pilihan) > 10 else "")
+            self._catat_kepala(f"{awalan} {label}: pilihan «{nilai}» TIDAK ADA di daftar "
+                               f"dropdown Dapodik — yang terlihat: {ringkas} "
+                               "(dilewati, tidak ditebak).")
+            self._tutup_dropdown(peramban, unsur)
+            return (f"dilewati — «{nilai}» tidak ada di daftar dropdown Dapodik "
+                    f"({len(pilihan)} pilihan terbaca).")
+        if catatan and catatan != "sama persis":
+            self._catat_kepala(f"{awalan} {label}: {catatan}.")
+        diklik = self._klik_pilihan_dropdown(peramban, unsur, cocok)
+        self._tunggu(peramban, 0.5)
+        tampil, model = self._nilai_dropdown(peramban, unsur)
+        if diklik and self._norm_pilihan(model or tampil) == self._norm_pilihan(cocok):
+            keterangan = f"terisi (dipilih dari daftar): {tampil or model}"
+            return keterangan if catatan == "sama persis" else f"{keterangan} — {catatan}"
+        self._catat_kepala(f"{awalan} {label}: pilihan «{cocok}» sudah diklik tetapi nilai "
+                           f"model Ext JS belum berubah (tampil: «{tampil}») — dicoba lewat "
+                           "Ext.getCmp.")
+        if self._set_ext(peramban, unsur, nilai=cocok):
+            self._tunggu(peramban, 0.4)
+            tampil, model = self._nilai_dropdown(peramban, unsur)
+            if self._norm_pilihan(model or tampil) == self._norm_pilihan(cocok):
+                return f"terisi lewat Ext JS (dipilih dari daftar): {tampil or model}"
+        self._tutup_dropdown(peramban, unsur)
+        return (f"gagal terisi — pilihan «{cocok}» tidak masuk ke model Ext JS "
+                f"(tampil: «{tampil}», model: «{model}»).")
 
     def _isi_bio(self, peramban, peta: dict[str, str], siswa: dict[str, Any]) -> bool:
         """Buka jendela «Ubah» lalu isi BIO siswa — persis potongan skrip sekolah.
@@ -2716,8 +3064,13 @@ class BotDapodik:
                     self._catat_kepala(f"[bio] bukti layar disimpan: {bukti} "
                                        "(beserta berkas .html di folder yang sama).")
                 continue
-            keterangan = self._isi_periodik_satu(peramban, peta, kunci_sel, label, nilai,
-                                                 unsur, awalan="[bio]")
+            # Dropdown (combo Ext JS) diisi lain: pilihannya harus benar-benar dipilih dari
+            # daftarnya — mengetikkan teksnya saja tidak menyimpan apa pun ke Dapodik.
+            if self._tipe_kolom(peramban, unsur) == "combo":
+                keterangan = self._isi_dropdown_bio(peramban, peta, label, nilai, unsur)
+            else:
+                keterangan = self._isi_periodik_satu(peramban, peta, kunci_sel, label, nilai,
+                                                     unsur, awalan="[bio]")
             self._catat_kepala(f"[bio] {label}: {keterangan}")
             if keterangan.startswith("terisi"):
                 terisi += 1

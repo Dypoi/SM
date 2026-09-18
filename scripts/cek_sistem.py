@@ -2586,8 +2586,14 @@ def cek_bot_dapodik() -> str:
                              rt="3", rw="5", kode_pos="15157", anak_ke=2,
                              ayah_nama="Bapak Uji", ayah_nik="3201234567890002",
                              ayah_tahun_lahir=1980, ayah_pendidikan="SMA / sederajat",
+                             # Kolom dropdown (combo Ext JS): pekerjaan & penghasilan —
+                             # nilainya harus DIPILIH dari daftar, bukan diketik.
+                             ayah_pekerjaan="Petani",
+                             ayah_penghasilan="Rp. 500,000 - Rp. 999,999",
                              ibu_nik="3201234567890003", ibu_tahun_lahir=1983,
-                             ibu_pendidikan="SMP / sederajat")
+                             ibu_pendidikan="SMP / sederajat",
+                             ibu_pekerjaan="Tidak Bekerja",
+                             ibu_penghasilan="Tidak Berpenghasilan")
             bot_bio = bot_dapodik.BotDapodik(0, [], [],
                                              dict(opsi_uji, bot_simulasi="0", bot_isi_bio="1"),
                                              kepala=jejak.append)
@@ -2598,8 +2604,21 @@ def cek_bot_dapodik() -> str:
         assert palsu_bio.bio_tersimpan, "jendela «Ubah» (BIO) tidak disimpan bot"
         assert palsu_bio.data_bio_tersimpan.get("no_kk") == "3201234567890001", \
             f"No. KK tidak terisi: {palsu_bio.data_bio_tersimpan.get('no_kk')!r}"
-        assert palsu_bio.data_bio_tersimpan.get("jenjang_pendidikan_ibu") == "SMP / sederajat", \
-            f"pendidikan ibu tidak terisi: {palsu_bio.data_bio_tersimpan.get('jenjang_pendidikan_ibu')!r}"
+        assert palsu_bio.data_bio_tersimpan.get("jenjang_pendidikan_ibu") == "SMP", \
+            ("pendidikan ibu tidak terisi dengan TEKS PILIHAN Dapodik: "
+             f"{palsu_bio.data_bio_tersimpan.get('jenjang_pendidikan_ibu')!r}")
+        # Kolom dropdown: nilainya diambil dari daftar (bukan diketik) dan tersimpan apa
+        # adanya seperti pilihan Dapodik.
+        assert palsu_bio.data_bio_tersimpan.get("pekerjaan_ayah") == "Petani", \
+            f"pekerjaan ayah tidak terisi: {palsu_bio.data_bio_tersimpan.get('pekerjaan_ayah')!r}"
+        assert palsu_bio.data_bio_tersimpan.get("penghasilan_ibu") == "Tidak Berpenghasilan", \
+            (f"penghasilan ibu tidak terisi: "
+             f"{palsu_bio.data_bio_tersimpan.get('penghasilan_ibu')!r}")
+        assert palsu_bio.dropdown_item_diklik >= 6, \
+            (f"bot tidak memilih dari daftar dropdown: {palsu_bio.dropdown_item_diklik} pilihan "
+             "diklik (seharusnya 6: pendidikan, pekerjaan, penghasilan ayah & ibu)")
+        assert any("dropdown dibuka lewat" in b for b in jejak), \
+            [b for b in jejak if "[bio]" in b][:8]
         assert palsu_bio.data_bio_tersimpan.get("reg_akta_lahir") == "LAMA", \
             "kolom «No. Registrasi Akta Lahir» dikosongkan padahal datanya kosong di SM"
         assert all(nilai != "LAMA" for nama, nilai in palsu_bio.data_bio_tersimpan.items()
@@ -2800,7 +2819,8 @@ def cek_bot_dapodik() -> str:
             f"siswa berstatus Lulus dilewati · alur skrip sekolah (masuk, menu, 1 siswa) "
             f"berjalan di peramban palsu, tahan klik tertelan lapisan pemuatan & popup "
             f"pengumuman Dapodik · Sekolah Asal & Data Periodik terisi dari data siswa "
-            f"(BIO lewat tombol «Ubah» terisi & tersimpan, panel Data Periodik dibawa ke layar, "
+            f"(BIO lewat tombol «Ubah» terisi & tersimpan — termasuk kolom dropdown yang "
+            f"dipilih dari daftarnya, panel Data Periodik dibawa ke layar, "
             f"pilihan jaraknya ditekan lewat labelnya, "
             f"kolom isian diberi peristiwa input/change/blur) · "
             f"sekarang {len(services.bot_nisn_sukses())} NISN berhasil")

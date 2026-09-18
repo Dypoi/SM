@@ -154,6 +154,15 @@ versi ringkas dari catatan ini), `README.md` (dokumentasi fitur), `scripts/uji_b
 | **Yang sebenarnya** | Jawaban yang diulang **tidak menambah informasi apa pun**. Yang dibutuhkan pengguna adalah bukti dari sisi bot: jendela «Ubah» itu terbaca seperti apa, kolomnya ketemu atau tidak, wadah gulirnya yang mana. Dan karena log belum pernah dikirim, bot harus **melaporkan keadaannya sendiri** — bukan menunggu pengguna memotret layar. |
 | **Aturan** | (a) Jangan mengulang jawaban yang sama; bila penyebab belum pasti, ubah **cara kerja bot** agar ia melaporkan keadaannya sendiri (`[bio-rincian]`, bukti `.png`/`.html` di `data/bot/`). (b) Selalu sediakan **jalur cadangan yang tidak bergantung pada pembacaan struktur baru**: skrip sekolah memakai `find_element(By.NAME, …)` tanpa mempedulikan jendelanya — jalur itu harus ada, lengkap dengan **gulir 250 px + cari ulang** setiap langkah. (c) Menambah jalur cadangan **tidak boleh** menghilangkan kejujuran log: kolom yang tetap tidak ketemu harus tetap dicatat sebagai dilewati. |
 
+### 13. Menganggap semua kolom jendela «Ubah» = kolom teks (ronde 16)
+
+| | |
+|---|---|
+| **Gejala asli** | Pengguna mengirim tangkapan layar: kolom **«Pendidikan ayah»** sedang terbuka daftarnya (D1, D2, D3, D4, Informal, Lainnya, Non formal, Paket A…), lalu bertanya *"bot bisa mengatasi ini ga? dropdown dropdown ini"*. |
+| **Yang saya pikirkan (15w–15z)** | Keempat belas kolom skrip sekolah diisi dengan **Ctrl+A → ketik** — asumsi saya semuanya kolom teks. |
+| **Yang sebenarnya** | Kolom **Pendidikan/Pekerjaan/Penghasilan ayah-ibu** adalah **dropdown (combo Ext JS)**. Mengetikkan teksnya hanya mengubah **tulisan di layar**; **nilai model Ext JS**-nya tetap kosong bila teksnya tidak persis salah satu pilihan daftar — jadi tidak tersimpan, kolom wajib (bertanda bintang merah) tetap kosong, dan penyimpanan bisa ikut ditolak. Daftar Dapodik juga **tidak sama** dengan daftar aplikasi SM: «SMA / sederajat» bisa bernama «SMA» atau «SLTA» di sana. |
+| **Aturan** | Sebelum mengisi, **kenali jenis kolomnya** (``role="combobox"``, tombol panah ``.x-form-trigger``, readonly, atau xtype combobox). Untuk dropdown: buka daftarnya (panah → kolomnya → ``Ext.getCmp(...).expand()``), baca pilihannya, cocokkan (persis → dirapikan → nama lain → satu-satunya yang sepadan), **klik pilihannya**, lalu **periksa nilai model Ext JS** — bukan hanya ``input.value``. Pilihan yang tidak ada di daftar **jangan ditebak**: sebutkan pilihan yang benar-benar terlihat dan lewati dengan jujur. **Daftar harus dibaca dari kolom itu sendiri** (``getPicker()``, hanya bila ia terbuka) — pernah terjadi: daftar «Pekerjaan» dipakai untuk mencocokkan nilai «Penghasilan». |
+
 ---
 
 ## 2. Daftar periksa sebelum mengklaim "sudah beres"
@@ -201,6 +210,10 @@ Semua di `app/bot_dapodik.py` (nama fungsi, bukan nomor baris — nomornya berge
 | `[bio] <kolom>: kolomnya ditemukan lewat namanya di halaman (cara skrip sekolah) — … digeser 250 px bertahap (Nx).` | `_cari_kolom_bio` → `_kolom_global` |
 | `[bio-rincian] <kapan> \| jendela: … \| kolom di dalam jendela: … \| wadah gulir: … \| tombol «Simpan»: N (milik panel «Data Rincian»: M)` | `_rincian_bio` |
 | `[bio] bukti layar disimpan: … (.png + .html di folder yang sama)` | `_bukti` (dipanggil dari `_isi_bio`) |
+| `[bio] <kolom>: dropdown dibuka lewat panah/kolom/Ext JS — N pilihan terbaca.` | `_isi_dropdown_bio` → `_buka_dropdown` + `_pilihan_dropdown` |
+| `[bio] <kolom>: «SMA / sederajat» dibaca sebagai «SMA».` / `… bernama lain «SLTA» di Dapodik` | `_cocokkan_pilihan` |
+| `[bio] <kolom>: terisi (dipilih dari daftar): …` / `terisi lewat Ext JS (dipilih dari daftar): …` | `_isi_dropdown_bio` (`_klik_pilihan_dropdown` / `_set_ext`) |
+| `[bio] <kolom>: pilihan «…» TIDAK ADA di daftar dropdown Dapodik — yang terlihat: … (dilewati, tidak ditebak).` | `_isi_dropdown_bio` + `_cocokkan_pilihan` |
 
 ---
 
@@ -260,9 +273,10 @@ Semua di `app/bot_dapodik.py` (nama fungsi, bukan nomor baris — nomornya berge
 | 15w | `3594a7b` | **BIO lewat tombol «Ubah»** (14 kolom persis skrip sekolah, jendela dibawa ke layar, disimpan dengan «Simpan») dijalankan **sebelum** Data Periodik |
 | 15x | `25ef4a8` | BIO diperkuat dari tangkapan layar sekolah: verifikasi jendela «Edit Peserta Didik», kolom & «Simpan» dibatasi pada jendelanya, isi jendela digulir bertahap (bukan `scrollBy` halaman) |
 | 15y | `3924e29` | BIO: posisi gulir jendela (mulai dari atas, 250 px sekali geser, dicari ulang tiap langkah) + mundur ke `Ext.getCmp(...).setValue(...)` bila ketikan/JS tidak mengubah model Ext JS |
-| 15z | (lihat commit) | BIO: bot **melaporkan sendiri** keadaan jendela (`[bio-rincian]` + bukti `.png`/`.html` di `data/bot/`) dan tetap bekerja walau wadah jendela tak terbaca — kolom dilacak lewat namanya sambil halaman digeser 250 px (cara skrip sekolah) |
+| 15z | `12a9d70` | BIO: bot **melaporkan sendiri** keadaan jendela (`[bio-rincian]` + bukti `.png`/`.html` di `data/bot/`) dan tetap bekerja walau wadah jendela tak terbaca — kolom dilacak lewat namanya sambil halaman digeser 250 px (cara skrip sekolah) |
+| 16 | (lihat commit) | **Kolom dropdown (combo Ext JS)** jendela «Ubah»: pilihannya dipilih dari daftar (panah → kolom → `Ext.expand()`), dicocokkan dengan daftar Dapodik (persis → dirapikan → nama lain), nilai **model** Ext JS diperiksa, pilihan di luar daftar **tidak ditebak**; + Pekerjaan & Penghasilan ayah/ibu |
 
 ---
 
-*Terakhir diperbarui: ronde 15z. Tambahkan kesalahpahaman baru ke §1 begitu
+*Terakhir diperbarui: ronde 16. Tambahkan kesalahpahaman baru ke §1 begitu
 ditemukan — termasuk kesalahan saya sendiri — supaya tidak terulang.*

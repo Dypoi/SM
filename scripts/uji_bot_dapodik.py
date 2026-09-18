@@ -46,8 +46,13 @@ SISWA = {
     "rt": "3", "rw": "5", "kode_pos": "15157", "anak_ke": 2,
     "ayah_nama": "Bapak Uji", "ayah_nik": "3201234567890002",
     "ayah_tahun_lahir": 1980, "ayah_pendidikan": "SMA / sederajat",
+    # Kolom dropdown (combo): pekerjaan & penghasilan memakai daftar Dapodik yang sama
+    # dengan aplikasi SM; pendidikannya sengaja berbeda («SMA / sederajat» vs «SMA» di
+    # Dapodik pada tangkapan layar sekolah) supaya pencocokan pilihannya benar-benar diuji.
+    "ayah_pekerjaan": "Petani", "ayah_penghasilan": "Rp. 500,000 - Rp. 999,999",
     "ibu_nik": "3201234567890003", "ibu_tahun_lahir": 1983,
     "ibu_pendidikan": "SMP / sederajat",
+    "ibu_pekerjaan": "Tidak Bekerja", "ibu_penghasilan": "Tidak Berpenghasilan",
 }
 
 #: Kolom BIO yang diisi skrip sekolah — (kunci data siswa, nama kolom Dapodik, nilai uji).
@@ -61,10 +66,17 @@ BIO_UJI: tuple[tuple[str, str, str], ...] = (
     ("ayah_nama", "nama_ayah", "Bapak Uji"),
     ("ayah_nik", "nik_ayah", "3201234567890002"),
     ("ayah_tahun_lahir", "tahun_lahir_ayah", "1980"),
-    ("ayah_pendidikan", "jenjang_pendidikan_ayah", "SMA / sederajat"),
+    # Kolom dropdown: nilai yang tersimpan adalah TEKS PILIHAN Dapodik (mis. «SMA»),
+    # bukan teks data SM («SMA / sederajat») — itulah bedanya memilih dari daftar dengan
+    # mengetikkan teksnya.
+    ("ayah_pendidikan", "jenjang_pendidikan_ayah", "SMA"),
+    ("ayah_pekerjaan", "pekerjaan_ayah", "Petani"),
+    ("ayah_penghasilan", "penghasilan_ayah", "Rp. 500,000 - Rp. 999,999"),
     ("ibu_nik", "nik_ibu", "3201234567890003"),
     ("ibu_tahun_lahir", "tahun_lahir_ibu", "1983"),
-    ("ibu_pendidikan", "jenjang_pendidikan_ibu", "SMP / sederajat"),
+    ("ibu_pendidikan", "jenjang_pendidikan_ibu", "SMP"),
+    ("ibu_pekerjaan", "pekerjaan_ibu", "Tidak Bekerja"),
+    ("ibu_penghasilan", "penghasilan_ibu", "Tidak Berpenghasilan"),
 )
 
 
@@ -89,7 +101,8 @@ class _WaktuCepat:
         self._asli.sleep(min(float(detik or 0), 0.02))
 
 
-def jalankan(judul: str, jarak, atur=None, tampilkan: bool = False, opsi: dict | None = None):
+def jalankan(judul: str, jarak, atur=None, tampilkan: bool = False, opsi: dict | None = None,
+             ubah_siswa: dict | None = None):
     """Jalankan bot untuk satu siswa pada keadaan halaman tertentu.
 
     ``opsi`` menimpa pengaturan bot untuk skenario ini (mis. menyalakan langkah BIO).
@@ -108,7 +121,7 @@ def jalankan(judul: str, jarak, atur=None, tampilkan: bool = False, opsi: dict |
         peramban.tambah_baris_siswa(SISWA["nisn"])
         bot = bot_dapodik.BotDapodik(0, [], [], dict(OPSI, **(opsi or {})), kepala=jejak.append)
         bot._login(peramban)
-        bot._proses_satu(peramban, {**SISWA, "jarak_rumah": jarak}, None)
+        bot._proses_satu(peramban, {**SISWA, "jarak_rumah": jarak, **(ubah_siswa or {})}, None)
     finally:
         bot_dapodik.time = asli
     km = next(unsur for unsur in peramban.unsur
@@ -275,7 +288,7 @@ def main() -> int:
         "itulah yang membuat jendela «Ubah» tetap terbuka")
     cek(not p12.bio_terbuka, "jendela «Ubah» masih terbuka setelah disimpan")
     cek(p12.gulir_bio >= 1, "bot tidak menggulir ISI jendela «Ubah» sama sekali")
-    cek(p12.data_bio_tersimpan.get("jenjang_pendidikan_ibu") == "SMP / sederajat",
+    cek(p12.data_bio_tersimpan.get("jenjang_pendidikan_ibu") == "SMP",
         f"kolom paling bawah tidak terisi: {p12.data_bio_tersimpan.get('jenjang_pendidikan_ibu')!r}")
     cek(any("jendela «Edit Peserta Didik» terbuka" in b for b in j12), [b for b in j12 if "[bio]" in b][:4])
     cek(any("digeser 250 px bertahap" in b for b in j12),
@@ -342,7 +355,48 @@ def main() -> int:
         [b for b in j16 if "cara skrip sekolah" in b][:3])
     cek(any(b.startswith("[bio-rincian]") for b in j16), [b for b in j16 if "[bio]" in b][:3])
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 16 skenario")
+    # 17) Kolom dropdown (combo Ext JS): «Pendidikan/Pekerjaan/Penghasilan ayah-ibu» pada
+    #     tangkapan layar sekolah. Inilah yang tidak tertangani sebelumnya: teksnya diketik,
+    #     tulisannya tampak benar di layar, tetapi NILAI MODEL Ext JS tetap kosong — dan
+    #     Dapodik hanya menyimpan yang benar-benar dipilih dari daftarnya. Uji ini menuntut
+    #     bot memilih dari daftar, dan nilai yang tersimpan adalah teks pilihan Dapodik.
+    p17, j17 = jalankan("17. kolom dropdown → pilihan diambil dari daftarnya", 2,
+                        atur=lambda p: p.siapkan_bio(), tampilkan=True,
+                        opsi={"bot_isi_bio": "1"})
+    cek(p17.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji dropdown")
+    cek(p17.dropdown_item_diklik >= 6,
+        f"bot tidak memilih dari daftar dropdown: {p17.dropdown_item_diklik} pilihan "
+        f"(seharusnya 6 kolom: pendidikan, pekerjaan, penghasilan ayah & ibu)")
+    salah17 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if str(p17.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah17, f"kolom yang tidak terisi pada uji dropdown: {salah17}")
+    cek(str(p17.data_bio_tersimpan.get("jenjang_pendidikan_ayah") or "") == "SMA",
+        "kolom pendidikan ayah tidak berisi TEKS PILIHAN Dapodik («SMA»), "
+        f"melainkan {p17.data_bio_tersimpan.get('jenjang_pendidikan_ayah')!r}")
+    cek(any("dropdown dibuka lewat" in b for b in j17), [b for b in j17 if "[bio]" in b][:8])
+    cek(any("dibaca sebagai «SMA»" in b for b in j17),
+        [b for b in j17 if "Pendidikan ayah" in b][:4])
+
+    # 18) Pilihan yang TIDAK ADA di daftar Dapodik: bot tidak boleh menebak (mis. memilih
+    #     «Lainnya» sendiri). Yang benar: mencatat pilihan yang terlihat pada daftarnya,
+    #     melewati kolom itu, dan tetap menyelesaikan siswa.
+    p18, j18 = jalankan("18. pilihan di luar daftar → dilaporkan, tidak ditebak", 2,
+                        atur=lambda p: p.siapkan_bio(), tampilkan=True,
+                        opsi={"bot_isi_bio": "1"},
+                        ubah_siswa={"ayah_pendidikan": "Sarjana Luar Negeri",
+                                    "ibu_pekerjaan": "Astronaut"})
+    cek(p18.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji pilihan di luar daftar")
+    cek(not str(p18.data_bio_tersimpan.get("jenjang_pendidikan_ayah") or "").strip(),
+        "kolom pendidikan ayah terisi padahal pilihannya tidak ada di daftar dropdown")
+    cek(not str(p18.data_bio_tersimpan.get("pekerjaan_ibu") or "").strip(),
+        "kolom pekerjaan ibu terisi padahal pilihannya tidak ada di daftar dropdown")
+    cek(any("TIDAK ADA di daftar dropdown Dapodik" in b for b in j18),
+        [b for b in j18 if "[bio]" in b][:8])
+    cek(any("yang terlihat:" in b for b in j18), [b for b in j18 if "[bio]" in b][:8])
+    cek(str(p18.data_bio_tersimpan.get("nama_ayah") or "").strip() == "Bapak Uji",
+        "kolom lain ikut gagal padahal hanya dua kolom yang di luar daftar")
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 18 skenario")
     return 0
 
 
