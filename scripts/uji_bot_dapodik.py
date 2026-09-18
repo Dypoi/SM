@@ -46,7 +46,8 @@ SISWA = {
     "rt": "3", "rw": "5", "kode_pos": "15157", "anak_ke": 2,
     "ayah_nama": "Bapak Uji", "ayah_nik": "3201234567890002",
     "ayah_tahun_lahir": 1980, "ayah_pendidikan": "SMA / sederajat",
-    # Kolom dropdown (combo): pekerjaan & penghasilan memakai daftar Dapodik yang sama
+    # Kolom dropdown (combo): nama kolomnya dari DOM asli halaman Dapodik (ronde 17) —
+    # «pekerjaan_id_ayah» / «penghasilan_id_ayah» — persis seperti yang dikirim sekolah.
     # dengan aplikasi SM; pendidikannya sengaja berbeda («SMA / sederajat» vs «SMA» di
     # Dapodik pada tangkapan layar sekolah) supaya pencocokan pilihannya benar-benar diuji.
     "ayah_pekerjaan": "Petani", "ayah_penghasilan": "Rp. 500,000 - Rp. 999,999",
@@ -70,13 +71,13 @@ BIO_UJI: tuple[tuple[str, str, str], ...] = (
     # bukan teks data SM («SMA / sederajat») — itulah bedanya memilih dari daftar dengan
     # mengetikkan teksnya.
     ("ayah_pendidikan", "jenjang_pendidikan_ayah", "SMA"),
-    ("ayah_pekerjaan", "pekerjaan_ayah", "Petani"),
-    ("ayah_penghasilan", "penghasilan_ayah", "Rp. 500,000 - Rp. 999,999"),
+    ("ayah_pekerjaan", "pekerjaan_id_ayah", "Petani"),
+    ("ayah_penghasilan", "penghasilan_id_ayah", "Rp. 500,000 - Rp. 999,999"),
     ("ibu_nik", "nik_ibu", "3201234567890003"),
     ("ibu_tahun_lahir", "tahun_lahir_ibu", "1983"),
     ("ibu_pendidikan", "jenjang_pendidikan_ibu", "SMP"),
-    ("ibu_pekerjaan", "pekerjaan_ibu", "Tidak Bekerja"),
-    ("ibu_penghasilan", "penghasilan_ibu", "Tidak Berpenghasilan"),
+    ("ibu_pekerjaan", "pekerjaan_id_ibu", "Tidak Bekerja"),
+    ("ibu_penghasilan", "penghasilan_id_ibu", "Tidak Berpenghasilan"),
 )
 
 
@@ -373,7 +374,7 @@ def main() -> int:
     cek(str(p17.data_bio_tersimpan.get("jenjang_pendidikan_ayah") or "") == "SMA",
         "kolom pendidikan ayah tidak berisi TEKS PILIHAN Dapodik («SMA»), "
         f"melainkan {p17.data_bio_tersimpan.get('jenjang_pendidikan_ayah')!r}")
-    cek(any("dropdown dibuka lewat" in b for b in j17), [b for b in j17 if "[bio]" in b][:8])
+    cek(any("dropdown dibaca lewat" in b for b in j17), [b for b in j17 if "[bio]" in b][:8])
     cek(any("dibaca sebagai «SMA»" in b for b in j17),
         [b for b in j17 if "Pendidikan ayah" in b][:4])
 
@@ -396,7 +397,44 @@ def main() -> int:
     cek(str(p18.data_bio_tersimpan.get("nama_ayah") or "").strip() == "Bapak Uji",
         "kolom lain ikut gagal padahal hanya dua kolom yang di luar daftar")
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 18 skenario")
+    # 19) Klik pada pilihan dropdown TIDAK berpengaruh (ditelan lapisan Dapodik — persis yang
+    #     terjadi di PC sekolah: daftarnya terlihat, pilihannya diklik, tetapi nilainya tidak
+    #     tersimpan). Bot harus memilih lewat MODEL Ext JS (select/setValue) dan memastikan
+    #     nilainya benar-benar masuk.
+    p19, j19 = jalankan("19. klik pilihan ditelan → dipilih lewat model Ext JS", 2,
+                        atur=lambda p: (p.siapkan_bio(),
+                                        setattr(p, "dropdown_item_ditelan", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p19.bio_tersimpan, "jendela «Ubah» tidak tersimpan saat klik pilihan ditelan")
+    cek(p19.dropdown_item_ditelan_kali >= 1,
+        "uji tidak bermakna: tidak ada klik pilihan yang ditelan")
+    cek(p19.dropdown_ext_pilih >= 6,
+        f"bot tidak memilih lewat model Ext JS: {p19.dropdown_ext_pilih} pilihan "
+        "(seharusnya 6 kolom dropdown)")
+    salah19 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if str(p19.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah19, f"kolom yang tidak terisi lewat model Ext JS: {salah19}")
+    cek(any("dipilih lewat model Ext JS" in b for b in j19), [b for b in j19 if "[bio]" in b][:8])
+
+    # 20) Daftar dropdown TIDAK MAU TERBUKA sama sekali (tombol panah, kolomnya, dan
+    #     Ext.expand() semuanya gagal). Bot harus tetap bisa mengisi kolomnya dari DATA
+    #     komponen Ext JS (store) — bukan menyerah karena daftarnya tidak terlihat.
+    p20, j20 = jalankan("20. daftar tak mau terbuka → pilihan dibaca dari data komponen", 2,
+                        atur=lambda p: (p.siapkan_bio(),
+                                        setattr(p, "dropdown_tak_bisa_dibuka", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p20.bio_tersimpan, "jendela «Ubah» tidak tersimpan saat daftar dropdown tak terbuka")
+    cek(p20.dropdown_dibuka == 0,
+        f"uji tidak bermakna: daftar dropdown sempat terbuka {p20.dropdown_dibuka}x")
+    cek(p20.dropdown_ext_pilih >= 6,
+        f"bot tidak memilih lewat data komponen/model Ext JS: {p20.dropdown_ext_pilih} "
+        "pilihan (seharusnya 6 kolom dropdown)")
+    salah20 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if str(p20.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah20, f"kolom yang tidak terisi pada jalur data komponen: {salah20}")
+    cek(any("data komponen Ext JS" in b for b in j20), [b for b in j20 if "[bio]" in b][:8])
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 20 skenario")
     return 0
 
 

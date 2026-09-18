@@ -104,14 +104,14 @@ SELECTOR_BAWAAN: dict[str, str] = {
     "bio_ibu_nik": "name:nik_ibu",
     "bio_ibu_tahun": "name:tahun_lahir_ibu",
     "bio_ibu_pendidikan": "name:jenjang_pendidikan_ibu",
-    # Kolom dropdown (combo) — nama kolomnya belum ada pada skrip sekolah, jadi dipakai nama
-    # Dapodik yang paling lazim («pekerjaan_ayah», sejajar dengan «nama_ayah»/«nik_ayah»).
-    # Bila di sekolah namanya berbeda, kolomnya masih dicari lewat labelnya, dan kunci ini
-    # bisa ditimpa di «Peta tombol Dapodik».
-    "bio_ayah_pekerjaan": "name:pekerjaan_ayah",
-    "bio_ayah_penghasilan": "name:penghasilan_ayah",
-    "bio_ibu_pekerjaan": "name:pekerjaan_ibu",
-    "bio_ibu_penghasilan": "name:penghasilan_ibu",
+    # Kolom dropdown (combo) — nama kolomnya diambil dari DOM asli halaman Dapodik sekolah
+    # (ronde 17): «pekerjaan_id_ayah» & «penghasilan_id_ayah» (data-componentid
+    # «pekerjaancombo-2560», role combobox, readonly). Bila di versi lain namanya berbeda,
+    # kolomnya masih dicari lewat labelnya, dan kunci ini bisa ditimpa di «Peta tombol Dapodik».
+    "bio_ayah_pekerjaan": "name:pekerjaan_id_ayah",
+    "bio_ayah_penghasilan": "name:penghasilan_id_ayah",
+    "bio_ibu_pekerjaan": "name:pekerjaan_id_ibu",
+    "bio_ibu_penghasilan": "name:penghasilan_id_ibu",
     "bio_simpan": '//span[contains(@class, "x-btn-inner-default-small") and '
                   'normalize-space()="Simpan"]',
     "simpan_periodik": '//span[contains(@class, "x-btn-inner-default-small") '
@@ -268,20 +268,24 @@ SELECTOR_CADANGAN: dict[str, list[str]] = {
     "bio_ayah_nama": ["css:input[name*=nama_ayah]"],
     "bio_ayah_nik": ["css:input[name*=nik_ayah]"],
     "bio_ayah_tahun": ["css:input[name*=tahun_lahir_ayah]"],
-    "bio_ayah_pendidikan": ["css:input[name*=jenjang_pendidikan_ayah]"],
+    "bio_ayah_pendidikan": ["name:jenjang_pendidikan_ayah", "label:Pendidikan ayah",
+                            "css:input[name*=pendidikan][name*=ayah]"],
     "bio_ibu_nik": ["css:input[name*=nik_ibu]"],
     "bio_ibu_tahun": ["css:input[name*=tahun_lahir_ibu]"],
-    "bio_ibu_pendidikan": ["css:input[name*=jenjang_pendidikan_ibu]"],
-    # Kolom dropdown (combo Ext JS): nama kolom Dapodik bisa «pekerjaan_ayah» atau
-    # «ayah_pekerjaan» — keduanya dicoba, lalu lewat labelnya.
-    "bio_ayah_pekerjaan": ["label:Pekerjaan ayah", "css:input[name*=pekerjaan_ayah]",
-                           "css:input[name*=ayah_pekerjaan]"],
-    "bio_ayah_penghasilan": ["label:Penghasilan ayah", "css:input[name*=penghasilan_ayah]",
-                             "css:input[name*=ayah_penghasilan]"],
-    "bio_ibu_pekerjaan": ["label:Pekerjaan ibu", "css:input[name*=pekerjaan_ibu]",
-                          "css:input[name*=ibu_pekerjaan]"],
-    "bio_ibu_penghasilan": ["label:Penghasilan ibu", "css:input[name*=penghasilan_ibu]",
-                            "css:input[name*=ibu_penghasilan]"],
+    "bio_ibu_pendidikan": ["name:jenjang_pendidikan_ibu", "label:Pendidikan ibu",
+                           "css:input[name*=pendidikan][name*=ibu]"],
+    # Kolom dropdown (combo Ext JS). Nama aslinya dari DOM sekolah: «pekerjaan_id_ayah»,
+    # «penghasilan_id_ayah» (dan pasangan ibu). Versi Dapodik lain bisa menamainya tanpa
+    # «_id_» atau dibalik («pekerjaan_ayah», «ayah_pekerjaan») — semuanya dicoba, lalu lewat
+    # labelnya; nama apa pun yang mengandung «pekerjaan»+«ayah» juga cocok.
+    "bio_ayah_pekerjaan": ["name:pekerjaan_id_ayah", "label:Pekerjaan ayah",
+                           "css:input[name*=pekerjaan][name*=ayah]"],
+    "bio_ayah_penghasilan": ["name:penghasilan_id_ayah", "label:Penghasilan ayah",
+                             "css:input[name*=penghasilan][name*=ayah]"],
+    "bio_ibu_pekerjaan": ["name:pekerjaan_id_ibu", "label:Pekerjaan ibu",
+                          "css:input[name*=pekerjaan][name*=ibu]"],
+    "bio_ibu_penghasilan": ["name:penghasilan_id_ibu", "label:Penghasilan ibu",
+                            "css:input[name*=penghasilan][name*=ibu]"],
     "bio_simpan": [
         'xpath://span[contains(@class, "x-btn-inner") and normalize-space()="Simpan"]',
         'xpath://*[self::a or self::button][normalize-space()="Simpan"]',
@@ -2741,6 +2745,93 @@ class BotDapodik:
         jenis = str(jenis or "").strip().lower()
         return "combo" if jenis == "combo" else "teks"
 
+    def _data_dropdown(self, peramban, unsur) -> list[tuple[str, Any]]:
+        """(teks pilihan, nilainya) tiap pilihan dropdown — dibaca dari **data komponen** Ext JS.
+
+        Inilah cara paling andal di Dapodik dan tidak bergantung tata letak: komponen combo
+        Ext JS menyimpan seluruh pilihannya di ``store``-nya (``displayField`` untuk teks,
+        ``valueField`` untuk nilainya). Jadi pilihannya bisa dibaca **tanpa membuka daftar
+        dropdown sama sekali** — dan nilai untuk ``setValue`` sekaligus diketahui. Berguna
+        ketika tombol panahnya ditelan lapisan pemuatan (daftar tidak mau terbuka).
+        """
+        try:
+            hasil = peramban.execute_script(
+                """
+                /* dropdown-store */
+                const el = arguments[0];
+                if (!el) return [];
+                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
+                const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
+                    ? Ext.getCmp(String(id).replace(/-inputEl$/, '')) : null;
+                if (!c || !c.getStore) return [];
+                const store = c.getStore();
+                if (!store || !store.getRange) return [];
+                const kunci = c.displayField || 'nama', nilai = c.valueField || 'id';
+                const keluar = [];
+                for (const r of store.getRange()) {
+                    const t = r.get(kunci);
+                    if (t === undefined || t === null) continue;
+                    keluar.push({teks: String(t), nilai: r.get(nilai)});
+                }
+                return keluar;
+                """, unsur)
+        except Exception:  # noqa: BLE001 — tanpa Ext/stor: pakai daftar yang terbuka
+            return []
+        data: list[tuple[str, Any]] = []
+        for baris in (hasil or []):
+            if not isinstance(baris, dict):
+                continue
+            teks = str(baris.get("teks") or "").strip()
+            if teks:
+                data.append((teks, baris.get("nilai")))
+        return data
+
+    def _pilih_dropdown_ext(self, peramban, unsur, teks: str) -> bool:
+        """Pilih satu pilihan dropdown lewat **model Ext JS** (``select``/``setValue``).
+
+        Dipakai bila mengklik pilihannya tidak menyimpan apa pun (klik ditelan lapisan
+        Dapodik, atau daftarnya tidak mau terbuka). Cara ini bekerja langsung pada komponen
+        combo-nya: record yang teksnya cocok dicari di ``store``, lalu dipilih — sehingga
+        ``getRawValue()`` **dan** nilai modelnya ikut berubah, persis seperti dipilih manual.
+        """
+        try:
+            berhasil = peramban.execute_script(
+                """
+                /* dropdown-pilih */
+                const el = arguments[0];
+                const cari = String(arguments[1] || '')
+                    .replace(/\s+/g, ' ').trim().toLowerCase();
+                if (!el || !cari) return false;
+                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
+                const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
+                    ? Ext.getCmp(String(id).replace(/-inputEl$/, '')) : null;
+                if (!c || !c.getStore) return false;
+                const store = c.getStore();
+                const kunci = c.displayField || 'nama', nilai = c.valueField || 'id';
+                let rec = null;
+                if (store && store.getRange) {
+                    for (const r of store.getRange()) {
+                        const t = r.get(kunci);
+                        if (t === undefined || t === null) continue;
+                        if (String(t).replace(/\s+/g, ' ').trim().toLowerCase() === cari) {
+                            rec = r;
+                            break;
+                        }
+                    }
+                }
+                if (!rec) return false;
+                if (c.select) { try { c.select(rec); } catch (e) {} }
+                if (c.setValue && !(c.getRawValue && c.getRawValue())) {
+                    c.setValue(rec.get(nilai));
+                }
+                if (c.collapse) { try { c.collapse(); } catch (e) {} }
+                if (c.fireEvent) { try { c.fireEvent('select', c, rec); } catch (e) {} }
+                return true;
+                """, unsur, teks)
+        except Exception:  # noqa: BLE001 — jalur ini upaya tambahan
+            return False
+        return bool(berhasil)
+
     def _pilihan_dropdown(self, peramban, unsur) -> list[str]:
         """Pilihan pada daftar dropdown **milik kolom ini** (kosong = belum terbuka).
 
@@ -2748,7 +2839,13 @@ class BotDapodik:
         hanya bila komponen itu memang sedang terbuka. Tanpa itu, daftar milik dropdown lain
         yang masih terbuka bisa terbaca sebagai daftar kolom ini — pernah terjadi pada uji:
         daftar «Pekerjaan» dipakai untuk mencocokkan nilai «Penghasilan».
+
+        Dibaca bertahap: **data komponen** (``store`` — selalu ada, tidak perlu dibuka)
+        lebih dulu, baru daftar yang benar-benar terbuka di layar.
         """
+        lewat_store = [teks for teks, _ in self._data_dropdown(peramban, unsur)]
+        if lewat_store:
+            return lewat_store
         try:
             hasil = peramban.execute_script(
                 """
@@ -2776,6 +2873,32 @@ class BotDapodik:
             return []
         return [str(x) for x in (hasil or []) if str(x).strip()]
 
+    def _dropdown_terbuka(self, peramban, unsur) -> bool:
+        """Apakah daftar dropdown **benar-benar terbuka** di layar (bukan sekadar terbaca).
+
+        Dipakai supaya bot tidak mencatat "pilihan sudah diklik" untuk klik yang tidak pernah
+        terjadi: pilihannya bisa terbaca dari data komponen Ext JS walaupun daftarnya tertutup.
+        """
+        try:
+            return bool(peramban.execute_script(
+                """
+                /* dropdown-terbuka */
+                const el = arguments[0];
+                if (!el) return false;
+                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
+                const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
+                    ? Ext.getCmp(String(id).replace(/-inputEl$/, '')) : null;
+                if (c && c.isExpanded) return !!c.isExpanded();
+                const lihat = (el2) => !!(el2 && el2.getClientRects && el2.getClientRects().length);
+                for (const el2 of document.querySelectorAll(
+                        'li.x-boundlist-item, div.x-boundlist-item, .x-combo-list-item')) {
+                    if (lihat(el2)) return true;
+                }
+                return false;
+                """, unsur))
+        except Exception:  # noqa: BLE001 — tidak terbaca: anggap tertutup
+            return False
+
     def _buka_dropdown(self, peramban, unsur, cara: str) -> bool:
         """Buka daftar sebuah dropdown: lewat tombol panah, kolomnya, atau Ext ``expand()``."""
         from selenium.webdriver.common.by import By
@@ -2798,7 +2921,7 @@ class BotDapodik:
                 panah.click()
             except Exception:  # noqa: BLE001 — lapisan pemuatan bisa menelan klik
                 peramban.execute_script("arguments[0].click();", panah)
-            return bool(self._pilihan_dropdown(peramban, unsur))
+            return self._dropdown_terbuka(peramban, unsur)
         if cara == "kolom":
             try:
                 self._paksa_terlihat(peramban, unsur)
@@ -2806,7 +2929,7 @@ class BotDapodik:
                     unsur.click()
                 except Exception:  # noqa: BLE001 — klik bisa tertelan lapisan pemuatan
                     peramban.execute_script("arguments[0].click();", unsur)
-                return bool(self._pilihan_dropdown(peramban, unsur))
+                return self._dropdown_terbuka(peramban, unsur)
             except Exception:  # noqa: BLE001
                 return False
         try:      # jalur pamungkas: komponen Ext JS-nya sendiri
@@ -2824,7 +2947,7 @@ class BotDapodik:
                 """, unsur)
         except Exception:  # noqa: BLE001
             return False
-        return bool(berhasil) and bool(self._pilihan_dropdown(peramban, unsur))
+        return bool(berhasil) and self._dropdown_terbuka(peramban, unsur)
 
     def _klik_pilihan_dropdown(self, peramban, unsur, teks: str) -> bool:
         """Klik pilihan yang cocok pada daftar dropdown **milik kolom ini**.
@@ -2886,7 +3009,12 @@ class BotDapodik:
             return False
 
     def _nilai_dropdown(self, peramban, unsur) -> tuple[str, str]:
-        """(tulisan di layar, nilai model Ext JS) sebuah dropdown — dua hal yang bisa berbeda."""
+        """(tulisan di layar, teks pilihan yang tersimpan) sebuah dropdown.
+
+        Penting di Dapodik: ``getValue()`` sebuah combo berisi **id** (mis. ``2560``), bukan
+        teksnya — jadi yang dipakai untuk memeriksa hasil adalah ``getRawValue()``
+        (teks pilihan yang benar-benar dilihat pengguna & dikirim Dapodik).
+        """
         try:
             hasil = peramban.execute_script(
                 """
@@ -2896,8 +3024,11 @@ class BotDapodik:
                 const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
                 const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
                     ? Ext.getCmp(String(id).replace(/-inputEl$/, '')) : null;
-                return {tampil: el.value || '',
-                        model: (c && c.getValue) ? (c.getValue() || '') : ''};
+                const raw = (c && c.getRawValue) ? String(c.getRawValue() || '') : '';
+                const isi = (c && c.getValue) ? c.getValue() : '';
+                return {tampil: (raw || el.value || ''),
+                        model: (raw || (typeof isi === 'string' ? isi : '')),
+                        id: isi};
                 """, unsur)
         except Exception:  # noqa: BLE001
             hasil = {}
@@ -2939,21 +3070,31 @@ class BotDapodik:
         if not self._tunggu_aktif(peramban, unsur):
             self._catat_kepala(f"{awalan} {label}: kolom dropdown masih nonaktif saat akan "
                                "diisi — dicoba apa adanya.")
-        pilihan: list[str] = []
-        cara_dipakai = ""
+        # Pilihan dibaca dari DATA komponen Ext JS lebih dulu: cara ini bekerja walau daftar
+        # dropdownnya tidak mau terbuka (tombol panahnya sering ditelan lapisan pemuatan).
+        data = self._data_dropdown(peramban, unsur)
+        pilihan: list[str] = [teks for teks, _ in data]
+        cara_dipakai = "data komponen Ext JS" if pilihan else ""
+        # Daftarnya tetap dicoba dibuka sekali, supaya pilihannya bisa diklik seperti manual
+        # (klik pada pilihan = cara yang paling menyerupai pekerjaan manusia).
+        terbuka = False
         for cara in ("panah", "kolom", "Ext JS"):
             if self._buka_dropdown(peramban, unsur, cara):
-                pilihan = self._pilihan_dropdown(peramban, unsur)
-                if pilihan:
-                    cara_dipakai = cara
-                    break
-            self._tunggu(peramban, 0.8 if cara != "Ext JS" else 0.5)
+                terbuka = True
+                cara_dipakai = (f"{cara_dipakai} + daftar dibuka lewat {cara}" if cara_dipakai
+                                else f"daftar yang dibuka lewat {cara}")
+                if not pilihan:
+                    data = self._data_dropdown(peramban, unsur)
+                    pilihan = [teks for teks, _ in data] or self._pilihan_dropdown(peramban, unsur)
+                break
+            self._tunggu(peramban, 0.6 if cara != "Ext JS" else 0.4)
         if pilihan:
-            self._catat_kepala(f"{awalan} {label}: dropdown dibuka lewat {cara_dipakai} — "
-                               f"{len(pilihan)} pilihan terbaca.")
+            self._catat_kepala(f"{awalan} {label}: dropdown dibaca lewat {cara_dipakai} — "
+                               f"{len(pilihan)} pilihan tersedia.")
         else:
-            self._catat_kepala(f"{awalan} {label}: daftar dropdown TIDAK terbaca (tombol "
-                               "panah, kolomnya, dan Ext.getCmp sudah dicoba) — dilewati.")
+            self._catat_kepala(f"{awalan} {label}: daftar dropdown TIDAK terbaca (data "
+                               "komponen, tombol panah, kolomnya, dan Ext.getCmp sudah "
+                               "dicoba) — dilewati.")
             return ("dilewati — daftar dropdown tidak terbaca (nilainya tidak diketik paksa, "
                     "karena Dapodik hanya menyimpan pilihan yang ada di daftar).")
         cocok, catatan = self._cocokkan_pilihan(nilai, pilihan)
@@ -2967,15 +3108,27 @@ class BotDapodik:
                     f"({len(pilihan)} pilihan terbaca).")
         if catatan and catatan != "sama persis":
             self._catat_kepala(f"{awalan} {label}: {catatan}.")
-        diklik = self._klik_pilihan_dropdown(peramban, unsur, cocok)
+        diklik = terbuka and self._klik_pilihan_dropdown(peramban, unsur, cocok)
         self._tunggu(peramban, 0.5)
         tampil, model = self._nilai_dropdown(peramban, unsur)
         if diklik and self._norm_pilihan(model or tampil) == self._norm_pilihan(cocok):
             keterangan = f"terisi (dipilih dari daftar): {tampil or model}"
             return keterangan if catatan == "sama persis" else f"{keterangan} — {catatan}"
-        self._catat_kepala(f"{awalan} {label}: pilihan «{cocok}» sudah diklik tetapi nilai "
-                           f"model Ext JS belum berubah (tampil: «{tampil}») — dicoba lewat "
-                           "Ext.getCmp.")
+        if diklik:
+            self._catat_kepala(f"{awalan} {label}: pilihan «{cocok}» sudah diklik tetapi "
+                               f"nilainya belum tersimpan (tampil: «{tampil}») — dipilih lewat "
+                               "model Ext JS (select/setValue).")
+        else:
+            self._catat_kepala(f"{awalan} {label}: daftar dropdownnya tidak terbuka di Dapodik "
+                               f"— pilihan «{cocok}» dipasang lewat model Ext JS "
+                               "(select/setValue).")
+        # Pilih lewat MODEL Ext JS (select(record) → nilai & teks ikut berubah) — inilah yang
+        # bekerja di Dapodik sekolah: mengklik pilihannya tidak menyimpan apa pun.
+        if self._pilih_dropdown_ext(peramban, unsur, cocok):
+            self._tunggu(peramban, 0.5)
+            tampil, model = self._nilai_dropdown(peramban, unsur)
+            if self._norm_pilihan(model or tampil) == self._norm_pilihan(cocok):
+                return f"terisi lewat Ext JS (dipilih dari daftar): {tampil or model}"
         if self._set_ext(peramban, unsur, nilai=cocok):
             self._tunggu(peramban, 0.4)
             tampil, model = self._nilai_dropdown(peramban, unsur)

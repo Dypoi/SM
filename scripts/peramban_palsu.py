@@ -69,7 +69,8 @@ def pilihan_dropdown_dapodik(kunci: str) -> tuple[str, ...]:
 
 
 #: Kolom jendela «Ubah» (BIO) — nama kolomnya diambil apa adanya dari skrip sekolah.
-#: Elemen ketiga = jenis dropdown ("" = kolom teks biasa).
+#: Elemen ketiga = jenis dropdown ("" = kolom teks biasa). Nama kolomnya diambil dari DOM
+#: asli halaman Dapodik yang dikirim sekolah (mis. ``pekerjaan_id_ayah``).
 BIO_KOLOM_PALSU: tuple[tuple[str, str, str], ...] = (
     ("no_kk", "No. Kartu Keluarga", ""),
     ("reg_akta_lahir", "No. Registrasi Akta Lahir", ""),
@@ -82,13 +83,13 @@ BIO_KOLOM_PALSU: tuple[tuple[str, str, str], ...] = (
     ("nik_ayah", "NIK ayah", ""),
     ("tahun_lahir_ayah", "Tahun lahir ayah", ""),
     ("jenjang_pendidikan_ayah", "Pendidikan ayah", "pendidikan"),
-    ("pekerjaan_ayah", "Pekerjaan ayah", "pekerjaan"),
-    ("penghasilan_ayah", "Penghasilan ayah", "penghasilan"),
+    ("pekerjaan_id_ayah", "Pekerjaan ayah", "pekerjaan"),
+    ("penghasilan_id_ayah", "Penghasilan ayah", "penghasilan"),
     ("nik_ibu", "NIK ibu", ""),
     ("tahun_lahir_ibu", "Tahun lahir ibu", ""),
     ("jenjang_pendidikan_ibu", "Pendidikan ibu", "pendidikan"),
-    ("pekerjaan_ibu", "Pekerjaan ibu", "pekerjaan"),
-    ("penghasilan_ibu", "Penghasilan ibu", "penghasilan"),
+    ("pekerjaan_id_ibu", "Pekerjaan ibu", "pekerjaan"),
+    ("penghasilan_id_ibu", "Penghasilan ibu", "penghasilan"),
 )
 
 
@@ -155,6 +156,8 @@ class UnsurPalsu:
         #: Nilai MODEL Ext JS (yang benar-benar dikirim saat «Simpan») — beda dari tulisan
         #: di layar bila yang diketik bukan salah satu pilihan daftarnya.
         self.nilai_model = str(sifat.get("nilai_model", ""))
+        #: Id pilihan yang tersimpan (di Dapodik: ``getValue()`` combo berisi id, bukan teks).
+        self.nilai_id = sifat.get("nilai_id", "")
         #: True = tombol panah dropdown (membuka daftar pilihannya)
         self.trigger_combo = bool(sifat.get("trigger_combo", False))
         #: True = satu pilihan di daftar dropdown yang sedang terbuka
@@ -595,6 +598,13 @@ class PerambanPalsu:
         self.dropdown_panah_ditelan = False
         #: True = jalur Ext.getCmp(...).expand() juga tidak tersedia
         self.dropdown_ext_mati = False
+        #: True = daftar dropdown TIDAK mau terbuka (tombol panah, kolom, & Ext.expand gagal)
+        self.dropdown_tak_bisa_dibuka = False
+        #: True = item daftar bisa diklik tetapi tidak berpengaruh (persis Dapodik di PC)
+        self.dropdown_item_ditelan = False
+        self.dropdown_item_ditelan_kali = 0
+        #: Berapa kali pilihan dipasang lewat model Ext JS (select/setValue)
+        self.dropdown_ext_pilih = 0
         #: Isi kolom BIO yang benar-benar tersimpan (name → nilai saat «Simpan» ditekan)
         self.data_bio_tersimpan: dict[str, str] = {}
         #: berapa kali pilihan jarak dipilih lewat pembungkus/labelnya
@@ -966,8 +976,11 @@ class PerambanPalsu:
                 # Dropdown (combo Ext JS): kolom + tombol panah + daftar pilihannya.
                 # Nilai awalnya KOSONG (bukan "LAMA") — di Dapodik pun combo kosong berarti
                 # belum dipilih, berbeda dengan kolom teks yang bisa berisi data lama.
+                # Persis DOM sekolah: role combobox, readonly, punya tombol panah, dan
+                # nilai modelnya berisi ID pilihan (bukan teksnya).
                 combo = UnsurPalsu(self, "input", type="text", name=nama, label=label,
-                                   bio=True, nilai="", nilai_model="",
+                                   bio=True, nilai="", nilai_model="", nilai_id="",
+                                   aria="combobox", role="combobox", readonly="readonly",
                                    daftar_pilihan=pilihan_dropdown_dapodik(jenis),
                                    componentid=f"combobox-{1300 + nomor}")
                 self.unsur.append(combo)
@@ -1001,8 +1014,8 @@ class PerambanPalsu:
     # -------------------------------------------------- dropdown (combo) --- #
     def buka_dropdown(self, combo: "UnsurPalsu | None") -> None:
         """Daftar dropdown dibuka (klik tombol panah atau ``Ext.getCmp(...).expand()``)."""
-        if combo is None:
-            return
+        if combo is None or self.dropdown_tak_bisa_dibuka:
+            return          # Dapodik keras: daftarnya tidak mau terbuka sama sekali
         self.dropdown_terbuka = combo
         self.dropdown_dibuka += 1
 
@@ -1011,12 +1024,39 @@ class PerambanPalsu:
         combo = item.induk
         if combo is None or self.dropdown_terbuka is not combo:
             return
+        if self.dropdown_item_ditelan:
+            # Klik pada pilihannya ditelan lapisan Dapodik: daftarnya tetap terbuka dan
+            # nilai model TIDAK berubah — bot harus naik ke jalur model Ext JS.
+            self.dropdown_item_ditelan_kali += 1
+            return
         combo.nilai = item.teks            # tulisan di layar
-        combo.nilai_model = item.teks      # nilai yang benar-benar dikirim ke Dapodik
+        combo.nilai_model = item.teks      # teks pilihan yang dilihat Dapodik
+        combo.nilai_id = combo.daftar_pilihan.index(item.teks) + 1 if item.teks in combo.daftar_pilihan else ""
         self.dropdown_terbuka = None
         self.dropdown_item_diklik += 1
         if lewat_skrip:
             self.dropdown_item_lewat_skrip += 1
+
+    def pilih_dropdown_lewat_ext(self, combo: "UnsurPalsu | None", teks: str) -> bool:
+        """Pilih pilihan lewat model Ext JS: ``select(record)`` / ``setValue(id)``.
+
+        Persis komponen combo Ext JS: yang dicari adalah **record** di store komponennya
+        (``displayField``), lalu nilainya diambil dari ``valueField`` — bukan teks yang
+        diketikkan ke kotaknya.
+        """
+        if combo is None or not combo.daftar_pilihan:
+            return False
+        dicari = " ".join(str(teks or "").split()).lower()
+        cocok = next((p for p in combo.daftar_pilihan
+                      if " ".join(p.split()).lower() == dicari), "")
+        if not cocok:
+            return False
+        combo.nilai = cocok
+        combo.nilai_model = cocok
+        combo.nilai_id = combo.daftar_pilihan.index(cocok) + 1
+        self.dropdown_terbuka = None
+        self.dropdown_ext_pilih += 1
+        return True
 
     def tutup_dropdown(self) -> None:
         """Daftar dropdown ditutup tanpa memilih apa pun."""
@@ -1524,7 +1564,8 @@ class PerambanPalsu:
         if "dropdown-buka" in skrip:
             # Jalur terakhir bot: Ext.getCmp(id).expand() (bila tombol panahnya ditelan).
             sasaran = argumen[0] if argumen else None
-            if sasaran is None or not sasaran.daftar_pilihan or self.dropdown_ext_mati:
+            if sasaran is None or not sasaran.daftar_pilihan or self.dropdown_ext_mati \
+                    or self.dropdown_tak_bisa_dibuka:
                 return False
             self.dropdown_ext_dipakai += 1
             self.buka_dropdown(sasaran)
@@ -1553,10 +1594,31 @@ class PerambanPalsu:
             return -1
         if "dropdown-nilai" in skrip:
             # Tulisan di layar + nilai model Ext JS sebuah dropdown (dua hal yang berbeda!).
+            # ``model`` = teks pilihan yang benar-benar tersimpan (seperti ``getRawValue()``);
+            # ``id`` = nilainya di model (seperti ``getValue()`` pada combo Dapodik).
             sasaran = argumen[0] if argumen else None
             if sasaran is None:
                 return {}
-            return {"tampil": sasaran.nilai, "model": sasaran.nilai_model}
+            return {"tampil": sasaran.nilai, "model": sasaran.nilai_model,
+                    "id": sasaran.nilai_id}
+        if "dropdown-terbuka" in skrip:
+            # Keadaan daftar yang sebenarnya (daftar tertutup = pilihannya tidak bisa diklik).
+            sasaran = argumen[0] if argumen else None
+            return bool(not self.dropdown_tak_bisa_dibuka and sasaran is not None
+                        and self.dropdown_terbuka is sasaran)
+        if "dropdown-store" in skrip:
+            # Pilihan dibaca dari DATA komponen Ext JS (store) — tidak perlu daftarnya
+            # terbuka. Inilah cara yang paling andal di Dapodik sungguhan.
+            sasaran = argumen[0] if argumen else None
+            if sasaran is None or not sasaran.daftar_pilihan:
+                return []
+            return [{"teks": p, "nilai": i + 1}
+                    for i, p in enumerate(sasaran.daftar_pilihan)]
+        if "dropdown-pilih" in skrip:
+            # Pilih lewat model Ext JS: select(record) / setValue(id).
+            sasaran = argumen[0] if argumen else None
+            dicari = str(argumen[1] if len(argumen) > 1 else "")
+            return self.pilih_dropdown_lewat_ext(sasaran, dicari)
         if "dropdown-tutup" in skrip:
             self.tutup_dropdown()
             return True

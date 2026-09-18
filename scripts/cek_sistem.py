@@ -2609,15 +2609,19 @@ def cek_bot_dapodik() -> str:
              f"{palsu_bio.data_bio_tersimpan.get('jenjang_pendidikan_ibu')!r}")
         # Kolom dropdown: nilainya diambil dari daftar (bukan diketik) dan tersimpan apa
         # adanya seperti pilihan Dapodik.
-        assert palsu_bio.data_bio_tersimpan.get("pekerjaan_ayah") == "Petani", \
-            f"pekerjaan ayah tidak terisi: {palsu_bio.data_bio_tersimpan.get('pekerjaan_ayah')!r}"
-        assert palsu_bio.data_bio_tersimpan.get("penghasilan_ibu") == "Tidak Berpenghasilan", \
+        assert palsu_bio.data_bio_tersimpan.get("pekerjaan_id_ayah") == "Petani", \
+            f"pekerjaan ayah tidak terisi: {palsu_bio.data_bio_tersimpan.get('pekerjaan_id_ayah')!r}"
+        assert palsu_bio.data_bio_tersimpan.get("penghasilan_id_ibu") == "Tidak Berpenghasilan", \
             (f"penghasilan ibu tidak terisi: "
-             f"{palsu_bio.data_bio_tersimpan.get('penghasilan_ibu')!r}")
+             f"{palsu_bio.data_bio_tersimpan.get('penghasilan_id_ibu')!r}")
+        assert palsu_bio.data_bio_tersimpan.get("penghasilan_id_ayah") == \
+            "Rp. 500,000 - Rp. 999,999", \
+            (f"penghasilan ayah tidak terisi: "
+             f"{palsu_bio.data_bio_tersimpan.get('penghasilan_id_ayah')!r}")
         assert palsu_bio.dropdown_item_diklik >= 6, \
             (f"bot tidak memilih dari daftar dropdown: {palsu_bio.dropdown_item_diklik} pilihan "
              "diklik (seharusnya 6: pendidikan, pekerjaan, penghasilan ayah & ibu)")
-        assert any("dropdown dibuka lewat" in b for b in jejak), \
+        assert any("dropdown dibaca lewat" in b for b in jejak), \
             [b for b in jejak if "[bio]" in b][:8]
         assert palsu_bio.data_bio_tersimpan.get("reg_akta_lahir") == "LAMA", \
             "kolom «No. Registrasi Akta Lahir» dikosongkan padahal datanya kosong di SM"
