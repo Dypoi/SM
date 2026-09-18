@@ -135,6 +135,15 @@ versi ringkas dari catatan ini), `README.md` (dokumentasi fitur), `scripts/uji_b
 | **Yang sebenarnya** | (a) XPath menyalin tata letak versi Dapodik tertentu dan bisa meleset; (b) Ext JS menggambar baris Data Periodik **bertahap**, sedangkan empat percobaan gulir lama selesai dalam sekejap tanpa jeda; (c) `is_displayed()` saya jadikan syarat mutlak, sehingga kotak yang **ada tetapi belum terlihat** dianggap tidak ada. |
 | **Aturan** | Jangan bergantung XPath: lacak pilihan lewat **teksnya** dan JavaScript (label → kotaknya), atau lewat API Ext JS. Buang kandidat yang jelas bertuliskan pilihan lain (jangan sampai memilih yang salah). Beri jeda kecil antar percobaan. Bedakan **"tidak ada"** dari **"belum tampil/terlihat"**, dan pastikan log menyebutkan apa yang benar-benar terlihat di panel. |
 
+### 11. Menganggap satu tombol «Ubah»/«Simpan» = milik jendela yang benar (ronde 15x)
+
+| | |
+|---|---|
+| **Gejala asli** | Pengguna: *"masih bekerja belum baik terkait ubah … yang pasti itu tampilan setelah klik ubah"* + tangkapan layar. |
+| **Yang saya pikirkan** | Tombol «Ubah» yang kelasnya ungu itu satu-satunya; setelah ditekan, jendela «Ubah» pasti terbuka. |
+| **Yang sebenarnya** | Tangkapan layar menunjukkan **dua set tombol**: toolbar halaman *dan* panel «Data Rincian PD» di bawahnya (Tambah / **Ubah** ungu / **Simpan** / Hapus / Validasi). Menekan «Ubah»/«Simpan» milik panel itu tidak membuka/menyimpan jendela «Edit Peserta Didik» — persis keluhan "jendela tetap terbuka". Selain itu **jendela «Ubah» punya area gulirnya sendiri**: menggulir halaman (`scrollBy(0,250)`) tidak menolong, dan juga bukan soal "250 px kebanyakan/kurang" — yang benar adalah menggeser isi jendela lalu **mencari kolomnya lagi setiap kali**. |
+| **Aturan** | Jangan percaya satu selector untuk tombol yang bisa muncul berkali-kali: **coba tiap kandidat dan VERIFIKASI hasilnya** (mis. jendela «Edit Peserta Didik» benar-benar terbuka). Batasi pencarian kolom & tombol simpan pada **wadah jendelanya** (`.x-window`), bukan seluruh halaman. Untuk area ber-gulir: geser **isi wadah itu** sedikit demi sedikit sambil mencari ulang — jangan mengandalkan gulir halaman dengan angka tetap. |
+
 ---
 
 ## 2. Daftar periksa sebelum mengklaim "sudah beres"
@@ -234,7 +243,8 @@ Semua di `app/bot_dapodik.py` (nama fungsi, bukan nomor baris — nomornya berge
 | 15t | `3b9da31` | Penanda `x-form-cb-checked` menentukan → eskalasi `Ext.getCmp(...).setValue(...)` |
 | 15u | `e6c35ca` | Pilihan jarak tidak lagi bergantung XPath (dilacak lewat teksnya), jeda render, log `[layar]`, laporan isi panel |
 | 15v | (lihat commit) | Aturan kerja repo (`AGENTS.md` + `CLAUDE.md`) supaya catatan ini benar-benar dibaca |
-| 15w | (lihat commit) | **BIO lewat tombol «Ubah»** (14 kolom persis skrip sekolah, jendela dibawa ke layar, disimpan dengan «Simpan») dijalankan **sebelum** Data Periodik |
+| 15w | `3594a7b` | **BIO lewat tombol «Ubah»** (14 kolom persis skrip sekolah, jendela dibawa ke layar, disimpan dengan «Simpan») dijalankan **sebelum** Data Periodik |
+| 15x | (lihat commit) | BIO diperkuat dari tangkapan layar sekolah: verifikasi jendela «Edit Peserta Didik», kolom & «Simpan» dibatasi pada jendelanya, isi jendela digulir bertahap (bukan `scrollBy` halaman) |
 
 ---
 

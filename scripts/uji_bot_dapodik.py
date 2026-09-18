@@ -123,8 +123,11 @@ def jalankan(judul: str, jarak, atur=None, tampilkan: bool = False, opsi: dict |
     if peramban.bio_aktif:
         print(f"    BIO tersimpan: {peramban.bio_tersimpan} · kolom terisi: "
               f"{sum(1 for nilai in peramban.data_bio_tersimpan.values() if nilai != 'LAMA')}"
-              f"/{len(peramban.data_bio_tersimpan)} · gulir: {len(peramban.gulir_panel)}"
-              f" panel + {len(peramban.gulir)} halaman")
+              f"/{len(peramban.data_bio_tersimpan)} · gulir jendela: {peramban.gulir_bio}x · "
+              f"jendela terbuka: {peramban.bio_terbuka} · «Ubah» palsu ditekan: "
+              f"{peramban.bio_ubah_palsu_diklik}x · «Simpan» palsu ditekan: "
+              f"{peramban.bio_simpan_palsu_diklik}x · kandidat «Ubah» dicoba: "
+              f"{peramban.bio_ubah_dicoba}x")
     hasil = [baris for baris in jejak if baris.startswith(("[OK]", "[GAGAL]"))]
     print(f"    hasil: {hasil[-1] if hasil else '(tidak ada hasil)'}")
     return peramban, jejak
@@ -232,11 +235,13 @@ def main() -> int:
     cek(str(p10.data_bio_tersimpan.get("reg_akta_lahir") or "") == "LAMA",
         "kolom akta dikosongkan padahal datanya kosong (seharusnya dibiarkan)")
     cek(p10.bio_siap(), "jendela «Ubah» tidak pernah digulir — kolomnya tidak akan terjangkau")
-    cek(any("membuka jendela «Ubah»" in b for b in j10), j10[:6])
+    cek(any("jendela «Edit Peserta Didik» terbuka" in b for b in j10),
+        [b for b in j10 if "[bio]" in b][:4] or j10[:6])
     cek(any("No. Registrasi Akta Lahir: data siswa kosong — dilewati" in b for b in j10),
         [b for b in j10 if "[bio]" in b])
     cek(any("jendela «Ubah» tertutup" in b for b in j10), [b for b in j10 if "[bio]" in b])
-    i_bio = next((i for i, b in enumerate(j10) if "membuka jendela «Ubah»" in b), -1)
+    i_bio = next((i for i, b in enumerate(j10)
+                  if "jendela «Edit Peserta Didik» terbuka" in b), -1)
     i_periodik = next((i for i, b in enumerate(j10) if "mengisi Data Periodik" in b), -1)
     cek(0 <= i_bio < i_periodik, f"urutan salah: BIO#{i_bio} periodik#{i_periodik}")
     cek(p10.jarak_pilihan == "Lebih dari 1 km" and
@@ -254,7 +259,41 @@ def main() -> int:
     hasil11 = [b for b in j11 if b.startswith(("[OK]", "[GAGAL]"))]
     cek(bool(hasil11) and hasil11[-1].startswith("[OK]"), hasil11[-2:] or j11[-3:])
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 11 skenario")
+    # 12) Halaman sekolah: di bawah jendela ada panel «Data Rincian PD» dengan tombol
+    #     «Ubah» (ungu) & «Simpan» SENDIRI — dan jendela «Ubah» punya area gulirnya sendiri
+    #     (menggulir halaman tidak menolong; lihat tangkapan layar sekolah). Bot harus:
+    #     membuka jendela «Edit Peserta Didik» yang benar, menggulir ISI jendelanya, dan
+    #     menyimpan lewat tombol «Simpan» yang ada DI DALAM jendela itu.
+    p12, j12 = jalankan("12. dua set tombol «Ubah»/«Simpan» + gulir di dalam jendela", 2,
+                        atur=lambda p: p.siapkan_bio(panel_rincian=True), tampilkan=True,
+                        opsi={"bot_isi_bio": "1"})
+    cek(p12.bio_tersimpan, "jendela «Ubah» tidak tersimpan (tombol «Simpan» yang benar tidak ketemu)")
+    cek(p12.bio_ubah_palsu_diklik == 0,
+        f"bot menekan «Ubah» milik panel «Data Rincian PD» ({p12.bio_ubah_palsu_diklik}x)")
+    cek(p12.bio_simpan_palsu_diklik == 0,
+        f"bot menekan «Simpan» milik panel «Data Rincian PD» ({p12.bio_simpan_palsu_diklik}x) — "
+        "itulah yang membuat jendela «Ubah» tetap terbuka")
+    cek(not p12.bio_terbuka, "jendela «Ubah» masih terbuka setelah disimpan")
+    cek(p12.gulir_bio >= 1, "bot tidak menggulir ISI jendela «Ubah» sama sekali")
+    cek(p12.data_bio_tersimpan.get("jenjang_pendidikan_ibu") == "SMP / sederajat",
+        f"kolom paling bawah tidak terisi: {p12.data_bio_tersimpan.get('jenjang_pendidikan_ibu')!r}")
+    cek(any("jendela «Edit Peserta Didik» terbuka" in b for b in j12), [b for b in j12 if "[bio]" in b][:4])
+    cek(any("isi jendela" in b and "digulir" in b for b in j12),
+        [b for b in j12 if "[bio]" in b][:8])
+
+    # 13) «Ubah» palsu di luar panel «Data Rincian» (petunjuk tampilan tidak menolong): bot
+    #     harus mencobanya, melihat jendelanya tidak terbuka, lalu mencoba kandidat berikutnya.
+    p13, j13 = jalankan("13. «Ubah» pertama tidak membuka jendela → dicoba kandidat berikutnya", 2,
+                        atur=lambda p: p.siapkan_bio(ubah_palsu_di_luar=True), tampilkan=True,
+                        opsi={"bot_isi_bio": "1"})
+    cek(p13.bio_tersimpan, "jendela «Ubah» tidak tersimpan setelah kandidat kedua dicoba")
+    cek(p13.bio_ubah_palsu_diklik >= 1, "kandidat «Ubah» palsu tidak pernah dicoba (uji tidak bermakna)")
+    cek(p13.bio_ubah_dicoba >= 2, f"bot tidak mencoba kandidat «Ubah» berikutnya: {p13.bio_ubah_dicoba}")
+    cek(any("tidak membuka jendela" in b for b in j13),
+        [b for b in j13 if "[bio]" in b][:6] or j13[-4:])
+    cek(not p13.bio_terbuka, "jendela «Ubah» masih terbuka setelah disimpan")
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 13 skenario")
     return 0
 
 

@@ -112,6 +112,13 @@ class UnsurPalsu:
         self.bio_panel = bool(sifat.get("bio_panel", False))
         #: True = tombol «Simpan» jendela «Ubah»
         self.simpan_bio = bool(sifat.get("simpan_bio", False))
+        #: Aksi tombol pada halaman sekolah: "ubah" (membuka jendela BIO) / "simpan"
+        self.aksi = str(sifat.get("aksi", ""))
+        #: True = tombol PALSU (mis. «Ubah»/«Simpan» milik panel «Data Rincian PD» yang
+        #: tidak berhubungan dengan jendela «Edit Peserta Didik»)
+        self.palsu = bool(sifat.get("palsu", False))
+        #: True = tombol palsu itu berada di dalam panel «Data Rincian PD»
+        self.rincian = bool(sifat.get("rincian", False))
 
     # ------------------------------------------------------------ atribut --- #
     def get_attribute(self, nama: str) -> str | None:
@@ -210,11 +217,20 @@ class UnsurPalsu:
             self.peramban.buka_formulir_registrasi()
         if self.simpan_periodik:
             self.peramban.simpan_data_periodik()
-        if self.simpan_bio:
-            self.peramban.simpan_bio()
-        if "x-btn-inner-soft-purple-small" in (self.kelas or ""):
-            # Tombol «Ubah» pada toolbar (ungu): membuka jendela BIO siswa.
+        if self.aksi == "ubah":
+            self.peramban.bio_ubah_dicoba += 1
+            if self.palsu:
+                # «Ubah» milik panel «Data Rincian PD» (bukan jendela «Edit Peserta Didik»):
+                # ditekan pun tidak membuka apa-apa.
+                self.peramban.bio_ubah_palsu_diklik += 1
+                return
             self.peramban.buka_jendela_bio()
+        if self.aksi == "simpan":
+            if self.palsu:
+                # «Simpan» milik panel «Data Rincian PD»: tidak menyimpan BIO apa pun.
+                self.peramban.bio_simpan_palsu_diklik += 1
+                return
+            self.peramban.simpan_bio()
         if self.jalur == "/html/body/div[1]/ul/li[2]/div/a/button":
             # Menu Peserta Didik dibuka → Dapodik menampilkan popup pengumuman versi.
             self.peramban._menu_tujuan_diklik()
@@ -481,6 +497,18 @@ class PerambanPalsu:
         #: Berapa kali area gulir harus digeser sebelum kolom BIO terjangkau (persis Dapodik:
         #: jendela «Ubah» panjang, kolomnya harus dibawa ke layar dulu)
         self.bio_perlu_gulir = 2
+        #: Berapa kali **isi jendela «Ubah»** digulir (bukan halaman) — inilah yang menolong
+        self.gulir_bio = 0
+        #: Berapa kali tombol «Ubah» milik panel «Data Rincian PD» (palsu) tertekan
+        self.bio_ubah_palsu_diklik = 0
+        #: Berapa kali tombol «Simpan» milik panel «Data Rincian PD» (palsu) tertekan
+        self.bio_simpan_palsu_diklik = 0
+        #: Berapa kali tombol «Ubah» dicoba sampai jendela «Edit Peserta Didik» terbuka
+        self.bio_ubah_dicoba = 0
+        #: True = halaman ini punya panel «Data Rincian PD» dengan tombol «Ubah»/«Simpan» palsu
+        self.bio_panel_rincian = False
+        #: True = ada «Ubah» palsu di luar panel «Data Rincian» (petunjuk tampilan tak menolong)
+        self.bio_ubah_palsu_luar = False
         #: Isi kolom BIO yang benar-benar tersimpan (name → nilai saat «Simpan» ditekan)
         self.data_bio_tersimpan: dict[str, str] = {}
         #: berapa kali pilihan jarak dipilih lewat pembungkus/labelnya
@@ -654,6 +682,13 @@ class PerambanPalsu:
         ])
         self._pasang_pembungkus_kotak()
         if getattr(self, "bio_aktif", False):
+            if getattr(self, "bio_panel_rincian", False):
+                self.tambah_panel_rincian()
+            if getattr(self, "bio_ubah_palsu_luar", False):
+                # «Ubah» palsu ini dipasang LEBIH DULU (seperti tombol serupa di tempat lain
+                # pada halaman): bot harus mencobanya, melihat jendelanya tidak terbuka, lalu
+                # mencoba kandidat berikutnya.
+                self.tambah_panel_rincian(jadikan_palsu=False, di_luar_panel=True)
             self.tambah_tombol_ubah()
         if getattr(self, "tanpa_baris_jarak", False):
             # Versi Dapodik yang tidak punya baris «Jarak rumah ke sekolah»: radio & labelnya
@@ -720,30 +755,74 @@ class PerambanPalsu:
             kurang.induk.kelas = (kurang.induk.kelas + " x-form-cb-checked").strip()
         self.perbarui_kolom_km()
 
-    def siapkan_bio(self, ada_tombol: bool = True) -> "PerambanPalsu":
+    def siapkan_bio(self, ada_tombol: bool = True, panel_rincian: bool = False,
+                    ubah_palsu_di_luar: bool = False) -> "PerambanPalsu":
         """Pasang tombol «Ubah» & jendela BIO seperti halaman Dapodik sekolah.
 
         ``ada_tombol=False`` meniru versi Dapodik yang tidak punya tombol «Ubah» — dipakai
         untuk memastikan bot melewati langkah BIO dengan jujur, bukan menebak-nebak.
+        ``panel_rincian=True`` menambahkan panel «Data Rincian PD» beserta tombol
+        «Ubah»/«Simpan» palsunya (persis tangkapan layar sekolah).
         """
         self.bio_aktif = True
         self.bio_ada_tombol = bool(ada_tombol)
+        self.bio_panel_rincian = bool(panel_rincian)
+        self.bio_ubah_palsu_luar = bool(ubah_palsu_di_luar)
         if self.sudah_masuk:
             self.tambah_tombol_ubah()
         return self
 
     def bio_siap(self) -> bool:
-        """Apakah jendela «Ubah» sudah digulir cukup jauh sehingga kolomnya terjangkau."""
-        return len(self.gulir_panel) + len(self.gulir) >= self.bio_perlu_gulir
+        """Apakah **isi jendela «Ubah»** sudah digulir cukup jauh.
+
+        Penting: jendela «Ubah» punya area gulirnya sendiri — menggulir halaman
+        (``window.scrollBy``) TIDAK menolong, persis seperti yang terlihat pada tangkapan
+        layar sekolah (jendela tetap memperlihatkan bagian yang sama).
+        """
+        return self.gulir_bio >= self.bio_perlu_gulir
 
     def tambah_tombol_ubah(self) -> None:
         """Tombol «Ubah» (ungu) pada toolbar — membuka jendela BIO siswa."""
         if not self.bio_ada_tombol:
             return
-        if any("x-btn-inner-soft-purple-small" in (u.kelas or "") for u in self.unsur):
+        # Hanya tombol «Ubah» ASLI yang dihitung: «Ubah» milik panel «Data Rincian PD»
+        # (palsu) tidak boleh membuat tombol aslinya tidak dipasang.
+        if any(getattr(u, "aksi", "") == "ubah" and not getattr(u, "palsu", False)
+               for u in self.unsur):
             return
         self.unsur.append(UnsurPalsu(self, "span", kelas="x-btn-inner-soft-purple-small",
-                                     teks="Ubah"))
+                                     teks="Ubah", aksi="ubah"))
+
+    def tambah_panel_rincian(self, jadikan_palsu: bool = True, di_luar_panel: bool = False) -> None:
+        """Panel «Data Rincian PD» dengan toolbar «Ubah» & «Simpan» sendiri.
+
+        Persis halaman sekolah (lihat tangkapan layar): di bawah jendela ada panel
+        «Data Rincian PD : <nama siswa>» dengan deretan tombol Tambah / **Ubah** (ungu) /
+        **Simpan** / Hapus / Validasi. Tombol «Ubah»/«Simpan» itu **bukan** milik jendela
+        «Edit Peserta Didik» — menekannya tidak membuka/menyimpan apa pun. Bot harus
+        membedakannya, kalau tidak kliknya "seolah berhasil" tetapi jendelanya tetap terbuka
+        (itulah keluhan sekolah).
+        """
+        rincian = UnsurPalsu(self, "div", kelas="x-panel", teks="Data Rincian PD")
+        self.unsur.append(rincian)
+        if jadikan_palsu:
+            for kelas, teks, aksi in (("x-btn-inner-soft-green-small", "Tambah", ""),
+                                      ("x-btn-inner-soft-purple-small", "Ubah", "ubah"),
+                                      ("x-btn-inner-default-small", "Simpan", "simpan"),
+                                      ("x-btn-inner-soft-red-small", "Hapus", ""),
+                                      ("x-btn-inner-soft-blue-small", "Validasi", "")):
+                if not aksi:
+                    continue
+                palsu = UnsurPalsu(self, "span", kelas=kelas, teks=teks, aksi=aksi, palsu=True,
+                                   rincian=True)
+                palsu.induk = rincian
+                self.unsur.append(palsu)
+        if di_luar_panel:
+            # «Ubah» palsu yang TIDAK berada di panel «Data Rincian» (mis. tombol serupa di
+            # tempat lain): petunjuk tampilan tidak menolong, jadi bot harus mencobanya,
+            # melihat jendelanya tidak terbuka, lalu mencoba kandidat berikutnya.
+            self.unsur.append(UnsurPalsu(self, "span", kelas="x-btn-inner-soft-purple-small",
+                                         teks="Ubah", aksi="ubah", palsu=True))
 
     def buka_jendela_bio(self) -> None:
         """Tombol «Ubah» ditekan → jendela BIO terbuka (butuh baris siswa terpilih)."""
@@ -765,7 +844,7 @@ class PerambanPalsu:
             self.unsur.append(UnsurPalsu(self, "input", type="text", name=nama, label=label,
                                          bio=True, nilai="LAMA"))
         self.unsur.append(UnsurPalsu(self, "span", kelas="x-btn-inner-default-small",
-                                     teks="Simpan", bio=True, simpan_bio=True))
+                                     teks="Simpan", bio=True, simpan_bio=True, aksi="simpan"))
 
     def simpan_bio(self) -> None:
         """Tombol «Simpan» jendela «Ubah» ditekan: nilai tersimpan, jendelanya tertutup."""
@@ -1206,6 +1285,47 @@ class PerambanPalsu:
     # ------------------------------------------------------------ skrip ----- #
     def execute_script(self, skrip: str, *argumen: Any) -> Any:
         self.skrip.append(skrip)
+        if "jendela-edit" in skrip:
+            # Bot mencari jendela «Edit Peserta Didik» yang benar-benar terbuka.
+            wadah = next((u for u in self.unsur if getattr(u, "bio_panel", False)), None)
+            return wadah if (self.bio_terbuka and wadah is not None) else None
+        if "judul-jendela" in skrip:
+            return "Edit Peserta Didik : Uji" if self.bio_terbuka else ""
+        if "ubah-kandidat" in skrip:
+            # Semua tombol «Ubah» yang terlihat: yang di LUAR panel «Data Rincian» lebih dulu,
+            # persis urutan yang diharapkan bot.
+            kandidat = [u for u in self.unsur if getattr(u, "aksi", "") == "ubah"]
+            return sorted(kandidat, key=lambda u: 1 if getattr(u, "rincian", False) else 0)
+        if "simpan-jendela" in skrip:
+            # Tombol «Simpan» DI DALAM jendela «Ubah» (bukan milik panel «Data Rincian»).
+            # Tanpa jendela (argumen kosong): dicari tombol «Simpan» yang BUKAN milik panel
+            # «Data Rincian» — jalur cadangan bila wadah jendelanya tidak terbaca.
+            if not self.bio_terbuka:
+                return None
+            akar = argumen[0] if argumen else None
+            kandidat = [u for u in self.unsur
+                        if getattr(u, "aksi", "") == "simpan" and not getattr(u, "palsu", False)]
+            if akar is None:
+                kandidat = [u for u in kandidat if not getattr(u, "rincian", False)]
+            return kandidat[0] if kandidat else None
+        if "kolom-jendela" in skrip:
+            # Kolom BIO dicari DI DALAM jendela: nama kolom (persis skrip sekolah) lebih dulu,
+            # lalu lewat teks labelnya. Kolom baru terjangkau setelah isi jendela digulir.
+            if not (self.bio_terbuka and self.bio_siap()):
+                return None
+            nama = str(argumen[1] if len(argumen) > 1 else "").strip()
+            label = str(argumen[2] if len(argumen) > 2 else "").strip().lower()
+            for unsur in self.unsur:
+                if unsur.bio and unsur.type == "text" and nama and unsur.name == nama:
+                    return unsur
+            if label:
+                for unsur in self.unsur:
+                    if not (unsur.bio and unsur.type == "text"):
+                        continue
+                    teks = (unsur.label or "").strip().lower()
+                    if teks and (teks == label or teks.startswith(label)):
+                        return unsur
+            return None
         if "cari-kotak-teks" in skrip:
             # Bot melacak kotak lewat TEKS pilihannya (bukan XPath): label → kotaknya.
             teks = str(argumen[0] if argumen else "").strip().lower()
@@ -1392,11 +1512,22 @@ class PerambanPalsu:
             return None
         if "scrollIntoView" in skrip and argumen:
             sasaran = argumen[0]
+            if getattr(sasaran, "bio", False) or getattr(sasaran, "bio_panel", False):
+                # Kolom/jendela BIO dibawa ke layar: yang bergeser adalah isi jendelanya.
+                self.gulir_bio += 1
+                return None
             if getattr(sasaran, "periodik", False) or getattr(sasaran, "panel_periodik", False):
                 # Inilah yang benar-benar menjangkau area gulir panel Data Periodik.
                 self.gulir_panel.append(getattr(sasaran, "name", "")
                                         or getattr(sasaran, "teks", "") or "panel")
             return None
+        if "/* gulir-jendela */" in skrip:
+            # Bot menggulir ISI jendela «Ubah» (bukan halaman): inilah yang benar-benar
+            # menjangkau kolom di bagian bawah jendela.
+            if not self.bio_terbuka:
+                return 0
+            self.gulir_bio += 1
+            return 250
         if "window.scrollBy" in skrip:
             # Persis skrip sekolah: driver.execute_script("window.scrollBy(0, 250);")
             jarak = argumen[0] if argumen else None

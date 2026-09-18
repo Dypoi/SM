@@ -2576,7 +2576,7 @@ def cek_bot_dapodik() -> str:
             palsu_bio = peramban_palsu.buat("alur_penuh").pakai_jam(jam_bio.monotonic)
             palsu_bio.popup_detik = None
             palsu_bio.registrasi_otomatis = True
-            palsu_bio.siapkan_bio()
+            palsu_bio.siapkan_bio(panel_rincian=True)      # persis tangkapan layar sekolah
             nisn_bio = siswa_periodik["nisn"]
             palsu_bio.nisn_dicari = nisn_bio
             palsu_bio.tambah_baris_siswa(nisn_bio)
@@ -2605,11 +2605,19 @@ def cek_bot_dapodik() -> str:
         assert all(nilai != "LAMA" for nama, nilai in palsu_bio.data_bio_tersimpan.items()
                    if nama != "reg_akta_lahir"), \
             f"masih ada kolom BIO yang berisi data lama Dapodik: {palsu_bio.data_bio_tersimpan}"
-        assert palsu_bio.bio_siap(), \
-            "jendela «Ubah» tidak pernah dibawa ke layar — kolom yang di bawah tidak terjangkau"
-        assert any("membuka jendela «Ubah»" in baris for baris in jejak), jejak[:5]
+        assert palsu_bio.gulir_bio >= 1, \
+            "isi jendela «Ubah» tidak pernah digulir — kolom yang di bawah tidak terjangkau"
+        assert palsu_bio.bio_ubah_palsu_diklik == 0, \
+            f"bot menekan «Ubah» milik panel «Data Rincian PD» ({palsu_bio.bio_ubah_palsu_diklik}x)"
+        assert palsu_bio.bio_simpan_palsu_diklik == 0, \
+            ("bot menekan «Simpan» milik panel «Data Rincian PD» "
+             f"({palsu_bio.bio_simpan_palsu_diklik}x) — jendela «Ubah» jadi tidak tersimpan")
+        assert not palsu_bio.bio_terbuka, "jendela «Ubah» masih terbuka setelah disimpan"
+        assert any("jendela «Edit Peserta Didik» terbuka" in baris for baris in jejak), \
+            [b for b in jejak if "[bio]" in b][:4] or jejak[:5]
         assert any("jendela «Ubah» tertutup" in baris for baris in jejak), jejak[-6:]
-        i_bio = next((i for i, b in enumerate(jejak) if "membuka jendela «Ubah»" in b), -1)
+        i_bio = next((i for i, b in enumerate(jejak)
+                      if "jendela «Edit Peserta Didik» terbuka" in b), -1)
         i_periodik = next((i for i, b in enumerate(jejak) if "mengisi Data Periodik" in b), -1)
         assert 0 <= i_bio < i_periodik, \
             f"urutan langkah salah: BIO#{i_bio} lalu Data Periodik#{i_periodik}"
