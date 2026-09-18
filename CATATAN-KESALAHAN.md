@@ -145,6 +145,15 @@ versi ringkas dari catatan ini), `README.md` (dokumentasi fitur), `scripts/uji_b
 | **Aturan** | Jangan percaya satu selector untuk tombol yang bisa muncul berkali-kali: **coba tiap kandidat dan VERIFIKASI hasilnya** (mis. jendela «Edit Peserta Didik» benar-benar terbuka). Batasi pencarian kolom & tombol simpan pada **wadah jendelanya** (`.x-window`), bukan seluruh halaman. Untuk area ber-gulir: geser **isi wadah itu** sedikit demi sedikit sambil mencari ulang — jangan mengandalkan gulir halaman dengan angka tetap. |
 | **Tambahan (ronde 15y)** | "250 px kebanyakan atau kurang banyak" **bukan** pertanyaan yang benar: yang menentukan adalah **posisi** gulir wadah. Jadi: kembalikan isi wadah ke atas dulu (skrip sekolah mengisi dari atas ke bawah), geser 250 px, **cari ulang setiap kali**, berhenti hanya bila isinya sudah mentok. Selain itu: menulis `input.value` lewat JavaScript **tidak** mengubah model Ext JS — bila ketikan/JS ditolak, nilainya harus disetel lewat `Ext.getCmp(<data-componentid>).setValue(...)` dan **diperiksa ulang**. |
 
+### 12. Membalas keluhan yang sama dengan jawaban yang sama (ronde 15y → 15z)
+
+| | |
+|---|---|
+| **Gejala asli** | Pengguna mengirim **pesan yang sama tiga kali**: *"masih bekerja belum baik terkait ubah, mungkin karena scroll 250 kebanyakan atau kurang banyak saya ga tau si…"* — tanpa log, tanpa DOM baru. |
+| **Yang saya pikirkan** | Setelah 15x (dua set tombol) & 15y (posisi gulir) saya merasa penyebabnya sudah ketemu, lalu jawabannya diulang dengan kata lain. |
+| **Yang sebenarnya** | Jawaban yang diulang **tidak menambah informasi apa pun**. Yang dibutuhkan pengguna adalah bukti dari sisi bot: jendela «Ubah» itu terbaca seperti apa, kolomnya ketemu atau tidak, wadah gulirnya yang mana. Dan karena log belum pernah dikirim, bot harus **melaporkan keadaannya sendiri** — bukan menunggu pengguna memotret layar. |
+| **Aturan** | (a) Jangan mengulang jawaban yang sama; bila penyebab belum pasti, ubah **cara kerja bot** agar ia melaporkan keadaannya sendiri (`[bio-rincian]`, bukti `.png`/`.html` di `data/bot/`). (b) Selalu sediakan **jalur cadangan yang tidak bergantung pada pembacaan struktur baru**: skrip sekolah memakai `find_element(By.NAME, …)` tanpa mempedulikan jendelanya — jalur itu harus ada, lengkap dengan **gulir 250 px + cari ulang** setiap langkah. (c) Menambah jalur cadangan **tidak boleh** menghilangkan kejujuran log: kolom yang tetap tidak ketemu harus tetap dicatat sebagai dilewati. |
+
 ---
 
 ## 2. Daftar periksa sebelum mengklaim "sudah beres"
@@ -188,6 +197,10 @@ Semua di `app/bot_dapodik.py` (nama fungsi, bukan nomor baris — nomornya berge
 | `[selector] klik lewat skrip untuk …` / `kolom diisi lewat skrip …` | `_klik_aman` / pengisian cadangan |
 | `[versi] kode SM yang berjalan: …` | `_versi_kode` (dipakai juga oleh lencana `Kode SM:` di halaman bot) |
 | `[layar] jendela Chrome … · area tampil …` | `_buka_peramban` |
+| `[bio] jendela «Ubah» tidak terbaca oleh JavaScript — kolomnya dilacak lewat namanya …` | `_cari_kolom_bio` (jalur tanpa wadah jendela) |
+| `[bio] <kolom>: kolomnya ditemukan lewat namanya di halaman (cara skrip sekolah) — … digeser 250 px bertahap (Nx).` | `_cari_kolom_bio` → `_kolom_global` |
+| `[bio-rincian] <kapan> \| jendela: … \| kolom di dalam jendela: … \| wadah gulir: … \| tombol «Simpan»: N (milik panel «Data Rincian»: M)` | `_rincian_bio` |
+| `[bio] bukti layar disimpan: … (.png + .html di folder yang sama)` | `_bukti` (dipanggil dari `_isi_bio`) |
 
 ---
 
@@ -243,12 +256,13 @@ Semua di `app/bot_dapodik.py` (nama fungsi, bukan nomor baris — nomornya berge
 | 15s | `9b5e368` | DOM sekolah: label sesudah input, keadaan lewat kelas `x-form-cb-checked`, kolom km nonaktif ditunggu |
 | 15t | `3b9da31` | Penanda `x-form-cb-checked` menentukan → eskalasi `Ext.getCmp(...).setValue(...)` |
 | 15u | `e6c35ca` | Pilihan jarak tidak lagi bergantung XPath (dilacak lewat teksnya), jeda render, log `[layar]`, laporan isi panel |
-| 15v | (lihat commit) | Aturan kerja repo (`AGENTS.md` + `CLAUDE.md`) supaya catatan ini benar-benar dibaca |
+| 15v | `11671bc` | Aturan kerja repo (`AGENTS.md` + `CLAUDE.md`) supaya catatan ini benar-benar dibaca |
 | 15w | `3594a7b` | **BIO lewat tombol «Ubah»** (14 kolom persis skrip sekolah, jendela dibawa ke layar, disimpan dengan «Simpan») dijalankan **sebelum** Data Periodik |
 | 15x | `25ef4a8` | BIO diperkuat dari tangkapan layar sekolah: verifikasi jendela «Edit Peserta Didik», kolom & «Simpan» dibatasi pada jendelanya, isi jendela digulir bertahap (bukan `scrollBy` halaman) |
-| 15y | (lihat commit) | BIO: posisi gulir jendela (mulai dari atas, 250 px sekali geser, dicari ulang tiap langkah) + mundur ke `Ext.getCmp(...).setValue(...)` bila ketikan/JS tidak mengubah model Ext JS |
+| 15y | `3924e29` | BIO: posisi gulir jendela (mulai dari atas, 250 px sekali geser, dicari ulang tiap langkah) + mundur ke `Ext.getCmp(...).setValue(...)` bila ketikan/JS tidak mengubah model Ext JS |
+| 15z | (lihat commit) | BIO: bot **melaporkan sendiri** keadaan jendela (`[bio-rincian]` + bukti `.png`/`.html` di `data/bot/`) dan tetap bekerja walau wadah jendela tak terbaca — kolom dilacak lewat namanya sambil halaman digeser 250 px (cara skrip sekolah) |
 
 ---
 
-*Terakhir diperbarui: ronde 15u (`e6c35ca`). Tambahkan kesalahpahaman baru ke §1 begitu
+*Terakhir diperbarui: ronde 15z. Tambahkan kesalahpahaman baru ke §1 begitu
 ditemukan — termasuk kesalahan saya sendiri — supaya tidak terulang.*

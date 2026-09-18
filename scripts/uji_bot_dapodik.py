@@ -324,7 +324,25 @@ def main() -> int:
     cek(not salah15, f"kolom yang tidak terisi lewat Ext JS: {salah15}")
     cek(any("Ext JS" in b for b in j15), [b for b in j15 if "[bio]" in b][:8])
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 15 skenario")
+    # 16) Wadah jendela «Ubah» TIDAK terbaca bot (mis. formulirnya berupa panel dengan judul
+    #     yang tak dikenali). Skrip sekolah mengisi kolomnya lewat `find_element(By.NAME, …)`
+    #     tanpa mempedulikan jendelanya — jadi bot harus punya jalan itu juga, sambil
+    #     menggulir halaman bila kolomnya belum tampil. Ini jalan keluar terakhir bila
+    #     pengenalan jendela meleset di Dapodik sekolah.
+    p16, j16 = jalankan("16. wadah jendela tak terbaca → kolom dicari lewat namanya (ala skrip)", 2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "bio_tanpa_wadah", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p16.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada jalur cadangan global")
+    salah16 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if str(p16.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah16, f"kolom yang tidak terisi pada jalur cadangan global: {salah16}")
+    cek(any("dilacak lewat namanya seperti skrip sekolah" in b for b in j16),
+        [b for b in j16 if "[bio]" in b][:5])
+    cek(any("lewat namanya di halaman (cara skrip sekolah)" in b for b in j16),
+        [b for b in j16 if "cara skrip sekolah" in b][:3])
+    cek(any(b.startswith("[bio-rincian]") for b in j16), [b for b in j16 if "[bio]" in b][:3])
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 16 skenario")
     return 0
 
 

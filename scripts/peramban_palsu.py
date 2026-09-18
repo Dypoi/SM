@@ -522,6 +522,10 @@ class PerambanPalsu:
         #: Berapa kolom BIO yang terlihat pada posisi gulir jendela saat ini. Kolom di luar
         #: bagian yang terlihat TIDAK dapat dicari/ditulis — inilah "gulir kebanyakan/kurang".
         self.bio_terlihat_awal = 4
+        #: True = wadah jendela «Ubah» TIDAK terbaca oleh bot (mis. formulirnya berupa panel
+        #: dengan judul yang tak dikenali). Kolomnya hanya bisa ditemukan lewat NAMANYA di
+        #: seluruh halaman — persis cara skrip sekolah (`find_element(By.NAME, …)`).
+        self.bio_tanpa_wadah = False
         #: Isi kolom BIO yang benar-benar tersimpan (name → nilai saat «Simpan» ditekan)
         self.data_bio_tersimpan: dict[str, str] = {}
         #: berapa kali pilihan jarak dipilih lewat pembungkus/labelnya
@@ -797,7 +801,8 @@ class PerambanPalsu:
         bisa dicari & ditulis. Tiap geser 250 px memunculkan dua kolom berikutnya — jadi
         bukan soal "250 px kebanyakan atau kurang banyak", melainkan soal **posisi** gulir.
         """
-        return min(self.bio_terlihat_awal + 2 * self.gulir_bio, len(self._kolom_bio_semua()))
+        return min(self.bio_terlihat_awal + 2 * self.bio_geseran(),
+                   len(self._kolom_bio_semua()))
 
     def bio_indeks(self, unsur: "UnsurPalsu") -> int:
         """Posisi kolom BIO pada urutan tampilan (0 = paling atas)."""
@@ -806,14 +811,27 @@ class PerambanPalsu:
         except ValueError:
             return -1
 
+    def bio_geseran(self) -> int:
+        """Berapa kali bagian BIO sudah digeser — sesuai cara bot menjangkaunya.
+
+        Jendela «Ubah» punya area gulirnya sendiri (``gulir_bio``). Bila wadah jendelanya
+        **tidak terbaca** oleh JavaScript (``bio_tanpa_wadah``), bot memakai cara skrip
+        sekolah: kolomnya dicari lewat namanya, dan halaman digeser ``window.scrollBy``
+        (``gulir``) — Selenium pun menggeser layar saat mengetik.
+        """
+        if self.bio_tanpa_wadah:
+            return len(self.gulir)
+        return self.gulir_bio
+
     def bio_siap(self) -> bool:
-        """Apakah **isi jendela «Ubah»** sudah digulir cukup jauh.
+        """Apakah bagian BIO sudah digulir cukup jauh untuk dijangkau.
 
         Penting: jendela «Ubah» punya area gulirnya sendiri — menggulir halaman
         (``window.scrollBy``) TIDAK menolong, persis seperti yang terlihat pada tangkapan
-        layar sekolah (jendela tetap memperlihatkan bagian yang sama).
+        layar sekolah (jendela tetap memperlihatkan bagian yang sama). Bila wadah jendelanya
+        tidak terbaca, yang dipakai bot adalah gulir halaman (lihat ``bio_geseran``).
         """
-        return self.gulir_bio >= self.bio_perlu_gulir
+        return self.bio_geseran() >= self.bio_perlu_gulir
 
     def tambah_tombol_ubah(self) -> None:
         """Tombol «Ubah» (ungu) pada toolbar — membuka jendela BIO siswa."""
@@ -1205,7 +1223,10 @@ class PerambanPalsu:
     def _terjangkau(self, unsur: UnsurPalsu) -> bool:
         """Kolom Data Periodik/BIO baru terjangkau setelah panelnya digulir cukup jauh."""
         if unsur.bio:
-            return self.bio_terbuka and self.bio_siap()
+            # Kolom BIO hanya terjangkau bila jendelanya terbuka DAN kolomnya berada di bagian
+            # yang terlihat pada posisi gulir saat ini (bukan sekadar "ada di DOM").
+            return (self.bio_terbuka and self.bio_siap()
+                    and 0 <= self.bio_indeks(unsur) < self.bio_band())
         return self.periodik_siap() or not unsur.periodik
 
     def find_elements(self, by: str, nilai: str) -> list[UnsurPalsu]:
@@ -1322,10 +1343,30 @@ class PerambanPalsu:
         self.skrip.append(skrip)
         if "jendela-edit" in skrip:
             # Bot mencari jendela «Edit Peserta Didik» yang benar-benar terbuka.
+            if self.bio_tanpa_wadah:
+                return None                     # wadahnya tidak terbaca oleh bot
             wadah = next((u for u in self.unsur if getattr(u, "bio_panel", False)), None)
             return wadah if (self.bio_terbuka and wadah is not None) else None
         if "judul-jendela" in skrip:
+            if self.bio_tanpa_wadah:
+                return ""                       # judulnya pun tidak terbaca
             return "Edit Peserta Didik : Uji" if self.bio_terbuka else ""
+        if "rincian-bio" in skrip:
+            # Laporan mandiri bot: ringkasan keadaan jendela «Ubah» (untuk log).
+            akar = argumen[0] if argumen else None
+            daftar = str(argumen[1] if len(argumen) > 1 else "").split(",")
+            isi = []
+            for nama_kolom in [n.strip() for n in daftar if n.strip()]:
+                ada = sum(1 for u in self.unsur if u.bio and u.name == nama_kolom)
+                isi.append(f"{nama_kolom}={ada}")
+            gulir = [f"x-panel-body {self.gulir_bio}/{self.bio_terlihat_awal}/"
+                     f"{len(self._kolom_bio_semua())}"] if (akar is not None and self.bio_terbuka) else []
+            simpan = sum(1 for u in self.unsur
+                         if getattr(u, "aksi", "") == "simpan" and not getattr(u, "palsu", False))
+            simpan_rincian = sum(1 for u in self.unsur
+                                 if getattr(u, "aksi", "") == "simpan" and getattr(u, "palsu", False))
+            return {"kolom": " ".join(isi), "gulir": " | ".join(gulir),
+                    "simpan": simpan, "simpan_rincian": simpan_rincian}
         if "ubah-kandidat" in skrip:
             # Semua tombol «Ubah» yang terlihat: yang di LUAR panel «Data Rincian» lebih dulu,
             # persis urutan yang diharapkan bot.
@@ -1346,6 +1387,8 @@ class PerambanPalsu:
         if "kolom-jendela" in skrip:
             # Kolom BIO dicari DI DALAM jendela: nama kolom (persis skrip sekolah) lebih dulu,
             # lalu lewat teks labelnya. Kolom baru terjangkau setelah isi jendela digulir.
+            if self.bio_tanpa_wadah:
+                return None             # bot tidak mengenali wadahnya: harus lewat nama
             if not (self.bio_terbuka and self.bio_siap()):
                 return None
             batas = self.bio_band()
@@ -1576,6 +1619,8 @@ class PerambanPalsu:
             # Bot mengembalikan isi jendela «Ubah» ke atas sebelum mulai mengisi kolomnya.
             if not self.bio_terbuka:
                 return 0
+            if self.bio_tanpa_wadah:
+                return None         # wadah gulirnya pun tidak terbaca oleh bot
             self.gulir_bio = 0
             return 1
         if "/* gulir-jendela */" in skrip:

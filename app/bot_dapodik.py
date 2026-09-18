@@ -2182,12 +2182,23 @@ class BotDapodik:
         menganggap tombol «Ubah» mana pun benar: setelah menekannya, bot memastikan
         jendela inilah yang benar-benar tampil.
         """
+        nama_kolom = ",".join(self._nama_kolom_bio_semua(peta or {}))
         hasil = None
         try:
             hasil = peramban.execute_script(
                 """
                 /* jendela-edit */
                 const tampil = (w) => !!(w && w.getClientRects && w.getClientRects().length);
+                const naik = (el) => {
+                    let p = el, n = 0;
+                    while (p && n < 12) {
+                        if (p.matches && (p.matches('.x-window') || p.matches('.x-panel') ||
+                                          p.matches('.x-container'))) return p;
+                        p = p.parentElement; n += 1;
+                    }
+                    return el;
+                };
+                // (a) jendela Ext JS dengan judul «Edit Peserta Didik»
                 for (const w of document.querySelectorAll('div.x-window')) {
                     if (!tampil(w)) continue;
                     const judul = w.querySelector('.x-title-text');
@@ -2195,8 +2206,24 @@ class BotDapodik:
                                   (w.textContent || '')).replace(/\s+/g, ' ').trim();
                     if (/Edit Peserta Didik/i.test(teks)) return w;
                 }
+                // (b) judulnya ada di tempat lain (mis. formulirnya berupa PANEL, bukan jendela
+                //     melayang): judul dilacak ke wadah yang benar-benar memuat kolom isian.
+                for (const j of document.querySelectorAll(
+                        '.x-title-text, .x-title, .x-panel-header-title, .x-header-text')) {
+                    const t = (j.textContent || '').replace(/\s+/g, ' ').trim();
+                    if (!/Edit Peserta Didik/i.test(t)) continue;
+                    const wadah = naik(j);
+                    if (wadah && wadah.querySelector && wadah.querySelector('input')) return wadah;
+                }
+                // (c) kolom BIO-nya sendiri (nama kolom dari skrip sekolah): wadahnya dipakai
+                //     sebagai batas pencarian — tetap bekerja walau judulnya tidak terbaca.
+                const daftar = (arguments[0] || '').split(',').map((x) => x.trim()).filter(Boolean);
+                for (const n of daftar) {
+                    const k = document.querySelector('input[name="' + n + '"]');
+                    if (k && tampil(k)) return naik(k);
+                }
                 return null;
-                """)
+                """, nama_kolom)
         except Exception:  # noqa: BLE001 — dianggap belum ada
             hasil = None
         if hasil is not None:
@@ -2281,6 +2308,15 @@ class BotDapodik:
                 except Exception:  # noqa: BLE001 — coba kandidat berikutnya
                     continue
         return kandidat
+
+    def _nama_kolom_bio_semua(self, peta: dict[str, str]) -> list[str]:
+        """Semua nama kolom Dapodik untuk BIO (dari selector; mis. «name:no_kk» → «no_kk»)."""
+        nama: list[str] = []
+        for _, _, kunci in self.BIO_KOLOM:
+            nilai = self._nama_kolom_selector(kunci, peta)
+            if nilai and nilai not in nama:
+                nama.append(nilai)
+        return nama
 
     def _nama_kolom_selector(self, kunci: str, peta: dict[str, str]) -> str:
         """Nama kolom Dapodik dari kandidat selector (mis. «name:no_kk» → «no_kk»)."""
@@ -2410,25 +2446,87 @@ class BotDapodik:
         """
         nama_kolom = self._nama_kolom_selector(kunci, peta)
         mentok = 0
+        geser_halaman = 0
         for _ in range(GULIR_PERCOBAAN + 8):
-            unsur = self._kolom_dalam_jendela(peramban, jendela, nama_kolom, teks_label)
-            if unsur is not None:
-                return unsur
-            bergeser = self._gulir_dalam_jendela(peramban, jendela)
+            if jendela is not None:
+                unsur = self._kolom_dalam_jendela(peramban, jendela, nama_kolom, teks_label)
+                if unsur is not None:
+                    return unsur
+                bergeser = self._gulir_dalam_jendela(peramban, jendela)
+            else:
+                # Wadah jendela tidak terbaca oleh JavaScript: kolomnya dicari lewat namanya
+                # — persis ``find_element(By.NAME, …)`` skrip sekolah — lalu halaman digeser
+                # 250 px dan kolomnya dicari lagi, seperti Selenium yang menggeser layar saat
+                # mengetik. Jadi jalur ini tidak bergantung pada wadah jendelanya.
+                unsur = self._kolom_global(peramban, nama_kolom, teks_label)
+                if unsur is not None:
+                    if not getattr(self, "_bio_global_dilaporkan", False):
+                        self._bio_global_dilaporkan = True
+                        self._catat_kepala(
+                            f"[bio] {teks_label or nama_kolom}: kolomnya ditemukan lewat "
+                            "namanya di halaman (cara skrip sekolah) — jendela «Ubah» tidak "
+                            f"terbaca, halaman digeser 250 px bertahap ({geser_halaman}x).")
+                    return unsur
+                if geser_halaman >= GULIR_PERCOBAAN:
+                    return None
+                geser_halaman += 1
+                if not getattr(self, "_bio_gulir_dilaporkan", False):
+                    self._bio_gulir_dilaporkan = True
+                    self._catat_kepala(
+                        "[bio] jendela «Ubah» tidak terbaca oleh JavaScript — kolomnya "
+                        "dilacak lewat namanya di seluruh halaman, dan tiap kali belum tampil "
+                        "halaman digeser 250 px lalu dicari lagi (cara skrip sekolah memakai "
+                        "Selenium).")
+                self._gulir(peramban, catat=False)
+                self._tunggu(peramban, 0.6)
+                continue
             if bergeser:
                 # Beri waktu Ext JS menggambar baris berikutnya sebelum kolomnya dicari lagi.
                 self._tunggu(peramban, 0.6)
                 continue
             mentok += 1
-            # Isi jendela sudah mentok (tidak bergeser lagi). Kolom yang belum ketemu bisa
-            # berada di luar wadah bergulir, jadi halaman dicoba sebagai pelengkap — sekali
-            # saja, supaya bot tidak menggantung lama pada kolom yang memang tidak ada.
+            # Isi jendela sudah mentok (atau jendelanya tidak bisa dikenali). Sekarang kolomnya
+            # dicari dengan **CARA SKRIP SEKOLAH**: `find_element(By.NAME, …)` di seluruh
+            # halaman — inilah yang selama ini terbukti berhasil di PC sekolah, jadi dipakai
+            # sebagai cadangan, bukan ditinggalkan.
+            global_unsur = self._kolom_global(peramban, nama_kolom, teks_label)
+            if global_unsur is not None:
+                self._catat_kepala(f"[bio] {teks_label or nama_kolom}: kolomnya ditemukan lewat "
+                                   "namanya di halaman (cara skrip sekolah) — jendelanya "
+                                   "dipakai sebagai batas bila terbaca.")
+                return global_unsur
+            # Halaman digulir sebagai pelengkap (Selenium pun menggeser layar saat mengetik) —
+            # sekali saja, supaya bot tidak menggantung pada kolom yang memang tidak ada.
             if mentok == 1:
                 self._gulir(peramban, catat=False)
                 self._tunggu(peramban, 0.6)
                 continue
             break
-        return self._kolom_dalam_jendela(peramban, jendela, nama_kolom, teks_label)
+        if jendela is not None:
+            return self._kolom_dalam_jendela(peramban, jendela, nama_kolom, teks_label)
+        return self._kolom_global(peramban, nama_kolom, teks_label)
+
+    def _kolom_global(self, peramban, nama_kolom: str, teks_label: str = ""):
+        """Cari kolom **di seluruh halaman** lewat namanya (persis `By.NAME` skrip sekolah).
+
+        Dipakai sebagai cadangan ketika wadah jendelanya tidak terbaca atau kolomnya tidak
+        ketemu di dalamnya. Hanya kolom yang benar-benar terlihat yang diterima, supaya bot
+        tidak menulis ke kolom tersembunyi milik panel lain.
+        """
+        if nama_kolom:
+            try:
+                from selenium.webdriver.common.by import By
+
+                for unsur in peramban.find_elements(By.NAME, nama_kolom):
+                    if self._terlihat(peramban, unsur):
+                        return unsur
+            except Exception:  # noqa: BLE001 — coba pencarian lewat labelnya
+                pass
+        if teks_label:
+            lewat_label = self._cari_lewat_label(peramban, teks_label)
+            if lewat_label is not None and self._terlihat(peramban, lewat_label):
+                return lewat_label
+        return None
 
     def _simpan_dalam_jendela(self, peramban, jendela):
         """Tombol «Simpan» **milik jendela** «Ubah» (bukan milik panel «Data Rincian PD»).
@@ -2467,6 +2565,78 @@ class BotDapodik:
         except Exception:  # noqa: BLE001 — pemanggil mencatat kegagalan jujur
             return None
 
+    def _rincian_bio(self, peramban, jendela, peta: dict[str, str], label: str = "") -> str:
+        """Ringkas keadaan jendela «Ubah» — supaya log bisa dibaca tanpa bertanya ke sekolah.
+
+        Berisi: judul jendela, berapa kolom BIO yang terlihat **di dalam jendela** dan **di
+        seluruh halaman**, wadah bergulir yang ditemukan beserta ukurannya, dan berapa tombol
+        «Simpan» yang terlihat. Inilah alat diagnosis untuk kasus «masih belum baik terkait
+        ubah»: dari satu baris ini jelas apakah masalahnya di jendela, di gulir, atau di kolom.
+        """
+        nama_kolom = self._nama_kolom_bio_semua(peta)
+        try:
+            rincian = peramban.execute_script(
+                """
+                /* rincian-bio */
+                const akar = arguments[0];
+                const daftar = (arguments[1] || '').split(',').map((x) => x.trim()).filter(Boolean);
+                const tampil = (el) => !!(el && el.getClientRects && el.getClientRects().length);
+                const isi = [];
+                for (const n of daftar) {
+                    const global = document.querySelectorAll('input[name="' + n + '"]').length;
+                    const dalam = akar ? akar.querySelectorAll('input[name="' + n + '"]').length
+                                       : 0;
+                    isi.push(n + '=' + (akar ? dalam : global));
+                }
+                const gulir = [];
+                const sumber = akar || document;
+                if (akar) {
+                    const periksa = (el) => {
+                        if (!el || !el.scrollHeight) return;
+                        const g = getComputedStyle(el);
+                        if ((g.overflowY === 'auto' || g.overflowY === 'scroll') &&
+                                el.scrollHeight > el.clientHeight + 4) {
+                            gulir.push(((el.className || 'div') + '').slice(0, 28) + ' ' +
+                                       el.scrollTop + '/' + el.clientHeight + '/' + el.scrollHeight);
+                        }
+                    };
+                    periksa(akar);
+                    for (const el of akar.querySelectorAll('div')) periksa(el);
+                }
+                let simpanJendela = 0, simpanRincian = 0;
+                const dalamRincian = (el) => {
+                    let p = el, n = 0;
+                    while (p && n < 8) {
+                        if (p.classList && (p.classList.contains('x-panel') ||
+                                            p.classList.contains('x-toolbar'))) {
+                            if (/Data Rincian/i.test(p.textContent || '')) return true;
+                        }
+                        p = p.parentElement; n += 1;
+                    }
+                    return false;
+                };
+                for (const el of document.querySelectorAll('span, a, button')) {
+                    const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+                    if (t !== 'Simpan' || !tampil(el)) continue;
+                    if (dalamRincian(el)) simpanRincian += 1; else simpanJendela += 1;
+                }
+                return {kolom: isi.join(' '), gulir: gulir.slice(0, 3).join(' | '),
+                        simpan: simpanJendela, simpan_rincian: simpanRincian};
+                """, jendela, ",".join(nama_kolom))
+        except Exception:  # noqa: BLE001 — keterangan tambahan saja
+            rincian = {}
+        if not isinstance(rincian, dict):
+            rincian = {}
+        judul = self._judul_jendela(peramban, jendela) if jendela is not None else ""
+        potongan = [f"jendela: {judul or 'tidak terbaca'}"]
+        potongan.append(f"kolom di dalam jendela: {rincian.get('kolom') or '-'}")
+        potongan.append(f"wadah gulir: {rincian.get('gulir') or '-'}")
+        potongan.append(f"tombol «Simpan»: {rincian.get('simpan', 0)} "
+                        f"(milik panel «Data Rincian»: {rincian.get('simpan_rincian', 0)})")
+        if label:
+            potongan.insert(0, label)
+        return "[bio-rincian] " + " | ".join(potongan)
+
     def _isi_bio(self, peramban, peta: dict[str, str], siswa: dict[str, Any]) -> bool:
         """Buka jendela «Ubah» lalu isi BIO siswa — persis potongan skrip sekolah.
 
@@ -2480,6 +2650,9 @@ class BotDapodik:
         * jendela «Ubah» punya **area gulirnya sendiri** — yang digulir isi jendelanya;
         * kolom yang datanya kosong di SM **tidak** dikosongkan, hanya dilewati & dicatat.
         """
+        # Laporan mandiri: dua kalimat keadaan jendela cukup dicatat sekali per siswa.
+        self._bio_global_dilaporkan = False
+        self._bio_gulir_dilaporkan = False
         kandidat = self._tombol_ubah_semua(peramban, peta)
         if not kandidat:
             self._catat_kepala("[bio] tombol «Ubah» tidak ada di halaman ini — langkah BIO "
@@ -2507,10 +2680,14 @@ class BotDapodik:
             self._catat_kepala(f"[bio] kandidat «Ubah» ke-{nomor} tidak membuka jendela "
                                "«Edit Peserta Didik» — dicoba kandidat berikutnya.")
         if jendela is None:
-            self._catat_kepala("[bio] tidak ada tombol «Ubah» yang membuka jendela «Edit "
-                               "Peserta Didik» — langkah BIO dilewati supaya siswa tetap "
-                               "diproses.")
-            return False
+            # Jendelanya tidak bisa dikenali. JANGAN menyerah: skrip sekolah mengisi kolomnya
+            # lewat `find_element(By.NAME, …)` tanpa mempedulikan jendelanya — jadi cara itu
+            # dipakai sebagai cadangan, dan kolomnya dicari sambil halaman digulir.
+            self._catat_kepala("[bio] jendela «Edit Peserta Didik» belum terbaca (judulnya tidak "
+                               "ketemu) — kolomnya dilacak lewat namanya seperti skrip sekolah, "
+                               "halaman digulir bila kolomnya belum tampil.")
+            self._catat_kepala(self._rincian_bio(peramban, None, peta, "sebelum mengisi"))
+        self._catat_kepala(self._rincian_bio(peramban, jendela, peta, "keadaan jendela"))
         jumlah_wadah = self._atur_gulir_jendela(peramban, jendela, 0)
         self._catat_kepala(f"[bio] isi jendela «Ubah» dikembalikan ke atas "
                            f"({jumlah_wadah} area gulir) — kolomnya dicari sambil jendelanya "
@@ -2531,14 +2708,28 @@ class BotDapodik:
                 continue
             unsur = self._cari_kolom_bio(peramban, peta, kunci_sel, jendela, label)
             if unsur is None:
-                self._catat_kepala(f"[bio] {label}: kolomnya tidak ada di jendela ini — "
-                                   "dilewati.")
+                self._catat_kepala(f"[bio] {label}: kolomnya tidak ketemu — dilewati.")
+                self._catat_kepala(self._rincian_bio(peramban, jendela, peta,
+                                                     f"saat kolom «{label}» tidak ketemu"))
+                bukti = self._bukti(peramban, "bio-kolom-tidak-ketemu")
+                if bukti:
+                    self._catat_kepala(f"[bio] bukti layar disimpan: {bukti} "
+                                       "(beserta berkas .html di folder yang sama).")
                 continue
             keterangan = self._isi_periodik_satu(peramban, peta, kunci_sel, label, nilai,
                                                  unsur, awalan="[bio]")
             self._catat_kepala(f"[bio] {label}: {keterangan}")
             if keterangan.startswith("terisi"):
                 terisi += 1
+            else:
+                # Nilai tidak masuk ke kolomnya: inilah saat paling penting untuk merekam
+                # keadaan halaman — screenshot + HTML, supaya sebabnya bisa dilihat langsung.
+                self._catat_kepala(self._rincian_bio(peramban, jendela, peta,
+                                                     f"saat kolom «{label}» tidak terisi"))
+                bukti = self._bukti(peramban, "bio-tidak-terisi")
+                if bukti:
+                    self._catat_kepala(f"[bio] bukti layar disimpan: {bukti} "
+                                       "(beserta berkas .html di folder yang sama).")
             time.sleep(0.5)          # jeda antar kolom supaya Ext JS selesai memproses
         # Simpan: tombol «Simpan» DI DALAM jendela «Ubah» (bukan milik panel Data Rincian).
         simpan = self._simpan_dalam_jendela(peramban, jendela)
