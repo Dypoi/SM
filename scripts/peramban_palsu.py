@@ -605,6 +605,22 @@ class PerambanPalsu:
         self.dropdown_item_ditelan_kali = 0
         #: Berapa kali pilihan dipasang lewat model Ext JS (select/setValue)
         self.dropdown_ext_pilih = 0
+        #: Berapa kali daftar dropdown DIBACA bot (dipakai menirukan data yang lambat tampil)
+        self.dropdown_baca_kali = 0
+        #: Berapa bacaan dulu sebelum pilihannya muncul (0 = langsung tampil) — persis Dapodik:
+        #: daftar dropdown butuh sesaat untuk terisi setelah dibuka.
+        self.dropdown_muat_perlu = 0
+        #: Berapa pilihan yang terlihat sekaligus (0 = semua). Daftar dropdown punya area
+        #: gulir sendiri: pilihan di bawah baru terlihat setelah daftarnya digeser.
+        self.dropdown_band = 0
+        #: Berapa kali isi daftar dropdown digeser (setiap geser = 150 px)
+        self.gulir_daftar = 0
+        #: Jarak gulir daftar dropdown (px) — tinggi satu baris ±30 px, jadi menggulir 150 px
+        #: menyingkap ±5 baris berikutnya (persis daftar Ext JS yang panjang).
+        self.gulir_daftar_px = 0
+        self.dropdown_gulir_kali = 0
+        #: Berapa kali bot mencoba mengklik pilihan yang belum terlihat di daftar
+        self.dropdown_item_tak_terlihat = 0
         #: Isi kolom BIO yang benar-benar tersimpan (name → nilai saat «Simpan» ditekan)
         self.data_bio_tersimpan: dict[str, str] = {}
         #: berapa kali pilihan jarak dipilih lewat pembungkus/labelnya
@@ -1016,13 +1032,55 @@ class PerambanPalsu:
         """Daftar dropdown dibuka (klik tombol panah atau ``Ext.getCmp(...).expand()``)."""
         if combo is None or self.dropdown_tak_bisa_dibuka:
             return          # Dapodik keras: daftarnya tidak mau terbuka sama sekali
+        if self.dropdown_terbuka is not combo:
+            # Daftar yang baru dibuka selalu mulai dari atas, dan pilihannya butuh sesaat
+            # untuk tampil (pengosongan daftar = waktunya kembali dari nol).
+            self.gulir_daftar = 0
+            self.gulir_daftar_px = 0
+            self.dropdown_baca_kali = 0
         self.dropdown_terbuka = combo
         self.dropdown_dibuka += 1
+
+    def item_dropdown_terlihat(self, item: "UnsurPalsu") -> bool:
+        """Apakah satu pilihan dropdown benar-benar terlihat & bisa diklik saat ini.
+
+        Tiga syarat, persis picker Ext JS: daftar dropdownnya sedang terbuka, datanya sudah
+        selesai tampil (tidak sedang memuat), dan pilihannya berada di bagian daftar yang
+        terlihat pada posisi gulir saat ini.
+        """
+        combo = item.induk
+        if combo is None or self.dropdown_terbuka is not combo or self.dropdown_tak_bisa_dibuka:
+            return False
+        if self.dropdown_muat_perlu and self.dropdown_baca_kali <= self.dropdown_muat_perlu:
+            return False                 # datanya belum tampil — masih dimuat
+        if not self.dropdown_band:
+            return True
+        urutan = [u for u in self.unsur
+                  if getattr(u, "item_dropdown", False) and u.induk is combo]
+        try:
+            posisi = urutan.index(item)
+        except ValueError:
+            return False
+        # Setiap 30 px gulir menyingkap satu baris lagi (tinggi baris ±30 px).
+        return posisi < self.dropdown_band + (self.gulir_daftar_px // 30)
+
+    def daftar_dropdown_terlihat(self, combo: "UnsurPalsu | None") -> list["UnsurPalsu"]:
+        """Pilihan yang terlihat pada daftar dropdown sebuah kolom (urutan tampilannya)."""
+        if combo is None:
+            return []
+        return [u for u in self.unsur
+                if getattr(u, "item_dropdown", False) and u.induk is combo
+                and self.item_dropdown_terlihat(u)]
 
     def pilih_item_dropdown(self, item: "UnsurPalsu", lewat_skrip: bool = False) -> None:
         """Satu pilihan di daftar dropdown dipilih: nilai MODEL Ext JS ikut terisi."""
         combo = item.induk
         if combo is None or self.dropdown_terbuka is not combo:
+            return
+        if not self.item_dropdown_terlihat(item):
+            # Pilihan yang belum terlihat tidak bisa diklik (persis Dapodik: tidak ada di
+            # layar). Bot harus menggulir daftarnya lebih dulu.
+            self.dropdown_item_tak_terlihat += 1
             return
         if self.dropdown_item_ditelan:
             # Klik pada pilihannya ditelan lapisan Dapodik: daftarnya tetap terbuka dan
@@ -1061,6 +1119,9 @@ class PerambanPalsu:
     def tutup_dropdown(self) -> None:
         """Daftar dropdown ditutup tanpa memilih apa pun."""
         self.dropdown_terbuka = None
+        self.gulir_daftar = 0
+        self.gulir_daftar_px = 0
+        self.dropdown_baca_kali = 0
         self.dropdown_ditutup += 1
 
     def siapkan_jarak_tanpa_xpath(self) -> "PerambanPalsu":
@@ -1394,9 +1455,9 @@ class PerambanPalsu:
     def _terjangkau(self, unsur: UnsurPalsu) -> bool:
         """Kolom Data Periodik/BIO baru terjangkau setelah panelnya digulir cukup jauh."""
         if getattr(unsur, "item_dropdown", False):
-            # Pilihan dropdown hanya bisa diklik selagi daftar dropdownnya terbuka —
-            # seperti Ext JS: daftar yang tertutup tidak terlihat sama sekali.
-            return self.dropdown_terbuka is unsur.induk
+            # Pilihan dropdown hanya bisa dijangkau selagi daftarnya terbuka, datanya sudah
+            # tampil, dan pilihannya berada di bagian daftar yang terlihat.
+            return self.item_dropdown_terlihat(unsur)
         if unsur.bio:
             # Kolom BIO hanya terjangkau bila jendelanya terbuka DAN kolomnya berada di bagian
             # yang terlihat pada posisi gulir saat ini (bukan sekadar "ada di DOM").
@@ -1573,12 +1634,14 @@ class PerambanPalsu:
         if "dropdown-daftar" in skrip:
             # Pilihan pada daftar dropdown MILIK KOLOM ITU (bukan daftar dropdown lain yang
             # masih terbuka): persis ``Ext.getCmp(id).getPicker()`` di halaman sungguhan.
+            # Tiap pembacaan dihitung: datanya baru "tampil" setelah beberapa bacaan
+            # (persis Dapodik: daftar dropdown tidak langsung berisi).
             sasaran = argumen[0] if argumen else None
             combo = self.dropdown_terbuka
             if combo is None or (sasaran is not None and sasaran is not combo):
                 return []
-            return [u.teks for u in self.unsur
-                    if getattr(u, "item_dropdown", False) and u.induk is combo]
+            self.dropdown_baca_kali += 1
+            return [u.teks for u in self.daftar_dropdown_terlihat(combo)]
         if "dropdown-item" in skrip:
             # Indeks pilihan (pada elemen ``li.x-boundlist-item``) yang teksnya cocok.
             sasaran = argumen[0] if argumen else None
@@ -1586,9 +1649,8 @@ class PerambanPalsu:
             if combo is None or (sasaran is not None and sasaran is not combo):
                 return -1
             dicari = " ".join(str(argumen[1] if len(argumen) > 1 else "").split()).lower()
-            for posisi, unsur in enumerate(
-                    [u for u in self.unsur
-                     if getattr(u, "item_dropdown", False) and u.induk is combo]):
+            self.dropdown_baca_kali += 1
+            for posisi, unsur in enumerate(self.daftar_dropdown_terlihat(combo)):
                 if " ".join((unsur.teks or "").split()).lower() == dicari:
                     return posisi
             return -1
@@ -1619,6 +1681,16 @@ class PerambanPalsu:
             sasaran = argumen[0] if argumen else None
             dicari = str(argumen[1] if len(argumen) > 1 else "")
             return self.pilih_dropdown_lewat_ext(sasaran, dicari)
+        if "/* gulir-daftar-dropdown */" in skrip:
+            # Bot menggeser ISI daftar dropdown (daftarnya punya area gulirnya sendiri):
+            # persis ``picker.getEl()`` → ``scrollTop += 150`` di halaman sungguhan.
+            if self.dropdown_terbuka is None or self.dropdown_tak_bisa_dibuka:
+                return 0
+            jauh = int(argumen[1]) if len(argumen) > 1 else 150
+            self.gulir_daftar += 1
+            self.gulir_daftar_px += jauh
+            self.dropdown_gulir_kali += 1
+            return self.gulir_daftar_px
         if "dropdown-tutup" in skrip:
             self.tutup_dropdown()
             return True

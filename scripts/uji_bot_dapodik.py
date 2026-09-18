@@ -374,7 +374,7 @@ def main() -> int:
     cek(str(p17.data_bio_tersimpan.get("jenjang_pendidikan_ayah") or "") == "SMA",
         "kolom pendidikan ayah tidak berisi TEKS PILIHAN Dapodik («SMA»), "
         f"melainkan {p17.data_bio_tersimpan.get('jenjang_pendidikan_ayah')!r}")
-    cek(any("dropdown dibaca lewat" in b for b in j17), [b for b in j17 if "[bio]" in b][:8])
+    cek(any("dropdown dibuka lewat" in b for b in j17), [b for b in j17 if "[bio]" in b][:8])
     cek(any("dibaca sebagai «SMA»" in b for b in j17),
         [b for b in j17 if "Pendidikan ayah" in b][:4])
 
@@ -434,7 +434,58 @@ def main() -> int:
     cek(not salah20, f"kolom yang tidak terisi pada jalur data komponen: {salah20}")
     cek(any("data komponen Ext JS" in b for b in j20), [b for b in j20 if "[bio]" in b][:8])
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 20 skenario")
+    # 21) Daftar dropdown sekolah: **datanya muncul setelah ditunggu** dan **daftarnya
+    #     panjang** (hanya sebagian pilihan terlihat sekaligus) — persis yang dikatakan
+    #     sekolah: "untuk datanya muncul harus nunggu sebentar, dan di dropdown itu juga bisa
+    #     discroll kalo datanya ga ada". Bot harus: klik dropdownnya → tunggu pilihannya
+    #     muncul → gulir isi daftarnya sampai pilihan yang dicari terlihat → klik.
+    p21, j21 = jalankan("21. daftar dropdown lambat muncul + harus digulir", 2,
+                        atur=lambda p: (p.siapkan_bio(),
+                                        setattr(p, "dropdown_muat_perlu", 2),
+                                        setattr(p, "dropdown_band", 5)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p21.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji daftar yang lambat")
+    cek(p21.dropdown_dibuka >= 6,
+        f"bot tidak membuka daftar dropdownnya: {p21.dropdown_dibuka}x")
+    cek(p21.dropdown_gulir_kali >= 1,
+        "bot tidak menggulir isi daftar dropdown (pilihan di bawah tidak akan terjangkau)")
+    cek(p21.dropdown_item_tak_terlihat == 0,
+        f"bot mencoba mengklik pilihan yang belum terlihat: {p21.dropdown_item_tak_terlihat}x")
+    cek(p21.dropdown_item_diklik >= 6,
+        f"bot tidak memilih dari daftar: {p21.dropdown_item_diklik} pilihan diklik "
+        "(seharusnya 6 kolom dropdown)")
+    salah21 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if str(p21.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah21, f"kolom yang tidak terisi pada uji daftar lambat: {salah21}")
+    cek(any("menunggu" in b and "pilihan tampil" in b for b in j21),
+        [b for b in j21 if "dropdown" in b][:6])
+    cek(any("digeser" in b and "sampai ketemu" in b for b in j21),
+        [b for b in j21 if "belum tampil" in b][:4] or j21[-6:])
+
+    # 22) Keadaan terberat: daftar panjang + lambat + klik pilihannya ditelan Dapodik.
+    #     Bot menggulir, mencoba mengklik, lalu memilih lewat MODEL Ext JS (select/setValue)
+    #     dan tetap berhasil — tanpa pernah mengklik pilihan yang belum terlihat.
+    p22, j22 = jalankan("22. daftar lambat + klik ditelan → digulir lalu dipilih lewat model", 2,
+                        atur=lambda p: (p.siapkan_bio(),
+                                        setattr(p, "dropdown_muat_perlu", 2),
+                                        setattr(p, "dropdown_band", 4),
+                                        setattr(p, "dropdown_item_ditelan", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p22.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji daftar lambat + klik ditelan")
+    cek(p22.dropdown_gulir_kali >= 1,
+        "bot tidak menggulir isi daftar dropdown pada uji daftar lambat + klik ditelan")
+    cek(p22.dropdown_item_ditelan_kali >= 1,
+        "uji tidak bermakna: tidak ada klik pilihan yang ditelan")
+    cek(p22.dropdown_item_tak_terlihat == 0,
+        f"bot mencoba mengklik pilihan yang belum terlihat: {p22.dropdown_item_tak_terlihat}x")
+    cek(p22.dropdown_ext_pilih >= 6,
+        f"bot tidak memilih lewat model Ext JS: {p22.dropdown_ext_pilih} pilihan")
+    salah22 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if str(p22.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah22, f"kolom yang tidak terisi pada uji terberat: {salah22}")
+    cek(any("dipilih lewat model Ext JS" in b for b in j22), [b for b in j22 if "[bio]" in b][:8])
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 22 skenario")
     return 0
 
 

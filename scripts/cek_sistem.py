@@ -2621,8 +2621,11 @@ def cek_bot_dapodik() -> str:
         assert palsu_bio.dropdown_item_diklik >= 6, \
             (f"bot tidak memilih dari daftar dropdown: {palsu_bio.dropdown_item_diklik} pilihan "
              "diklik (seharusnya 6: pendidikan, pekerjaan, penghasilan ayah & ibu)")
-        assert any("dropdown dibaca lewat" in b for b in jejak), \
-            [b for b in jejak if "[bio]" in b][:8]
+        assert any("dropdown dibuka lewat" in b for b in jejak), \
+            [b for b in jejak if "dropdown" in b][:6]
+        assert palsu_bio.dropdown_item_tak_terlihat == 0, \
+            (f"bot mencoba mengklik pilihan dropdown yang belum terlihat: "
+             f"{palsu_bio.dropdown_item_tak_terlihat}x")
         assert palsu_bio.data_bio_tersimpan.get("reg_akta_lahir") == "LAMA", \
             "kolom «No. Registrasi Akta Lahir» dikosongkan padahal datanya kosong di SM"
         assert all(nilai != "LAMA" for nama, nilai in palsu_bio.data_bio_tersimpan.items()
