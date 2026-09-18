@@ -8,8 +8,10 @@
 > Ringkasan satu kalimat: **hampir semua kegagalan terjadi karena sebabnya saya simpulkan
 > dari teori/kode, bukan dari bukti yang ada di log & DOM yang dikirim pengguna.**
 
-Berkas pendamping: `README.md` (dokumentasi fitur), `scripts/uji_bot_dapodik.py` (uji bot
-permanen), `scripts/peramban_palsu.py` (Dapodik tiruan), `scripts/cek_sistem.py` (suite).
+Berkas pendamping: **`AGENTS.md`** (aturan kerja repo yang dibaca otomatis oleh agen/AI —
+versi ringkas dari catatan ini), `README.md` (dokumentasi fitur), `scripts/uji_bot_dapodik.py`
+(uji bot permanen), `scripts/peramban_palsu.py` (Dapodik tiruan), `scripts/cek_sistem.py`
+(suite).
 
 ---
 

@@ -435,7 +435,7 @@ ditambahkan lewat menu **Ekstrakurikuler**.
 
 ## 4. Bot Dapodik
 
-> **Sebelum mengubah bot ini, baca `CATATAN-KESALAHAN.md`.** Berkas itu memuat 10
+> **Sebelum mengubah bot ini, baca `AGENTS.md` (aturan kerja) dan `CATATAN-KESALAHAN.md`.** Berkas itu memuat 10
 > kesalahpahaman yang pernah membuat perbaikan meleset (mis. memperbaiki jalur klik padahal
 > kotaknya tidak pernah ketemu), daftar periksa sebelum mengklaim "sudah beres", dan peta
 > *gejala → baris log → fungsi*. Ringkasan pelajarannya: **cocokkan kalimat log pengguna ke
@@ -605,6 +605,7 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 ├── run.py                     # peluncur: python run.py
 ├── requirements.txt
 ├── requirements-bot.txt      # selenium (hanya untuk bot Dapodik, opsional)
+├── AGENTS.md                 # aturan kerja repo (dibaca otomatis oleh agen/AI)
 ├── CATATAN-KESALAHAN.md      # kesalahpahaman yang pernah terjadi pada bot — WAJIB DIBACA
 │                             # sebelum mengubah bot Dapodik (lihat §4)
 ├── app/
