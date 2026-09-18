@@ -278,7 +278,7 @@ def main() -> int:
     cek(p12.data_bio_tersimpan.get("jenjang_pendidikan_ibu") == "SMP / sederajat",
         f"kolom paling bawah tidak terisi: {p12.data_bio_tersimpan.get('jenjang_pendidikan_ibu')!r}")
     cek(any("jendela «Edit Peserta Didik» terbuka" in b for b in j12), [b for b in j12 if "[bio]" in b][:4])
-    cek(any("isi jendela" in b and "digulir" in b for b in j12),
+    cek(any("digeser 250 px bertahap" in b for b in j12),
         [b for b in j12 if "[bio]" in b][:8])
 
     # 13) «Ubah» palsu di luar panel «Data Rincian» (petunjuk tampilan tidak menolong): bot
@@ -293,7 +293,38 @@ def main() -> int:
         [b for b in j13 if "[bio]" in b][:6] or j13[-4:])
     cek(not p13.bio_terbuka, "jendela «Ubah» masih terbuka setelah disimpan")
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 13 skenario")
+    # 14) Posisi gulir jendela menentukan: kolom yang berada di luar bagian jendela yang
+    #     terlihat TIDAK bisa dicari/ditulis (persis dugaan sekolah: «scroll kebanyakan atau
+    #     kurang banyak»). Bot harus menggulir bertahap — 250 px sekali geser — sambil mencari
+    #     ulang, sampai semua kolom terisi; bukan mengandalkan satu lompatan gulir.
+    p14, j14 = jalankan("14. posisi gulir jendela menentukan → digulir bertahap sampai terisi", 2,
+                        atur=lambda p: p.siapkan_bio(), tampilkan=True,
+                        opsi={"bot_isi_bio": "1"})
+    cek(p14.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji posisi gulir")
+    cek(p14.gulir_bio >= 4,
+        f"bot tidak menggulir isi jendela bertahap: {p14.gulir_bio} kali geser")
+    salah = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+             if str(p14.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah, f"kolom yang tidak terisi pada uji posisi gulir: {salah}")
+    cek(any("dikembalikan ke atas" in b for b in j14), [b for b in j14 if "[bio]" in b][:4])
+
+    # 15) Versi Dapodik yang menolak SEMUA ketikan pada kolom BIO (hanya model Ext JS yang
+    #     diterima): bot harus mundur ke Ext.getCmp(...).setValue(...) dan memastikan nilainya
+    #     benar-benar ada — bukan mengaku selesai padahal kolomnya masih berisi data lama.
+    p15, j15 = jalankan("15. ketikan ditolak → nilai dicoba lewat Ext JS (Ext.getCmp)", 2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "bio_hanya_ext", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p15.bio_tersimpan, "jendela «Ubah» tidak tersimpan saat ketikan ditolak Dapodik")
+    cek(p15.ketikan_diabaikan >= 1,
+        "uji tidak bermakna: Dapodik tiruan tidak pernah menolak ketikan")
+    cek(p15.ext_setvalue_dipakai >= 1,
+        "bot tidak memakai Ext.getCmp saat ketikan ke kolom BIO ditolak Dapodik")
+    salah15 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if str(p15.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah15, f"kolom yang tidak terisi lewat Ext JS: {salah15}")
+    cek(any("Ext JS" in b for b in j15), [b for b in j15 if "[bio]" in b][:8])
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 15 skenario")
     return 0
 
 

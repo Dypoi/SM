@@ -143,6 +143,7 @@ versi ringkas dari catatan ini), `README.md` (dokumentasi fitur), `scripts/uji_b
 | **Yang saya pikirkan** | Tombol «Ubah» yang kelasnya ungu itu satu-satunya; setelah ditekan, jendela «Ubah» pasti terbuka. |
 | **Yang sebenarnya** | Tangkapan layar menunjukkan **dua set tombol**: toolbar halaman *dan* panel «Data Rincian PD» di bawahnya (Tambah / **Ubah** ungu / **Simpan** / Hapus / Validasi). Menekan «Ubah»/«Simpan» milik panel itu tidak membuka/menyimpan jendela «Edit Peserta Didik» — persis keluhan "jendela tetap terbuka". Selain itu **jendela «Ubah» punya area gulirnya sendiri**: menggulir halaman (`scrollBy(0,250)`) tidak menolong, dan juga bukan soal "250 px kebanyakan/kurang" — yang benar adalah menggeser isi jendela lalu **mencari kolomnya lagi setiap kali**. |
 | **Aturan** | Jangan percaya satu selector untuk tombol yang bisa muncul berkali-kali: **coba tiap kandidat dan VERIFIKASI hasilnya** (mis. jendela «Edit Peserta Didik» benar-benar terbuka). Batasi pencarian kolom & tombol simpan pada **wadah jendelanya** (`.x-window`), bukan seluruh halaman. Untuk area ber-gulir: geser **isi wadah itu** sedikit demi sedikit sambil mencari ulang — jangan mengandalkan gulir halaman dengan angka tetap. |
+| **Tambahan (ronde 15y)** | "250 px kebanyakan atau kurang banyak" **bukan** pertanyaan yang benar: yang menentukan adalah **posisi** gulir wadah. Jadi: kembalikan isi wadah ke atas dulu (skrip sekolah mengisi dari atas ke bawah), geser 250 px, **cari ulang setiap kali**, berhenti hanya bila isinya sudah mentok. Selain itu: menulis `input.value` lewat JavaScript **tidak** mengubah model Ext JS — bila ketikan/JS ditolak, nilainya harus disetel lewat `Ext.getCmp(<data-componentid>).setValue(...)` dan **diperiksa ulang**. |
 
 ---
 
@@ -244,7 +245,8 @@ Semua di `app/bot_dapodik.py` (nama fungsi, bukan nomor baris — nomornya berge
 | 15u | `e6c35ca` | Pilihan jarak tidak lagi bergantung XPath (dilacak lewat teksnya), jeda render, log `[layar]`, laporan isi panel |
 | 15v | (lihat commit) | Aturan kerja repo (`AGENTS.md` + `CLAUDE.md`) supaya catatan ini benar-benar dibaca |
 | 15w | `3594a7b` | **BIO lewat tombol «Ubah»** (14 kolom persis skrip sekolah, jendela dibawa ke layar, disimpan dengan «Simpan») dijalankan **sebelum** Data Periodik |
-| 15x | (lihat commit) | BIO diperkuat dari tangkapan layar sekolah: verifikasi jendela «Edit Peserta Didik», kolom & «Simpan» dibatasi pada jendelanya, isi jendela digulir bertahap (bukan `scrollBy` halaman) |
+| 15x | `25ef4a8` | BIO diperkuat dari tangkapan layar sekolah: verifikasi jendela «Edit Peserta Didik», kolom & «Simpan» dibatasi pada jendelanya, isi jendela digulir bertahap (bukan `scrollBy` halaman) |
+| 15y | (lihat commit) | BIO: posisi gulir jendela (mulai dari atas, 250 px sekali geser, dicari ulang tiap langkah) + mundur ke `Ext.getCmp(...).setValue(...)` bila ketikan/JS tidak mengubah model Ext JS |
 
 ---
 

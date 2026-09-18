@@ -2328,6 +2328,37 @@ class BotDapodik:
         except Exception:  # noqa: BLE001 — pemanggil memakai pencarian cadangan
             return None
 
+    def _atur_gulir_jendela(self, peramban, jendela, ke: int = 0) -> int:
+        """Kembalikan **isi jendela** ke posisi gulir tertentu (bawaan: paling atas).
+
+        Skrip sekolah mengisi kolom BIO dari atas ke bawah, jadi bot mulai dari atas pula:
+        tiap kolom dicari sambil isi jendela digeser bertahap. Ini juga menanggulangi
+        "gulir kebanyakan/kurang banyak" — posisinya selalu diatur ulang di awal.
+        """
+        try:
+            return int(peramban.execute_script(
+                """
+                /* gulir-jendela-awal */
+                const akar = arguments[0];
+                const tujuan = arguments[1] || 0;
+                if (!akar) return 0;
+                let jumlah = 0;
+                const atur = (el) => {
+                    if (!el || !el.scrollHeight) return;
+                    const gaya = getComputedStyle(el);
+                    if ((gaya.overflowY === 'auto' || gaya.overflowY === 'scroll') &&
+                            el.scrollHeight > el.clientHeight + 4) {
+                        el.scrollTop = tujuan;
+                        jumlah += 1;
+                    }
+                };
+                atur(akar);
+                for (const el of akar.querySelectorAll('div')) atur(el);
+                return jumlah;
+                """, jendela, int(ke)) or 0)
+        except Exception:  # noqa: BLE001 — pengaturan gulir hanya upaya terbaik
+            return 0
+
     def _gulir_dalam_jendela(self, peramban, jendela, langkah: int = GULIR_PERIODIK) -> int:
         """Geser **isi jendela** sebesar ``langkah`` piksel; kembalikan berapa yang bergeser.
 
@@ -2353,10 +2384,17 @@ class BotDapodik:
                 periksa(akar);
                 for (const el of akar.querySelectorAll('div')) periksa(el);
                 if (!kandidat.length) return 0;
-                const isi = kandidat[0];
-                const sebelum = isi.scrollTop;
-                isi.scrollTop = Math.min(isi.scrollTop + langkah, isi.scrollHeight);
-                return isi.scrollTop - sebelum;
+                // Utamakan wadah yang benar-benar memuat kolom isian (bukan bilah bantu):
+                // kalau ada beberapa, geser semuanya supaya tidak ada bagian yang terlewat.
+                const berisi = kandidat.filter((el) => el.querySelector && el.querySelector('input'));
+                const daftar = berisi.length ? berisi : kandidat;
+                let bergeser = 0;
+                for (const isi of daftar) {
+                    const sebelum = isi.scrollTop;
+                    isi.scrollTop = Math.min(isi.scrollTop + langkah, isi.scrollHeight);
+                    bergeser += isi.scrollTop - sebelum;
+                }
+                return bergeser;
                 """, jendela, int(langkah)) or 0)
         except Exception:  # noqa: BLE001 — 0 = tidak bergeser
             return 0
@@ -2371,14 +2409,25 @@ class BotDapodik:
         dicari sekali lagi; sesudah itu barulah bot menyimpulkan kolomnya tidak ada.
         """
         nama_kolom = self._nama_kolom_selector(kunci, peta)
-        for _ in range(GULIR_PERCOBAAN + 4):
+        mentok = 0
+        for _ in range(GULIR_PERCOBAAN + 8):
             unsur = self._kolom_dalam_jendela(peramban, jendela, nama_kolom, teks_label)
             if unsur is not None:
                 return unsur
-            if not self._gulir_dalam_jendela(peramban, jendela):
-                # Isi jendela sudah mentok: coba halaman sebagai pelengkap, sekali saja.
+            bergeser = self._gulir_dalam_jendela(peramban, jendela)
+            if bergeser:
+                # Beri waktu Ext JS menggambar baris berikutnya sebelum kolomnya dicari lagi.
+                self._tunggu(peramban, 0.6)
+                continue
+            mentok += 1
+            # Isi jendela sudah mentok (tidak bergeser lagi). Kolom yang belum ketemu bisa
+            # berada di luar wadah bergulir, jadi halaman dicoba sebagai pelengkap — sekali
+            # saja, supaya bot tidak menggantung lama pada kolom yang memang tidak ada.
+            if mentok == 1:
                 self._gulir(peramban, catat=False)
-            self._tunggu(peramban, 0.8)
+                self._tunggu(peramban, 0.6)
+                continue
+            break
         return self._kolom_dalam_jendela(peramban, jendela, nama_kolom, teks_label)
 
     def _simpan_dalam_jendela(self, peramban, jendela):
@@ -2462,10 +2511,15 @@ class BotDapodik:
                                "Peserta Didik» — langkah BIO dilewati supaya siswa tetap "
                                "diproses.")
             return False
+        jumlah_wadah = self._atur_gulir_jendela(peramban, jendela, 0)
+        self._catat_kepala(f"[bio] isi jendela «Ubah» dikembalikan ke atas "
+                           f"({jumlah_wadah} area gulir) — kolomnya dicari sambil jendelanya "
+                           "digeser 250 px bertahap, jadi tidak bergantung pada "
+                           "«gulir kebanyakan atau kurang banyak».")
         self._catat_kepala(f"[bio] mengisi BIO ({len(self.BIO_KOLOM)} kolom seperti skrip "
                            "sekolah): No. KK, akta, alamat/RT/RW/kode pos, anak ke-berapa, "
-                           "data ayah & ibu — isi jendela digulir bertahap dan tiap kolom "
-                           "dibawa ke layar lebih dulu.")
+                           "data ayah & ibu — tiap kolom dibawa ke layar lebih dulu, dan "
+                           "bila ketikan ditolak Dapodik nilainya dicoba lewat Ext JS.")
         terisi = 0
         kosong: list[str] = []
         for kunci_data, label, kunci_sel in self.BIO_KOLOM:

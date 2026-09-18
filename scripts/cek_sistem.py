@@ -2605,8 +2605,9 @@ def cek_bot_dapodik() -> str:
         assert all(nilai != "LAMA" for nama, nilai in palsu_bio.data_bio_tersimpan.items()
                    if nama != "reg_akta_lahir"), \
             f"masih ada kolom BIO yang berisi data lama Dapodik: {palsu_bio.data_bio_tersimpan}"
-        assert palsu_bio.gulir_bio >= 1, \
-            "isi jendela «Ubah» tidak pernah digulir — kolom yang di bawah tidak terjangkau"
+        assert palsu_bio.gulir_bio >= 4, \
+            ("isi jendela «Ubah» hanya digulir "
+             f"{palsu_bio.gulir_bio}x — kolom di bawah bagian yang terlihat tidak terjangkau")
         assert palsu_bio.bio_ubah_palsu_diklik == 0, \
             f"bot menekan «Ubah» milik panel «Data Rincian PD» ({palsu_bio.bio_ubah_palsu_diklik}x)"
         assert palsu_bio.bio_simpan_palsu_diklik == 0, \
@@ -2616,6 +2617,8 @@ def cek_bot_dapodik() -> str:
         assert any("jendela «Edit Peserta Didik» terbuka" in baris for baris in jejak), \
             [b for b in jejak if "[bio]" in b][:4] or jejak[:5]
         assert any("jendela «Ubah» tertutup" in baris for baris in jejak), jejak[-6:]
+        assert any("dikembalikan ke atas" in baris for baris in jejak), \
+            [b for b in jejak if "[bio]" in b][:4] or jejak[:4]
         i_bio = next((i for i, b in enumerate(jejak)
                       if "jendela «Edit Peserta Didik» terbuka" in b), -1)
         i_periodik = next((i for i, b in enumerate(jejak) if "mengisi Data Periodik" in b), -1)

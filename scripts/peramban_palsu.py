@@ -332,6 +332,13 @@ class UnsurPalsu:
             # belum digulir: seperti Dapodik, ketikan ini tidak menghasilkan apa-apa.
             self.peramban.ketikan_diabaikan += 1
             return
+        if self.bio and (self.peramban.bio_hanya_ext
+                         or self.peramban.bio_indeks(self) >= self.peramban.bio_band()):
+            # Dapodik menolak ketikan langsung: versi ini hanya menerima nilai lewat model
+            # Ext JS, atau kolomnya TIDAK berada di bagian jendela yang terlihat pada posisi
+            # gulir saat ini (nilainya tidak jadi tersimpan) — persis dugaan sekolah.
+            self.peramban.ketikan_diabaikan += 1
+            return
         from selenium.webdriver.common.keys import Keys
 
         pengubah = (Keys.CONTROL, Keys.SHIFT, Keys.ALT, Keys.COMMAND)
@@ -509,6 +516,12 @@ class PerambanPalsu:
         self.bio_panel_rincian = False
         #: True = ada «Ubah» palsu di luar panel «Data Rincian» (petunjuk tampilan tak menolong)
         self.bio_ubah_palsu_luar = False
+        #: True = Dapodik menolak SEMUA ketikan ke kolom BIO (hanya jalur Ext JS yang diterima).
+        #: Meniru keadaan yang membuat bot harus mundur ke Ext.getCmp(...).setValue(...).
+        self.bio_hanya_ext = False
+        #: Berapa kolom BIO yang terlihat pada posisi gulir jendela saat ini. Kolom di luar
+        #: bagian yang terlihat TIDAK dapat dicari/ditulis — inilah "gulir kebanyakan/kurang".
+        self.bio_terlihat_awal = 4
         #: Isi kolom BIO yang benar-benar tersimpan (name → nilai saat «Simpan» ditekan)
         self.data_bio_tersimpan: dict[str, str] = {}
         #: berapa kali pilihan jarak dipilih lewat pembungkus/labelnya
@@ -772,6 +785,27 @@ class PerambanPalsu:
             self.tambah_tombol_ubah()
         return self
 
+    def _kolom_bio_semua(self) -> list["UnsurPalsu"]:
+        """Kolom teks BIO menurut urutan tampilannya (dari atas ke bawah)."""
+        return [unsur for unsur in self.unsur
+                if unsur.bio and unsur.type == "text" and unsur.name]
+
+    def bio_band(self) -> int:
+        """Berapa kolom BIO yang **terlihat** pada posisi gulir jendela saat ini.
+
+        Meniru Dapodik/Ext JS: hanya kolom yang berada di bagian jendela yang terlihat yang
+        bisa dicari & ditulis. Tiap geser 250 px memunculkan dua kolom berikutnya — jadi
+        bukan soal "250 px kebanyakan atau kurang banyak", melainkan soal **posisi** gulir.
+        """
+        return min(self.bio_terlihat_awal + 2 * self.gulir_bio, len(self._kolom_bio_semua()))
+
+    def bio_indeks(self, unsur: "UnsurPalsu") -> int:
+        """Posisi kolom BIO pada urutan tampilan (0 = paling atas)."""
+        try:
+            return self._kolom_bio_semua().index(unsur)
+        except ValueError:
+            return -1
+
     def bio_siap(self) -> bool:
         """Apakah **isi jendela «Ubah»** sudah digulir cukup jauh.
 
@@ -840,9 +874,10 @@ class PerambanPalsu:
         """
         self.unsur.append(UnsurPalsu(self, "div", kelas="x-window",
                                      teks="Ubah Data Peserta Didik", bio=True, bio_panel=True))
-        for nama, label in BIO_KOLOM_PALSU:
+        for nomor, (nama, label) in enumerate(BIO_KOLOM_PALSU, start=1):
             self.unsur.append(UnsurPalsu(self, "input", type="text", name=nama, label=label,
-                                         bio=True, nilai="LAMA"))
+                                         bio=True, nilai="LAMA",
+                                         componentid=f"textfield-{1200 + nomor}"))
         self.unsur.append(UnsurPalsu(self, "span", kelas="x-btn-inner-default-small",
                                      teks="Simpan", bio=True, simpan_bio=True, aksi="simpan"))
 
@@ -1313,14 +1348,22 @@ class PerambanPalsu:
             # lalu lewat teks labelnya. Kolom baru terjangkau setelah isi jendela digulir.
             if not (self.bio_terbuka and self.bio_siap()):
                 return None
+            batas = self.bio_band()
+            posisi = {id(u): i for i, u in enumerate(self._kolom_bio_semua())}
             nama = str(argumen[1] if len(argumen) > 1 else "").strip()
             label = str(argumen[2] if len(argumen) > 2 else "").strip().lower()
             for unsur in self.unsur:
-                if unsur.bio and unsur.type == "text" and nama and unsur.name == nama:
+                if not (unsur.bio and unsur.type == "text"):
+                    continue
+                if posisi.get(id(unsur), 99) >= batas:
+                    continue          # kolomnya di luar bagian jendela yang terlihat
+                if nama and unsur.name == nama:
                     return unsur
             if label:
                 for unsur in self.unsur:
                     if not (unsur.bio and unsur.type == "text"):
+                        continue
+                    if posisi.get(id(unsur), 99) >= batas:
                         continue
                     teks = (unsur.label or "").strip().lower()
                     if teks and (teks == label or teks.startswith(label)):
@@ -1427,12 +1470,20 @@ class PerambanPalsu:
             return None
         if "el.value = nilai" in skrip:
             if argumen:
-                if argumen[0].periodik and (not self.panel_periodik_terbuka()
-                                            or not self.periodik_siap()):
+                sasaran = argumen[0]
+                if sasaran.periodik and (not self.panel_periodik_terbuka()
+                                         or not self.periodik_siap()):
                     self.ketikan_diabaikan += 1      # panel kelabu: isian tidak tersimpan
                     return None
-                argumen[0].nilai = str(argumen[1])
-                argumen[0].diketik.append(str(argumen[1]))
+                if sasaran.bio and (self.bio_hanya_ext
+                                    or self.bio_indeks(sasaran) >= self.bio_band()):
+                    # Kolom BIO: menulis `input.value` langsung TIDAK mengubah model Ext JS
+                    # (persis kejadian di Dapodik) — nilainya akan ditimpa saat disimpan.
+                    # Hanya Ext.getCmp(...).setValue(...) yang benar-benar mengubahnya.
+                    self.ketikan_diabaikan += 1
+                    return None
+                sasaran.nilai = str(argumen[1])
+                sasaran.diketikan.append(str(argumen[1]))
             return None
         if "keadaan-pilihan" in skrip and argumen:
             # Keadaan pilihan: apakah unsurnya sendiri tercentang (properti checked / kelas
@@ -1521,6 +1572,12 @@ class PerambanPalsu:
                 self.gulir_panel.append(getattr(sasaran, "name", "")
                                         or getattr(sasaran, "teks", "") or "panel")
             return None
+        if "/* gulir-jendela-awal */" in skrip:
+            # Bot mengembalikan isi jendela «Ubah» ke atas sebelum mulai mengisi kolomnya.
+            if not self.bio_terbuka:
+                return 0
+            self.gulir_bio = 0
+            return 1
         if "/* gulir-jendela */" in skrip:
             # Bot menggulir ISI jendela «Ubah» (bukan halaman): inilah yang benar-benar
             # menjangkau kolom di bagian bawah jendela.
