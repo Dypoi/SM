@@ -44,6 +44,17 @@ import time
 from pathlib import Path
 
 # --------------------------------------------------------------------------- #
+# Pencabut & pendaftaran Control Panel (berkas di folder yang sama)
+# --------------------------------------------------------------------------- #
+_FOLDER_INI = Path(__file__).resolve().parent
+if str(_FOLDER_INI) not in sys.path:
+    sys.path.insert(0, str(_FOLDER_INI))
+try:
+    import pencabut_sm
+except Exception:      # noqa: BLE001 — pemasangan tetap boleh jalan, pendaftaran dilewati
+    pencabut_sm = None      # type: ignore[assignment]
+
+# --------------------------------------------------------------------------- #
 # Tetapan dasar
 # --------------------------------------------------------------------------- #
 VERSI_MINIMUM = (3, 10)
@@ -423,10 +434,23 @@ def tulis_peluncur(tujuan: Path, python: Path, data: Path, port: int, diam: bool
         "* Menghapus aplikasi : python pemasang/pasang.py hapus --ya\n",
         encoding="utf-8")
 
+    # Pencabut (Windows): matikan → bersihkan → hapus. Disimpan juga di LUAR folder aplikasi
+    # supaya entri Control Panel tetap bisa mencabut walau foldernya terlanjur dihapus orang.
+    info_pencabut: dict = {}
+    if pencabut_sm is not None:
+        try:
+            info_pencabut = pencabut_sm.tulis_pencabut(tujuan, data, python, pythonw)
+        except Exception as exc:      # noqa: BLE001 — jangan gagalkan pemasangan
+            _cetak(f"      [!] Berkas pencabut gagal dibuat: {exc}", diam)
+
+    berkas_pencabut = list(info_pencabut.get("berkas", []))
     _cetak(f"      Peluncur dibuat: {NAMA_PELUNCUR_WIN} & {NAMA_PELUNCUR_NIX} "
-           "(Windows juga: SM.vbs tanpa jendela, Hentikan-SM.vbs)", diam)
+           "(Windows juga: SM.vbs tanpa jendela, Hentikan-SM.vbs, Hapus-SM.cmd/vbs)", diam)
+    if info_pencabut.get("folder"):
+        _cetak(f"      Pencabut disiapkan di luar folder aplikasi: {info_pencabut['folder']} "
+               "(dipakai Control Panel)", diam)
     return [str(peluncur_win), str(peluncur_nix), str(tujuan / "SM.vbs"),
-            str(tujuan / "Hentikan-SM.vbs")]
+            str(tujuan / "Hentikan-SM.vbs"), *berkas_pencabut]
 
 
 def _desktop_dir() -> Path:
@@ -651,6 +675,10 @@ def pasang(args, sumber: Path | None = None) -> dict:
     if args.otomatis:
         otomatis = pasang_otomatis(tujuan, venv_py, data, args.port, True, diam)
 
+    daftar_app: list[str] = []
+    if not args.tanpa_daftar:
+        daftar_app = daftarkan_control_panel(tujuan, data, versi_aplikasi(tujuan), diam)
+
     _cetak("[5/5] Selesai.", diam)
     catatan = {
         "versi": versi_aplikasi(tujuan),
@@ -666,6 +694,8 @@ def pasang(args, sumber: Path | None = None) -> dict:
         "peluncur": peluncur,
         "pintasan": pintasan,
         "otomatis": otomatis,
+        "pencabut": str(pencabut_sm.folder_pencabut()) if pencabut_sm else "",
+        "control_panel": daftar_app,
         "catatan_sebelumnya": catatan_lama.get("dipasang_pada", ""),
     }
     tulis_catatan(tujuan, catatan)
@@ -697,6 +727,22 @@ def pasang(args, sumber: Path | None = None) -> dict:
 # --------------------------------------------------------------------------- #
 # Perintah: periksa (dokter)
 # --------------------------------------------------------------------------- #
+def daftarkan_control_panel(tujuan: Path, data: Path, versi: str, diam: bool = False) -> list[str]:
+    """Daftarkan SM di **Control Panel → Programs and Features** (Windows; HKCU tanpa admin)."""
+    if pencabut_sm is None:
+        return []
+    ikon = tujuan / "bodap.ico"
+    try:
+        kunci = pencabut_sm.daftarkan(tujuan, data, versi, ikon if ikon.exists() else None)
+    except Exception as exc:      # noqa: BLE001 — bukan syarat pemasangan
+        _cetak(f"      [!] Pendaftaran di Control Panel gagal: {exc}", diam)
+        return []
+    if kunci:
+        _cetak("      Terdaftar di Control Panel → «Programs and Features» "
+               "(bisa dicabut dari sana).", diam)
+    return kunci
+
+
 def periksa(args) -> dict:
     """Periksa kondisi pemasangan & ceritakan apa adanya (tanpa mengubah apa pun)."""
     diam = bool(args.diam or args.json)
@@ -717,9 +763,17 @@ def periksa(args) -> dict:
     else:
         kurang = ["python tidak ditemukan"]
 
+    terdaftar_cp = bool(pencabut_sm and pencabut_sm.terdaftar())
+    _jalur_pencabut = catatan.get("pencabut") or \
+        (str(pencabut_sm.folder_pencabut()) if pencabut_sm else "")
+    folder_pencabut = Path(_jalur_pencabut) if _jalur_pencabut else None
     laporan = {
         "ok": bool(catatan) and ada_peluncur and db.exists() and not kurang,
         "perintah": "periksa",
+        "control_panel": terdaftar_cp,
+        "pencabut": str(folder_pencabut) if folder_pencabut else "",
+        "pencabut_ada": bool(pencabut_sm and folder_pencabut
+                             and (folder_pencabut / pencabut_sm.NAMA_VBS).exists()),
         "terpasang": bool(catatan),
         "versi": catatan.get("versi", versi_aplikasi(tujuan)),
         "tujuan": str(tujuan),
@@ -755,6 +809,12 @@ def periksa(args) -> dict:
         _cetak(f"  Pustaka kurang  : {', '.join(kurang) if kurang else 'tidak ada'}", diam)
         _cetak(f"  Port {port}       : {'bebas' if laporan['port_bebas'] else 'SUDAH DIPAKAI proses lain'}", diam)
         _cetak(f"  Peluncur        : {'ada' if ada_peluncur else 'belum ada'}", diam)
+        _cetak(f"  Control Panel   : " + ("terdaftar — bisa dicabut dari sana"
+                                           if laporan["control_panel"]
+                                           else "belum terdaftar di «Aplikasi & Fitur»"), diam)
+        if laporan["pencabut"]:
+            _cetak(f"  Pencabut        : {laporan['pencabut']} "
+                   f"({'ada' if laporan['pencabut_ada'] else 'TIDAK ADA'})", diam)
         _cetak(f"  Selenium (bot)  : {'siap' if laporan['selenium'] else 'belum terpasang'}", diam)
         _cetak(f"  Chrome (bot)    : {laporan['chrome'] or 'tidak ditemukan — bot Dapodik butuh Chrome'}", diam)
         _cetak(f"  Sistem          : {laporan['sistem']} · sisa disk {laporan['disk_bebas_mb']} MB", diam)
@@ -797,6 +857,11 @@ def hapus(args) -> dict:
     catatan = baca_catatan(tujuan)
     data = Path(catatan.get("data") or (tujuan / "data")).expanduser().resolve()
 
+    terpasang = (tujuan / NAMA_PENANDA).exists() or (tujuan / "run.py").exists()
+    if tujuan.exists() and not terpasang and not getattr(args, "paksa", False):
+        raise GalatPemasang(f"Folder ini tidak terlihat sebagai pemasangan SM: {tujuan}\n"
+                            "  (tidak ada .sm-pemasangan.json / run.py). Pakai --paksa bila yakin.")
+
     if not args.ya:
         raise GalatPemasang("Perintah hapus perlu penegasan. Tambahkan --ya, mis.:\n"
                             f"  python pemasang/pasang.py hapus --tujuan \"{tujuan}\" --ya")
@@ -824,6 +889,14 @@ def hapus(args) -> dict:
     if tujuan.exists():
         shutil.rmtree(tujuan)
         dihapus.append(str(tujuan))
+
+    # 2b) entri Control Panel + berkas pencabut di luar folder aplikasi
+    if pencabut_sm is not None:
+        if pencabut_sm.hapus_pendaftaran():
+            dihapus.append(pencabut_sm.KUNCI_ARP)
+        luar = pencabut_sm.hapus_folder_pencabut(tujuan, catatan.get("pencabut"))
+        if luar:
+            dihapus.append(luar)
 
     # 3) data
     if args.dengan_data:
@@ -910,6 +983,8 @@ def buat_parser() -> argparse.ArgumentParser:
                         help="jalankan SM otomatis saat komputer dinyalakan")
     parser.add_argument("--paksa", action="store_true",
                         help="izinkan memasang ke folder yang sudah berisi berkas lain")
+    parser.add_argument("--tanpa-daftar", action="store_true",
+                        help="jangan daftarkan di Control Panel / Pengaturan → Aplikasi (Windows)")
     parser.add_argument("--ya", action="store_true", help="penegasan untuk perintah hapus")
     parser.add_argument("--dengan-data", action="store_true",
                         help="saat hapus: ikut hapus folder data (data sekolah!)")

@@ -27,6 +27,7 @@ memakai logika yang sama — yang diuji otomatis pun persis yang dijalankan peng
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import platform
@@ -35,10 +36,16 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import zipfile
 from pathlib import Path
+
+#: Modul pencabut + pendaftaran Control Panel (``pemasang/pencabut_sm.py``). Diisi oleh
+#: :func:`_muat_pencabut` supaya tetap tersedia baik saat dijalankan sebagai skrip maupun
+#: dari dalam ``bodap.exe``.
+pencabut_sm = None
 
 VERSI_MINIMUM = (3, 10)
 NAMA_MARKER = ".sm-pemasangan.json"
@@ -71,6 +78,41 @@ def folder_payload(akar: Path | None = None) -> Path:
         if (kandidat / "app.zip").exists():
             return kandidat
     return akar / "payload"
+
+
+def _muat_pencabut():
+    """Muat ``pemasang/pencabut_sm.py`` (pencabut + entri Control Panel).
+
+    Dicari di folder yang sama dengan berkas ini; bila tidak ada (mis. EXE yang dibangun
+    tanpa berkas itu), diambil dari ``payload/app.zip`` — berkas itu selalu dibawa pemasang.
+    Mengembalikan modulnya, atau ``None`` bila benar-benar tidak ditemukan.
+    """
+    global pencabut_sm
+    if pencabut_sm is not None:
+        return pencabut_sm
+    sumber = Path(__file__).resolve().parent / "pencabut_sm.py"
+    if not sumber.exists():
+        arsip = folder_payload() / "app.zip"
+        try:
+            if arsip.exists():
+                with zipfile.ZipFile(arsip) as z:
+                    if "pemasang/pencabut_sm.py" in z.namelist():
+                        sementara = Path(tempfile.mkdtemp(prefix="sm-pencabut-"))
+                        sumber = sementara / "pencabut_sm.py"
+                        sumber.write_bytes(z.read("pemasang/pencabut_sm.py"))
+        except (OSError, zipfile.BadZipFile):
+            pass
+    if not sumber.exists():
+        return None
+    try:
+        spesifikasi = importlib.util.spec_from_file_location("pencabut_sm", sumber)
+        modul = importlib.util.module_from_spec(spesifikasi)
+        spesifikasi.loader.exec_module(modul)
+    except Exception:      # noqa: BLE001 — pemasangan tetap boleh lanjut
+        return None
+    sys.modules.setdefault("pencabut_sm", modul)
+    pencabut_sm = modul
+    return modul
 
 
 def ada_jendela_gui() -> bool:
@@ -298,81 +340,44 @@ def buat_peluncur_latar(tujuan: Path, python: Path, data: Path, port: int,
         f'sh.Run """{pythonw}"" ""{tujuan}\\SM-latar.py"" --hentikan", 0, True\r\n',
         encoding="utf-8")
 
-    # Pencabut: matikan dulu, bersihkan pintasan & daftar aplikasi, lalu hapus foldernya
-    # dari luar folder itu (folder aplikasi tidak bisa menghapus dirinya sendiri).
-    (tujuan / "Hapus-SM.cmd").write_text(
-        "@echo off\r\n"
-        "REM Menghapus aplikasi SM. Data sekolah TIDAK dihapus.\r\n"
-        "setlocal EnableExtensions\r\n"
-        "chcp 65001 >nul 2>nul\r\n"
-        "cd /d \"%~dp0\"\r\n"
-        f"set \"PY={python}\"\r\n"
-        f"set \"PYW={pythonw}\"\r\n"
-        "set \"SM_DATA=" + str(data) + "\"\r\n"
-        "echo Mematikan aplikasi SM bila sedang berjalan ...\r\n"
-        "if exist \"%PYW%\" (\"%PYW%\" \"%~dp0SM-latar.py\" --hentikan) else "
-        "(\"%PY%\" \"%~dp0SM-latar.py\" --hentikan)\r\n"
-        "echo Menghapus pintasan & pendaftaran aplikasi ...\r\n"
-        "reg delete \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\SM\" "
-        "/f >nul 2>nul\r\n"
-        "del /q \"%USERPROFILE%\\Desktop\\SM.lnk\" >nul 2>nul\r\n"
-        "del /q \"%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\SM.lnk\" >nul 2>nul\r\n"
-        "echo Menghapus berkas aplikasi ...\r\n"
-        "set \"SM_TUJUAN=%~dp0\"\r\n"
-        "> \"%TEMP%\\sm-hapus.cmd\" (\r\n"
-        "  echo @echo off\r\n"
-        "  echo timeout /t 3 /nobreak ^>nul\r\n"
-        "  echo rmdir /s /q \"%SM_TUJUAN%\"\r\n"
-        "  echo echo Aplikasi SM sudah dihapus. Data sekolah tetap ada di: %SM_DATA%\r\n"
-        "  echo pause\r\n"
-        ")\r\n"
-        "start \"\" /min cmd /c \"%TEMP%\\sm-hapus.cmd\"\r\n"
-        "exit /b 0\r\n", encoding="utf-8", newline="")
-
-    (tujuan / "Hapus-SM.vbs").write_text(
-        "' Dibuat oleh bodap.exe — pencabut tanpa jendela (dipakai Daftar Aplikasi Windows).\r\n"
-        'Option Explicit\r\n'
-        'Dim sh\r\n'
-        'Set sh = CreateObject("WScript.Shell")\r\n'
-        f'sh.Run """{tujuan}\\Hapus-SM.cmd""", 0, False\r\n', encoding="utf-8")
+    # Pencabut: dibuat oleh ``pencabut_sm`` — isinya matikan aplikasi → bersihkan pintasan,
+    # pendaftaran aplikasi, lalu hapus folder program dari LUAR folder itu. Salinannya
+    # diletakkan juga di folder pencabut luar (dipakai Control Panel) supaya pencabutan tetap
+    # bisa dilakukan walau folder aplikasi sudah terlanjur dibuang orang.
+    modul = _muat_pencabut()
+    info_pencabut: dict = {}
+    if modul is not None:
+        try:
+            info_pencabut = modul.tulis_pencabut(tujuan, data, python, pythonw)
+        except Exception as exc:      # noqa: BLE001 — jangan gagalkan pemasangan
+            print(f"[!] Berkas pencabut gagal dibuat: {exc}")
 
     return {"sm_vbs": str(sm_vbs), "hentikan_vbs": str(hentikan),
-            "python_latar": str(pythonw)}
+            "python_latar": str(pythonw),
+            "pencabut": info_pencabut.get("folder", ""),
+            "pencabut_berkas": info_pencabut.get("berkas", []),
+            "pencabut_cmd": info_pencabut.get("cmd", ""),
+            "pencabut_vbs": info_pencabut.get("vbs", "")}
 
 
-def daftarkan_aplikasi(tujuan: Path, ikon: Path | None, versi: str) -> list[str]:
-    """Daftarkan di «Pengaturan → Aplikasi» Windows (HKCU — tanpa hak admin)."""
-    if os.name != "nt":
+def daftarkan_aplikasi(tujuan: Path, ikon: Path | None, versi: str,
+                       data: Path | None = None) -> list[str]:
+    """Daftarkan SM di **Control Panel → Programs and Features** (HKCU, tanpa hak admin).
+
+    Nilainya ditulis oleh :mod:`pencabut_sm`: ``DisplayName``, ``DisplayVersion``,
+    ``Publisher``, ``InstallLocation``, ``DisplayIcon``, ``EstimatedSize``, dan — yang
+    paling menentukan — ``UninstallString`` ke berkas ``Hapus-SM.vbs`` di folder pencabut
+    (di luar folder aplikasi), sehingga tombol **Uninstall** di Control Panel bekerja walau
+    folder program sudah dipindahkan/dibuang orang.
+    """
+    modul = _muat_pencabut()
+    if modul is None:
         return []
-    kunci = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\SM"
-    nilai = {
-        "DisplayName": "SM — Sistem Informasi Manajemen Sekolah",
-        "DisplayVersion": versi or "0",
-        "Publisher": "SM",
-        "InstallLocation": str(tujuan),
-        "UninstallString": f'wscript.exe "{Path(tujuan) / "Hapus-SM.vbs"}"',
-        "QuietUninstallString": f'wscript.exe "{Path(tujuan) / "Hapus-SM.vbs"}"',
-        "NoModify": "1",
-        "NoRepair": "1",
-    }
-    if ikon:
-        nilai["DisplayIcon"] = str(ikon)
-    skrip = ["$ErrorActionPreference = 'SilentlyContinue'",
-             f"New-Item -Path '{kunci}' -Force | Out-Null"]
-    for nama, isi in nilai.items():
-        skrip.append(f"New-ItemProperty -Path '{kunci}' -Name '{nama}' "
-                     f"-Value '{isi}' -PropertyType String -Force | Out-Null")
     try:
-        ukuran = sum(p.stat().st_size for p in Path(tujuan).rglob("*") if p.is_file()) // 1024
-        skrip.append(f"New-ItemProperty -Path '{kunci}' -Name 'EstimatedSize' "
-                     f"-Value {ukuran} -PropertyType DWord -Force | Out-Null")
-    except OSError:
-        pass
-    hasil = _jalankan(["powershell", "-NoProfile", "-NonInteractive", "-Command",
-                       "; ".join(skrip)], waktu=180)
-    if hasil.returncode != 0:
+        return modul.daftarkan(tujuan, data, versi, ikon)
+    except Exception as exc:      # noqa: BLE001 — pendaftaran bukan syarat pemasangan
+        print(f"[!] Pendaftaran di Control Panel gagal: {exc}")
         return []
-    return [kunci]
 
 
 def buat_pintasan(tujuan: Path, ikon: Path | None = None) -> list[str]:
@@ -887,6 +892,9 @@ class Pemasang:
                            "(bisa dihapus dari sana).")
         self.catat("Peluncur dibuat: SM.vbs (tanpa jendela), Hentikan-SM.vbs, Jalankan-SM.cmd, "
                    "Hapus-SM.cmd, BACA-INI-SM.txt.")
+        if info_latar.get("pencabut"):
+            self.catat("Pencabut disiapkan di luar folder aplikasi: "
+                       f"{info_latar['pencabut']} (dipakai Control Panel).")
         return {"pintasan": pintasan, "otomatis": otomatis, "ikon": str(ikon_tujuan or ""),
                 "peluncur_latar": info_latar, "daftar_aplikasi": daftar}
 
@@ -903,6 +911,7 @@ class Pemasang:
             "python": str(self.python),
             "modus": info.get("modus_python", ""),
             "pintasan": info.get("pintasan", []),
+            "pencabut": (info.get("peluncur_latar", {}) or {}).get("pencabut", ""),
             "otomatis": info.get("otomatis", []),
             "peluncur_latar": info.get("peluncur_latar", {}),
             "daftar_aplikasi": info.get("daftar_applikasi", info.get("daftar_aplikasi", [])),
@@ -999,6 +1008,10 @@ def jalankan_periksa(args) -> dict:
               if python.exists() else ["python"])
     pintasan = [p for p in pintasan_sm() if p.exists()]
     otomatis = berkas_otomatis()
+    modul = _muat_pencabut()
+    terdaftar_cp = bool(modul and modul.terdaftar())
+    _jalur_pencabut = catatan.get("pencabut") or (str(modul.folder_pencabut()) if modul else "")
+    folder_pencabut = Path(_jalur_pencabut) if _jalur_pencabut else None
     laporan = {
         "ok": bool(catatan) and db.exists() and not kurang,
         "perintah": "periksa",
@@ -1015,6 +1028,11 @@ def jalankan_periksa(args) -> dict:
         "pintasan": [str(p) for p in pintasan],
         "otomatis": str(otomatis) if otomatis and otomatis.exists() else "",
         "chrome": _cari_chrome(),
+        "control_panel": terdaftar_cp,
+        "kunci_control_panel": modul.KUNCI_ARP if modul else "",
+        "pencabut": str(folder_pencabut) if folder_pencabut else "",
+        "pencabut_ada": bool(folder_pencabut and modul
+                             and (folder_pencabut / modul.NAMA_VBS).exists()),
         "sistem": f"{platform.system()} {platform.release()} ({platform.machine()})",
     }
     if not args.diam:
@@ -1035,6 +1053,12 @@ def jalankan_periksa(args) -> dict:
             print(f"  Pintasan      : {p}")
         if laporan["otomatis"]:
             print(f"  Otomatis      : {laporan['otomatis']}")
+        print(f"  Control Panel : " + ("terdaftar — bisa dicabut dari sana"
+                                       if laporan["control_panel"]
+                                       else "belum terdaftar di «Aplikasi & Fitur»"))
+        if laporan["pencabut"]:
+            print(f"  Pencabut      : {laporan['pencabut']} "
+                  f"({'ada' if laporan['pencabut_ada'] else 'TIDAK ADA'})")
         print("")
         print("  Hasil: " + ("SEMUA SIAP — buka ikon «SM» di Desktop." if laporan["ok"]
                                else "ADA YANG PERLU DIBERESKAN (lihat baris di atas)."))
@@ -1068,6 +1092,10 @@ def jalankan_hapus(args) -> dict:
     data = Path(args.data or catatan.get("data") or tujuan / "data")
     if not args.ya:
         raise GalatPasang("Hapus perlu penegasan: tambahkan --ya.")
+    if not ((tujuan / NAMA_MARKER).exists() or (tujuan / "run.py").exists()) \
+            and not getattr(args, "paksa", False):
+        raise GalatPasang(f"Folder ini tidak terlihat sebagai pemasangan SM: {tujuan}\n"
+                          "  (tidak ada .sm-pemasangan.json / run.py). Pakai --paksa bila yakin.")
 
     dihapus: list[str] = []
     for jalur in [*pintasan_sm(),
@@ -1086,6 +1114,16 @@ def jalankan_hapus(args) -> dict:
             dihapus.append(str(otomatis))
         except OSError:
             pass
+
+    # Entri Control Panel + berkas pencabut di luar folder aplikasi (r24).
+    modul = _muat_pencabut()
+    if modul is not None:
+        if modul.hapus_pendaftaran():
+            dihapus.append(modul.KUNCI_ARP)
+        luar = modul.hapus_folder_pencabut(tujuan, catatan.get("pencabut"))
+        if luar:
+            dihapus.append(luar)
+
     if tujuan.exists():
         shutil.rmtree(tujuan, ignore_errors=True)
         dihapus.append(str(tujuan))
@@ -1139,9 +1177,13 @@ def jalankan_uji(args) -> dict:
         port = port_bebas()
 
         catatan: list[str] = []
+        # Uji ini tidak boleh menyentuh keadaan komputer: entri Control Panel & folder
+        # pencabut diarahkan ke folder sementara.
+        pencabut_uji = sementara / "SM-Pencabut"
+        os.environ["SM_PENCABUT_DIR"] = str(pencabut_uji)
         pemasang = Pemasang(
             tujuan=tujuan, data=data, port=port, dengan_bot=args.dengan_bot,
-            pintasan=False, otomatis=False,
+            pintasan=False, otomatis=False, daftar_aplikasi=False,
             payload=Path(args.payload) if args.payload else None,
             python_bawaan=not args.python_komputer,
             izinkan_unduh_python=args.izinkan_unduh_python,
@@ -1158,8 +1200,12 @@ def jalankan_uji(args) -> dict:
             cek((tujuan / berkas).exists(), f"berkas hasil pemasangan: {berkas}")
 
         # r23: aplikasi harus bisa dijalankan TANPA jendela terminal (peluncur latar).
-        for berkas in ("SM.vbs", "Hentikan-SM.vbs", "Hapus-SM.vbs", "SM-latar.py"):
+        for berkas in ("SM.vbs", "Hentikan-SM.vbs", "SM-latar.py"):
             cek((tujuan / berkas).exists(), f"berkas peluncur latar: {berkas}")
+        for berkas in ("Hapus-SM.cmd", "Hapus-SM.vbs"):
+            cek((tujuan / berkas).exists(), f"berkas pencabut di folder aplikasi: {berkas}")
+            cek((pencabut_uji / berkas).exists(),
+                f"berkas pencabut di luar folder aplikasi (dipakai Control Panel): {berkas}")
         try:
             isi_vbs = (tujuan / "SM.vbs").read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -1271,6 +1317,40 @@ def jalankan_uji(args) -> dict:
         cek(not menjawab(port_latar), "aplikasi latar benar-benar berhenti setelah --hentikan")
         cek(not keadaan.exists(), "catatan keadaan dibersihkan setelah aplikasi dihentikan")
 
+        # Entri Control Panel: nilainya diperiksa apa adanya, dan tulis-baca-hapus diuji pada
+        # kunci uji (``…\\Uninstall\\SM-uji``) supaya pemasangan asli di komputer ini tidak
+        # terganggu — sekaligus membuktikan penulisan registry benar-benar berhasil.
+        modul = _muat_pencabut()
+        cek(modul is not None, "modul pencabut & Control Panel (pemasang/pencabut_sm.py) tersedia")
+        if modul is not None:
+            nilai = modul.nilai_arp(tujuan, data, "0.0.0", ikon=None, pencabut=pencabut_uji)
+            wajib = ("DisplayName", "DisplayVersion", "Publisher", "InstallLocation",
+                     "UninstallString", "QuietUninstallString", "NoModify", "NoRepair")
+            kurang_nilai = [n for n in wajib if n not in nilai]
+            cek(not kurang_nilai, f"entri Control Panel memuat nilai wajib: kurang {kurang_nilai}")
+            cek("Hapus-SM.vbs" in str(nilai["UninstallString"][1])
+                and "wscript" in str(nilai["UninstallString"][1]).lower(),
+                f"UninstallString menunjuk berkas pencabut: {nilai['UninstallString'][1]}")
+            cek("sunyi" in str(nilai["QuietUninstallString"][1]),
+                "QuietUninstallString dipakai untuk pencabutan tanpa jendela/diam-diam")
+            perintah = modul.perintah_registri(nilai)
+            cek(any("Uninstall" in " ".join(baris) for baris in perintah)
+                and all("add" in baris for baris in perintah),
+                "perintah registry «Aplikasi & Fitur» siap dijalankan")
+            if os.name == "nt":
+                kunci_uji = modul.KUNCI_ARP + "-uji"
+                cek(bool(modul.daftarkan(tujuan, data, "0.0.0", pencabut=pencabut_uji,
+                                         kunci=kunci_uji)),
+                    "entri Control Panel bisa ditulis (kunci uji)")
+                cek(modul.terdaftar(kunci_uji), "entri Control Panel terbaca kembali")
+                cek(modul.hapus_pendaftaran(kunci_uji), "entri Control Panel bisa dibuang")
+                cek(not modul.terdaftar(kunci_uji),
+                    "entri Control Panel benar-benar hilang setelah dibuang")
+            else:
+                cek(modul.daftarkan(tujuan, data, "0.0.0", pencabut=pencabut_uji) == []
+                    and not modul.terdaftar(),
+                    "di luar Windows: pendaftaran Control Panel dilaporkan jujur (tidak ada)")
+
         # periksa → hapus → data di luar folder aplikasi harus tetap ada
         kelas_args = argparse.Namespace(tujuan=str(tujuan), data=None, diam=True, ya=True)
         laporan = jalankan_periksa(kelas_args)
@@ -1279,6 +1359,7 @@ def jalankan_uji(args) -> dict:
         jalankan_hapus(kelas_args)
         cek(not tujuan.exists(), "hapus membuang folder aplikasi")
         cek(db.exists(), "hapus membiarkan folder data di luar aplikasi")
+        cek(not pencabut_uji.exists(), "hapus membersihkan folder pencabut (entri Control Panel)")
 
     return _ringkas_uji(langkah, galat, catatan, {**hasil, "data": str(data), "port": port})
 
@@ -1443,7 +1524,8 @@ class Wizard:
                         text="Bila perlu, unduh Python dari python.org (butuh internet)"
                         ).pack(anchor="w")
         ttk.Checkbutton(kotak, variable=self.var_daftar,
-                        text="Daftarkan di «Pengaturan → Aplikasi» Windows (ada tombol Hapus)"
+                        text="Daftarkan di Control Panel / «Pengaturan → Aplikasi» "
+                             "(bisa dicabut dengan tombol Uninstall)"
                         ).pack(anchor="w")
         ttk.Checkbutton(kotak, variable=self.var_ekskul,
                         text="Isi daftar 14 ekstrakurikuler resmi sekolah (kalau tidak "
@@ -1490,8 +1572,11 @@ class Wizard:
         ttk.Label(kotak, justify="left", text=(
             "• Login petugas: admin / admin123 — segera ganti sandinya di menu Pengaturan.\n"
             "• Login siswa: cukup NISN.\n"
-            "• Jendela hitam «SM» biarkan terbuka selama aplikasi dipakai.\n"
-            "• Lain kali buka lewat ikon «SM» di Desktop."
+            "• Aplikasi berjalan di belakang layar — tidak ada jendela hitam yang perlu\n"
+            "  dibiarkan terbuka; mematikannya lewat pintasan «Hentikan SM» di menu Start.\n"
+            "• Lain kali buka lewat ikon «SM» di Desktop.\n"
+            "• Mencabut aplikasi: Windows → Pengaturan → Aplikasi → SM → Uninstall\n"
+            "  (atau «Hapus-SM.cmd»). Data sekolah tetap tersimpan."
         )).pack(anchor="w", pady=(8, 0))
         self.tombol_lanjut.configure(text="Selesai", command=self.penutup)
         self.tombol_batal.configure(text="Tutup")

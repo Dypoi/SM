@@ -35,7 +35,7 @@ Semuanya ada di dalam satu berkas itu (± 60–80 MB):
 | seluruh program SM (folder `app`, template, skrip) | yang dijalankan di komputer tujuan |
 | **Python bawaan Windows** (embeddable) | komputer tujuan **tidak perlu** memasang Python |
 | pip + daftar pustaka | memasang FastAPI & pembaca Excel **tanpa internet** bila paket dibuat `--dengan-bahan` |
-| `pemasang/pasang.py` | mesin pemasangan/pencabutan yang ikut tersalin ke folder aplikasi |
+| `pemasang/pasang.py` + `pemasang/pencabut_sm.py` | mesin pemasangan/pencabutan + pendaftaran Control Panel, ikut tersalin ke folder aplikasi |
 | ikon `SM` | untuk `bodap.exe`, pintasan Desktop, dan jendela pemasang |
 
 ## 3. Yang dikerjakan pemasang (di komputer tujuan)
@@ -54,6 +54,12 @@ Semuanya ada di dalam satu berkas itu (± 60–80 MB):
    (menjalankan & mematikan aplikasi **di belakang layar tanpa jendela terminal**),
    `Jalankan-SM.cmd`, `Hapus-SM.cmd`/`Hapus-SM.vbs`, ikon **SM** di Desktop & menu Start,
    serta bacaan singkat `BACA-INI-SM.txt`.
+6. **Mendaftarkan di Control Panel** (bila tidak dimatikan): entri **SM — Sistem Informasi
+   Manajemen Sekolah** di *Control Panel → Programs and Features* / *Pengaturan → Aplikasi*
+   (kunci `HKCU\…\CurrentVersion\Uninstall\SM`, tanpa hak admin), lengkap dengan versi,
+   penerbit, ikon, dan ukuran terpasang. Berkas pencabut disalin juga **ke luar** folder
+   aplikasi (`%LOCALAPPDATA%\Programs\SM-Pencabut`) supaya tombol **Uninstall** tetap bekerja
+   walau folder program sudah dipindahkan atau dibuang orang.
 
 Bila folder tujuan sudah berisi berkas orang lain, pemasang **berhenti** dan meminta folder
 lain — tidak ada berkas yang tertimpa.
@@ -92,7 +98,7 @@ bodap.exe --uji                    :: uji mandiri: pasang → jalankan → perik
   tidak cocok (lanjut internet)**, dan `bodap --uji` (memasang, menjalankan aplikasi sampai
   halaman utama menjawab HTTP, menjalankannya lewat peluncur latar sampai bisa dihentikan,
   memastikan basis data hasil pasang **kosong**, serta memeriksa data di luar folder aplikasi
-  tetap ada sesudah pencabutan). Hasil terakhir: **38 pemeriksaan**.
+  tetap ada sesudah pencabutan, plus uji pencabutan lewat Control Panel). Hasil terakhir: **64 pemeriksaan**.
 * Alur GitHub Actions menjalankan `bodap.exe --uji --laporan hasil-uji.json` **di runner
   Windows** sebelum artifact diunggah — jadi berkas yang diunduh sudah terbukti bisa dipasang.
 
@@ -103,15 +109,36 @@ bodap.exe --uji                    :: uji mandiri: pasang → jalankan → perik
 | `ERROR: Could not find a version that satisfies the requirement python-multipart==0.0.20 (from versions: 0.0.32)` lalu «Pemasangan pustaka gagal» | Berkas pustaka bawaan di dalam `bodap.exe` itu **versinya berbeda** dari yang diminta aplikasi (kejadian pada bodap.exe lama: bundel memakai versi terbaru, sedangkan aplikasi memakai versi yang dipatok). **Sejak perbaikan ini pemasang otomatis melanjutkan unduhan dari internet**, jadi pesan itu tidak lagi menghentikan pemasangan. Bila masih muncul: buat ulang `bodap.exe` dengan **`pemasang\BUAT-BODAP.bat`** (bundel pustaka baru dibuat dari `requirements.txt`), lalu jalankan lagi. |
 | «Pemasangan pustaka gagal» padahal internet ada | Pastikan unduhan ke `pypi.org` tidak diblokir (jaringan sekolah kadang memakai proxy/filter). Coba setel proxy Windows atau jalankan sekali di jaringan lain; berkas yang sudah tersalin tidak perlu diulang. |
 | «Komputer ini belum punya Python 3.10+» | Paket tidak membawa Python bawaan. Centang **«Bila perlu, unduh Python dari python.org»** pada wizard, atau pasang Python manual (<https://www.python.org/downloads/>, centang «Add python.exe to PATH»). |
+| Entri **SM** tidak ada di Control Panel / «Aplikasi & Fitur» | Entri ditulis saat pemasangan (wizard: opsi *Daftarkan di Control Panel*; baris perintah: tanpa `--tanpa-daftar-aplikasi`). Periksa dengan `python pemasang\pasang.py periksa` — ada baris **Control Panel**. Bila belum terdaftar, jalankan ulang pemasang ke folder yang sama (memperbarui, data sekolah tetap) — atau jalankan pencabutan lewat `Hapus-SM.cmd`. |
+| Tombol **Uninstall** di Control Panel tidak bereaksi | Berkas pencabut di luar folder aplikasi (`%LOCALAPPDATA%\Programs\SM-Pencabut\Hapus-SM.vbs`) mungkin sudah terhapus. Pakai `Hapus-SM.cmd` di folder aplikasi, atau jalankan pemasang sekali lagi untuk memperbaiki berkas pencabut. |
 | Ikon Desktop tidak muncul | Pemasang memberi tahu di catatan bila gagal. Buat manual: klik kanan `Jalankan-SM.cmd` → **Kirim ke → Desktop (buat pintasan)**. |
 | «Folder tujuan sudah berisi berkas lain» | Pilih folder lain pada halaman pilihan (pemasang tidak menimpa berkas orang lain). |
 | Saat aplikasi dijalankan muncul jendela hitam (terminal) | Jendela itu muncul bila SM dijalankan lewat `Jalankan-SM.cmd`/`SM.cmd`, bukan lewat ikon **SM**. Ikon SM memakai `SM.vbs` → `pythonw.exe` (tanpa konsol). Tutup jendelanya dan pakai ikon **SM**; untuk mencari masalah pakai `python SM-latar.py --tampak`. |
 | Ikon **SM** diklik tetapi aplikasi tidak terbuka | Periksa `data\server.json` (port & pid) dan `data\log-server.txt` (pesan terakhir aplikasi); jalankan `python SM-latar.py --status`. Bila perlu, `python SM-latar.py --hentikan` lalu klik ikon SM sekali lagi. |
 | Daftar ekstrakurikuler sudah terisi padahal ingin mulai kosong | Pemasangan baru sudah kosong. Daftar 14 ekskul resmi hanya terisi bila diminta (tombol di halaman Ekstrakurikuler atau `python run.py --isi-ekskul-resmi`); `SM_EKSKUL_SEKOLAH=0` (bawaan) memastikan tidak ada pengisian otomatis. |
 
-## 8. Menghapus
+## 8. Menghapus (uninstall) — termasuk dari Control Panel
 
-* **Windows → Pengaturan → Aplikasi → SM → Hapus** (folder `…\Programs\SM`), atau
-* klik dua kali **`Hapus-SM.cmd`** di folder aplikasi.
-* Data sekolah tetap tersimpan bila folder datanya berada di luar folder aplikasi
-  (mis. `D:\SM-data`); hapus manual hanya bila memang ingin dibuang.
+| Cara | Langkah |
+| --- | --- |
+| **Control Panel** | *Control Panel → Programs and Features* (Windows 10/11: *Pengaturan → Aplikasi → Aplikasi & fitur*) → **SM — Sistem Informasi Manajemen Sekolah** → **Uninstall** |
+| **Menu Mulai** | cari **SM**, klik kanan → **Uninstall** (entri yang sama dengan Control Panel) |
+| **Berkas pencabut** | klik dua kali **`Hapus-SM.cmd`** di folder aplikasi, atau **`Hapus-SM.vbs`** |
+| **Command Prompt** | `python pemasang\pasang.py hapus --ya` |
+
+Apa yang dikerjakan pencabut, berurutan:
+
+1. mematikan aplikasi SM bila sedang berjalan (`SM-latar.py --hentikan`);
+2. membuang entri Control Panel (`HKCU\…\Uninstall\SM`) dan berkas pencabut di luar folder
+   aplikasi;
+3. membuang pintasan Desktop, menu Start, dan berkas «jalankan otomatis» bila ada;
+4. menghapus folder program beserta folder pencabutnya.
+
+Yang **tidak** dikerjakan: **folder data sekolah tidak dihapus**. Basis data, unggahan, dan
+hasil ekspor tetap ada di tempatnya (biasanya `…\Programs\SM\data`, atau folder yang dipilih
+saat pemasangan seperti `D:\SM-data`); pencabut menampilkan letaknya. Hapus folder itu manual
+hanya bila data memang ingin dibuang.
+
+Pencabutan dari Control Panel berjalan **tanpa jendela tambahan** — `Hapus-SM.vbs` dipanggil
+lewat `wscript.exe`, bekerja di belakang layar, lalu menampilkan satu pesan singkat bahwa
+aplikasi sudah dicabut dan di mana data sekolah disimpan.

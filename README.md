@@ -654,6 +654,7 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 │   ├── BUAT-BODAP.bat          #   klik dua kali di Windows → dist\bodap.exe
 │   ├── PANDUAN-BODAP.md        #   petunjuk bodap.exe untuk pengguna
 │   ├── pasang.py               #   pemasang multi-platform: pasang/periksa/perbarui/hapus
+│   ├── pencabut_sm.py          #   pencabut + entri Control Panel «Aplikasi & Fitur»
 │   └── buat_paket.py           #   pembuat paket ZIP (mis. + berkas pustaka untuk offline)
 ├── scripts/
 │   ├── cek_sistem.py          # pemeriksaan mandiri 26 titik uji
@@ -810,6 +811,9 @@ Bila ingin **cukup membawa satu berkas ke laptop/PC lain**, pakai **`bodap.exe`*
    `SM-latar.py` lewat `pythonw.exe`), jadi tidak ada jendela hitam yang perlu dibiarkan
    terbuka; aplikasi dimatikan kapan saja lewat pintasan **Hentikan SM** di menu Start, dan
    catatan aplikasi tersimpan di `data\log-server.txt` bila perlu diperiksa.
+   SM juga terdaftar di **Control Panel → Programs and Features** (dan *Pengaturan →
+   Aplikasi*) lengkap dengan versi, ukuran, dan ikonnya — pencabutannya cukup lewat tombol
+   **Uninstall** di sana (lihat «Mencabut aplikasi» di bawah).
 5. Hasil pemasangan **fresh & kosong**: tidak ada siswa contoh dan **daftar ekstrakurikuler
    juga kosong**. Isi 14 ekskul resmi lewat tombol **«Isi daftar ekskul resmi (14)»** di
    halaman Ekstrakurikuler (atau `python run.py --isi-ekskul-resmi`).
@@ -825,10 +829,24 @@ bodap.exe --uji              :: uji mandiri: pasang → jalankan → periksa →
 ```
 
 Petunjuk lengkapnya: **`pemasang/PANDUAN-BODAP.md`**. Ujinya: `python scripts/uji_bodap.py`
-(38 pemeriksaan — termasuk: aplikasi dijalankan **di belakang layar tanpa jendela**,
-bisa dihentikan lewat `--hentikan`, dan basis data hasil pemasangan **benar-benar kosong**)
+(64 pemeriksaan — termasuk: aplikasi dijalankan **di belakang layar tanpa jendela**,
+bisa dihentikan lewat `--hentikan`, basis data hasil pemasangan **benar-benar kosong**, serta
+**entri Control Panel & berkas pencabut yang membuat SM bisa dicabut dari «Aplikasi & Fitur»**)
 dan alur GitHub Actions yang menjalankan `bodap.exe --uji` di runner Windows sebelum artifact
 diunggah.
+
+### Mencabut (uninstall) aplikasi
+
+| Cara | Langkah |
+| --- | --- |
+| **Control Panel** (Windows) | *Control Panel → Programs and Features* (Windows 10/11: *Pengaturan → Aplikasi*) → **SM — Sistem Informasi Manajemen Sekolah** → **Uninstall** — berjalan tanpa jendela tambahan: aplikasi dimatikan dulu, lalu program, pintasan, dan pendaftarannya dibersihkan |
+| **Berkas pencabut** | klik dua kali `Hapus-SM.cmd` di folder aplikasi (atau `Hapus-SM.vbs`) |
+| **Perintah** | `python pemasang/pasang.py hapus --ya` (tambahkan `--dengan-data` bila data sekolah memang ingin ikut dihapus) |
+
+**Data sekolah tidak pernah dihapus** oleh pencabutan: folder `data` (basis data, unggahan,
+hasil ekspor) dibiarkan apa adanya dan pencabut memberi tahu letaknya. Untuk pemasangan yang
+dibuat `bodap.exe`, entri Control Panel ditulis saat pemasangan (bisa dimatikan dengan
+`--tanpa-daftar-aplikasi` atau pilihan di wizard).
 
 ### Cara lain (semua sistem)
 

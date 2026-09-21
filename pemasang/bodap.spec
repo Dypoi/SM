@@ -36,12 +36,14 @@ if versi.exists():
 
 a = Analysis(
     [str(AKAR / "pemasang" / "bodap_win.py")],
-    pathex=[str(AKAR)],
+    pathex=[str(AKAR), str(AKAR / "pemasang")],
     binaries=[],
     datas=datas,
     hiddenimports=[
         "tkinter", "tkinter.ttk", "tkinter.filedialog", "tkinter.messagebox",
         "tkinter.constants", "tkinter.font",
+        # pencabut + pendaftaran Control Panel (pemasang/pencabut_sm.py)
+        "pencabut_sm",
     ],
     hookspath=[],
     hooksconfig={},

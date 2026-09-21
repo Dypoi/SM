@@ -5,10 +5,13 @@ Yang diuji di sini (semuanya nyata, bukan tiruan):
 
 1. ikon ``bodap.ico`` benar-benar terbentuk & isinya sah (7 ukuran, format ICO);
 2. ``buat_payload.py`` menyiapkan ``payload/`` (``app.zip`` bersih dari data siswa + pip);
-3. **uji mandiri bodap** — ``bodap_win.py --uji``: memasang ke folder sementara, memeriksa
+3. **pencabutan lewat Control Panel** — entri registry «Aplikasi & Fitur» lengkap
+   (``DisplayName``/``DisplayVersion``/``UninstallString`` …), berkas pencabut ditulis juga
+   **di luar** folder aplikasi, dan pencabutnya tidak pernah menghapus folder data;
+4. **uji mandiri bodap** — ``bodap_win.py --uji``: memasang ke folder sementara, memeriksa
    berkas hasil, **menjalankan aplikasinya sampai halaman utama menjawab HTTP**, menjalankan
    ``--periksa``, lalu ``--hapus`` dan memastikan **folder data di luar aplikasi tetap ada**;
-4. berkas pembangunan Windows ada & sah: ``bodap.spec`` (bisa dikompilasi),
+5. berkas pembangunan Windows ada & sah: ``bodap.spec`` (bisa dikompilasi),
    ``BUAT-BODAP.bat``, dan alur GitHub Actions (``.github/workflows/bodap-windows.yml``)
    yang membangun ``bodap.exe`` di runner Windows lalu menjalankan uji ini juga.
 
@@ -84,7 +87,8 @@ def uji_payload() -> dict:
     with zipfile.ZipFile(zip_program) as z:
         nama = z.namelist()
     wajib = {"run.py", "requirements.txt", "app/main.py", "pemasang/pasang.py",
-             "pemasang/buat_paket.py", "template-import/contoh-template-import.xlsx"}
+             "pemasang/buat_paket.py", "pemasang/pencabut_sm.py",
+             "template-import/contoh-template-import.xlsx"}
     cek("app.zip memuat seluruh program SM", wajib.issubset(set(nama)),
         f"kurang: {sorted(wajib - set(nama))}")
     terlarang = [n for n in nama
@@ -233,9 +237,99 @@ def uji_periksa_dan_hapus() -> None:
         cek("bodap --periksa tidak membuat folder apa pun", not tujuan.exists())
 
 
+def uji_pencabut_control_panel() -> dict:
+    """SM harus muncul di Control Panel → Programs and Features & bisa dicabut dari sana."""
+    import importlib.util
+
+    berkas = PEMASANG / "pencabut_sm.py"
+    cek("modul pencabut & Control Panel ada (pemasang/pencabut_sm.py)", berkas.exists())
+    if not berkas.exists():
+        return {}
+    spesifikasi = importlib.util.spec_from_file_location("pencabut_sm_uji", berkas)
+    modul = importlib.util.module_from_spec(spesifikasi)
+    spesifikasi.loader.exec_module(modul)
+
+    cek("kunci registry «Aplikasi & Fitur» benar (HKCU\\…\\Uninstall\\SM)",
+        modul.KUNCI_ARP == r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\SM",
+        modul.KUNCI_ARP)
+    with tempfile.TemporaryDirectory(prefix="bodap-cp-") as tmp:
+        tmp = Path(tmp)
+        tujuan, data, pencabut = tmp / "SM", tmp / "data-sekolah", tmp / "SM-Pencabut"
+        python = tmp / "SM/python/python.exe"
+        (python.parent).mkdir(parents=True, exist_ok=True)
+        python.write_text("", encoding="utf-8")
+        info = modul.tulis_pencabut(tujuan, data, python, pencabut=pencabut)
+        for nama in ("Hapus-SM.cmd", "Hapus-SM.vbs"):
+            cek(f"pencabut ditulis di folder aplikasi: {nama}", (tujuan / nama).exists())
+            cek(f"pencabut ditulis di LUAR folder aplikasi (dipakai Control Panel): {nama}",
+                (pencabut / nama).exists())
+
+        nilai = {nama: isi for nama, (_jenis, isi) in modul.nilai_arp(
+            tujuan, data, "0.1.0", pencabut=pencabut).items()}
+        wajib = ("DisplayName", "DisplayVersion", "Publisher", "InstallLocation",
+                 "UninstallString", "QuietUninstallString", "NoModify", "NoRepair")
+        kurang = [n for n in wajib if not nilai.get(n)]
+        cek("entri Control Panel memuat nilai wajib " + f"({len(wajib)} nilai)", not kurang,
+            f"kurang: {kurang}")
+        cek("UninstallString menjalankan berkas pencabut lewat wscript",
+            "Hapus-SM.vbs" in str(nilai.get("UninstallString", ""))
+            and "wscript" in str(nilai.get("UninstallString", "")).lower(),
+            str(nilai.get("UninstallString", ""))[:120])
+        cek("QuietUninstallString ada (pencabutan diam-diam tanpa jendela)",
+            "sunyi" in str(nilai.get("QuietUninstallString", "")))
+        cek("entri menyebut folder data agar data sekolah tidak dikira ikut terhapus",
+            str(data) in str(nilai.get("Comments", "")), str(nilai.get("Comments", ""))[:120])
+        perintah = modul.perintah_registri(modul.nilai_arp(tujuan, data, "0.1.0",
+                                                           pencabut=pencabut))
+        cek("perintah registry ditulis ke kunci Uninstall dengan perintah «add»",
+            all("add" in baris for baris in perintah)
+            and any("Uninstall" in " ".join(baris) for baris in perintah))
+
+        isi_cmd = (pencabut / "Hapus-SM.cmd").read_text(encoding="utf-8", errors="replace")
+        isi_vbs = (pencabut / "Hapus-SM.vbs").read_text(encoding="utf-8", errors="replace")
+        cek("pencabut mematikan aplikasi yang sedang berjalan (SM-latar.py --hentikan)",
+            "--hentikan" in isi_cmd and "SM-latar.py" in isi_cmd)
+        cek("pencabut membuang entri Control Panel (reg delete kunci Uninstall)",
+            "reg delete" in isi_cmd and "Uninstall" in isi_cmd)
+        cek("pencabut membuang pintasan Desktop, menu Start, & jalankan-otomatis",
+            "Desktop\\SM.lnk" in isi_cmd and "Programs\\SM.lnk" in isi_cmd
+            and "Startup\\SM.cmd" in isi_cmd)
+        cek("pencabut menghapus folder program & folder pencabutnya sendiri",
+            "rmdir /s /q \"%SM_TUJUAN%\"" in isi_cmd
+            and "rmdir /s /q \"%SM_PENCABUT%\"" in isi_cmd)
+        cek("folder DATA tidak pernah dihapus pencabut (hanya disebut dalam pesan)",
+            "rmdir" not in isi_cmd.split("%SM_DATA%")[0] or
+            "rmdir /s /q \"%SM_DATA%\"" not in isi_cmd)
+        cek("Hapus-SM.vbs bekerja tanpa jendela & bisa diam (argumen «sunyi»)",
+            "WScript.Shell" in isi_vbs and "sunyi" in isi_vbs.lower()
+            and ", 0, True" in isi_vbs)
+        cek("Hapus-SM.vbs memberi tahu (MsgBox) bahwa data sekolah tetap ada",
+            "MsgBox" in isi_vbs and str(data) in isi_vbs)
+
+        # kepemilikan folder pencabut: pencabutan pemasangan lain tidak boleh ikut terbuang
+        cek("folder pencabut dikenali sebagai milik pemasangan ini",
+            modul.folder_milik(tujuan, pencabut) == str(pencabut))
+        cek("folder pencabut pemasangan LAIN tidak diklaim",
+            modul.folder_milik(tmp / "SM-lain", pencabut) == "")
+        cek("berkas pencabut memuat penanda pemiliknya (SM_TUJUAN=…)",
+            f"SM_TUJUAN={tujuan}" in (pencabut / "Hapus-SM.vbs").read_text(encoding="utf-8",
+                                                                          errors="replace"))
+        lain = tmp / "SM-Pencabut-lain"
+        modul.tulis_pencabut(tmp / "SM-lain", data, python, pencabut=lain)
+        cek("pencabut pemasangan lain tidak ikut dihapus (nama jalur mirip: «SM» vs «SM-lain»)",
+            modul.hapus_folder_pencabut(tujuan, lain) == "" and lain.exists()
+            and modul.folder_milik(tujuan, lain) == "")
+
+        if os.name != "nt":
+            cek("di luar Windows: pendaftaran Control Panel dilaporkan jujur (tidak mengaku "
+                "berhasil)", modul.daftarkan(tujuan, data, "0.1.0") == []
+                and modul.terdaftar() is False)
+        return {"kunci": modul.KUNCI_ARP}
+
+
 def uji_berkas_pembangunan() -> None:
     for nama in ("bodap_win.py", "bodap.spec", "buat_payload.py", "buat_ikon.py",
-                 "BUAT-BODAP.bat", "pasang.py", "buat_paket.py",
+                 "BUAT-BODAP.bat", "pasang.py", "buat_paket.py", "pencabut_sm.py",
                  "ci/bodap-windows.yml", "PANDUAN-BODAP.md"):
         cek(f"berkas pemasang ada: pemasang/{nama}", (PEMASANG / nama).exists())
     try:
@@ -251,6 +345,11 @@ def uji_berkas_pembangunan() -> None:
     alur = AKAR / ".github" / "workflows" / "bodap-windows.yml"
     if not alur.exists():
         alur = PEMASANG / "ci" / "bodap-windows.yml"
+    cek("bodap.spec membawa modul pencabut/Control Panel (hiddenimports)",
+        "pencabut_sm" in (PEMASANG / "bodap.spec").read_text(encoding="utf-8"))
+    isi_panduan = (PEMASANG / "PANDUAN-BODAP.md").read_text(encoding="utf-8")
+    cek("panduan menjelaskan pencabutan lewat Control Panel",
+        "Control Panel" in isi_panduan and "Hapus-SM.vbs" in isi_panduan)
     cek("alur GitHub Actions untuk bodap.exe ada", alur.exists(),
         "tidak ada di .github/workflows maupun pemasang/ci")
     if alur.exists():
@@ -276,6 +375,7 @@ def main() -> int:
     print("=" * 78)
     uji_berkas_pembangunan()
     uji_ikon()
+    uji_pencabut_control_panel()
     info_payload = uji_payload()
     uji_periksa_dan_hapus()
     info_wheels: dict = {}

@@ -2943,7 +2943,8 @@ def cek_pemasang():
         kode, ringkas = jalankan([str(buat), "--keluar", str(paket)])
         assert kode == 0 and paket.exists(), f"paket ZIP gagal dibuat: {ringkas}"
         nama_di_zip = _zip.ZipFile(paket).namelist()
-        assert "SM/run.py" in nama_di_zip and "SM/pemasang/pasang.py" in nama_di_zip, \
+        assert ("SM/run.py" in nama_di_zip and "SM/pemasang/pasang.py" in nama_di_zip
+                and "SM/pemasang/pencabut_sm.py" in nama_di_zip), \
             "isi paket tidak lengkap"
         assert "SM/PASANG.bat" in nama_di_zip and "SM/pasang.sh" in nama_di_zip, \
             "paket tidak memuat berkas pemasang (PASANG.bat/pasang.sh)"
@@ -2960,7 +2961,8 @@ def cek_pemasang():
                                 "--tanpa-venv"])
         assert kode == 0, f"pemasangan gagal: {hasil}"
         for wajib in ("run.py", "app/main.py", "Jalankan-SM.cmd", "jalankan-sm.sh",
-                      "BACA-INI-SM.txt", ".sm-pemasangan.json"):
+                      "BACA-INI-SM.txt", ".sm-pemasangan.json", "SM.vbs", "Hentikan-SM.vbs",
+                      "Hapus-SM.cmd", "Hapus-SM.vbs", "pemasang/pencabut_sm.py"):
             assert (tujuan / wajib).exists(), f"hasil pemasangan tidak memuat {wajib}"
         assert (data_luar / "sm.sqlite3").exists(), "basis data tidak dibuat di folder data"
         assert not (tujuan / "data").exists(), "folder data dibuat di dalam aplikasi padahal diminta di luar"
@@ -3058,6 +3060,22 @@ def cek_bodap():
     assert "BERKAS_REQ" in isi_payload and "requirements.txt" in isi_payload, \
         "buat_payload tidak mengambil versi pustaka dari requirements.txt"
     assert "wheels-terlewat" in isi_payload, "buat_payload tidak mencatat pustaka yang terlewat"
+
+    # r24: pencabutan lewat Control Panel → «Programs and Features» (entri registry HKCU).
+    isi_pencabut = (pemasang / "pencabut_sm.py").read_text(encoding="utf-8")
+    for tanda in ("KUNCI_ARP", "Uninstall", "DisplayName", "DisplayVersion", "Publisher",
+                  "InstallLocation", "UninstallString", "QuietUninstallString",
+                  "Hapus-SM.vbs", "sunyi", "reg", "delete"):
+        assert tanda in isi_pencabut, f"pencabut_sm tidak memuat {tanda!r}"
+    _isi_bodap_r24 = (pemasang / "bodap_win.py").read_text(encoding="utf-8")
+    assert "_muat_pencabut" in _isi_bodap_r24 and "daftarkan_aplikasi" in _isi_bodap_r24, \
+        "bodap_win tidak memakai modul pencabut/Control Panel"
+    assert "pencabut_sm" in isi_spec, "bodap.spec tidak membawa modul pencabut_sm"
+    isi_pasang = (pemasang / "pasang.py").read_text(encoding="utf-8")
+    assert "pencabut_sm" in isi_pasang and "daftarkan_control_panel" in isi_pasang, \
+        "pasang.py tidak mendaftarkan Control Panel / menulis berkas pencabut"
+    assert "Control Panel" in panduan and "Hapus-SM.vbs" in panduan, \
+        "panduan bodap belum menjelaskan pencabutan lewat Control Panel"
     isi_bodap = (pemasang / "bodap_win.py").read_text(encoding="utf-8")
     assert "--no-index" in isi_bodap and "dilanjutkan dengan unduhan internet" in isi_bodap, \
         "bodap_win tidak punya jalan keluar internet saat berkas pustaka bawaan tidak cocok"
@@ -3093,6 +3111,8 @@ def cek_bodap():
                      or (n.endswith((".xlsx", ".xls", ".ods"))
                          and "template-import/" not in n)]
         assert not terlarang, f"app.zip memuat berkas yang tidak boleh dibagikan: {terlarang[:4]}"
+        assert "pemasang/pencabut_sm.py" in nama_di_zip, \
+            "app.zip tidak membawa modul pencabut (dipakai Control Panel)"
 
         # periksa: melaporkan «belum terpasang» dan TIDAK membuat folder apa pun
         belum = kerja / "belum-ada"
@@ -3107,6 +3127,7 @@ def cek_bodap():
         assert not belum.exists(), "periksa membuat folder (seharusnya tidak mengubah apa pun)"
 
     return ("ikon ICO 7 ukuran (16–256) · app.zip berisi seluruh program tanpa data siswa · "
+            "pencabutan lewat Control Panel (entri Uninstall + pencabut di luar folder) · "
             "berkas pustaka bawaan dibuat DARI requirements.txt + dicatat bila ada yang "
             "terlewat · pemasang lanjut unduh dari internet bila berkas bawaan tidak cocok · "
             "bodap.spec & panduan lengkap · alur GitHub Actions membangun bodap.exe di runner "

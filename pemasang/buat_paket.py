@@ -73,7 +73,7 @@ def siapkan_hirarki(sumber: Path, kerja: Path) -> Path:
                     ignore=_abaikan(sumber, {"pemasang", "PASANG.bat", "HAPUS.bat",
                                              "pasang.sh", "hapus.sh", "BACA-INI.txt"}))
     (tujuan / "pemasang").mkdir(parents=True, exist_ok=True)
-    for nama in ("pasang.py", "buat_paket.py", "__init__.py"):
+    for nama in ("pasang.py", "pencabut_sm.py", "buat_paket.py", "__init__.py"):
         asal = AKAR / "pemasang" / nama
         if asal.exists():
             shutil.copy2(asal, tujuan / "pemasang" / nama)
