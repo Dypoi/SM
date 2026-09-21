@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import re
 import shutil
 import subprocess
 import sys
@@ -50,9 +51,11 @@ PENGECUALIAN_POLA = ("template-import/*",)
 #: Pustaka yang harus ada di paket agar pip bisa ditanam tanpa internet.
 BOOTSTRAP = ("pip", "setuptools", "wheel")
 
-#: Seluruh pustaka aplikasi (untuk pemasangan tanpa internet).
-PUSTAKA = ("fastapi", "uvicorn[standard]", "jinja2", "python-multipart", "itsdangerous",
-           "openpyxl", "xlrd", "pyxlsb", "odfpy", "selenium")
+#: Berkas permintaan pustaka milik aplikasi — inilah sumber kebenaran versinya.
+#: Sengaja TIDAK memakai daftar nama yang ditulis tangan: dulu itu membuat berkas pustaka
+#: bawaan berisi versi terbaru (mis. python-multipart 0.0.32) padahal aplikasi meminta versi
+#: yang dipatok (0.0.20) — pemasangan tanpa internet jadi gagal walau internet tersedia.
+BERKAS_REQ = ("requirements.txt", "requirements-bot.txt")
 
 PYTHON_EMBED_RILIS = "3.12.8"
 
@@ -137,27 +140,189 @@ def ambil_bootstrap() -> int:
     return jumlah
 
 
+def _pin_permintaan() -> list[tuple[str, str]]:
+    """Daftar (nama, permintaan) dari ``requirements*.txt`` — mis. ``("odfpy", "odfpy==1.4.1")``."""
+    hasil: list[tuple[str, str]] = []
+    for nama_berkas in BERKAS_REQ:
+        berkas = AKAR / nama_berkas
+        if not berkas.exists():
+            continue
+        for baris in berkas.read_text(encoding="utf-8").splitlines():
+            baris = baris.split("#", 1)[0].strip()
+            if not baris or baris.startswith("-"):
+                continue
+            nama = re.split(r"[<>=!~\[]", baris, 1)[0].strip()
+            if nama:
+                hasil.append((nama, baris))
+    return hasil
+
+
+def _pip_download(tujuan: Path, argumen: list[str], waktu: int = 3600) -> bool:
+    perintah = [sys.executable, "-m", "pip", "download", "--dest", str(tujuan),
+                "--disable-pip-version-check", "--quiet", *argumen]
+    hasil = subprocess.run(perintah, capture_output=True, text=True, timeout=waktu)
+    if hasil.returncode != 0:
+        pesan = (hasil.stderr or hasil.stdout or "").strip().splitlines()
+        if pesan:
+            _cetak("        " + pesan[-1][:160])
+    return hasil.returncode == 0
+
+
+def _berkas_cocok(folder: Path, nama: str, versi: str = "") -> bool:
+    """Apakah ``folder`` sudah memuat berkas pustaka untuk ``nama`` (opsional versi tertentu)."""
+    pola = nama.lower().replace("_", "-").replace("-", "[-_]")
+    cocok = [p for p in folder.iterdir()
+             if re.match(rf"^{pola}-", p.name.lower().replace("_", "-"))]
+    if not versi:
+        return bool(cocok)
+    return any(re.match(rf"^{pola}-{re.escape(versi)}[-.]", p.name.lower().replace("_", "-"))
+               for p in cocok)
+
+
+def _keperluan_sumber(berkas: Path) -> list[str]:
+    """Nama pustaka yang dibutuhkan sebuah berkas kode sumber.
+
+    Dibaca dari tiga tempat, karena tidak semuanya lengkap: ``PKG-INFO``/``METADATA``
+    (``Requires-Dist``), lalu ``setup.py``/``setup.cfg``/``pyproject.toml``
+    (``install_requires``/``dependencies``) — inilah yang melewatkan ``defusedxml`` milik
+    ``odfpy``: metadatanya kosong, tetapi ``setup.py``-nya memintanya.
+    """
+    import tarfile
+
+    nama: list[str] = []
+    try:
+        with tarfile.open(berkas) as tar:
+            for info in tar.getmembers():
+                if not info.isfile():
+                    continue
+                pendek = info.name.rsplit("/", 1)[-1]
+                if pendek not in ("PKG-INFO", "METADATA", "setup.py", "setup.cfg",
+                                  "pyproject.toml"):
+                    continue
+                isi = tar.extractfile(info).read().decode("utf-8", "replace")
+                nama += _nama_dari_teks_metadata(isi)
+    except (tarfile.TarError, OSError, AttributeError):
+        return []
+    keluaran: list[str] = []
+    for satu in nama:
+        bersih = satu.strip()
+        if bersih and bersih not in keluaran:
+            keluaran.append(bersih)
+    return keluaran
+
+
+def _nama_dari_teks_metadata(isi: str) -> list[str]:
+    """Ambil nama pustaka dari teks metadata (``Requires-Dist``/``install_requires``/…)."""
+    hasil: list[str] = []
+    for baris in isi.splitlines():
+        if baris.lower().startswith("requires-dist:"):
+            hasil.append(baris.split(":", 1)[1])
+    for kunci in ("install_requires", "dependencies", "requires"):
+        posisi = isi.find(kunci)
+        while posisi >= 0:
+            potong = isi.find("[", posisi)
+            if potong < 0:
+                break
+            dalam = isi.find("]", potong)
+            if dalam < 0:
+                break
+            isi_daftar = isi[potong + 1:dalam]
+            hasil += re.findall(r"['\"]([A-Za-z0-9_.\-]+)", isi_daftar)
+            posisi = isi.find(kunci, dalam)
+    bersih: list[str] = []
+    for satu in hasil:
+        nama = re.split(r"[<>=!~;,\s\[\]]", satu.strip(), 1)[0].strip()
+        if nama and nama.lower() not in ("python",) and nama not in bersih:
+            bersih.append(nama)
+    return bersih
+
+
 def ambil_wheels(untuk_python: str, untuk_platform: str) -> int:
-    """Seluruh pustaka aplikasi ke ``payload/wheels`` → pemasangan bisa tanpa internet."""
+    """Seluruh pustaka aplikasi ke ``payload/wheels`` → pemasangan bisa tanpa internet.
+
+    Versinya diambil dari ``requirements.txt``/``requirements-bot.txt`` (persis yang diminta
+    aplikasi), bukan daftar nama. Untuk paket yang hanya ada sebagai kode sumber (mis.
+    ``odfpy``), berkas sumbernya diunduh beserta keperluannya supaya bisa dibangun saat
+    pemasangan tanpa internet.
+    """
     folder = PAYLOAD / "wheels"
     folder.mkdir(parents=True, exist_ok=True)
-    perintah = [sys.executable, "-m", "pip", "download", "--dest", str(folder),
-                "--disable-pip-version-check", "--quiet"]
+    flags: list[str] = []
     if untuk_platform:
-        perintah += ["--platform", untuk_platform, "--only-binary=:all:"]
+        flags += ["--platform", untuk_platform]
     if untuk_python:
-        perintah += ["--python-version", untuk_python]
-    perintah += list(PUSTAKA)
+        flags += ["--python-version", untuk_python]
+    batas = flags + ["--only-binary=:all:"]
+
     _cetak(f"  Mengunduh pustaka aplikasi ({untuk_platform or 'platform ini'}, "
-           f"Python {untuk_python or 'versi ini'}) ...")
-    hasil = subprocess.run(perintah, capture_output=True, text=True, timeout=3600)
-    if hasil.returncode != 0:
-        _cetak("  [!] Sebagian pustaka gagal diunduh; mencoba lagi tanpa odfpy/selenium ...")
-        perintah2 = [p for p in perintah if p not in ("odfpy", "selenium")]
-        subprocess.run(perintah2, capture_output=True, text=True, timeout=3600)
-    berkas = sorted(folder.glob("*.whl")) + sorted(folder.glob("*.tar.gz"))
+           f"Python {untuk_python or 'versi ini'}) dari {', '.join(BERKAS_REQ)} ...")
+
+    # 1) cara utama: seluruh berkas permintaan sekaligus (versi ikut apa yang dipatok aplikasi)
+    if not _pip_download(folder, batas + ["-r", "requirements.txt"]
+                         + (["-r", "requirements-bot.txt"] if (AKAR / "requirements-bot.txt").exists()
+                            else [])):
+        _cetak("      Ada pustaka yang tidak punya berkas siap-pasang untuk platform tujuan "
+               "— diunduh satu per satu ...")
+        # 2) satu per satu: supaya satu pustaka bermasalah tidak menggagalkan semuanya
+        for nama, permintaan in _pin_permintaan():
+            versi = permintaan.split("==", 1)[1] if "==" in permintaan else ""
+            if _berkas_cocok(folder, nama, versi):
+                continue
+            if _pip_download(folder, batas + [permintaan]):
+                continue
+            # 3) belum ada: coba berkas sumbernya (tanpa keperluan), lalu keperluannya menyusul
+            if _pip_download(folder, flags + ["--no-deps", "--no-binary", ":none:", permintaan]):
+                # Berkas kode sumber ikut dibawa + keperluannya (rekursif, maksimal 3 lapis)
+                antre = [p for p in sorted(folder.iterdir())
+                         if p.name.endswith((".tar.gz", ".zip"))
+                         and p.name.lower().startswith(nama.lower().replace("_", "-").split("==")[0])]
+                lapis = 0
+                while antre and lapis < 3:
+                    lapis += 1
+                    berikutnya: list[Path] = []
+                    for berkas in antre:
+                        for keperluan in _keperluan_sumber(berkas):
+                            if _berkas_cocok(folder, keperluan):
+                                continue
+                            if _pip_download(folder, batas + [keperluan]):
+                                continue
+                            if _pip_download(folder, flags + ["--no-deps", "--no-binary",
+                                                              ":none:", keperluan]):
+                                berikutnya += [p for p in sorted(folder.iterdir())
+                                               if p.name.endswith((".tar.gz", ".zip"))
+                                               and p.name.lower().startswith(
+                                                   keperluan.lower().replace("_", "-"))]
+                                _cetak(f"        {keperluan} dibawa sebagai kode sumber "
+                                       "(dibangun saat pemasangan)")
+                    antre = berikutnya
+                continue
+            _cetak(f"      [!] {permintaan} tidak bisa diunduh untuk platform tujuan "
+                   "(akan diunduh saat pemasangan, perlu internet).")
+
+    # 4) pip/setuptools/wheel ikut disalin: dibutuhkan saat membangun pustaka dari kode sumber
+    #    tanpa internet (build isolation).
+    for berkas in (PAYLOAD / "bootstrap").glob("*.whl"):
+        if not (folder / berkas.name).exists():
+            shutil.copy2(berkas, folder / berkas.name)
+
+    # 5) periksa: setiap pin aplikasi harus punya berkasnya — yang kurang dicatat terang-terangan
+    kurang: list[str] = []
+    for nama, permintaan in _pin_permintaan():
+        versi = permintaan.split("==", 1)[1] if "==" in permintaan else ""
+        if not _berkas_cocok(folder, nama, versi):
+            kurang.append(f"{permintaan} ({nama}: berkas untuk platform {untuk_platform or 'ini'}"
+                          f" / Python {untuk_python or 'ini'} tidak tersedia sebagai paket siap-pasang"
+                          " — akan diunduh saat pemasangan, perlu internet)")
+    (PAYLOAD / "wheels-terlewat.txt").write_text(
+        "\n".join(kurang) + ("\n" if kurang else ""), encoding="utf-8")
+
+    berkas = sorted(p for p in folder.iterdir() if p.suffix in (".whl", ".gz", ".zip"))
     ukuran = sum(p.stat().st_size for p in berkas) / 1024 / 1024
-    _cetak(f"  wheels       : {len(berkas)} berkas, {ukuran:.0f} MB")
+    _cetak(f"  wheels       : {len(berkas)} berkas, {ukuran:.0f} MB"
+           + (f", {len(kurang)} pustaka perlu internet" if kurang else " (lengkap)"))
+    if kurang:
+        for baris in kurang:
+            _cetak(f"      ! {baris}")
     return len(berkas)
 
 
@@ -195,7 +360,10 @@ def tulis_versi() -> str:
 
 
 def buat(args) -> dict:
-    _cetak("Menyiapkan payload bodap ...")
+    global PAYLOAD
+    if getattr(args, "keluar", None):
+        PAYLOAD = Path(args.keluar).expanduser().resolve()
+    _cetak(f"Menyiapkan payload bodap di {PAYLOAD} ...")
     versi = tulis_versi()
     app = buat_app_zip()
     bootstrap = ambil_bootstrap()
@@ -218,6 +386,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--untuk-python", default="3.12", help="versi Python tujuan (bawaan 3.12)")
     p.add_argument("--untuk-platform", default="win_amd64",
                    help="platform tujuan (bawaan win_amd64)")
+    p.add_argument("--keluar", help="folder payload lain (mis. untuk uji)")
     args = p.parse_args(argv)
     hasil = buat(args)
     return 0 if hasil.get("ok") else 1

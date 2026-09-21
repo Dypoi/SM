@@ -863,6 +863,19 @@ pemasang otomatis memakai folder itu (`--no-index`) sehingga **tidak perlu inter
 sekali**. Berkas `.whl` hanya cocok untuk satu jenis sistem + versi Python — itulah gunanya
 `--untuk-platform`/`--untuk-python` bila paket dibangun dari sistem yang berbeda.
 
+### Bila pemasangan pustaka bermasalah
+
+`bodap.exe` memasang pustaka berurutan: **berkas bawaan di dalam paket** (tanpa internet) →
+bila berkas bawaan tidak cocok/kurang, **dilanjutkan unduhan dari internet** (berkas bawaan
+tetap dipakai untuk yang sudah ada) → baru menyerah. Jadi selama komputer bisa membuka
+`pypi.org`, pemasangan tetap selesai. Bila tetap gagal:
+
+1. Periksa jaringan sekolah (proxy/filter kadang memblokir `pypi.org`) atau coba di jaringan lain.
+2. Buat ulang `bodap.exe` dengan `pemasang\BUAT-BODAP.bat` — bundel pustaka bawaan selalu dibuat
+   ulang dari `requirements.txt`, jadi versinya pasti sama dengan yang diminta aplikasi.
+3. Kirimkan berkas `hasil-uji.json` (`bodap.exe --uji --laporan hasil-uji.json`) atau cuplikan
+   jendela pemasang; pesannya sudah menyebut pustaka & versi yang gagal.
+
 ### Yang dijamin pemasang
 
 * **Data sekolah tidak pernah ditimpa.** Folder `data/` (basis data, unggahan, bukti, ekspor)

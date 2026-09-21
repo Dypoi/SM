@@ -65,13 +65,25 @@ bodap.exe --uji                    :: uji mandiri: pasang → jalankan → perik
 
 ## 5. Uji otomatis
 
-* `python scripts/uji_bodap.py` — ikon, isi `payload`, `bodap --uji` (memasang, menjalankan
-  aplikasi sampai halaman utama menjawab HTTP, memeriksa data di luar folder aplikasi tetap
-  ada sesudah pencabutan). Hasil terakhir: **26/26 pemeriksaan**.
+* `python scripts/uji_bodap.py` — ikon, isi `payload`, **kesesuaian berkas pustaka bawaan
+  dengan versi yang dipatok aplikasi**, **pemasangan yang tetap berhasil walau berkas bawaan
+  tidak cocok (lanjut internet)**, dan `bodap --uji` (memasang, menjalankan aplikasi sampai
+  halaman utama menjawab HTTP, memeriksa data di luar folder aplikasi tetap ada sesudah
+  pencabutan). Hasil terakhir: **35/35 pemeriksaan**.
 * Alur GitHub Actions menjalankan `bodap.exe --uji --laporan hasil-uji.json` **di runner
   Windows** sebelum artifact diunggah — jadi berkas yang diunduh sudah terbukti bisa dipasang.
 
-## 6. Menghapus
+## 6. Pemecahan masalah saat memasang
+
+| Gejala | Sebab & jalan keluar |
+| --- | --- |
+| `ERROR: Could not find a version that satisfies the requirement python-multipart==0.0.20 (from versions: 0.0.32)` lalu «Pemasangan pustaka gagal» | Berkas pustaka bawaan di dalam `bodap.exe` itu **versinya berbeda** dari yang diminta aplikasi (kejadian pada bodap.exe lama: bundel memakai versi terbaru, sedangkan aplikasi memakai versi yang dipatok). **Sejak perbaikan ini pemasang otomatis melanjutkan unduhan dari internet**, jadi pesan itu tidak lagi menghentikan pemasangan. Bila masih muncul: buat ulang `bodap.exe` dengan **`pemasang\BUAT-BODAP.bat`** (bundel pustaka baru dibuat dari `requirements.txt`), lalu jalankan lagi. |
+| «Pemasangan pustaka gagal» padahal internet ada | Pastikan unduhan ke `pypi.org` tidak diblokir (jaringan sekolah kadang memakai proxy/filter). Coba setel proxy Windows atau jalankan sekali di jaringan lain; berkas yang sudah tersalin tidak perlu diulang. |
+| «Komputer ini belum punya Python 3.10+» | Paket tidak membawa Python bawaan. Centang **«Bila perlu, unduh Python dari python.org»** pada wizard, atau pasang Python manual (<https://www.python.org/downloads/>, centang «Add python.exe to PATH»). |
+| Ikon Desktop tidak muncul | Pemasang memberi tahu di catatan bila gagal. Buat manual: klik kanan `Jalankan-SM.cmd` → **Kirim ke → Desktop (buat pintasan)**. |
+| «Folder tujuan sudah berisi berkas lain» | Pilih folder lain pada halaman pilihan (pemasang tidak menimpa berkas orang lain). |
+
+## 7. Menghapus
 
 * **Windows → Pengaturan → Aplikasi → SM → Hapus** (folder `…\Programs\SM`), atau
 * klik dua kali **`Hapus-SM.cmd`** di folder aplikasi.

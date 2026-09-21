@@ -554,48 +554,88 @@ class Pemasang:
 
     # -- langkah 4: pustaka -------------------------------------------------- #
     def pasang_pustaka(self, python: Path) -> str:
+        """Pasang pustaka aplikasi — berkas bawaan dulu, lanjut internet bila perlu.
+
+        Urutannya sengaja begitu: (1) ``payload/wheels`` dipakai tanpa internet (``--no-index``);
+        (2) bila berkas bawaan **tidak cocok atau kurang** (versi berbeda dari yang dipatok
+        aplikasi, atau platformnya lain), pemasangan **dilanjutkan dengan unduhan internet** —
+        berkas bawaan tetap dipakai untuk yang sudah ada; (3) kalau Python komputer menolak
+        pemasangan (PEP 668), dipakai ``--break-system-packages`` dengan pemberitahuan jujur.
+        """
         self.cek_batal()
         self.maju(3, 55)
-        berkas = [self.tujuan / "requirements.txt"]
+        berkas_req = [self.tujuan / "requirements.txt"]
         if self.dengan_bot and (self.tujuan / "requirements-bot.txt").exists():
-            berkas.append(self.tujuan / "requirements-bot.txt")
+            berkas_req.append(self.tujuan / "requirements-bot.txt")
+
+        roda = [p for p in (self.payload / "wheels", self.payload / "bootstrap")
+                if p.is_dir() and any(p.glob("*.whl"))]
+        dasar: list = [python, "-m", "pip", "install", "--disable-pip-version-check",
+                       "--no-warn-script-location"]
+        for b in berkas_req:
+            dasar += ["-r", b]
+        for folder in roda:
+            dasar += ["--find-links", folder]
+
         self.catat("Memasang pustaka yang dibutuhkan"
-                   + (" termasuk pustaka bot Dapodik" if self.dengan_bot else "")
-                   + " (perlu internet sekali saja) ...")
-        perintah: list = [python, "-m", "pip", "install", "--disable-pip-version-check",
-                          "--no-warn-script-location"]
-        for b in berkas:
-            perintah += ["-r", b]
-        roda = self.payload / "wheels"
-        dari_bawaan = roda.exists() and any(roda.glob("*.whl"))
-        if dari_bawaan:
-            self.catat(f"Memakai berkas pustaka bawaan "
-                       f"({len(list(roda.glob('*.whl')))} berkas) — tanpa internet.")
-            perintah += ["--no-index", "--find-links", roda]
-        hasil = _jalankan(perintah, cwd=self.tujuan, waktu=7200)
-        if hasil.returncode != 0 and dari_bawaan:
-            self.catat("Ada pustaka yang perlu dibangun dari kode sumber — mencoba sekali lagi ...")
-            hasil = _jalankan(perintah + ["--no-build-isolation"], cwd=self.tujuan, waktu=7200)
-        if hasil.returncode != 0 and "externally-managed-environment" in (
-                hasil.stderr or hasil.stdout or ""):
-            # Terakhir: sebagian Linux menolak pemasangan ke Python sistem (PEP 668) dan .venv
-            # tidak bisa dibuat. Diberitahukan terang-terangan sebelum memakai opsi ini.
-            self.catat("[!] Python komputer ini menolak pemasangan pustaka (PEP 668). "
-                       "Dipakai opsi «--break-system-packages» untuk melanjutkan ...")
-            hasil = _jalankan(perintah + ["--break-system-packages"], cwd=self.tujuan, waktu=7200)
+                   + (" termasuk pustaka bot Dapodik" if self.dengan_bot else "") + " ...")
+        if roda:
+            jumlah = sum(len(list(f.glob("*.whl"))) + len(list(f.glob("*.tar.gz")))
+                         for f in roda)
+            self.catat(f"Berkas pustaka bawaan: {jumlah} berkas di "
+                       + ", ".join(str(f) for f in roda))
+            terlewat = self.payload / "wheels-terlewat.txt"
+            if terlewat.exists():
+                for baris in terlewat.read_text(encoding="utf-8").splitlines():
+                    if baris.strip():
+                        self.catat(f"  ! tidak ada di paket → {baris.strip()}")
+            hasil = _jalankan([*dasar, "--no-index"], cwd=self.tujuan, waktu=7200)
+            if hasil.returncode == 0:
+                return self._selesaikan_pustaka(python, "dari berkas bawaan, tanpa internet")
+            pesan = (hasil.stderr or hasil.stdout or "").strip().splitlines()
+            sebab = next((b for b in pesan if b.startswith("ERROR")), "")[:200]
+            self.catat("Berkas pustaka bawaan belum cukup untuk versi yang diminta aplikasi "
+                       f"({sebab or 'tidak cocok'}) — dilanjutkan dengan unduhan internet "
+                       "(sekali saja; berkas bawaan tetap dipakai untuk yang sudah ada) ...")
+        else:
+            self.catat("Paket ini tidak membawa berkas pustaka — diunduh dari internet "
+                       "(sekali saja) ...")
+
+        hasil = _jalankan(dasar, cwd=self.tujuan, waktu=7200)
+        pesan = (hasil.stderr or hasil.stdout or "")
+        if hasil.returncode != 0 and "externally-managed-environment" in pesan:
+            self.catat("[!] Python komputer ini menolak pemasangan pustaka (PEP 668) — "
+                       "dipakai opsi «--break-system-packages» untuk melanjutkan ...")
+            hasil = _jalankan([*dasar, "--break-system-packages"], cwd=self.tujuan, waktu=7200)
+        if hasil.returncode != 0 and "--find-links" in dasar:
+            # Terakhir: buang berkas bawaan yang menyesatkan, murni dari internet.
+            bersih = [b for b in dasar if b not in ("--find-links",)
+                      and not str(b).startswith(str(self.payload))]
+            bersih = [b for i, b in enumerate(bersih)
+                      if not (i > 0 and bersih[i - 1] == "--find-links")]
+            self.catat("Mencoba sekali lagi tanpa berkas pustaka bawaan ...")
+            hasil = _jalankan(bersih, cwd=self.tujuan, waktu=7200)
         if hasil.returncode != 0:
-            pesan = (hasil.stderr or hasil.stdout or "").strip()[-900:]
-            raise GalatPasang("Pemasangan pustaka gagal:\n" + pesan +
-                              "\nPeriksa sambungan internet, lalu jalankan bodap.exe lagi — "
-                              "berkas yang sudah tersalin tidak perlu diulang.")
+            rinci = (hasil.stderr or hasil.stdout or "").strip()[-900:]
+            raise GalatPasang(
+                "Pemasangan pustaka gagal.\n" + rinci +
+                "\nSaran: periksa sambungan internet di komputer itu, atau buat ulang bodap.exe "
+                "dengan «BUAT-BODAP.bat» (berkas pustaka bawaan akan dibuat ulang dari daftar "
+                "versi aplikasi). Berkas yang sudah tersalin tidak perlu diulang.")
+        return self._selesaikan_pustaka(python, "diunduh dari internet")
+
+    def _selesaikan_pustaka(self, python: Path, cara: str) -> str:
+        """Periksa pustaka inti benar-benar bisa diimpor, lalu kembalikan catatannya."""
         kurang = _pustaka_kurang(python, ("fastapi", "uvicorn", "jinja2", "multipart",
                                           "itsdangerous", "openpyxl"))
         if kurang:
-            raise GalatPasang("Pustaka ini belum terpasang: " + ", ".join(kurang))
-        catatan = "selesai"
+            raise GalatPasang("Pustaka ini belum terpasang: " + ", ".join(kurang)
+                              + ".\nJalankan bodap.exe lagi (berkas yang sudah tersalin tidak "
+                                "perlu diulang).")
+        catatan = f"{cara}"
         if self.dengan_bot:
-            catatan += (" · pustaka bot siap"
-                        if not _pustaka_kurang(python, ("selenium",))
+            bot_kurang = _pustaka_kurang(python, ("selenium",))
+            catatan += (" · pustaka bot siap" if not bot_kurang
                         else " · pustaka bot belum siap (bisa dipasang dari halaman Bot Dapodik)")
         self.catat(f"Pustaka terpasang ({catatan}).")
         return catatan

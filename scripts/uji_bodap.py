@@ -129,6 +129,89 @@ def uji_bodap_uji(cepat: bool) -> dict:
         return {"pemeriksaan": len(diperiksa), "gagal": len(gagal)}
 
 
+def _pin_aplikasi() -> list[tuple[str, str]]:
+    """(nama, versi) yang dipatok berkas permintaan aplikasi."""
+    pin: list[tuple[str, str]] = []
+    for nama_berkas in ("requirements.txt", "requirements-bot.txt"):
+        berkas = AKAR / nama_berkas
+        if not berkas.exists():
+            continue
+        for baris in berkas.read_text(encoding="utf-8").splitlines():
+            baris = baris.split("#", 1)[0].strip()
+            if not baris or baris.startswith("-") or "==" not in baris:
+                continue
+            nama, versi = baris.split("==", 1)
+            pin.append((nama.strip().split("[")[0], versi.strip().split(";")[0].strip()))
+    return pin
+
+
+def uji_pustaka_bawaan_cocok() -> dict:
+    """Berkas pustaka bawaan harus berisi versi yang PERSIS dipatok aplikasi."""
+    with tempfile.TemporaryDirectory(prefix="bodap-wheels-") as tmp:
+        payload = Path(tmp) / "payload"
+        hasil = jalankan([sys.executable, str(PEMASANG / "buat_payload.py"), "--keluar",
+                          str(payload), "--dengan-bahan", "--untuk-python", "",
+                          "--untuk-platform", ""], waktu=3000)
+        cek("buat_payload --dengan-bahan berjalan", hasil.returncode == 0,
+            (hasil.stderr or hasil.stdout or "")[-400:])
+        roda = payload / "wheels"
+        berkas = sorted(p.name.lower().replace("_", "-")
+                        for p in roda.glob("*") if p.suffix in (".whl", ".gz", ".zip")) \
+            if roda.is_dir() else []
+        kurang: list[str] = []
+        for nama, versi in _pin_aplikasi():
+            pola = nama.lower().replace("_", "-")
+            if not any(b.startswith(f"{pola}-{versi}") for b in berkas):
+                kurang.append(f"{nama}=={versi}")
+        cek(f"berkas pustaka bawaan memuat SEMUA versi yang dipatok aplikasi "
+            f"({len(_pin_aplikasi())} pin)", not kurang, f"kurang: {kurang}")
+        terlewat = payload / "wheels-terlewat.txt"
+        isi_terlewat = terlewat.read_text(encoding="utf-8").strip() if terlewat.exists() else ""
+        cek("tidak ada pustaka yang ditandai «perlu internet»", not isi_terlewat,
+            isi_terlewat[:200])
+        return {"wheels": len(berkas), "kurang": len(kurang)}
+
+
+def uji_pustaka_bawaan_tidak_cocok() -> dict:
+    """Berkas bawaan yang tidak cocok TIDAK boleh menggagalkan pemasangan selama ada internet."""
+    import shutil as _shutil
+
+    sumber = PEMASANG / "payload"
+    if not (sumber / "app.zip").exists():
+        cek("payload tersedia untuk uji berkas bawaan tidak cocok", False,
+            "jalankan buat_payload.py lebih dulu")
+        return {}
+    with tempfile.TemporaryDirectory(prefix="bodap-salah-") as tmp:
+        tmp = Path(tmp)
+        salah = tmp / "payload"
+        _shutil.copytree(sumber, salah, dirs_exist_ok=True)
+        roda = salah / "wheels"
+        if roda.is_dir():
+            _shutil.rmtree(roda)
+        roda.mkdir(parents=True, exist_ok=True)
+        # berkas bawaan yang sengaja salah versi (seperti yang terjadi di PC sekolah)
+        unduh = jalankan([sys.executable, "-m", "pip", "download", "--dest", str(roda),
+                          "--no-deps", "--quiet", "python-multipart==0.0.32"], waktu=900)
+        cek("berkas bawaan palsu (versi salah) siap dipakai uji",
+            unduh.returncode == 0 and any(roda.glob("*.whl")),
+            (unduh.stderr or "")[-200:])
+
+        laporan = tmp / "hasil.json"
+        hasil = jalankan([sys.executable, str(PEMASANG / "bodap_win.py"), "--uji",
+                          "--payload", str(salah), "--laporan", str(laporan), "--diam",
+                          "--tanpa-pintasan", "--dengan-bot"], waktu=3000)
+        data = json.loads(laporan.read_text(encoding="utf-8")) if laporan.exists() else {}
+        gabung = " | ".join(data.get("pemeriksaan") or []) + " | " + " | ".join(data.get("catatan") or [])
+        cek("pemasangan tetap berhasil walau berkas bawaan tidak cocok", hasil.returncode == 0,
+            (hasil.stderr or "")[-400:])
+        cek("log menyebut berkas bawaan tidak cocok & dilanjutkan dari internet",
+            "belum cukup untuk versi yang diminta" in gabung
+            and "dilanjutkan dengan unduhan internet" in gabung, gabung[:300])
+        cek("aplikasi hasil pemasangan menjawab HTTP setelah jatuh ke internet",
+            "menjawab HTTP 2" in gabung or "menjawab HTTP 3" in gabung, gabung[:300])
+        return {"jatuh_ke_internet": "dilanjutkan dengan unduhan internet" in gabung}
+
+
 def uji_periksa_dan_hapus() -> None:
     with tempfile.TemporaryDirectory(prefix="bodap-periksa-") as tmp:
         tujuan = Path(tmp) / "belum-ada"
@@ -175,7 +258,8 @@ def uji_berkas_pembangunan() -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Uji menyeluruh pemasang bodap")
     parser.add_argument("--cepat", action="store_true",
-                        help="lewati pemasangan pustaka (pakai Python yang menjalankan uji)")
+                        help="lewati pemasangan pustaka & uji berkas pustaka bawaan "
+                             "(pakai Python yang menjalankan uji)")
     args = parser.parse_args()
 
     print("=" * 78)
@@ -186,6 +270,11 @@ def main() -> int:
     uji_ikon()
     info_payload = uji_payload()
     uji_periksa_dan_hapus()
+    info_wheels: dict = {}
+    info_jatuh: dict = {}
+    if not args.cepat:
+        info_wheels = uji_pustaka_bawaan_cocok()
+        info_jatuh = uji_pustaka_bawaan_tidak_cocok()
     info_uji = uji_bodap_uji(args.cepat)
 
     berhasil = sum(1 for _, ok, _ in HASIL if ok)
@@ -196,7 +285,10 @@ def main() -> int:
     print(f"  {berhasil}/{len(HASIL)} pemeriksaan berhasil"
           + (f" · payload {info_payload.get('berkas', '?')} berkas"
              f" · uji internal {info_uji.get('pemeriksaan', '?')} pemeriksaan"
-             if info_payload and info_uji else ""))
+             if info_payload and info_uji else "")
+          + (f" · wheels {info_wheels.get('wheels', '?')} berkas"
+             if info_wheels else "")
+          + (" · tahan berkas bawaan tidak cocok" if info_jatuh else ""))
     print("=" * 78)
     return 0 if berhasil == len(HASIL) else 1
 

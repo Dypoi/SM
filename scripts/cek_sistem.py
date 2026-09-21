@@ -3030,6 +3030,17 @@ def cek_bodap():
     panduan = (pemasang / "PANDUAN-BODAP.md").read_text(encoding="utf-8")
     assert "bodap.exe" in panduan and "BUAT-BODAP.bat" in panduan, \
         "panduan bodap tidak menyebut cara mendapatkan bodap.exe"
+    # Pelajaran ronde 22: berkas pustaka bawaan HARUS dibuat dari berkas permintaan aplikasi
+    # (bukan daftar nama yang ditulis tangan — dulu itu membuat versinya berbeda dari yang
+    # dipatok aplikasi sehingga pemasangan tanpa internet gagal), dan pemasang harus punya
+    # jalan keluar lewat internet bila berkas bawaan tidak cocok.
+    isi_payload = (pemasang / "buat_payload.py").read_text(encoding="utf-8")
+    assert "BERKAS_REQ" in isi_payload and "requirements.txt" in isi_payload, \
+        "buat_payload tidak mengambil versi pustaka dari requirements.txt"
+    assert "wheels-terlewat" in isi_payload, "buat_payload tidak mencatat pustaka yang terlewat"
+    isi_bodap = (pemasang / "bodap_win.py").read_text(encoding="utf-8")
+    assert "--no-index" in isi_bodap and "dilanjutkan dengan unduhan internet" in isi_bodap, \
+        "bodap_win tidak punya jalan keluar internet saat berkas pustaka bawaan tidak cocok"
 
     with _tmp.TemporaryDirectory(prefix="sm-bodap-") as kerja:
         kerja = Path(kerja)
@@ -3076,6 +3087,8 @@ def cek_bodap():
         assert not belum.exists(), "periksa membuat folder (seharusnya tidak mengubah apa pun)"
 
     return ("ikon ICO 7 ukuran (16–256) · app.zip berisi seluruh program tanpa data siswa · "
+            "berkas pustaka bawaan dibuat DARI requirements.txt + dicatat bila ada yang "
+            "terlewat · pemasang lanjut unduh dari internet bila berkas bawaan tidak cocok · "
             "bodap.spec & panduan lengkap · alur GitHub Actions membangun bodap.exe di runner "
             "Windows lalu menjalankannya di uji mandiri · bodap --periksa jujur & tidak "
             "mengubah apa pun")
