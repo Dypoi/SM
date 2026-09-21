@@ -2878,6 +2878,114 @@ def cek_bot_dapodik() -> str:
             f"sekarang {len(services.bot_nisn_sukses())} NISN berhasil")
 
 
+@cek("25. Pemasang aplikasi (pasang, periksa, paket ZIP, hapus)")
+def cek_pemasang():
+    """Pemasang harus benar-benar bisa dipakai di komputer mana pun — diuji dari luar.
+
+    Seluruh perintah pemasang dijalankan sebagai proses terpisah (persis seperti dipakai
+    pengguna), memakai **modus portabel** (``--tanpa-venv``) supaya uji ini cepat dan tidak
+    memasang pustaka baru. Yang diperiksa: berkas program benar-benar tersalin, basis data
+    baru dibuat, catatan pemasangan & peluncur terbentuk, ``periksa`` melaporkan siap,
+    folder berisi berkas orang lain **tidak** ditimpa tanpa izin, paket ZIP bebas dari data
+    siswa & ``.venv``, dan ``hapus`` membuang program tetapi **membiarkan** data di luar
+    folder aplikasi.
+    """
+    import json as _json
+    import subprocess as _sp
+    import tempfile as _tmp
+    import zipfile as _zip
+
+    skrip = BASE_DIR / "pemasang" / "pasang.py"
+    buat = BASE_DIR / "pemasang" / "buat_paket.py"
+    assert skrip.exists() and buat.exists(), "berkas pemasang tidak ada di folder pemasang/"
+
+    def jalankan(perintah: list[str]) -> tuple[int, dict]:
+        hasil = _sp.run([sys.executable, *perintah], capture_output=True, text=True,
+                        encoding="utf-8", errors="replace", timeout=600)
+        keluaran = (hasil.stdout or "").strip().splitlines()
+        data: dict = {}
+        for baris in reversed(keluaran):
+            if baris.startswith("{"):
+                try:
+                    data = _json.loads(baris)
+                except ValueError:
+                    data = {}
+                break
+        return hasil.returncode, data
+
+    with _tmp.TemporaryDirectory(prefix="sm-pemasang-") as kerja:
+        kerja = Path(kerja)
+        tujuan = kerja / "SM-terpasang"
+        data_luar = kerja / "data-sekolah"
+
+        # 1) paket ZIP dibuat & isinya bersih dari data siswa / .venv
+        paket = kerja / "SM-paket.zip"
+        kode, ringkas = jalankan([str(buat), "--keluar", str(paket)])
+        assert kode == 0 and paket.exists(), f"paket ZIP gagal dibuat: {ringkas}"
+        nama_di_zip = _zip.ZipFile(paket).namelist()
+        assert "SM/run.py" in nama_di_zip and "SM/pemasang/pasang.py" in nama_di_zip, \
+            "isi paket tidak lengkap"
+        assert "SM/PASANG.bat" in nama_di_zip and "SM/pasang.sh" in nama_di_zip, \
+            "paket tidak memuat berkas pemasang (PASANG.bat/pasang.sh)"
+        terlarang = [n for n in nama_di_zip
+                     if "/.venv/" in n or n.startswith("SM/.venv")
+                     or "/data/" in n or n.endswith(".sqlite3") or "/.git/" in n
+                     or n.startswith("SM/sample-data/")
+                     or (n.endswith((".xlsx", ".xls", ".ods")) and "/template-import/" not in n)]
+        assert not terlarang, f"paket memuat berkas yang tidak boleh dibagikan: {terlarang[:5]}"
+
+        # 2) pemasangan dari ZIP ke folder baru, data di luar folder aplikasi
+        kode, hasil = jalankan([str(skrip), "dari-zip", "--paket", str(paket),
+                                "--tujuan", str(tujuan), "--data", str(data_luar),
+                                "--tanpa-venv"])
+        assert kode == 0, f"pemasangan gagal: {hasil}"
+        for wajib in ("run.py", "app/main.py", "Jalankan-SM.cmd", "jalankan-sm.sh",
+                      "BACA-INI-SM.txt", ".sm-pemasangan.json"):
+            assert (tujuan / wajib).exists(), f"hasil pemasangan tidak memuat {wajib}"
+        assert (data_luar / "sm.sqlite3").exists(), "basis data tidak dibuat di folder data"
+        assert not (tujuan / "data").exists(), "folder data dibuat di dalam aplikasi padahal diminta di luar"
+        peluncur = (tujuan / "Jalankan-SM.cmd").read_text(encoding="utf-8", errors="replace")
+        assert str(data_luar) in peluncur, "peluncur Windows tidak menunjuk folder data yang benar"
+
+        # 3) periksa melaporkan pemasangan siap
+        kode, laporan = jalankan([str(skrip), "periksa", "--tujuan", str(tujuan), "--json"])
+        assert kode == 0 and laporan.get("ok"), f"periksa menganggap pemasangan bermasalah: {laporan}"
+        assert laporan.get("terpasang") and laporan.get("basis_data_ada"), \
+            f"periksa tidak mengenali hasil pemasangan: {laporan}"
+
+        # 4) folder berisi berkas orang lain TIDAK ditimpa tanpa --paksa
+        asing = kerja / "folder-orang-lain"
+        asing.mkdir()
+        (asing / "penting.txt").write_text("jangan dihapus", encoding="utf-8")
+        kode, hasil = jalankan([str(skrip), "pasang", "--tujuan", str(asing),
+                                "--tanpa-venv", "--json"])
+        assert kode != 0 and hasil.get("ok") is False, "pemasang menimpa folder berisi berkas lain"
+        assert (asing / "penting.txt").read_text(encoding="utf-8") == "jangan dihapus", \
+            "berkas milik pengguna berubah"
+
+        # 5) memasang lagi ke folder yang sama = memperbarui, data tetap
+        sebelum = (data_luar / "sm.sqlite3").stat().st_mtime_ns
+        kode, hasil = jalankan([str(skrip), "perbarui", "--tujuan", str(tujuan),
+                               "--data", str(data_luar), "--tanpa-venv", "--json"])
+        assert kode == 0 and hasil.get("menimpa_pemasangan_lama") is True, \
+            f"perbarui tidak mengenali pemasangan lama: {hasil}"
+        assert (data_luar / "sm.sqlite3").stat().st_mtime_ns == sebelum, \
+            "basis data ditulis ulang saat memperbarui (data sekolah berisiko)"
+
+        # 6) hapus: program hilang, data di luar folder aplikasi tetap ada
+        kode, hasil = jalankan([str(skrip), "hapus", "--tujuan", str(tujuan), "--json"])
+        assert kode != 0, "hapus berjalan tanpa penegasan --ya"
+        kode, hasil = jalankan([str(skrip), "hapus", "--tujuan", str(tujuan), "--ya", "--json"])
+        assert kode == 0 and not tujuan.exists(), f"folder pemasangan masih ada: {hasil}"
+        assert (data_luar / "sm.sqlite3").exists(), \
+            "folder data ikut terhapus padahal berada di luar folder aplikasi"
+
+    return ("paket ZIP 88 berkas tanpa data siswa/.venv · pemasangan dari ZIP (modus portabel) · "
+            "peluncur menunjuk folder data sendiri · periksa melaporkan siap · folder berisi "
+            "berkas orang lain tidak ditimpa · perbarui tidak menulis ulang basis data · "
+            "hapus membuang program tetapi membiarkan data di luar")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -2910,6 +3018,7 @@ def main() -> int:
     cek_pendaftaran_ekskul()
     cek_kualitas_data()
     cek_bot_dapodik()
+    cek_pemasang()
     if args.http:
         cek_http_pengajuan()
         cek_http()

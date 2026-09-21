@@ -10,6 +10,9 @@ Python 3.10+  ·  FastAPI  ·  Jinja2  ·  SQLite  ·  openpyxl/xlrd/pyxlsb/odfp
 Tanpa Node.js, tanpa bundler, tanpa CDN — satu proses, satu berkas database.
 ```
 
+Ada **pemasang siap pakai** — pasang di komputer mana pun lewat `PASANG.bat` (Windows) atau
+`pasang.sh` (Linux/macOS), lengkap dengan paket ZIP untuk komputer tanpa internet; lihat **§9**.
+
 ---
 
 ## 1. Mengambil & menjalankan aplikasi
@@ -638,8 +641,11 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 │   │   ├── _macros.html, base.html, partials/
 │   │   └── students/, import/, ekskul/, portal/, approval/
 │   └── static/css/app.css, static/js/app.js
+├── pemasang/                  # installer: pasang di komputer mana pun (lihat §9)
+│   ├── pasang.py               #   pemasang: pasang / periksa / perbarui / hapus / dari-zip
+│   └── buat_paket.py           #   pembuat paket ZIP (mis. + berkas pustaka untuk offline)
 ├── scripts/
-│   ├── cek_sistem.py          # pemeriksaan mandiri 24 titik uji
+│   ├── cek_sistem.py          # pemeriksaan mandiri 25 titik uji
 │   ├── peramban_palsu.py      # peramban tiruan (alur penuh bot) untuk uji tanpa Chrome
 │   └── buat_template.py       # pembuat berkas template impor
 ├── template-import/           # contoh.xlsx berisi data fiktif (aman dibagikan)
@@ -759,7 +765,87 @@ Buka **Pengaturan → Sistem → Aman Online**, lalu benahi yang bertanda *perlu
 
 ---
 
-## 9. Rencana pengembangan berikutnya
+## 9. Memasang di komputer mana pun (installer)
+
+Aplikasi ini punya **pemasang sendiri**: satu perintah (atau satu klik) untuk memasang SM di
+komputer mana pun — Windows, Linux, maupun macOS — tanpa perlu menyalin folder secara manual.
+Pemasang **tidak** memerlukan pustaka tambahan: ia hanya memakai Python bawaan.
+
+### Cara tercepat
+
+| Cara | Perintah |
+| --- | --- |
+| Windows | klik dua kali **`PASANG.bat`** |
+| Linux / macOS | `./pasang.sh` |
+| Semua sistem | `python pemasang/pasang.py` |
+| Dari berkas ZIP | `python pemasang/pasang.py dari-zip --paket SM-0.1.0-paket.zip` |
+
+Pemasang akan: menyalin program ke folder aplikasi pengguna
+(`%LOCALAPPDATA%\Programs\SM` di Windows, `~/Applications/SM` di macOS,
+`~/.local/share/SM` di Linux), membuat lingkungan **`.venv`**, memasang pustaka
+(perlu internet **sekali saja**), menyiapkan folder **data**, lalu membuat berkas peluncur
+**`Jalankan-SM.cmd`** (Windows) / **`jalankan-sm.sh`** (Linux/macOS) beserta bacaan singkat
+`BACA-INI-SM.txt`.
+
+### Perintah yang tersedia
+
+| Perintah | Guna |
+| --- | --- |
+| `pasang` | Memasang (bawaan). Bisa juga `--tujuan <folder>` untuk memilih folder sendiri |
+| `perbarui` | Sama dengan `pasang` ke pemasangan yang sudah ada: **kode diganti, data tetap** |
+| `periksa` | Menceritakan kondisi pemasangan (Python, pustaka, basis data, port, Chrome untuk bot) |
+| `hapus --ya` | Menghapus program. Data di luar folder aplikasi **dibiarkan** |
+| `dari-zip --paket …` | Memasang dari paket ZIP |
+| `buat-paket` | Membuat paket ZIP untuk dibawa ke komputer lain |
+
+Pilihan berguna: `--tujuan <folder>` (folder pemasangan), `--data <folder>` (folder data
+sekolah, mis. di Drive/flashdisk), `--port 9000`, `--tanpa-venv` (**modus portabel**: memakai
+Python yang sudah ada tanpa membuat `.venv` baru), `--dengan-bot` (sekalian memasang
+`selenium`), `--pintasan` (ikon di desktop/menu), `--otomatis` (SM menyala sendiri saat
+komputer dinyalakan), `--bahan <folder>` (pasang tanpa internet dari berkas `.whl`), dan
+`--json` (keluaran untuk skrip).
+
+### Memasang tanpa internet
+
+Buat paket lengkap di komputer yang **punya** internet, dengan pustaka untuk sistem tujuan:
+
+```
+python pemasang/buat_paket.py --dengan-bahan --untuk-platform win_amd64 --untuk-python 3.12
+```
+
+Paket yang dihasilkan memuat folder `bahan/` berisi berkas `.whl`. Di komputer tujuan,
+pemasang otomatis memakai folder itu (`--no-index`) sehingga **tidak perlu internet sama
+sekali**. Berkas `.whl` hanya cocok untuk satu jenis sistem + versi Python — itulah gunanya
+`--untuk-platform`/`--untuk-python` bila paket dibangun dari sistem yang berbeda.
+
+### Yang dijamin pemasang
+
+* **Data sekolah tidak pernah ditimpa.** Folder `data/` (basis data, unggahan, bukti, ekspor)
+  dibuat sekali dan hanya dipakai ulang; memasang ulang/memperbarui tidak menyentuh isinya.
+  Mengarahkan `--data` ke folder lain (mis. Drive) membuat data tetap aman walau program
+  diperbarui atau dihapus.
+* **Tidak menimpa pekerjaan orang lain.** Bila folder tujuan sudah berisi berkas lain,
+  pemasangan dihentikan dan menyarankan folder lain (atau `--paksa` bila memang disengaja).
+* **Tidak mengirim data siswa.** Paket ZIP tidak memuat berkas Excel, `data/`, `.venv`, atau
+  `.git` — hanya program.
+* **Bisa diperiksa & dicabut.** `periksa` menceritakan keadaan sebenarnya (termasuk apakah
+  Chrome tersedia untuk bot Dapodik), dan `hapus --ya` mencabut pemasangan.
+
+### Ringkasan berkas
+
+```
+SM-0.1.0-paket.zip
+├── PASANG.bat / HAPUS.bat        # Windows: klik dua kali
+├── pasang.sh / hapus.sh          # Linux/macOS
+├── BACA-INI.txt                  # petunjuk singkat
+├── pemasang/pasang.py            # seluruh logika pemasangan
+├── app/ run.py requirements*.txt # program SM
+└── bahan/*.whl                   # (opsional) pustaka untuk pasang tanpa internet
+```
+
+---
+
+## 10. Rencana pengembangan berikutnya
 
 - [x] Pembaca Excel/CSV multi-format & pemetaan kolom Dapodik otomatis
 - [x] Data peserta didik lengkap dengan pencarian, filter, ekspor, dan audit perubahan
@@ -774,6 +860,7 @@ Buka **Pengaturan → Sistem → Aman Online**, lalu benahi yang bertanda *perlu
 - [x] Perampingan kolom: 14 kolom Dapodik yang tidak dipakai dihapus
 - [x] Dropdown pekerjaan, penghasilan, & pendidikan serta aturan data ayah/ibu/wali
       (data wali dihapus otomatis oleh sistem)
+- [x] **Pemasang (installer)**: pasang di komputer mana pun (`PASANG.bat`/`pasang.sh`), periksa, perbarui, hapus, dan paket ZIP yang bisa dipasang tanpa internet
 - [x] **Bot Dapodik**: memperbarui data Dapodik dari data siswa SM
       (alur Selenium: registrasi + NIS, bekerja di belakang layar, kemajuan tampil di aplikasi)
 - [ ] Bot Dapodik: pengisian kolom lain (NIK, alamat, ayah/ibu, tanggal lahir, dst.)

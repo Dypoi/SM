@@ -31,3 +31,8 @@ Thumbs.db
 .idea/
 .vscode/
 *.log
+
+# --- Hasil pemasang (paket ZIP & bahan pustaka) ---
+SM-*-paket.zip
+bahan/
+dist/
