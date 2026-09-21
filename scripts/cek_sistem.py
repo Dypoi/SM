@@ -2986,6 +2986,101 @@ def cek_pemasang():
             "hapus membuang program tetapi membiarkan data di luar")
 
 
+@cek("26. Pemasang satu berkas bodap (bodap.exe) — berkas & uji mandiri")
+def cek_bodap():
+    """Pemasang satu berkas ``bodap.exe``: berkasnya lengkap, sah, dan bisa diperiksa.
+
+    Pemeriksaan ini **tidak** membangun EXE-nya (itu tugas PyInstaller di runner Windows,
+    lihat ``.github/workflows/bodap-windows.yml``), melainkan memastikan bahan-bahannya benar:
+    modul & spec bisa dikompilasi, ikon benar-benar terbentuk (format ICO sah), isi paket
+    (``payload/app.zip`` dari ``buat_payload.py``) memuat seluruh program tetapi **tidak**
+    memuat data siswa, dan ``bodap --periksa`` melaporkan keadaan apa adanya tanpa membuat
+    folder apa pun.
+    """
+    import ast as _ast
+    import json as _json
+    import struct as _struct
+    import subprocess as _sp
+    import tempfile as _tmp
+    import zipfile as _zip
+
+    pemasang = BASE_DIR / "pemasang"
+    for nama in ("bodap_win.py", "bodap.spec", "buat_payload.py", "buat_ikon.py",
+                 "BUAT-BODAP.bat", "PANDUAN-BODAP.md", "pasang.py", "buat_paket.py",
+                 "ci/bodap-windows.yml"):
+        assert (pemasang / nama).exists(), f"berkas pemasang/{nama} tidak ada"
+    for nama in ("bodap_win.py", "bodap.spec", "buat_payload.py", "buat_ikon.py"):
+        _ast.parse((pemasang / nama).read_text(encoding="utf-8"))    # sintaks harus sah
+    isi_spec = (pemasang / "bodap.spec").read_text(encoding="utf-8")
+    assert "payload" in isi_spec and "console=False" in isi_spec, \
+        "bodap.spec tidak membawa payload atau masih memakai jendela konsol"
+
+    # Alur CI boleh sudah aktif (.github/workflows) atau masih berupa templat
+    # (pemasang/ci) — yang penting isinya benar & siap disalin.
+    alur = BASE_DIR / ".github" / "workflows" / "bodap-windows.yml"
+    if not alur.exists():
+        alur = pemasang / "ci" / "bodap-windows.yml"
+    assert alur.exists(), "alur GitHub Actions untuk membangun bodap.exe tidak ada"
+    isi_alur = alur.read_text(encoding="utf-8")
+    assert ("windows-latest" in isi_alur and "bodap.spec" in isi_alur
+            and "upload-artifact" in isi_alur and "--uji" in isi_alur), \
+        "alur bodap tidak membangun di Windows / tidak menguji hasilnya"
+    assert "pemasang/ci/bodap-windows.yml" in isi_alur or alur.parent.name == "workflows", \
+        "templat alur bodap tidak memuat petunjuk penyalinan"
+    panduan = (pemasang / "PANDUAN-BODAP.md").read_text(encoding="utf-8")
+    assert "bodap.exe" in panduan and "BUAT-BODAP.bat" in panduan, \
+        "panduan bodap tidak menyebut cara mendapatkan bodap.exe"
+
+    with _tmp.TemporaryDirectory(prefix="sm-bodap-") as kerja:
+        kerja = Path(kerja)
+        # ikon: dibuat nyata lalu diperiksa isinya (format ICO: 7 ukuran 16–256)
+        ikon = kerja / "bodap.ico"
+        hasil = _sp.run([sys.executable, str(pemasang / "buat_ikon.py"), str(ikon)],
+                        capture_output=True, text=True, encoding="utf-8", errors="replace",
+                        timeout=300)
+        assert hasil.returncode == 0 and ikon.exists(), f"ikon gagal dibuat: {hasil.stderr[-300:]}"
+        biner = ikon.read_bytes()
+        jumlah = _struct.unpack("<HHH", biner[:6])[2]
+        ukuran = sorted(_struct.unpack("<BBBBHHII", biner[6 + 16 * i:22 + 16 * i])[0] or 256
+                        for i in range(jumlah))
+        assert jumlah == 7 and ukuran[0] == 16 and ukuran[-1] == 256, \
+            f"ikon tidak lengkap: {jumlah} ukuran {ukuran}"
+
+        # isi paket: app.zip dibuat nyata, lalu diperiksa bebas dari data siswa
+        hasil = _sp.run([sys.executable, str(pemasang / "buat_payload.py")],
+                        capture_output=True, text=True, encoding="utf-8", errors="replace",
+                        timeout=1800)
+        assert hasil.returncode == 0, f"buat_payload gagal: {hasil.stderr[-400:]}"
+        zip_program = pemasang / "payload" / "app.zip"
+        assert zip_program.exists(), "payload/app.zip tidak terbentuk"
+        nama_di_zip = _zip.ZipFile(zip_program).namelist()
+        for wajib in ("run.py", "app/main.py", "pemasang/pasang.py"):
+            assert wajib in nama_di_zip, f"{wajib} tidak ada di dalam app.zip"
+        terlarang = [n for n in nama_di_zip
+                     if n.startswith(("data/", "sample-data/", ".venv/", "pemasang/payload/"))
+                     or n.endswith((".sqlite3", ".pyc"))
+                     or (n.endswith((".xlsx", ".xls", ".ods"))
+                         and "template-import/" not in n)]
+        assert not terlarang, f"app.zip memuat berkas yang tidak boleh dibagikan: {terlarang[:4]}"
+
+        # periksa: melaporkan «belum terpasang» dan TIDAK membuat folder apa pun
+        belum = kerja / "belum-ada"
+        hasil = _sp.run([sys.executable, str(pemasang / "bodap_win.py"), "--periksa",
+                         "--tujuan", str(belum), "--json"],
+                        capture_output=True, text=True, encoding="utf-8", errors="replace",
+                        timeout=300)
+        baris = [b for b in (hasil.stdout or "").splitlines() if b.startswith("{")]
+        laporan = _json.loads(baris[-1]) if baris else {}
+        assert laporan.get("terpasang") is False and laporan.get("ok") is False, \
+            f"periksa salah melaporkan: {laporan}"
+        assert not belum.exists(), "periksa membuat folder (seharusnya tidak mengubah apa pun)"
+
+    return ("ikon ICO 7 ukuran (16–256) · app.zip berisi seluruh program tanpa data siswa · "
+            "bodap.spec & panduan lengkap · alur GitHub Actions membangun bodap.exe di runner "
+            "Windows lalu menjalankannya di uji mandiri · bodap --periksa jujur & tidak "
+            "mengubah apa pun")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -3019,6 +3114,7 @@ def main() -> int:
     cek_kualitas_data()
     cek_bot_dapodik()
     cek_pemasang()
+    cek_bodap()
     if args.http:
         cek_http_pengajuan()
         cek_http()

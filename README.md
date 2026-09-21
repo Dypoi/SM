@@ -10,8 +10,9 @@ Python 3.10+  ·  FastAPI  ·  Jinja2  ·  SQLite  ·  openpyxl/xlrd/pyxlsb/odfp
 Tanpa Node.js, tanpa bundler, tanpa CDN — satu proses, satu berkas database.
 ```
 
-Ada **pemasang siap pakai** — pasang di komputer mana pun lewat `PASANG.bat` (Windows) atau
-`pasang.sh` (Linux/macOS), lengkap dengan paket ZIP untuk komputer tanpa internet; lihat **§9**.
+Ada **pemasang siap pakai** — di Windows cukup **`bodap.exe`** (satu berkas, Next → Next →
+Finish, ikon SM otomatis di Desktop), atau `PASANG.bat`/`pasang.sh` untuk cara lain;
+lihat **§9**.
 
 ---
 
@@ -642,10 +643,16 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 │   │   └── students/, import/, ekskul/, portal/, approval/
 │   └── static/css/app.css, static/js/app.js
 ├── pemasang/                  # installer: pasang di komputer mana pun (lihat §9)
-│   ├── pasang.py               #   pemasang: pasang / periksa / perbarui / hapus / dari-zip
+│   ├── bodap_win.py            #   mesin + wizard pemasang SATU BERKAS (bodap.exe)
+│   ├── bodap.spec              #   resep PyInstaller untuk membungkus bodap.exe
+│   ├── buat_payload.py         #   menyiapkan isi paket: app.zip, Python bawaan, pip, wheels
+│   ├── buat_ikon.py            #   membuat ikon bodap.ico (tanpa pustaka luar)
+│   ├── BUAT-BODAP.bat          #   klik dua kali di Windows → dist\bodap.exe
+│   ├── PANDUAN-BODAP.md        #   petunjuk bodap.exe untuk pengguna
+│   ├── pasang.py               #   pemasang multi-platform: pasang/periksa/perbarui/hapus
 │   └── buat_paket.py           #   pembuat paket ZIP (mis. + berkas pustaka untuk offline)
 ├── scripts/
-│   ├── cek_sistem.py          # pemeriksaan mandiri 25 titik uji
+│   ├── cek_sistem.py          # pemeriksaan mandiri 26 titik uji
 │   ├── peramban_palsu.py      # peramban tiruan (alur penuh bot) untuk uji tanpa Chrome
 │   └── buat_template.py       # pembuat berkas template impor
 ├── template-import/           # contoh.xlsx berisi data fiktif (aman dibagikan)
@@ -771,7 +778,45 @@ Aplikasi ini punya **pemasang sendiri**: satu perintah (atau satu klik) untuk me
 komputer mana pun — Windows, Linux, maupun macOS — tanpa perlu menyalin folder secara manual.
 Pemasang **tidak** memerlukan pustaka tambahan: ia hanya memakai Python bawaan.
 
-### Cara tercepat
+### Cara tercepat (Windows): satu berkas `bodap.exe`
+
+Bila ingin **cukup membawa satu berkas ke laptop/PC lain**, pakai **`bodap.exe`**:
+
+1. **Dapatkan `bodap.exe`** dengan salah satu cara:
+   * **di PC Windows ber-Python (paling cepat):** klik dua kali
+     **`pemasang\BUAT-BODAP.bat`** → hasilnya **`dist\bodap.exe`**; atau
+   * **lewat GitHub Actions:** aktifkan dulu alurnya sekali (templatnya sudah tersedia di repo):
+
+     ```bat
+     mkdir .github\workflows
+     copy pemasang\ci\bodap-windows.yml .github\workflows\bodap-windows.yml
+     git add .github/workflows/bodap-windows.yml
+     git commit -m "Aktifkan alur bodap.exe" && git push
+     ```
+
+     lalu buka tab **Actions** → «bodap.exe (pemasang Windows)» → **Run workflow** →
+     unduh artifact **bodap-windows** (berisi `bodap.exe` + laporan ujinya).
+2. **Bawa `bodap.exe`** ke komputer tujuan, klik dua kali di sana.
+3. Ikuti jendelanya: **Sambutan → Lanjut → Folder & pilihan → Lanjut → (pemasangan) → Selesai**.
+   Internet diperlukan **sekali saja** (memasang pustaka).
+4. Selesai: ikon **SM** ada di Desktop — klik ikon itu, aplikasi terbuka di
+   `http://localhost:8000`. Login petugas `admin` / `admin123`, siswa cukup NISN.
+
+`bodap.exe` sudah memuat Python bawaan Windows, jadi komputer tujuan **tidak perlu** memasang
+Python. Berkas itu juga bisa dipakai tanpa jendela:
+
+```bat
+bodap.exe --sunyi --tujuan D:\SM --data D:\SM\data --port 8000
+bodap.exe --periksa          :: cerita kondisi pemasangan
+bodap.exe --hapus --ya       :: cabut pemasangan (data di luar folder aplikasi dibiarkan)
+bodap.exe --uji              :: uji mandiri: pasang → jalankan → periksa → hapus
+```
+
+Petunjuk lengkapnya: **`pemasang/PANDUAN-BODAP.md`**. Ujinya: `python scripts/uji_bodap.py`
+(26 pemeriksaan) dan alur GitHub Actions yang menjalankan `bodap.exe --uji` di runner Windows
+sebelum artifact diunggah.
+
+### Cara lain (semua sistem)
 
 | Cara | Perintah |
 | --- | --- |
@@ -860,6 +905,7 @@ SM-0.1.0-paket.zip
 - [x] Perampingan kolom: 14 kolom Dapodik yang tidak dipakai dihapus
 - [x] Dropdown pekerjaan, penghasilan, & pendidikan serta aturan data ayah/ibu/wali
       (data wali dihapus otomatis oleh sistem)
+- [x] **Pemasang satu berkas `bodap.exe`** (Windows): klik dua kali → Next → Next → Install → Finish → ikon «SM» di Desktop; sudah memuat Python bawaan sehingga komputer tujuan tak perlu memasang Python
 - [x] **Pemasang (installer)**: pasang di komputer mana pun (`PASANG.bat`/`pasang.sh`), periksa, perbarui, hapus, dan paket ZIP yang bisa dipasang tanpa internet
 - [x] **Bot Dapodik**: memperbarui data Dapodik dari data siswa SM
       (alur Selenium: registrasi + NIS, bekerja di belakang layar, kemajuan tampil di aplikasi)

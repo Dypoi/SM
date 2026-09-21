@@ -36,3 +36,12 @@ Thumbs.db
 SM-*-paket.zip
 bahan/
 dist/
+
+# --- Hasil pembangunan pemasang bodap (jangan di-commit) ---
+pemasang/payload/
+pemasang/bodap.ico
+pemasang/bodap.png
+pemasang/BODAP_VERSI.txt
+build/
+dist/
+hasil-uji.json

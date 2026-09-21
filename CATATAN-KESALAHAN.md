@@ -287,11 +287,12 @@ Semua di `app/bot_dapodik.py` (nama fungsi, bukan nomor baris — nomornya berge
 | 15z | `12a9d70` | BIO: bot **melaporkan sendiri** keadaan jendela (`[bio-rincian]` + bukti `.png`/`.html` di `data/bot/`) dan tetap bekerja walau wadah jendela tak terbaca — kolom dilacak lewat namanya sambil halaman digeser 250 px (cara skrip sekolah) |
 | 16 | `b648d1e` | **Kolom dropdown (combo Ext JS)** jendela «Ubah»: pilihannya dipilih dari daftar (panah → kolom → `Ext.expand()`), dicocokkan dengan daftar Dapodik (persis → dirapikan → nama lain), nilai **model** Ext JS diperiksa, pilihan di luar daftar **tidak ditebak**; + Pekerjaan & Penghasilan ayah/ibu |
 | 17 | `bce72cd` | Dropdown memakai **nama kolom asli** Dapodik (`pekerjaan_id_ayah`, `penghasilan_id_ayah`, …), pilihannya dibaca dari **data komponen Ext JS** (`store`) sehingga daftar tidak perlu terbuka, hasil diperiksa dari `getRawValue()`, dan pemasangan nilai lewat `select(record)`/`setValue(id)` bila klik ditelan atau daftar tak terbuka |
+| 21 | (lihat commit) | **`bodap.exe` — pemasang satu berkas (Windows)**: wizard Sambutan → Folder & pilihan → Proses → Selesai + ikon Desktop; membawa Python bawaan (komputer tujuan tidak perlu Python), pip bawaan, dan (opsional) seluruh berkas `.whl`; data sekolah tidak pernah ditimpa; pencabut `Hapus-SM.cmd`; pencadangan keamanan: `.venv` pribadi bila memakai Python komputer (PEP 668) |
 | 20 | (lihat commit) | **Pemasang (installer)**: `pemasang/pasang.py` + `pemasang/buat_paket.py` — pasang/periksa/perbarui/hapus/dari-zip dan paket ZIP (opsional dengan berkas `.whl` untuk pasang tanpa internet); data sekolah di folder `data` tidak pernah ditimpa; folder berisi berkas orang lain tidak ditimpa tanpa `--paksa` |
 | 19 | (lihat commit) | Dropdown **tidak bergantung Ext JS**: dibuka lewat **tombol ↓** pada kolomnya dan daftarnya dicari langsung dari **DOM** (`aria-owns="…-inputEl …-picker-listEl"`); pilihan belum ketemu → daftar **disusuri dari atas sampai bawah** (berhenti begitu pilihan yang sama namanya ketemu, yang **sama persis** didahulukan atas nama lain) sebelum menyimpulkan «tidak ada»; **bukti layar** `bio-dropdown-<kolom>-*.png` disimpan saat sebuah kolom dropdown tetap gagal |
 | 18 | (lihat commit) | Dropdown diklik seperti orang memakainya: **tunggu datanya muncul**, lalu **gulir isi daftarnya 150 px sekali geser** sampai pilihan terlihat, baru diklik; pilihan yang belum terlihat tidak pernah diklik |
 
 ---
 
-*Terakhir diperbarui: ronde 20. Tambahkan kesalahpahaman baru ke §1 begitu
+*Terakhir diperbarui: ronde 21. Tambahkan kesalahpahaman baru ke §1 begitu
 ditemukan — termasuk kesalahan saya sendiri — supaya tidak terulang.*
