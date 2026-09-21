@@ -1983,6 +1983,44 @@ EKSKUL_SEED = [
 ]
 
 
+def isi_ekskul_resmi() -> tuple[int, int]:
+    """Isi **14 daftar ekstrakurikuler resmi sekolah** (nama + kategori) — idempoten.
+
+    Kembalikan ``(jumlah_ditambah, jumlah_total_setelah)``. Dipakai tombol pada halaman
+    Ekstrakurikuler dan ``run.py --isi-ekskul-resmi``: aplikasi baru sengaja dikosongkan, jadi
+    sekolah yang ingin memakai daftar resmi bisa memintanya kapan saja tanpa mengganggu ekskul
+    yang sudah mereka tambahkan sendiri.
+    """
+    from . import migrations
+
+    ditambah = 0
+    for nama, kategori in migrations.EKSKUL_SEKOLAH:
+        ada = db.query_one(
+            """
+            SELECT id FROM extracurriculars
+             WHERE UPPER(TRIM(nama)) = ?
+             ORDER BY id LIMIT 1
+            """,
+            (nama.upper(),))
+        if ada:
+            continue
+        # Kolom «kategori» sudah dibuang pada migrasi 005 — kategorinya disimpan sebagai
+        # bagian keterangan supaya informasinya tidak hilang.
+        db.execute(
+            """
+            INSERT INTO extracurriculars(nama, deskripsi)
+            VALUES(?,?)
+            """,
+            (nama, f"Ekstrakurikuler {nama} — {kategori}"),
+        )
+        ditambah += 1
+    total = int(db.query_value("SELECT COUNT(*) FROM extracurriculars") or 0)
+    if ditambah:
+        log_audit("sistem", "admin", "isi_ekskul_resmi", "extracurriculars", None,
+                  f"{ditambah} ekskul resmi ditambahkan")
+    return ditambah, total
+
+
 def seed_ekskul_if_empty() -> int:
     existing = int(db.query_value("SELECT COUNT(*) FROM extracurriculars") or 0)
     if existing:

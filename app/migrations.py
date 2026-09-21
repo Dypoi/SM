@@ -11,7 +11,7 @@ import logging
 import sqlite3
 from typing import Callable
 
-from . import db
+from . import config, db
 from .security import hash_password
 
 log = logging.getLogger("sm.migrations")
@@ -70,6 +70,15 @@ def _migrasi_004(conn: sqlite3.Connection) -> None:
 
     # Rapikan/masukkan nama ekskul resmi sekolah tanpa mengganggu ekskul lain
     # yang sudah ada (mis. tambahan dari sekolah).
+    #
+    # PENTING (ronde 23): daftar ini **tidak** lagi diisi otomatis. Aplikasi hasil pemasangan
+    # harus kosong; sekolah yang memang ingin daftar 14 ekskul resmi bisa memintanya dari
+    # halaman Ekstrakurikuler (tombol «Isi daftar ekskul resmi») atau dengan memasang sambil
+    # mencentang pilihan itu pada wizard (SM_EKSKUL_SEKOLAH=1).
+    if not config.EKSKUL_SEKOLAH:
+        log.info("Daftar ekskul resmi belum diisi (aplikasi baru dikosongkan; isi dari "
+                 "halaman Ekstrakurikuler bila diperlukan).")
+        return
     for nama, kategori in EKSKUL_SEKOLAH:
         baris = conn.execute(
             """

@@ -317,7 +317,8 @@ def siapkan_data(tujuan: Path, python: Path, data: Path, diam: bool = False) -> 
     # basis data dari lingkungan luar (mis. saat dijalankan dari skrip pemeriksaan) dibuang
     # supaya basis data benar-benar dibuat di folder data yang dipilih.
     lingkungan = dict(os.environ, SM_DATA_DIR=str(data), PYTHONUTF8="1",
-                      PYTHONIOENCODING="utf-8")
+                      PYTHONIOENCODING="utf-8",
+                      SM_AUTO_SEED="0", SM_EKSKUL_SEKOLAH="0")   # aplikasi baru: kosong
     lingkungan.pop("SM_DB_PATH", None)
     hasil = _jalankan([str(python), "run.py", "--init-db"], cwd=tujuan, env=lingkungan, waktu=900)
     if hasil.returncode != 0:
@@ -334,6 +335,26 @@ def tulis_peluncur(tujuan: Path, python: Path, data: Path, port: int, diam: bool
     peluncur_win = tujuan / NAMA_PELUNCUR_WIN
     peluncur_nix = tujuan / NAMA_PELUNCUR_NIX
 
+    # Peluncur tanpa jendela terminal: SM.vbs menjalankan SM-latar.py lewat pythonw.
+    pythonw = python.parent / "pythonw.exe"
+    if not pythonw.exists():
+        pythonw = python
+    (tujuan / "SM.vbs").write_text(
+        "' Dibuat oleh pemasang SM — menjalankan aplikasi di belakang layar (tanpa terminal).\r\n"
+        'Option Explicit\r\n'
+        'Dim sh\r\n'
+        'Set sh = CreateObject("WScript.Shell")\r\n'
+        f'sh.CurrentDirectory = "{tujuan}"\r\n'
+        f'sh.Run """{pythonw}"" ""{tujuan / "SM-latar.py"}"" --port {port}", 0, False\r\n',
+        encoding="utf-8")
+    (tujuan / "Hentikan-SM.vbs").write_text(
+        "' Dibuat oleh pemasang SM — mematikan aplikasi yang berjalan di belakang layar.\r\n"
+        'Option Explicit\r\n'
+        'Dim sh\r\n'
+        'Set sh = CreateObject("WScript.Shell")\r\n'
+        f'sh.Run """{pythonw}"" ""{tujuan / "SM-latar.py"}"" --hentikan", 0, True\r\n',
+        encoding="utf-8")
+
     peluncur_win.write_text(
         "@echo off\r\n"
         "REM Dibuat otomatis oleh pemasang SM — jangan diubah manual.\r\n"
@@ -349,7 +370,8 @@ def tulis_peluncur(tujuan: Path, python: Path, data: Path, port: int, diam: bool
         "echo   SM - Sistem Informasi Manajemen Sekolah\r\n"
         "echo ============================================================\r\n"
         f"echo   Buka di peramban: http://localhost:{port}\r\n"
-        "echo   Jendela ini biarkan terbuka selama aplikasi dipakai.\r\n"
+        "echo   (Jendela ini hanya untuk memeriksa; jalankan SM.vbs bila ingin "
+        "tanpa jendela.)\r\n"
         "echo.\r\n"
         f"\"%PY%\" run.py --host 0.0.0.0 --port {port}\r\n"
         "echo.\r\n"
@@ -401,8 +423,10 @@ def tulis_peluncur(tujuan: Path, python: Path, data: Path, port: int, diam: bool
         "* Menghapus aplikasi : python pemasang/pasang.py hapus --ya\n",
         encoding="utf-8")
 
-    _cetak(f"      Peluncur dibuat: {NAMA_PELUNCUR_WIN} & {NAMA_PELUNCUR_NIX}", diam)
-    return [str(peluncur_win), str(peluncur_nix)]
+    _cetak(f"      Peluncur dibuat: {NAMA_PELUNCUR_WIN} & {NAMA_PELUNCUR_NIX} "
+           "(Windows juga: SM.vbs tanpa jendela, Hentikan-SM.vbs)", diam)
+    return [str(peluncur_win), str(peluncur_nix), str(tujuan / "SM.vbs"),
+            str(tujuan / "Hentikan-SM.vbs")]
 
 
 def _desktop_dir() -> Path:
@@ -420,10 +444,15 @@ def buat_pintasan(tujuan: Path, diam: bool = False) -> list[str]:
 
     if os.name == "nt":
         peluncur = tujuan / NAMA_PELUNCUR_WIN
+        vbs = tujuan / "SM.vbs"
+        wscript = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "wscript.exe"
+        target = str(wscript) if vbs.exists() else str(peluncur)
+        argumen = f'"{vbs}"' if vbs.exists() else ""
         skrip = (
             "$w = New-Object -ComObject WScript.Shell; "
             f"$s = $w.CreateShortcut('{_desktop_dir() / 'SM.lnk'}'); "
-            f"$s.TargetPath = '{peluncur}'; $s.WorkingDirectory = '{tujuan}'; "
+            f"$s.TargetPath = '{target}'; $s.Arguments = '{argumen}'; "
+            f"$s.WorkingDirectory = '{tujuan}'; "
             "$s.Description = 'SM - Sistem Informasi Manajemen Sekolah'; $s.Save()")
         hasil = _jalankan(["powershell", "-NoProfile", "-NonInteractive", "-Command", skrip],
                           waktu=120)

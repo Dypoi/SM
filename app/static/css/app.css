@@ -928,3 +928,55 @@ input.input-nik {
 @media (max-width: 380px) {
   .switch { grid-template-columns: 1fr; }
 }
+
+/* --- Halaman Bot Dapodik (ronde 23): ringkas, kotak keadaan, panel catatan --- */
+.bot-kepala .card-body { padding-top: .35rem; }
+
+.bot-ringkas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: .55rem .9rem;
+  margin: .5rem 0 .35rem;
+}
+
+.bot-ringkas > div {
+  background: var(--surface-2, #f6f8fc);
+  border: 1px solid var(--border, #e3e8f0);
+  border-radius: 10px;
+  padding: .45rem .6rem;
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+  min-width: 0;
+}
+
+.bot-ringkas span { font-size: .74rem; text-transform: uppercase; letter-spacing: .02em; }
+.bot-ringkas strong { font-size: .88rem; overflow-wrap: anywhere; }
+
+.bot-langkah { margin: 0 0 .9rem; }
+.bot-langkah li + li { margin-top: .25rem; }
+
+.aksi-utama {
+  border: 1px solid var(--border, #e3e8f0);
+  border-left: 4px solid var(--primary, #2e7af0);
+  border-radius: 10px;
+  background: var(--surface-2, #f6f8fc);
+  padding: .7rem .8rem;
+}
+
+.log-panel {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: .6rem .75rem;
+  border-radius: 10px;
+  background: #0f1729;
+  color: #e6edf7;
+  font-size: .78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 640px) {
+  .bot-ringkas { grid-template-columns: 1fr 1fr; }
+}

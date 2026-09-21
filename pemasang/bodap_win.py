@@ -255,6 +255,126 @@ def pintasan_sm() -> list[Path]:
     return jalur
 
 
+def buat_peluncur_latar(tujuan: Path, python: Path, data: Path, port: int,
+                        ikon: Path | None = None) -> dict:
+    """Buat peluncur **tanpa jendela terminal** (SM.vbs) beserta pencabutnya.
+
+    Intinya: ``SM-latar.py`` dijalankan lewat **pythonw.exe** (Python tanpa konsol) sehingga
+    aplikasi berjalan di belakang layar — tidak ada jendela hitam yang harus dibiarkan terbuka.
+    Pintasan Desktop mengarah ke berkas VBS ini lewat ``wscript.exe``.
+    """
+    tujuan = Path(tujuan)
+    pythonw = python.parent / "pythonw.exe"
+    if not pythonw.exists():
+        pythonw = python
+    latar = tujuan / "SM-latar.py"
+    if not latar.exists():
+        # pemasangan lama (sebelum ada SM-latar.py): salin dari paket bila tersedia
+        sumber = folder_payload() / "app.zip"
+        if sumber.exists():
+            with zipfile.ZipFile(sumber) as z:
+                for nama in z.namelist():
+                    if nama == "SM-latar.py":
+                        (tujuan / nama).write_bytes(z.read(nama))
+                        break
+
+    sm_vbs = tujuan / "SM.vbs"
+    sm_vbs.write_text(
+        "' Dibuat oleh bodap.exe — menjalankan SM di belakang layar (tanpa jendela terminal).\r\n"
+        "' Buka aplikasi: klik dua kali berkas ini, atau pintasan «SM» di Desktop.\r\n"
+        'Option Explicit\r\n'
+        'Dim sh\r\n'
+        'Set sh = CreateObject("WScript.Shell")\r\n'
+        f'sh.CurrentDirectory = "{tujuan}"\r\n'
+        f'sh.Run """{pythonw}"" ""{tujuan}\\SM-latar.py"" --port {int(port)}", 0, False\r\n',
+        encoding="utf-8")
+
+    hentikan = tujuan / "Hentikan-SM.vbs"
+    hentikan.write_text(
+        "' Dibuat oleh bodap.exe — mematikan SM yang berjalan di belakang layar.\r\n"
+        'Option Explicit\r\n'
+        'Dim sh\r\n'
+        'Set sh = CreateObject("WScript.Shell")\r\n'
+        f'sh.Run """{pythonw}"" ""{tujuan}\\SM-latar.py"" --hentikan", 0, True\r\n',
+        encoding="utf-8")
+
+    # Pencabut: matikan dulu, bersihkan pintasan & daftar aplikasi, lalu hapus foldernya
+    # dari luar folder itu (folder aplikasi tidak bisa menghapus dirinya sendiri).
+    (tujuan / "Hapus-SM.cmd").write_text(
+        "@echo off\r\n"
+        "REM Menghapus aplikasi SM. Data sekolah TIDAK dihapus.\r\n"
+        "setlocal EnableExtensions\r\n"
+        "chcp 65001 >nul 2>nul\r\n"
+        "cd /d \"%~dp0\"\r\n"
+        f"set \"PY={python}\"\r\n"
+        f"set \"PYW={pythonw}\"\r\n"
+        "set \"SM_DATA=" + str(data) + "\"\r\n"
+        "echo Mematikan aplikasi SM bila sedang berjalan ...\r\n"
+        "if exist \"%PYW%\" (\"%PYW%\" \"%~dp0SM-latar.py\" --hentikan) else "
+        "(\"%PY%\" \"%~dp0SM-latar.py\" --hentikan)\r\n"
+        "echo Menghapus pintasan & pendaftaran aplikasi ...\r\n"
+        "reg delete \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\SM\" "
+        "/f >nul 2>nul\r\n"
+        "del /q \"%USERPROFILE%\\Desktop\\SM.lnk\" >nul 2>nul\r\n"
+        "del /q \"%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\SM.lnk\" >nul 2>nul\r\n"
+        "echo Menghapus berkas aplikasi ...\r\n"
+        "set \"SM_TUJUAN=%~dp0\"\r\n"
+        "> \"%TEMP%\\sm-hapus.cmd\" (\r\n"
+        "  echo @echo off\r\n"
+        "  echo timeout /t 3 /nobreak ^>nul\r\n"
+        "  echo rmdir /s /q \"%SM_TUJUAN%\"\r\n"
+        "  echo echo Aplikasi SM sudah dihapus. Data sekolah tetap ada di: %SM_DATA%\r\n"
+        "  echo pause\r\n"
+        ")\r\n"
+        "start \"\" /min cmd /c \"%TEMP%\\sm-hapus.cmd\"\r\n"
+        "exit /b 0\r\n", encoding="utf-8", newline="")
+
+    (tujuan / "Hapus-SM.vbs").write_text(
+        "' Dibuat oleh bodap.exe — pencabut tanpa jendela (dipakai Daftar Aplikasi Windows).\r\n"
+        'Option Explicit\r\n'
+        'Dim sh\r\n'
+        'Set sh = CreateObject("WScript.Shell")\r\n'
+        f'sh.Run """{tujuan}\\Hapus-SM.cmd""", 0, False\r\n', encoding="utf-8")
+
+    return {"sm_vbs": str(sm_vbs), "hentikan_vbs": str(hentikan),
+            "python_latar": str(pythonw)}
+
+
+def daftarkan_aplikasi(tujuan: Path, ikon: Path | None, versi: str) -> list[str]:
+    """Daftarkan di «Pengaturan → Aplikasi» Windows (HKCU — tanpa hak admin)."""
+    if os.name != "nt":
+        return []
+    kunci = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\SM"
+    nilai = {
+        "DisplayName": "SM — Sistem Informasi Manajemen Sekolah",
+        "DisplayVersion": versi or "0",
+        "Publisher": "SM",
+        "InstallLocation": str(tujuan),
+        "UninstallString": f'wscript.exe "{Path(tujuan) / "Hapus-SM.vbs"}"',
+        "QuietUninstallString": f'wscript.exe "{Path(tujuan) / "Hapus-SM.vbs"}"',
+        "NoModify": "1",
+        "NoRepair": "1",
+    }
+    if ikon:
+        nilai["DisplayIcon"] = str(ikon)
+    skrip = ["$ErrorActionPreference = 'SilentlyContinue'",
+             f"New-Item -Path '{kunci}' -Force | Out-Null"]
+    for nama, isi in nilai.items():
+        skrip.append(f"New-ItemProperty -Path '{kunci}' -Name '{nama}' "
+                     f"-Value '{isi}' -PropertyType String -Force | Out-Null")
+    try:
+        ukuran = sum(p.stat().st_size for p in Path(tujuan).rglob("*") if p.is_file()) // 1024
+        skrip.append(f"New-ItemProperty -Path '{kunci}' -Name 'EstimatedSize' "
+                     f"-Value {ukuran} -PropertyType DWord -Force | Out-Null")
+    except OSError:
+        pass
+    hasil = _jalankan(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                       "; ".join(skrip)], waktu=180)
+    if hasil.returncode != 0:
+        return []
+    return [kunci]
+
+
 def buat_pintasan(tujuan: Path, ikon: Path | None = None) -> list[str]:
     """Ikon di Desktop & menu Start (Windows) atau berkas .desktop (Linux/macOS)."""
     tujuan = Path(tujuan)
@@ -264,6 +384,9 @@ def buat_pintasan(tujuan: Path, ikon: Path | None = None) -> list[str]:
     dibuat: list[str] = []
 
     if os.name == "nt":
+        vbs = tujuan / "SM.vbs"
+        wscript = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "wscript.exe"
+        jalankan = f'"{wscript}" "{vbs}"' if vbs.exists() else f'"{peluncur}"'
         sasaran_daftar = [("Desktop", _desktop() / "SM.lnk")]
         appdata = os.environ.get("APPDATA")
         if appdata:
@@ -273,12 +396,19 @@ def buat_pintasan(tujuan: Path, ikon: Path | None = None) -> list[str]:
             try:
                 sasaran.parent.mkdir(parents=True, exist_ok=True)
                 ikon_baris = f"$s.IconLocation = '{ikon}'; " if ikon else ""
+                if vbs.exists():
+                    # Lewat wscript + SM.vbs: aplikasi jalan di belakang layar —
+                    # tidak ada jendela terminal sekejap pun.
+                    target, argumen = str(wscript), f'"{vbs}"'
+                else:
+                    target, argumen = str(peluncur), ""
                 skrip = (
                     "$w = New-Object -ComObject WScript.Shell; "
                     f"$s = $w.CreateShortcut('{sasaran}'); "
-                    f"$s.TargetPath = '{peluncur}'; "
+                    f"$s.TargetPath = '{target}'; "
+                    f"$s.Arguments = '{argumen}'; "
                     f"$s.WorkingDirectory = '{tujuan}'; "
-                    "$s.WindowStyle = 7; "
+                    "$s.WindowStyle = 1; "
                     "$s.Description = 'SM - Sistem Informasi Manajemen Sekolah'; "
                     f"{ikon_baris}$s.Save()")
                 hasil = _jalankan(["powershell", "-NoProfile", "-NonInteractive", "-Command",
@@ -342,6 +472,7 @@ class Pemasang:
     def __init__(self, tujuan: Path, data: Path, port: int = 8000, dengan_bot: bool = False,
                  pintasan: bool = True, otomatis: bool = False, payload: Path | None = None,
                  python_bawaan: bool = True, izinkan_unduh_python: bool = False,
+                 daftar_aplikasi: bool = True, ekskul_contoh: bool = False,
                  catat=None, maju=None, berhenti=None) -> None:
         self.tujuan = Path(tujuan)
         self.data = Path(data)
@@ -352,6 +483,8 @@ class Pemasang:
         self.payload = Path(payload) if payload else folder_payload()
         self.python_bawaan = bool(python_bawaan)
         self.izinkan_unduh_python = bool(izinkan_unduh_python)
+        self.daftar_aplikasi = bool(daftar_aplikasi)
+        self.ekskul_contoh = bool(ekskul_contoh)
         self._catat = catat or (lambda pesan: None)
         self._maju = maju or (lambda langkah, persen: None)
         self._berhenti = berhenti or (lambda: False)
@@ -647,9 +780,13 @@ class Pemasang:
         self.data.mkdir(parents=True, exist_ok=True)
         sudah = (self.data / "sm.sqlite3").exists()
         self.catat("Basis data lama dipakai kembali — data sekolah tetap utuh."
-                   if sudah else "Menyiapkan basis data baru ...")
+                   if sudah else "Menyiapkan basis data baru (kosong — tanpa data contoh) ...")
+        # Pemasangan baru harus BERSIH: tidak ada siswa/ekskul contoh dari mana pun.
+        # Bila sekolah memang ingin daftar 14 ekskul resmi, itu diminta lewat wizard.
         lingkungan = dict(os.environ, SM_DATA_DIR=str(self.data), PYTHONUTF8="1",
-                          PYTHONIOENCODING="utf-8")
+                          PYTHONIOENCODING="utf-8",
+                          SM_AUTO_SEED="0",
+                          SM_EKSKUL_SEKOLAH="1" if self.ekskul_contoh else "0")
         lingkungan.pop("SM_DB_PATH", None)      # jangan tertipu penunjuk dari luar
         hasil = _jalankan([python, "run.py", "--init-db"], cwd=self.tujuan, waktu=1800,
                           env=lingkungan)
@@ -688,30 +825,16 @@ class Pemasang:
             "pause\r\n", encoding="utf-8", newline="")
         shutil.copy2(peluncur, self.tujuan / "Jalankan-SM.cmd")
 
-        # Pencabut: bersihkan pintasan lewat python, lalu hapus folder dari luar folder itu
-        # (folder aplikasi tidak bisa menghapus dirinya sendiri saat masih dipakai).
-        (self.tujuan / "Hapus-SM.cmd").write_text(
-            "@echo off\r\n"
-            "REM Menghapus aplikasi SM dari komputer ini. Data sekolah TIDAK dihapus.\r\n"
-            "setlocal EnableExtensions\r\n"
-            "chcp 65001 >nul 2>nul\r\n"
-            f"set \"PY={python}\"\r\n"
-            "if not exist \"%PY%\" set \"PY=python\"\r\n"
-            "echo Menghapus aplikasi SM ... (data sekolah tetap disimpan)\r\n"
-            "\"%PY%\" \"%~dp0pemasang\\pasang.py\" hapus --tujuan \"%~dp0.\" "
-            f"--data \"{self.data}\" --ya\r\n"
-            "REM Sisa folder dibersihkan dari luar (folder ini sedang dipakai).\r\n"
-            "set \"SM_TUJUAN=%~dp0.\"\r\n"
-            "> \"%TEMP%\\sm-hapus.cmd\" (\r\n"
-            "  echo @echo off\r\n"
-            "  echo timeout /t 3 /nobreak ^>nul\r\n"
-            "  echo rmdir /s /q \"%SM_TUJUAN%\"\r\n"
-            "  echo echo Aplikasi SM sudah dihapus. Data sekolah tetap ada di: "
-            f"{self.data}\r\n"
-            "  echo pause\r\n"
-            ")\r\n"
-            "start \"\" /min cmd /c \"%TEMP%\\sm-hapus.cmd\"\r\n"
-            "exit /b 0\r\n", encoding="utf-8", newline="")
+        # Peluncur tanpa jendela terminal + pencabut + ikon (di dalam folder aplikasi).
+        ikon = _ikon_bawaan()
+        ikon_tujuan = None
+        if ikon:
+            try:
+                shutil.copy2(ikon, self.tujuan / ikon.name)
+                ikon_tujuan = self.tujuan / ikon.name
+            except OSError:
+                ikon_tujuan = ikon
+        info_latar = buat_peluncur_latar(self.tujuan, python, self.data, self.port, ikon_tujuan)
 
         (self.tujuan / "BACA-INI-SM.txt").write_text(
             "SM - Sistem Informasi Manajemen Sekolah\n"
@@ -722,8 +845,12 @@ class Pemasang:
             f"Alamat         : http://localhost:{self.port}\n\n"
             "Menjalankan\n"
             "-----------\n"
-            "  Klik dua kali ikon «SM» di Desktop, atau «Jalankan-SM.cmd» di folder ini.\n"
-            "  Jendela hitam yang muncul biarkan terbuka selama aplikasi dipakai.\n\n"
+            "  Klik dua kali ikon «SM» di Desktop (atau «SM.vbs» di folder ini).\n"
+            "  Aplikasi berjalan di BELAKANG LAYAR: tidak ada jendela hitam/terminal yang\n"
+            "  perlu dibiarkan terbuka, peramban terbuka sendiri di alamat di atas.\n"
+            "  Mematikan aplikasi: menu Start → «Hentikan SM» (atau «Hentikan-SM.vbs»).\n"
+            "  Bila ada masalah: periksa <<folder data>>\\log-server.txt, atau jalankan\n"
+            "  «Jalankan-SM.cmd» yang menampilkan pesan aplikasi di jendelanya.\n\n"
             "Login\n"
             "-----\n"
             "  Petugas : admin / admin123  (segera ganti sandinya di menu Pengaturan)\n"
@@ -732,26 +859,36 @@ class Pemasang:
             "-------\n"
             "* Seluruh data sekolah ada di folder data di atas. Memasang ulang atau\n"
             "  memperbarui TIDAK menghapus data itu.\n"
+            "* Pemasangan baru mulai KOSONG: belum ada data siswa & daftar ekskul. Bila\n"
+            "  sekolah memakai 14 ekskul resmi, tekan tombol «Isi daftar ekskul resmi (14)»\n"
+            "  di halaman Ekstrakurikuler.\n"
             "* Cadangkan folder data secara berkala (salin ke flashdisk/Drive).\n"
             "* Menghapus aplikasi: jalankan «Hapus-SM.cmd» di folder ini.\n"
             "* Bot Dapodik memerlukan Google Chrome dan aplikasi Dapodik yang sedang berjalan.\n",
             encoding="utf-8")
 
-        ikon = _ikon_bawaan()
         pintasan: list[str] = []
         if self.pintasan:
-            self.catat("Membuat ikon «SM» di Desktop & menu Start ...")
-            pintasan = buat_pintasan(self.tujuan, ikon)
+            self.catat("Membuat ikon «SM» di Desktop & menu Start (aplikasi jalan tanpa "
+                       "jendela terminal) ...")
+            pintasan = buat_pintasan(self.tujuan, ikon_tujuan)
             if not pintasan:
                 self.catat("[!] Ikon Desktop tidak bisa dibuat otomatis. Pintasan bisa dibuat "
-                           "manual: klik kanan «Jalankan-SM.cmd» → Kirim ke → Desktop (buat "
-                           "pintasan).")
+                           "manual: klik kanan «SM.vbs» → Kirim ke → Desktop (buat pintasan).")
         otomatis: list[str] = []
         if self.otomatis:
             self.catat("Menyiapkan agar SM ikut menyala saat komputer dinyalakan ...")
             otomatis = pasang_otomatis(self.tujuan)
-        self.catat("Peluncur dibuat: SM.cmd, Jalankan-SM.cmd, Hapus-SM.cmd, BACA-INI-SM.txt.")
-        return {"pintasan": pintasan, "otomatis": otomatis, "ikon": str(ikon or "")}
+        daftar: list[str] = []
+        if self.daftar_aplikasi:
+            daftar = daftarkan_aplikasi(self.tujuan, ikon_tujuan, versi_aplikasi(self.tujuan))
+            if daftar:
+                self.catat("Terdaftar di «Pengaturan → Aplikasi» Windows "
+                           "(bisa dihapus dari sana).")
+        self.catat("Peluncur dibuat: SM.vbs (tanpa jendela), Hentikan-SM.vbs, Jalankan-SM.cmd, "
+                   "Hapus-SM.cmd, BACA-INI-SM.txt.")
+        return {"pintasan": pintasan, "otomatis": otomatis, "ikon": str(ikon_tujuan or ""),
+                "peluncur_latar": info_latar, "daftar_aplikasi": daftar}
 
     # -- langkah 7: catatan -------------------------------------------------- #
     def tulis_catatan(self, info: dict) -> None:
@@ -767,6 +904,8 @@ class Pemasang:
             "modus": info.get("modus_python", ""),
             "pintasan": info.get("pintasan", []),
             "otomatis": info.get("otomatis", []),
+            "peluncur_latar": info.get("peluncur_latar", {}),
+            "daftar_aplikasi": info.get("daftar_applikasi", info.get("daftar_aplikasi", [])),
             "dengan_bot": self.dengan_bot,
         }
         (self.tujuan / NAMA_MARKER).write_text(
@@ -827,7 +966,9 @@ def jalankan_sunyi(args) -> dict:
         pintasan=not args.tanpa_pintasan, otomatis=args.otomatis,
         payload=Path(args.payload) if args.payload else None,
         python_bawaan=not args.python_komputer,
-        izinkan_unduh_python=args.izinkan_unduh_python, catat=catat)
+        izinkan_unduh_python=args.izinkan_unduh_python,
+        daftar_aplikasi=not args.tanpa_daftar_aplikasi,
+        ekskul_contoh=args.ekskul_contoh, catat=catat)
     hasil = pemasang.jalankan()
     hasil["perintah"] = "pasang"
     hasil["catatan"] = dicatat
@@ -1016,8 +1157,47 @@ def jalankan_uji(args) -> dict:
                        "BACA-INI-SM.txt", NAMA_MARKER, "app/main.py"):
             cek((tujuan / berkas).exists(), f"berkas hasil pemasangan: {berkas}")
 
+        # r23: aplikasi harus bisa dijalankan TANPA jendela terminal (peluncur latar).
+        for berkas in ("SM.vbs", "Hentikan-SM.vbs", "Hapus-SM.vbs", "SM-latar.py"):
+            cek((tujuan / berkas).exists(), f"berkas peluncur latar: {berkas}")
+        try:
+            isi_vbs = (tujuan / "SM.vbs").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            isi_vbs = ""
+        # Di Windows peluncur memakai pythonw.exe (tanpa konsol); di Linux/macOS pengembang
+        # pythonw tidak ada, yang penting jendelanya disembunyikan (, 0, False).
+        cek(all(bagian in isi_vbs for bagian in ("SM-latar.py", "--port", ", 0, False"))
+            and (os.name != "nt" or "pythonw" in isi_vbs),
+            "SM.vbs menjalankan SM-latar.py lewat pythonw (jendela konsol disembunyikan)")
+        try:
+            isi_hentikan = (tujuan / "Hentikan-SM.vbs").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            isi_hentikan = ""
+        cek("--hentikan" in isi_hentikan,
+            "Hentikan-SM.vbs bisa mematikan aplikasi yang berjalan di belakang")
+        try:
+            isi_baca = (tujuan / "BACA-INI-SM.txt").read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            isi_baca = ""
+        cek(all(bagian in isi_baca for bagian in ("BELAKANG LAYAR", "Hentikan-SM", "log-server.txt",
+                                                  "Isi daftar ekskul resmi")),
+            "BACA-INI-SM.txt menjelaskan jalan di belakang layar, mematikannya, & data kosong")
+
         db = data / "sm.sqlite3"
         cek(db.exists() and db.stat().st_size > 10_000, f"basis data dibuat: {db}")
+
+        # r23: hasil pemasangan harus FRESH — tidak ada siswa/ekstrakurikuler bawaan.
+        try:
+            import sqlite3
+
+            with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as koneksi:
+                jumlah = {tabel: koneksi.execute(f"SELECT COUNT(*) FROM {tabel}").fetchone()[0]
+                          for tabel in ("students", "extracurriculars", "ekskul_members")}
+            cek(all(nilai == 0 for nilai in jumlah.values()),
+                "basis data hasil pemasangan kosong (fresh): "
+                + ", ".join(f"{t} {n}" for t, n in jumlah.items()))
+        except Exception as exc:      # noqa: BLE001 — laporkan, jangan hentikan uji
+            cek(False, f"basis data hasil pemasangan bisa dibaca: {type(exc).__name__}: {exc}")
         cek(not (tujuan / "data").exists(), "folder data di luar aplikasi tidak dibuat ganda")
         try:
             catatan_pasang = json.loads((tujuan / NAMA_MARKER).read_text(encoding="utf-8"))
@@ -1056,6 +1236,40 @@ def jalankan_uji(args) -> dict:
             except subprocess.TimeoutExpired:
                 proses.kill()
         cek(kode_jawab in (200, 303), f"aplikasi hasil pemasangan menjawab HTTP {kode_jawab}")
+
+        # r23: dijalankan lewat peluncur latar — tanpa jendela, lalu dimatikan dari berkas ini.
+        import urllib.error
+        import urllib.request
+
+        def menjawab(port_: int) -> bool:
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{port_}/", timeout=3) as jawab:
+                    return jawab.status in (200, 303)
+            except urllib.error.HTTPError as exc:
+                return exc.code in (200, 303, 401, 403)
+            except Exception:      # noqa: BLE001 — belum siap, bukan galat
+                return False
+
+        port_latar = port_bebas()
+        lingkungan = dict(os.environ, SM_DATA_DIR=str(data), PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+        peluncur = subprocess.run(
+            [str(python), str(tujuan / "SM-latar.py"), "--port", str(port_latar), "--tanpa-buka"],
+            cwd=str(tujuan), capture_output=True, text=True, encoding="utf-8", errors="replace",
+            env=lingkungan, timeout=240, creationflags=tanpa_jendela())
+        keadaan = data / "server.json"
+        cek(peluncur.returncode == 0 and menjawab(port_latar),
+            "SM-latar.py menjalankan aplikasi di belakang layar (tanpa jendela terminal) "
+            f"port {port_latar}: {(peluncur.stdout or peluncur.stderr or '').strip()[:120]}")
+        cek(keadaan.exists() and (data / "log-server.txt").exists(),
+            "peluncur latar menulis catatan keadaan & catatan aplikasi di folder data")
+        subprocess.run([str(python), str(tujuan / "SM-latar.py"), "--hentikan"], cwd=str(tujuan),
+                       capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       env=lingkungan, timeout=120, creationflags=tanpa_jendela())
+        batas = time.time() + 20
+        while time.time() < batas and (menjawab(port_latar) or keadaan.exists()):
+            time.sleep(0.5)
+        cek(not menjawab(port_latar), "aplikasi latar benar-benar berhenti setelah --hentikan")
+        cek(not keadaan.exists(), "catatan keadaan dibersihkan setelah aplikasi dihentikan")
 
         # periksa → hapus → data di luar folder aplikasi harus tetap ada
         kelas_args = argparse.Namespace(tujuan=str(tujuan), data=None, diam=True, ya=True)
@@ -1120,6 +1334,8 @@ class Wizard:
         self.var_python_bawaan = tk.BooleanVar(value=True)
         self.var_unduh = tk.BooleanVar(value=True)
         self.var_buka = tk.BooleanVar(value=True)
+        self.var_daftar = tk.BooleanVar(value=True)
+        self.var_ekskul = tk.BooleanVar(value=False)
 
         gaya = ttk.Style()
         try:
@@ -1226,6 +1442,13 @@ class Wizard:
         ttk.Checkbutton(kotak, variable=self.var_unduh,
                         text="Bila perlu, unduh Python dari python.org (butuh internet)"
                         ).pack(anchor="w")
+        ttk.Checkbutton(kotak, variable=self.var_daftar,
+                        text="Daftarkan di «Pengaturan → Aplikasi» Windows (ada tombol Hapus)"
+                        ).pack(anchor="w")
+        ttk.Checkbutton(kotak, variable=self.var_ekskul,
+                        text="Isi daftar 14 ekstrakurikuler resmi sekolah (kalau tidak "
+                             "dicentang: aplikasi benar-benar kosong)"
+                        ).pack(anchor="w")
 
         ttk.Label(self.bingkai, style="Kecil.TLabel", wraplength=680, justify="left",
                   text="Data siswa disimpan di folder data di atas. Bila folder data diletakkan "
@@ -1322,9 +1545,14 @@ class Wizard:
         tujuan = Path(self.hasil.get("tujuan") or self.var_tujuan.get())
         port = int(self.hasil.get("port") or self.var_port.get())
         peluncur = tujuan / "Jalankan-SM.cmd"
+        vbs = tujuan / "SM.vbs"
         try:
-            if os.name == "nt" and peluncur.exists():
-                os.startfile(str(peluncur))      # noqa: S606 — membuka peluncur aplikasi
+            if os.name == "nt" and vbs.exists():
+                # Lewat SM.vbs: aplikasi jalan di belakang layar — tanpa jendela terminal.
+                wscript = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "wscript.exe"
+                subprocess.Popen([str(wscript), str(vbs)], creationflags=tanpa_jendela())
+            elif os.name == "nt" and peluncur.exists():
+                os.startfile(str(peluncur))      # noqa: S606 — cadangan (tanpa SM.vbs)
             else:
                 subprocess.Popen([str(python_atau_venv(tujuan)), "run.py", "--port", str(port)],
                                  cwd=str(tujuan), creationflags=tanpa_jendela())
@@ -1367,6 +1595,7 @@ class Wizard:
             pintasan=self.var_pintasan.get(), otomatis=self.var_otomatis.get(),
             python_bawaan=self.var_python_bawaan.get(),
             izinkan_unduh_python=self.var_unduh.get(),
+            daftar_aplikasi=self.var_daftar.get(), ekskul_contoh=self.var_ekskul.get(),
             catat=lambda pesan: self.antre.put(("catat", pesan)),
             maju=lambda langkah, persen: self.antre.put(("maju", persen)),
             berhenti=self.batal.is_set)
@@ -1450,6 +1679,11 @@ def buat_parser() -> argparse.ArgumentParser:
     p.add_argument("--dengan-bot", action="store_true",
                    help="sekalian pasang pustaka bot Dapodik (selenium)")
     p.add_argument("--tanpa-pintasan", action="store_true", help="jangan buat ikon Desktop")
+    p.add_argument("--tanpa-daftar-aplikasi", action="store_true",
+                   help="jangan daftarkan SM di «Pengaturan → Aplikasi» Windows")
+    p.add_argument("--ekskul-contoh", action="store_true",
+                   help="isi daftar 14 ekstrakurikuler resmi saat memasang "
+                        "(bawaan: aplikasi kosong)")
     p.add_argument("--otomatis", action="store_true",
                    help="jalankan SM otomatis saat komputer dinyalakan")
     p.add_argument("--python-komputer", action="store_true",

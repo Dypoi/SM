@@ -1106,9 +1106,9 @@ class BotDapodik:
         try:
             return peramban.execute_script(
                 """
-                const cari = String(arguments[0] || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                const cari = String(arguments[0] || '').replace(/\\s+/g, ' ').trim().toLowerCase();
                 if (!cari) return null;
-                const rapi = (t) => String(t || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                const rapi = (t) => String(t || '').replace(/\\s+/g, ' ').trim().toLowerCase();
                 const bersih = (t) => rapi(t).replace(/[*:\u00a0]+$/g, '').trim();
                 const etiket = [...document.querySelectorAll('label')].find((l) => {
                     const teks = bersih(l.textContent);
@@ -2231,14 +2231,14 @@ class BotDapodik:
                     if (!tampil(w)) continue;
                     const judul = w.querySelector('.x-title-text');
                     const teks = ((judul ? judul.textContent : '') + ' ' +
-                                  (w.textContent || '')).replace(/\s+/g, ' ').trim();
+                                  (w.textContent || '')).replace(/\\s+/g, ' ').trim();
                     if (/Edit Peserta Didik/i.test(teks)) return w;
                 }
                 // (b) judulnya ada di tempat lain (mis. formulirnya berupa PANEL, bukan jendela
                 //     melayang): judul dilacak ke wadah yang benar-benar memuat kolom isian.
                 for (const j of document.querySelectorAll(
                         '.x-title-text, .x-title, .x-panel-header-title, .x-header-text')) {
-                    const t = (j.textContent || '').replace(/\s+/g, ' ').trim();
+                    const t = (j.textContent || '').replace(/\\s+/g, ' ').trim();
                     if (!/Edit Peserta Didik/i.test(t)) continue;
                     const wadah = naik(j);
                     if (wadah && wadah.querySelector && wadah.querySelector('input')) return wadah;
@@ -2280,7 +2280,7 @@ class BotDapodik:
                 if (!w) return '';
                 const j = w.querySelector('.x-title-text');
                 return ((j ? j.textContent : w.textContent) || '')
-                    .replace(/\s+/g, ' ').trim().slice(0, 80);
+                    .replace(/\\s+/g, ' ').trim().slice(0, 80);
                 """, jendela)
             return str(teks or "")
         except Exception:  # noqa: BLE001 — judul hanya untuk log
@@ -2313,7 +2313,7 @@ class BotDapodik:
                 const kumpul = [];
                 const dilihat = new Set();
                 for (const el of document.querySelectorAll('span, a, button')) {
-                    const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+                    const t = (el.textContent || '').replace(/\\s+/g, ' ').trim();
                     if (t !== 'Ubah') continue;
                     if (!tampil(el)) continue;
                     const inti = (el.closest && el.closest('.x-btn')) || el;
@@ -2367,7 +2367,7 @@ class BotDapodik:
                 /* kolom-jendela */
                 const root = arguments[0];
                 const nama = (arguments[1] || '').trim();
-                const cari = (arguments[2] || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                const cari = (arguments[2] || '').replace(/\\s+/g, ' ').trim().toLowerCase();
                 if (!root) return null;
                 const tampil = (el) => !!(el && el.getClientRects && el.getClientRects().length);
                 if (nama) {
@@ -2376,7 +2376,7 @@ class BotDapodik:
                 }
                 if (cari) {
                     for (const l of root.querySelectorAll('label')) {
-                        const t = (l.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                        const t = (l.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
                         if (!t || (t !== cari && !t.startsWith(cari))) continue;
                         const forId = l.getAttribute('for');
                         let k = forId ? document.getElementById(forId) : null;
@@ -2582,7 +2582,7 @@ class BotDapodik:
                 const sumber = root ? root.querySelectorAll('span, a, button, div.x-btn')
                                     : document.querySelectorAll('span, a, button');
                 for (const el of sumber) {
-                    const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+                    const t = (el.textContent || '').replace(/\\s+/g, ' ').trim();
                     if (t !== 'Simpan') continue;
                     if (!el.getClientRects().length) continue;
                     if (!root && dalamRincian(el)) continue;   // tombol panel Data Rincian
@@ -2644,7 +2644,7 @@ class BotDapodik:
                     return false;
                 };
                 for (const el of document.querySelectorAll('span, a, button')) {
-                    const t = (el.textContent || '').replace(/\s+/g, ' ').trim();
+                    const t = (el.textContent || '').replace(/\\s+/g, ' ').trim();
                     if (t !== 'Simpan' || !tampil(el)) continue;
                     if (dalamRincian(el)) simpanRincian += 1; else simpanJendela += 1;
                 }
@@ -2764,7 +2764,7 @@ class BotDapodik:
                 const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
                 const bersih = String(id).replace(/-inputEl$/, '');
                 const owns = String((el.getAttribute && el.getAttribute('aria-owns')) || '')
-                    .split(/\s+/).filter(Boolean);
+                    .split(/\\s+/).filter(Boolean);
                 for (const o of owns) tambah(document.getElementById(o));
                 if (bersih) {
                     tambah(document.getElementById(bersih + '-picker-listEl'));
@@ -2862,7 +2862,7 @@ class BotDapodik:
                 /* dropdown-pilih */
                 const el = arguments[0];
                 const cari = String(arguments[1] || '')
-                    .replace(/\s+/g, ' ').trim().toLowerCase();
+                    .replace(/\\s+/g, ' ').trim().toLowerCase();
                 if (!el || !cari) return false;
                 const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
                 const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
@@ -2875,7 +2875,7 @@ class BotDapodik:
                     for (const r of store.getRange()) {
                         const t = r.get(kunci);
                         if (t === undefined || t === null) continue;
-                        if (String(t).replace(/\s+/g, ' ').trim().toLowerCase() === cari) {
+                        if (String(t).replace(/\\s+/g, ' ').trim().toLowerCase() === cari) {
                             rec = r;
                             break;
                         }
@@ -2925,7 +2925,7 @@ class BotDapodik:
                 for (const el2 of akar.querySelectorAll(
                         'li.x-boundlist-item, div.x-boundlist-item, .x-combo-list-item')) {
                     if (!lihat(el2)) continue;
-                    const t = (el2.textContent || '').replace(/\s+/g, ' ').trim();
+                    const t = (el2.textContent || '').replace(/\\s+/g, ' ').trim();
                     if (t && daftar.indexOf(t) < 0) daftar.push(t);
                 }
                 return daftar;
@@ -2959,7 +2959,7 @@ class BotDapodik:
                 // daftar yang benar-benar terlihat adalah penanda standar combo Ext JS.
                 if (el.getAttribute && el.getAttribute('aria-expanded') === 'true') return true;
                 const owns = String((el.getAttribute && el.getAttribute('aria-owns')) || '')
-                    .split(/\s+/).filter(Boolean);
+                    .split(/\\s+/).filter(Boolean);
                 for (const o of owns) {
                     const n = document.getElementById(o);
                     if (n && lihat(n)) return true;
@@ -3081,7 +3081,7 @@ class BotDapodik:
                     // Tanpa Ext: elemen daftarnya dicari dari DOM (aria-owns / id picker).
                     const bersih = String(id).replace(/-inputEl$/, '');
                     const owns = String((el.getAttribute && el.getAttribute('aria-owns')) || '')
-                        .split(/\s+/).filter(Boolean);
+                        .split(/\\s+/).filter(Boolean);
                     for (const o of owns) {
                         if (akar) break;
                         const n = document.getElementById(o);
@@ -3157,7 +3157,7 @@ class BotDapodik:
                 """
                 /* dropdown-item */
                 const el = arguments[0];
-                const cari = (arguments[1] || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                const cari = (arguments[1] || '').replace(/\\s+/g, ' ').trim().toLowerCase();
                 if (!el) return -1;
                 const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
                 const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
@@ -3173,7 +3173,7 @@ class BotDapodik:
                     if (tampil(el2)) item.push(el2);
                 }
                 for (let i = 0; i < item.length; i += 1) {
-                    const t = (item[i].textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                    const t = (item[i].textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
                     if (t === cari) {
                         item[i].scrollIntoView({block: 'center'});
                         return i;
@@ -4518,7 +4518,7 @@ def _keadaan_halaman(peramban) -> dict[str, Any]:
                 overlay: mask,
                 iframe: document.querySelectorAll('iframe').length,
                 judul_dokumen: document.title || '',
-                teks_awal: (document.body ? document.body.innerText : '').replace(/\s+/g, ' ').trim().slice(0, 300),
+                teks_awal: (document.body ? document.body.innerText : '').replace(/\\s+/g, ' ').trim().slice(0, 300),
             };
             """))
     except Exception as exc:  # noqa: BLE001

@@ -203,6 +203,12 @@ SPREADSHEET_EXTENSIONS = {
 # Nama berkas contoh Dapodik yang otomatis diimpor saat database masih kosong.
 AUTO_SEED = os.getenv("SM_AUTO_SEED", "1").lower() not in {"0", "false", "no"}
 
+#: Isi otomatis **14 daftar ekstrakurikuler resmi sekolah** saat basis data dibuat.
+#: Bawaannya MATI: aplikasi yang baru dipasang harus benar-benar kosong — daftar itu bisa
+#: diminta kapan saja dari halaman Ekstrakurikuler (tombol «Isi daftar ekskul resmi») atau
+#: lewat ``run.py --isi-ekskul-resmi``.
+EKSKUL_SEKOLAH = os.getenv("SM_EKSKUL_SEKOLAH", "0").lower() not in {"0", "false", "no"}
+
 # --------------------------------------------------------------------------- #
 # Tampilan
 # --------------------------------------------------------------------------- #

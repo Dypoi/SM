@@ -44,6 +44,13 @@ def _boleh_kelola(user: auth.SessionUser, ekskul_id: int) -> bool:
     return bool(user.is_ekskul and user.ekskul_id == ekskul_id)
 
 
+def _boleh_admin_saja(user: auth.SessionUser):
+    """Kembalikan jawaban pengalihan bila bukan admin; ``None`` bila boleh lanjut."""
+    if user.role != auth.ROLE_ADMIN:
+        return _redirect("Hanya admin yang dapat mengisi daftar ekskul resmi.", "warning")
+    return None
+
+
 def _tolak_kelola(user: auth.SessionUser):
     """Akun ekskul yang membuka ekskul lain diarahkan ke ekskulnya sendiri."""
     return _redirect(
@@ -74,6 +81,18 @@ def daftar_ekskul(request: Request, user: auth.SessionUser = Depends(auth.requir
                             for baris in services.list_ekskul()},
         },
     )
+
+
+@router.post("/ekstrakurikuler/ekskul-resmi")
+def isi_ekskul_resmi(request: Request, user: auth.SessionUser = Depends(auth.require_staff)):
+    """Isi 14 daftar ekstrakurikuler resmi sekolah (tombol saat daftar masih kosong)."""
+    dicoba = _boleh_admin_saja(user)
+    if dicoba is not None:
+        return dicoba
+    ditambah, total = services.isi_ekskul_resmi()
+    pesan = (f"{ditambah} ekskul resmi ditambahkan — sekarang {total} ekskul." if ditambah
+             else f"Semua ekskul resmi sudah ada ({total} ekskul).")
+    return _redirect(pesan, "ok", "/ekstrakurikuler", "daftar")
 
 
 @router.post("/ekstrakurikuler/simpan")

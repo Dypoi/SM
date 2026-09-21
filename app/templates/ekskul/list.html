@@ -72,7 +72,14 @@
               </td>
             </tr>
             {% else %}
-            <tr><td colspan="7" class="empty-cell"><p class="empty">Belum ada ekstrakurikuler. Tambahkan yang pertama di form bawah.</p></td></tr>
+            <tr><td colspan="7" class="empty-cell">
+              <p class="empty">Belum ada ekstrakurikuler — aplikasi baru memang dikosongkan.</p>
+              <form method="post" action="/ekstrakurikuler/ekskul-resmi" style="display:inline"
+                    data-confirm="Isi 14 daftar ekstrakurikuler resmi sekolah (OSIS, BASKET, FUTSAL, …)? Ekskul yang sudah ada tidak diubah.">
+                <button class="btn btn-outline btn-sm" type="submit">{{ icon('plus') }} Isi daftar ekskul resmi (14)</button>
+              </form>
+              <span class="hint">Atau tambahkan sendiri lewat form di bawah.</span>
+            </td></tr>
             {% endfor %}
           </tbody>
         </table>

@@ -27,6 +27,8 @@ def main() -> int:
     parser.add_argument("--reload", action="store_true", help="Mode pengembangan")
     parser.add_argument("--init-db", action="store_true", help="Siapkan database lalu keluar")
     parser.add_argument("--seed-ekskul", action="store_true", help="Isi contoh data ekstrakurikuler")
+    parser.add_argument("--isi-ekskul-resmi", action="store_true",
+                        help="Isi 14 daftar ekstrakurikuler resmi sekolah lalu keluar")
     args = parser.parse_args()
 
     from app import config, migrations, services
@@ -40,6 +42,11 @@ def main() -> int:
         print(f"Database siap: {config.DB_PATH}")
         if executed:
             print("Migrasi dijalankan: " + ", ".join(executed))
+        return 0
+
+    if args.isi_ekskul_resmi:
+        ditambah, total = services.isi_ekskul_resmi()
+        print(f"Daftar ekskul resmi: {ditambah} ditambahkan, {total} ekskul aktif sekarang.")
         return 0
 
     if args.seed_ekskul:

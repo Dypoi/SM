@@ -260,6 +260,10 @@ akta lahir, kesehatan, sampai koordinat rumah.
 ### Ekstrakurikuler
 - Kelola kegiatan: **nama, pembina, pelatih**, hari & jam, deskripsi, dan status.
   (Kolom kode, kategori, tempat, dan kuota sudah dihapus sesuai permintaan sekolah.)
+- Aplikasi hasil pemasangan baru **mulai kosong**, termasuk daftar ekstrakurikulernya. Bila
+  sekolah memakai 14 ekskul resmi, tekan **«Isi daftar ekskul resmi (14)»** di halaman
+  Ekstrakurikuler saat daftarnya masih kosong (atau jalankan `python run.py --isi-ekskul-resmi`)
+  — aman ditekan berkali-kali, yang sudah ada tidak digandakan.
 - Anggota dengan jabatan, **nilai A/B/C/D**, **catatan per siswa**, dan status.
 - Pembina/pelatih dapat **memasukkan & mengeluarkan siswa** (dengan NISN atau nama siswa),
   lalu menyimpan nilai + catatan langsung dari tabel anggota. Ada juga **Cari cepat siswa**
@@ -697,7 +701,8 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 | `SM_MAX_UPLOAD_MB` | `64` | Batas ukuran berkas unggahan |
 | `SM_DOKUMEN_MAX_MB` | `8` | Batas ukuran berkas bukti pengajuan (akta/KK/ijazah) |
 | `SM_ROWS_PER_PAGE` | `25` | Baris per halaman |
-| `SM_AUTO_SEED` | `1` | Impor otomatis berkas contoh saat database kosong |
+| `SM_AUTO_SEED` | `1` | Impor otomatis berkas contoh saat database kosong (`0` = database baru dibiarkan kosong) |
+| `SM_EKSKUL_SEKOLAH` | `0` | `1` = isi otomatis 14 daftar ekskul resmi saat aplikasi pertama dijalankan |
 | `SM_API_PUBLIC` | `0` | `1` = API baca dapat diakses tanpa kunci |
 | `SM_GIT_UPDATE` | `1` | `0` = matikan fitur pembaruan `git pull` di aplikasi |
 | `SM_GIT_BIN` | otomatis | Path `git` bila tidak terdeteksi otomatis |
@@ -801,6 +806,13 @@ Bila ingin **cukup membawa satu berkas ke laptop/PC lain**, pakai **`bodap.exe`*
    Internet diperlukan **sekali saja** (memasang pustaka).
 4. Selesai: ikon **SM** ada di Desktop — klik ikon itu, aplikasi terbuka di
    `http://localhost:8000`. Login petugas `admin` / `admin123`, siswa cukup NISN.
+   Aplikasi berjalan **di belakang layar tanpa jendela terminal** (ikon SM menjalankan
+   `SM-latar.py` lewat `pythonw.exe`), jadi tidak ada jendela hitam yang perlu dibiarkan
+   terbuka; aplikasi dimatikan kapan saja lewat pintasan **Hentikan SM** di menu Start, dan
+   catatan aplikasi tersimpan di `data\log-server.txt` bila perlu diperiksa.
+5. Hasil pemasangan **fresh & kosong**: tidak ada siswa contoh dan **daftar ekstrakurikuler
+   juga kosong**. Isi 14 ekskul resmi lewat tombol **«Isi daftar ekskul resmi (14)»** di
+   halaman Ekstrakurikuler (atau `python run.py --isi-ekskul-resmi`).
 
 `bodap.exe` sudah memuat Python bawaan Windows, jadi komputer tujuan **tidak perlu** memasang
 Python. Berkas itu juga bisa dipakai tanpa jendela:
@@ -813,8 +825,10 @@ bodap.exe --uji              :: uji mandiri: pasang → jalankan → periksa →
 ```
 
 Petunjuk lengkapnya: **`pemasang/PANDUAN-BODAP.md`**. Ujinya: `python scripts/uji_bodap.py`
-(26 pemeriksaan) dan alur GitHub Actions yang menjalankan `bodap.exe --uji` di runner Windows
-sebelum artifact diunggah.
+(38 pemeriksaan — termasuk: aplikasi dijalankan **di belakang layar tanpa jendela**,
+bisa dihentikan lewat `--hentikan`, dan basis data hasil pemasangan **benar-benar kosong**)
+dan alur GitHub Actions yang menjalankan `bodap.exe --uji` di runner Windows sebelum artifact
+diunggah.
 
 ### Cara lain (semua sistem)
 

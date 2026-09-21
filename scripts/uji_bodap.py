@@ -126,6 +126,14 @@ def uji_bodap_uji(cepat: bool) -> dict:
             gabung[:200])
         cek("bodap --uji: data di luar folder aplikasi selamat saat hapus",
             "membiarkan folder data di luar aplikasi" in gabung, gabung[:200])
+        cek("bodap --uji: peluncur latar (SM.vbs → SM-latar.py) ikut terpasang",
+            "berkas peluncur latar: SM-latar.py" in gabung
+            and "jendela konsol disembunyikan" in gabung, gabung[:300])
+        cek("bodap --uji: aplikasi jalan di belakang layar lalu bisa dihentikan",
+            "menjalankan aplikasi di belakang layar" in gabung
+            and "benar-benar berhenti setelah --hentikan" in gabung, gabung[:300])
+        cek("bodap --uji: basis data hasil pasang kosong (fresh)",
+            "basis data hasil pemasangan kosong (fresh)" in gabung, gabung[:300])
         return {"pemeriksaan": len(diperiksa), "gagal": len(gagal)}
 
 

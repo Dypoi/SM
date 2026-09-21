@@ -73,6 +73,15 @@ def cek_migrasi():
     hilang = wajib - tabel
     assert not hilang, f"tabel tidak dibuat: {hilang}"
     assert db.query_value("SELECT COUNT(*) FROM users WHERE role='admin'") == 1
+    # Pemasangan baru harus BENAR-BENAR KOSONG: tidak ada siswa, tidak ada ekskul contoh.
+    # (Dulu migrasi mengisi sendiri 14 ekskul resmi sehingga aplikasi hasil pemasangan sudah
+    # berisi data — sekolah meminta aplikasinya fresh.)
+    assert db.query_value("SELECT COUNT(*) FROM students") == 0, \
+        "basis data baru sudah berisi siswa (data contoh ikut terbawa)"
+    assert db.query_value("SELECT COUNT(*) FROM extracurriculars") == 0, \
+        "basis data baru sudah berisi ekstrakurikuler (daftar contoh ikut terbawa)"
+    assert not config.EKSKUL_SEKOLAH, \
+        "daftar ekskul resmi seharusnya TIDAK diisi otomatis pada basis data baru"
 
     # Nama berkas basis data dari pemasangan lama dipindahkan otomatis, tetapi berkasnya
     # sering terkunci sesaat (mis. jendela server lain baru ditutup) → harus dicoba
@@ -1129,12 +1138,22 @@ def cek_akun_ekskul():
     from app import auth, db, migrations, services
     from app.main import app
 
-    # --- Daftar ekskul resmi sekolah tersedia ------------------------------ #
+    # --- Daftar ekskul resmi sekolah diisi bila diminta -------------------- #
+    # Basis data uji ini dibuat kosong (seperti hasil pemasangan); daftar 14 ekskul resmi
+    # diminta lewat fungsi yang sama dengan tombol pada halaman Ekstrakurikuler.
     diharapkan = [nama for nama, _ in migrations.EKSKUL_SEKOLAH]
+    assert len(diharapkan) == 14, len(diharapkan)
+    # (Daftar bisa sudah sebagian ada dari pemeriksaan sebelumnya, jadi yang diperiksa adalah
+    #  hasil akhirnya + sifat idempoten: sekali diisi penuh, panggilan berikutnya tidak
+    #  menambah apa pun.)
+    ditambah, total = services.isi_ekskul_resmi()
+    assert total >= 14, f"isi daftar ekskul resmi gagal: ditambah {ditambah}, total {total}"
+    ditambah_lagi, total_lagi = services.isi_ekskul_resmi()
+    assert ditambah_lagi == 0 and total_lagi == total, \
+        f"isi daftar ekskul resmi tidak idempoten: {ditambah_lagi}/{total_lagi} dari {total}"
     tersedia = {baris["nama"]: baris for baris in services.list_ekskul()}
     kurang = [nama for nama in diharapkan if nama not in tersedia]
     assert not kurang, f"ekskul belum ada: {kurang}"
-    assert len(diharapkan) == 14, len(diharapkan)
     osis = tersedia["OSIS"]
     basket = tersedia["BASKET"]
     assert osis["aktif"] and basket["aktif"]
@@ -1228,7 +1247,8 @@ def cek_akun_ekskul():
             assert pengaturan.status_code == 200
             assert "Akun Ekstrakurikuler" in pengaturan.text
             assert "3204123456780001" in pengaturan.text, "NIK pembina harus tampil di Pengaturan"
-        return "14 ekskul resmi; NIK 16 angka; klaim pembina & pelatih; tolak NIK lain; lepas oleh admin"
+        return ("14 ekskul resmi diisi atas permintaan (idempoten); basis data baru kosong; "
+            "NIK 16 angka; klaim pembina & pelatih; tolak NIK lain; lepas oleh admin")
 
     return asyncio.run(jalankan())
 
@@ -3094,6 +3114,76 @@ def cek_bodap():
             "mengubah apa pun")
 
 
+@cek("27. Kode bersih dari peringatan Python (escape sequence & impor)")
+def cek_peringatan_kode():
+    """Pastikan menjalankan aplikasi tidak memunculkan peringatan seperti di PC sekolah.
+
+    Di PC sekolah muncul berderet ``SyntaxWarning: invalid escape sequence '\\s'`` dari
+    potongan JavaScript di dalam string Python (``app/bot_dapodik.py``). Selain tidak enak
+    dilihat, peringatan semacam itu menyembunyikan masalah yang lebih penting. Pemeriksaan ini
+    memindai **seluruh berkas Python** dan menolak escape tak sah (mis. ``\\s``, ``\\d`` di
+    string biasa) — jangan ditulis sebagai string mentah (``r"…"``) atau gandakan garis
+    miringnya.
+    """
+    import io as _io
+    import re as _re
+    import tokenize as _tokenize
+
+    sah = set("\\'\"abfnrtv01234567xuUN")
+    temuan: list[str] = []
+    berkas_diperiksa = 0
+    for berkas in sorted(BASE_DIR.rglob("*.py")):
+        if any(b in berkas.parts for b in (".venv", "node_modules", "build", "dist",
+                                           "__pycache__", "sample-data")):
+            continue
+        berkas_diperiksa += 1
+        try:
+            token = list(_tokenize.generate_tokens(
+                _io.StringIO(berkas.read_text(encoding="utf-8")).readline))
+        except (SyntaxError, IndentationError) as exc:
+            temuan.append(f"{berkas.name}: gagal dibaca ({exc})")
+            continue
+        except _tokenize.TokenError:
+            continue
+        for tok in token:
+            if tok.type != _tokenize.STRING:
+                continue
+            cocok = _re.match(r"[A-Za-z]*", tok.string)
+            awalan = cocok.group(0) if cocok else ""
+            if "r" in awalan.lower() or "b" in awalan.lower():
+                continue
+            badan = tok.string[len(awalan):]
+            i = 0
+            while i < len(badan):
+                if badan[i] != "\\" or i + 1 >= len(badan):
+                    i += 1
+                    continue
+                nxt = badan[i + 1]
+                if nxt == "\\":          # garis miring ganda: sah, lewati keduanya
+                    i += 2
+                    continue
+                if nxt not in sah:
+                    temuan.append(f"{berkas.relative_to(BASE_DIR).as_posix()}:{tok.start[0]} "
+                                  f"escape '\\{nxt}'")
+                i += 2
+    assert not temuan, ("escape sequence tidak sah (akan muncul sebagai SyntaxWarning): "
+                        + "; ".join(temuan[:6]))
+    assert berkas_diperiksa >= 20, f"hanya {berkas_diperiksa} berkas diperiksa — pemindaian meleset?"
+
+    # Modul bot paling sering menyimpan JavaScript panjang: pastikan benar-benar bisa
+    # dikompilasi tanpa peringatan (percobaan kedua, dari sisi Python).
+    import subprocess as _sp
+
+    hasil = _sp.run([sys.executable, "-W", "error::SyntaxWarning", "-c",
+                     "import compileall,sys; sys.exit(0 if compileall.compile_dir("
+                     f"r'{BASE_DIR / 'app'}', quiet=2, force=True) else 1)"],
+                    capture_output=True, text=True, encoding="utf-8", errors="replace",
+                    timeout=600)
+    assert hasil.returncode == 0, f"kompilasi app/ memunculkan peringatan: {hasil.stderr[-300:]}"
+    return (f"{berkas_diperiksa} berkas Python diperiksa — tidak ada escape tidak sah; "
+            "app/ terkompilasi tanpa peringatan")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -3128,6 +3218,7 @@ def main() -> int:
     cek_bot_dapodik()
     cek_pemasang()
     cek_bodap()
+    cek_peringatan_kode()
     if args.http:
         cek_http_pengajuan()
         cek_http()
