@@ -307,11 +307,46 @@ def hari_ini(with_day: bool = True) -> str:
     return tanggal_id(dt.date.today().isoformat(), with_day=with_day)
 
 
+#: Akronim yang huruf besarnya harus dipertahankan saat label dirapikan.
+AKRONIM_LABEL = {
+    "NISN", "NIS", "NIPD", "NIK", "KK", "KPS", "KIP", "PIP", "KM", "KG", "CM",
+    "RT", "RW", "HP", "NPSN", "PAUD", "TK", "SD", "SMP", "SMA", "SMK", "MI",
+    "MTs", "MA", "NIP", "KKG", "NKT", "KIP", "KG", "D1", "D2", "D3", "D4", "S1",
+    "S2", "S3", "PKBM", "SLB", "SKHUN", "UN",
+}
+
+
+def rapikan_label(teks: Any) -> str:
+    """Rapikan label data untuk dibaca siswa: ``Nama Lengkap`` → ``Nama lengkap``.
+
+    Akronim (NISN, NIK, KK, RT/RW, KM) dan kata berisi angka dibiarkan apa adanya,
+    supaya tidak ada istilah yang berubah arti. Dipakai halaman siswa; label resmi
+    Dapodik untuk petugas tidak diubah.
+    """
+    akronim_besar = {kata.upper() for kata in AKRONIM_LABEL}
+    hasil: list[str] = []
+    for indeks, kata in enumerate(str(teks or "").split()):
+        bersih = kata.strip(".,;:()[]")
+        # "SD/MTs" harus tetap huruf besar walau bukan satu kata tunggal.
+        bagian = [b for b in bersih.split("/") if b]
+        akronim = bool(bagian) and all(b.upper() in akronim_besar for b in bagian)
+        if (akronim or any(ch.isdigit() for ch in bersih)
+                or (bersih and bersih.isupper() and len(bersih) > 1)):
+            hasil.append(kata)
+        elif indeks == 0:
+            hasil.append(kata[:1].upper() + kata[1:].lower())
+        else:
+            hasil.append(kata.lower())
+    return " ".join(hasil).replace(" /", "/").replace("/ ", "/")
+
+
 templates.env.globals["field_label"] = field_label
 templates.env.globals["static_url"] = static_url
 templates.env.globals["qs_set"] = qs_set
 templates.env.globals["qs_tanpa"] = qs_tanpa
 templates.env.globals["hari_ini"] = hari_ini
+#: «Nama Lengkap» → «Nama lengkap» untuk halaman siswa (akronim tetap: NISN, NIK, KK).
+templates.env.globals["rapikan_label"] = rapikan_label
 templates.env.globals["GROUP_LABELS"] = GROUP_LABELS
 #: Kolom yang tidak dapat diubah dari formulir (rombel & tingkat) — dipakai
 #: template untuk menampilkan kolom sebagai "tidak dapat diubah".

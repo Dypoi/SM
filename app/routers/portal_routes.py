@@ -163,13 +163,17 @@ def profil_siswa(request: Request, user: auth.SessionUser = Depends(auth.require
     if siswa is None:
         return RedirectResponse("/portal", status_code=303)
 
+    grup_medan = field_groups()
     return render(
         request,
         "portal/profile.html",
         {
             "page_title": "Data Saya",
             "siswa": siswa,
-            "grup_field": field_groups(),
+            "grup_field": grup_medan,
+            # Dipakai halaman «Dataku» gaya baru: jumlah baris ditampilkan pada keterangan
+            # pencarian supaya anak tahu berapa banyak data yang ada.
+            "jumlah_medan": sum(len(d) for d in grup_medan.values()),
             "kelengkapan": _kelengkapan(siswa),
             "dokumen": services.dokumen_terbaru(int(siswa["id"])),
             "pengajuan": services.pengajuan_siswa(int(siswa["id"]), limit=10),

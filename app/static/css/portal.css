@@ -522,3 +522,63 @@
   .login-ramah .login-page > .login-hero .login-features { display: none; }
   .pl-masuk-siswa input.input-nisn { font-size: 1.3rem; }
 }
+
+
+/* ---------- «Dataku»: kartu per kelompok + pencarian (ronde 31) ---------- */
+/* Tabel gaya lembar kerja diganti baris «nama data — isi» yang mudah dibaca anak. */
+.portal-shell .pl-grup { scroll-margin-top: 70px; }
+
+.portal-shell .pl-baris {
+  align-items: flex-start;
+  gap: .6rem;
+  padding: .58rem .1rem;
+}
+
+.portal-shell .pl-baris dt { flex: 0 1 46%; }
+.portal-shell .pl-baris dd { flex: 1 1 54%; overflow-wrap: anywhere; }
+.portal-shell .pl-baris dd .pl-tanda { margin-left: .35rem; vertical-align: middle; }
+.portal-shell .pl-baris details summary { color: var(--pl-primary-tua); }
+
+/* Kotak pencarian data */
+.pl-cari {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .55rem .75rem;
+  border: 1px solid #cfe0ff;
+  border-radius: 14px;
+  background: #f7fbff;
+}
+
+.pl-cari svg { width: 20px; height: 20px; color: var(--pl-primary); flex: none; }
+.pl-cari input {
+  flex: 1;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 1rem;
+  padding: .35rem 0;
+  color: inherit;
+  min-width: 0;
+}
+.pl-cari input:focus { outline: none; }
+.pl-cari:focus-within { border-color: var(--pl-primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+
+/* Angka panjang (NIK, KK, NISN) tetap mudah dibaca & disalin */
+.portal-shell .mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .01em;
+}
+
+@media (max-width: 520px) {
+  .portal-shell .pl-baris { flex-direction: column; gap: .1rem; }
+  .portal-shell .pl-baris dt { flex: none; }
+  .portal-shell .pl-baris dd { flex: none; text-align: left; font-size: 1.02rem; }
+}
+
+/* Cetak: pencarian & tombol tidak perlu ikut tercetak. */
+@media print {
+  .pl-cari, .pl-petak, .pl-card-ket { display: none !important; }
+  .pl-baris dd .pl-tanda { display: none; }
+}

@@ -831,6 +831,31 @@ def cek_http_pengajuan():
     for tanda in (".pl-sapa", ".pl-langkah", ".pl-no", ".pl-masuk-siswa"):
         assert tanda in potongan_tema, f"portal.css tidak memuat gaya {tanda!r}"
 
+    # «Dataku» untuk siswa (r31): tabel gaya lembar kerja diganti kartu per kelompok +
+    # pencarian. Label dirapikan untuk anak, TAPI isi data tidak diubah dan akronim
+    # (NISN, NIK, KK, RT/RW, KM) tetap huruf besar.
+    from app.web import rapikan_label
+
+    contoh_label = {
+        "Nama Lengkap": "Nama lengkap",
+        "Jenis Kelamin": "Jenis kelamin",
+        "NIPD / NIS Lokal": "NIPD/NIS lokal",
+        "Nomor Kartu Keluarga (KK)": "Nomor kartu keluarga (KK)",
+        "Sekolah asal (SD/MTs sebelumnya)": "Sekolah asal (SD/MTs sebelumnya)",
+        "Jarak Rumah ke Sekolah (KM)": "Jarak rumah ke sekolah (KM)",
+        "RT": "RT",
+    }
+    for asal, harap in contoh_label.items():
+        hasil = rapikan_label(asal)
+        assert hasil == harap, f"rapikan_label({asal!r}) = {hasil!r}, seharusnya {harap!r}"
+
+    profil_siswa_templat = (_cfg.BASE_DIR / "app/templates/portal/profile.html").read_text(encoding="utf-8")
+    for tanda in ("pl-grup", "cari-data", "rapikan_label", "Belum diisi", "Cetak / simpan PDF",
+                  "grup_judul", "hanya_sekolah"):
+        assert tanda in profil_siswa_templat, f"halaman Dataku siswa tidak memuat {tanda!r}"
+    assert "<table" not in profil_siswa_templat, \
+        "halaman Dataku siswa seharusnya tidak lagi memakai tabel gaya lembar kerja"
+
     # Alat pembanding harus benar-benar mengambil template LAMA dari Git (bukan menyalin
     # berkas sekarang) supaya perbandingan yang dilihat sekolah jujur.
     pembanding = (_cfg.BASE_DIR / "scripts/bandingkan_tampilan.py").read_text(encoding="utf-8")
