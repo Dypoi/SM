@@ -283,6 +283,9 @@ akta lahir, kesehatan, sampai koordinat rumah.
   seperti aplikasi HP, huruf lebih besar (16,5–17 px), tombol setidaknya 44 px, dan bahasa
   sederhana untuk anak kelas 7 (`Belum diisi`, `Minta perbaikan`, `Kegiatan / klub`).
   Beranda memakai kartu **«Yang perlu kamu lakukan»** supaya anak tahu langkah berikutnya.
+  **Dataku** disusun sebagai kartu per kelompok (Tentang saya, Alamat & kontak, Data ayah/ibu/wali,
+  Sekolah, Bantuan, Kesehatan) dengan pencarian cepat dan tombol **Cetak / simpan PDF**; nilai
+  berupa kode diterjemahkan seperlunya (L → Laki-laki, 1 → Ya) tanpa mengubah isi data aslinya.
   **Halaman masuk** juga ramah anak: tab «Siswa — cukup NISN, tanpa sandi», sapaan «Halo, teman!»,
   dan langkah 1-2-3 cara masuk (tampilan tab Admin/Guru & Ekstrakurikuler tidak berubah).
 - **Sudah memasang SM di PC sekolah tetapi tampilannya masih yang lama?** Kode di PC itu
