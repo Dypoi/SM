@@ -79,6 +79,10 @@ def _index(judul: str, catatan: str, hasil: list[tuple[str, str, str]]) -> str:
         for _, berkas, ket in hasil
         for judul_h in [ket]
     )
+    if (BASE_DIR / "pratinjau" / "bandingkan.html").exists():
+        kartu += ('<a class="kartu" href="bandingkan.html"><strong>Lama \u21c4 Sekarang</strong>'
+                  '<span>Bandingkan tampilan sebelum ronde 28 dengan tampilan sekarang '
+                  '(berdampingan)</span></a>')
     return f"""<!DOCTYPE html>
 <html lang="id"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

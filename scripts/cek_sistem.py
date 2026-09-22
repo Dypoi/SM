@@ -808,7 +808,7 @@ def cek_http_pengajuan():
     from app import config as _cfg
 
     for berkas in ("app/static/css/portal.css", "app/templates/portal/_base.html",
-                   "scripts/pratinjau_tampilan.py"):
+                   "scripts/pratinjau_tampilan.py", "scripts/bandingkan_tampilan.py"):
         assert (_cfg.BASE_DIR / berkas).exists(), f"berkas tampilan siswa hilang: {berkas}"
     potongan_portal = (_cfg.BASE_DIR / "app/static/css/portal.css").read_text(encoding="utf-8")
     for tanda in (".pl-nav", ".pl-hero", ".pl-aksi", ".pl-kosong", "position: fixed"):
@@ -830,6 +830,12 @@ def cek_http_pengajuan():
     potongan_tema = (_cfg.BASE_DIR / "app/static/css/portal.css").read_text(encoding="utf-8")
     for tanda in (".pl-sapa", ".pl-langkah", ".pl-no", ".pl-masuk-siswa"):
         assert tanda in potongan_tema, f"portal.css tidak memuat gaya {tanda!r}"
+
+    # Alat pembanding harus benar-benar mengambil template LAMA dari Git (bukan menyalin
+    # berkas sekarang) supaya perbandingan yang dilihat sekolah jujur.
+    pembanding = (_cfg.BASE_DIR / "scripts/bandingkan_tampilan.py").read_text(encoding="utf-8")
+    for tanda in ("archive", "bandingkan.html", "lama-", "revisi"):
+        assert tanda in pembanding, f"alat pembanding tidak memuat {tanda!r}"
 
     return "halaman admin aman; form siswa tanpa kolom NISN; kerangka ruang siswa & pratinjau siap"
 

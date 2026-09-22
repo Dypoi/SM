@@ -285,10 +285,19 @@ akta lahir, kesehatan, sampai koordinat rumah.
   Beranda memakai kartu **«Yang perlu kamu lakukan»** supaya anak tahu langkah berikutnya.
   **Halaman masuk** juga ramah anak: tab «Siswa — cukup NISN, tanpa sandi», sapaan «Halo, teman!»,
   dan langkah 1-2-3 cara masuk (tampilan tab Admin/Guru & Ekstrakurikuler tidak berubah).
+- **Sudah memasang SM di PC sekolah tetapi tampilannya masih yang lama?** Kode di PC itu
+  perlu ditarik dulu — tampilan baru tidak muncul sendiri:
+  * hasil pemasangan **bodap.exe**: jalankan `bodap.exe` versi terbaru lalu pasang ke folder
+    yang sama (`C:\SM`) — wizard mengenali pemasangan lama, mengganti **kode**, dan **tidak**
+    menyentuh folder `data`; atau
+  * folder hasil `git clone`: **Pembaruan** di menu samping aplikasi, atau
+    `python pemasang/pasang.py perbarui` / `git pull origin main`.
 - Ingin melihat tampilannya tanpa memasang aplikasi? Jalankan
   `python scripts/pratinjau_tampilan.py`, lalu `python -m http.server 8090 --directory pratinjau`
   dan buka <http://localhost:8090> — halaman siswa (beranda, dataku, kegiatan, minta perbaikan)
-  tersalin jadi berkas HTML mandiri. Folder `pratinjau/` berisi data siswa → **jangan** di-commit.
+  tersalin jadi berkas HTML mandiri. Untuk **membandingkan** dengan tampilan sebelum ronde 28,
+  jalankan `python scripts/bandingkan_tampilan.py` lalu buka `pratinjau/bandingkan.html`
+  (template lama diambil apa adanya dari riwayat Git, jadi perbandingannya jujur). Folder `pratinjau/` berisi data siswa → **jangan** di-commit.
 - Siswa masuk hanya dengan **NISN** (opsional ditambah tanggal lahir, diatur di Pengaturan).
 - Beranda, data lengkap miliknya, kelengkapan data, dan status berkas (akta kelahiran,
   kartu keluarga, ijazah).
