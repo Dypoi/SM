@@ -726,8 +726,12 @@ router**. Caranya: server tetap berjalan di komputer sekolah seperti biasa, lalu
 
 ### Cara tercepat (Windows)
 
-1. Pasang **Tailscale** (gratis) di PC sekolah, masuk, lalu nyalakan **MagicDNS** &
-   **HTTPS Certificates** di <https://login.tailscale.com/admin/dns> — sekali saja.
+1. Pasang **Tailscale** (gratis) di PC sekolah, masuk, lalu **sekali saja**: nyalakan
+   **MagicDNS** & **HTTPS Certificates** di <https://login.tailscale.com/admin/dns> **dan**
+   tambahkan izin Funnel di <https://login.tailscale.com/admin/acls> (bagian *Funnel* → tombol
+   **Add Funnel to policy**). Bila langkah izin itu dilewati, saat pertama dijalankan Tailscale
+   akan mencetak **tautan persetujuan** di jendela konsol lalu menunggu Anda mengkliknya —
+   jendela `SM-online.bat` lanjut sendiri setelah Anda menyetujui.
 2. Klik dua kali **`SM-online.bat`**.
 3. Jendela konsol menampilkan alamat publik tetap, mis.
    `https://sm-sekolah.tautan-anda.ts.net`, lengkap dengan **bukti alamat itu menjawab**

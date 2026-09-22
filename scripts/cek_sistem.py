@@ -1162,9 +1162,58 @@ def cek_peluncur_online():
     assert "PANDUAN-ONLINE.md" in (BASE_DIR / "README.md").read_text(encoding="utf-8"), \
         "README belum menunjuk PANDUAN-ONLINE.md"
 
+    # --- Bagian 4: perintah funnel yang «menunggu persetujuan» (r27) ---------- #
+    # Pelajaran dari PC sekolah (26 → 27): `tailscale funnel` yang dipakai PERTAMA KALI
+    # mencetak tautan persetujuan lalu menunggu tanpa batas. Dulu keluarannya ditelan
+    # (capture_output) dan batas 90 detik mematikannya → guru hanya melihat «timed out»,
+    # sementara `funnel status` tetap «No serve config». Ketiga hal ini harus dipegang:
+    #   (a) keluaran tampil langsung; (b) kehabisan waktu ≠ gagal; (c) menunggu itu dilaporkan.
+    assert modul.TUNGGU_FUNNEL >= 120, f"batas tunggu funnel terlalu pendek: {modul.TUNGGU_FUNNEL}"
+    assert modul.RONDE_TUNGGU >= 2 and modul.MENIT_TUNGGU >= 5, \
+        f"perpanjangan tunggu tidak memadai: {modul.RONDE_TUNGGU}×{modul.TUNGGU_FUNNEL}"
+
+    tautan_contoh = modul.tautan_izin(
+        ["Funnel is not enabled on your tailnet.", "  https://login.tailscale.com/f/funnel?node=n1234"])
+    assert tautan_contoh == "https://login.tailscale.com/f/funnel?node=n1234", tautan_contoh
+    assert modul.tautan_izin(["tidak ada tautan apa pun"]) == ""
+    assert modul._tampak_menunggu_izin([]) is True, "perintah diam = kemungkinan menunggu izin"
+    assert modul._tampak_menunggu_izin([tautan_contoh]) is True
+    assert modul._tampak_menunggu_izin(["error: tidak bisa dijalankan"]) is False
+
+    saran_izin = " ".join(modul._perbaikan_tailscale(
+        "perintah funnel belum selesai setelah ±9 menit — Tailscale masih menunggu persetujuan "
+        f"Funnel (buka {tautan_contoh})"))
+    for harus_ada in ("menunggu", "Approve", "admin/dns", "admin/acls", tautan_contoh):
+        assert harus_ada.lower() in saran_izin.lower(), \
+            f"diagnosa «menunggu persetujuan» tidak memuat {harus_ada!r}: {saran_izin[:160]}"
+    saran_alamat = " ".join(modul.petunjuk_tidak_menjawab())
+    for harus_ada in ("Quit", "sc stop tailscale"):
+        assert harus_ada.lower() in saran_alamat.lower(), \
+            f"petunjuk «alamat belum menjawab» tidak memuat {harus_ada!r}"
+
+    # Bukti perilaku: keluaran perintah terlihat (tidak ditelan) dan kehabisan waktu
+    # dikembalikan sebagai «belum selesai» (kode None), bukan dilempar sebagai galat.
+    kode, keluar = modul.jalankan_tampak(
+        [sys.executable, "-u", "-c", "print('halo-funnel'); import time; time.sleep(6)"], detik=3)
+    assert kode is None, f"perintah yang melewati batas waktu harus mengembalikan None, bukan {kode}"
+    assert any("halo-funnel" in baris for baris in keluar), \
+        f"keluaran perintah tidak terbaca: {keluar}"
+    kode2, keluar2 = modul.jalankan_tampak(
+        [sys.executable, "-u", "-c", "print('selesai-baik')"], detik=30)
+    assert kode2 == 0 and any("selesai-baik" in baris for baris in keluar2), \
+        f"perintah yang selesai harus mengembalikan kode 0: {kode2} {keluar2}"
+
+    for tanda in ("jalankan_tampak", "tautan_izin", "_tampak_menunggu_izin", "petunjuk_tidak_menjawab",
+                  "menunggu persetujuan", "sc stop tailscale", "perpanjang"):
+        assert tanda in isi_online, f"SM-online.py tidak memuat penanganan {tanda!r}"
+    for tanda in ("Add Funnel to policy", "menunggu persetujuan Funnel", "No serve config"):
+        assert tanda in panduan_online, f"PANDUAN-ONLINE.md belum menjelaskan {tanda!r}"
+
     return ("peluncur online: deteksi Tailscale/cloudflared, penanda & daftar periksa keamanan, "
             "perintah --cek/--hentikan, diagnosa galat Tailscale → langkah perbaikan, "
-            "port publik 443/8443/10000, panduan PANDUAN-ONLINE.md lengkap")
+            "port publik 443/8443/10000, keluaran funnel tampil langsung & kehabisan waktu "
+            "dilaporkan jujur sebagai «menunggu persetujuan» (bukan gagal), "
+            "panduan PANDUAN-ONLINE.md lengkap")
 
 
 @cek("20. Akun ekstrakurikuler (NIK 16 digit, 1 pembina + 1 pelatih per ekskul)")

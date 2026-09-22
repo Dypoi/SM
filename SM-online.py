@@ -31,6 +31,12 @@ Catatan Tailscale Funnel: port publik hanya boleh **443, 8443, atau 10000** (bat
 bukan aplikasi ini) — aplikasi tetap berjalan di port lokal 8000 seperti biasa. Funnel juga
 perlu **MagicDNS**, **HTTPS**, dan izin Funnel pada tailnet; skrip ini memeriksa ketiganya dan
 menerjemahkan pesan galat Tailscale menjadi langkah perbaikan.
+
+Catatan penting (pelajaran lapangan): saat Funnel dipakai **pertama kali** di sebuah tailnet,
+perintah ``tailscale funnel`` menampilkan tautan persetujuan (``login.tailscale.com/f/funnel``)
+lalu **menunggu** — dan ia menunggu **selamanya** bila halaman itu tidak dibuka. Karena itu
+keluaran perintah ini ditampilkan langsung ke layar (tidak ditelan), dan kehabisan waktu
+**bukan** dilaporkan sebagai «gagal» melainkan sebagai «belum selesai / menunggu persetujuan».
 """
 
 from __future__ import annotations
@@ -56,6 +62,21 @@ LEBAR = 66
 
 #: Port publik yang diizinkan Tailscale Funnel (batas dari Tailscale, tidak bisa ditawar).
 PORT_FUNNEL = (443, 8443, 10000)
+
+#: Batas tunggu perintah `tailscale funnel` (detik). Sengaja longgar: pada pemakaian pertama
+#: Tailscale menahan perintahnya sampai Anda menyetujui Funnel di halaman web.
+TUNGGU_FUNNEL = 180
+
+#: Berapa kali batas tunggu diperpanjang selama tautan persetujuan masih muncul (menit total
+#: menunggu = TUNGGU_FUNNEL × RONDE_TUNGGU ÷ 60 = 9 menit) — cukup untuk membuka peramban,
+#: masuk, dan mengklik *Approve*.
+RONDE_TUNGGU = 3
+
+#: Total lama menunggu, dibulatkan ke menit (untuk pesan ke pengguna).
+MENIT_TUNGGU = max(1, TUNGGU_FUNNEL * RONDE_TUNGGU // 60)
+
+#: Tautan persetujuan/pengaturan yang dicetak Tailscale saat Funnel belum diizinkan.
+TAUTAN_IZIN = re.compile(r"https://login\.tailscale\.com/[^\s\"'<>]+")
 
 
 def judul(teks: str) -> None:
@@ -146,20 +167,97 @@ def mulai_server(port: int) -> subprocess.Popen | None:
 # --------------------------------------------------------------------------- #
 # Terowongan
 # --------------------------------------------------------------------------- #
+def jalankan_tampak(perintah: list[str], detik: int | None = None,
+                    perpanjang: bool = False) -> tuple[int | None, list[str]]:
+    """Jalankan perintah **sambil menampilkan keluarannya baris demi baris**.
+
+    Kembalikan ``(kode, keluaran)``; ``kode is None`` berarti perintah belum selesai
+    sampai batas waktu (mis. masih menunggu persetujuan Funnel di halaman web) —
+    itu **bukan** kegagalan, jadi jangan dilaporkan sebagai galat.
+
+    ``perpanjang``: bila Tailscale ternyata mencetak tautan persetujuan, tunggu terus
+    (sampai ``RONDE_TUNGGU`` ronde) alih-alih mematikan perintah — jadi begitu guru
+    menyetujui di peramban, jendela konsol ini lanjut sendiri tanpa perlu dijalankan ulang.
+    """
+    # Dibaca saat dipanggil (bukan disalin sebagai nilai bawaan) supaya bisa diubah
+    # lewat lingkungan/uji tanpa mengubah definisi fungsi.
+    detik = TUNGGU_FUNNEL if detik is None else detik
+    keluaran: list[str] = []
+    try:
+        proses = subprocess.Popen(
+            perintah, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1, encoding="utf-8", errors="replace",
+        )
+    except OSError as galat:
+        return 127, [f"tidak bisa dijalankan: {galat}"]
+
+    def baca() -> None:
+        if proses.stdout is None:
+            return
+        for baris in proses.stdout:
+            teks = baris.rstrip()
+            keluaran.append(teks)
+            print(f"      {teks[:200]}", flush=True)
+
+    threading.Thread(target=baca, daemon=True).start()
+    ronde = RONDE_TUNGGU if perpanjang else 1
+    for putaran in range(ronde):
+        try:
+            return proses.wait(timeout=detik), keluaran
+        except subprocess.TimeoutExpired:
+            if putaran + 1 < ronde and _tampak_menunggu_izin(keluaran):
+                print(f"      … perintah masih berjalan dan belum melaporkan galat apa pun — "
+                      f"kemungkinan menunggu persetujuan Funnel di peramban. Menunggu "
+                      f"{detik} detik lagi.", flush=True)
+                continue
+            proses.kill()
+            time.sleep(0.5)
+            return None, keluaran
+    return None, keluaran
+
+
+def tautan_izin(keluaran: list[str]) -> str:
+    """Ambil tautan persetujuan Tailscale (mis. ``…/f/funnel?node=…``) dari keluaran CLI."""
+    for baris in reversed(keluaran):
+        ketemu = TAUTAN_IZIN.search(baris)
+        if ketemu:
+            return ketemu.group(0).rstrip(".,)")
+    return ""
+
+
+def _tampak_menunggu_izin(keluaran: list[str]) -> bool:
+    """Perkiraan: perintah masih hidup karena Tailscale menunggu persetujuan Funnel.
+
+    Bukti kuat: ada tautan persetujuan. Bukti lemah tapi berguna: perintah belum
+    mengeluh apa pun (tidak ada kata galat) setelah sekian menit — pada pemakaian
+    pertama, itu memang perilakunya (menunggu di halaman web).
+    """
+    if tautan_izin(keluaran):
+        return True
+    teks = "\n".join(keluaran).lower()
+    penanda_galat = ("error", "failed", "denied", "not available", "not enabled",
+                     "no serve config", "invalid", "unknown flag")
+    return not any(penanda in teks for penanda in penanda_galat)
+
+
 def mulai_tailscale(jalur: str, port: int, https_port: int = 443) -> tuple[bool, str, str]:
     """Nyalakan Tailscale Funnel; kembalikan (berhasil, alamat, catatan)."""
     if https_port not in PORT_FUNNEL:
         return False, "", (f"port publik {https_port} tidak diizinkan Tailscale Funnel "
                            f"(pilihan: {', '.join(str(p) for p in PORT_FUNNEL)})")
     perintah = [jalur, "funnel", f"--bg", f"--https={https_port}", str(port)]
-    try:
-        hasil = subprocess.run(perintah, capture_output=True, text=True, timeout=90)
-    except (OSError, subprocess.SubprocessError) as galat:
-        return False, "", f"gagal menjalankan tailscale: {galat}"
-
-    if hasil.returncode != 0:
-        keluaran = (hasil.stderr or hasil.stdout or "").strip().splitlines()
-        pesan = keluaran[-1][:200] if keluaran else "tailscale menolak permintaan"
+    kode, keluaran = jalankan_tampak(perintah, perpanjang=True)
+    if kode is None:
+        # Hampir selalu: Tailscale menunggu Funnel disetujui lewat halaman web dulu.
+        pesan = (f"perintah funnel belum selesai setelah ±{MENIT_TUNGGU} menit — "
+                 f"Tailscale masih menunggu persetujuan Funnel")
+        tautan = tautan_izin(keluaran)
+        pesan += (f" (buka {tautan})" if tautan
+                  else " (izinkan lewat https://login.tailscale.com/admin/acls → bagian Funnel)")
+        return False, "", pesan
+    if kode != 0:
+        baris = [b for b in keluaran if b.strip()]
+        pesan = baris[-1][:200] if baris else "tailscale menolak permintaan"
         return False, "", pesan
 
     try:
@@ -177,6 +275,17 @@ def mulai_tailscale(jalur: str, port: int, https_port: int = 443) -> tuple[bool,
 def _perbaikan_tailscale(pesan: str) -> list[str]:
     """Terjemahkan pesan galat Tailscale menjadi langkah perbaikan yang bisa dikerjakan guru."""
     teks = pesan.lower()
+    if "belum selesai" in teks or "menunggu persetujuan" in teks:
+        tautan = tautan_izin([pesan])
+        langkah = ["Ini **bukan** kegagalan aplikasi: perintah Tailscale sedang MENUNGGU Anda",
+                   "menyetujui Funnel — sekali saja untuk tailnet ini. Dua cara (pilih satu):",
+                   "A. Buka tautan persetujuan di atas, klik *Approve*/Setujui"
+                   + (f" — {tautan}" if tautan else ""),
+                   "B. Atau isi sendiri di konsol admin: (1) https://login.tailscale.com/admin/dns",
+                   "   → MagicDNS + *Enable HTTPS*; (2) https://login.tailscale.com/admin/acls →",
+                   "   bagian Funnel → tombol **Add Funnel to policy** → *Save*.",
+                   "Setelah itu jalankan SM-online.bat lagi — kali ini akan selesai dalam sekejap."]
+        return langkah
     if "funnel" in teks and ("not enabled" in teks or "disabled" in teks
                              or "attribute" in teks or "permission" in teks):
         return ["Aktifkan izin Funnel: buka https://login.tailscale.com/admin/acls , pastikan",
@@ -199,6 +308,19 @@ def _perbaikan_tailscale(pesan: str) -> list[str]:
                 "jalankan `SM-online.bat --https-port 8443`."]
     return ["Periksa keadaan Tailscale dengan `tailscale status` dan",
             "`tailscale funnel status` di Command Prompt, lalu jalankan SM-online.bat lagi."]
+
+
+def petunjuk_tidak_menjawab() -> list[str]:
+    """Langkah bila Funnel sudah «on» di Tailscale tetapi alamat publik belum menjawab."""
+    return [
+        "Periksa: ikon Tailscale «Connected», HTTPS & Funnel aktif di konsol admin, dan PC",
+        "tidak sedang tidur.",
+        "Bila funnel sudah *on* tetapi alamat tetap tidak menjawab: klik kanan ikon Tailscale",
+        "(sudut kanan bawah) → *Quit*, lalu buka Tailscale lagi. Ini bug Tailscale di Windows:",
+        "pengaturan funnel baru benar-benar dikirim ke servernya setelah aplikasi dijalankan ulang.",
+        "Bila masih belum: buka Command Prompt **sebagai Administrator**, jalankan",
+        "`sc stop tailscale` lalu `sc start tailscale`, tunggu ±30 detik, coba lagi.",
+    ]
 
 
 def _alamat_publik_siap(alamat: str, detik: int = 20) -> tuple[bool, str]:
@@ -292,19 +414,30 @@ def cek_tailscale(jalur: str, port: int, https_port: int = 443) -> int:
     if "443" not in keluaran_funnel and "8443" not in keluaran_funnel \
             and "10000" not in keluaran_funnel:
         print("                 (belum menyala — jalankan SM-online.bat untuk menyalakannya)")
+        print("  Catatan      : bila Funnel belum pernah dipakai di akun ini, Tailscale akan")
+        print("                 meminta persetujuan lewat peramban SEKALI saja — tautannya")
+        print("                 ikut tercetak di layar pada langkah «Uji nyala» di bawah.")
 
     # Uji coba menyalakan funnel sungguhan: hasilnya langsung dilaporkan, tanpa server SM.
+    print("  Uji nyala    : mencoba menyalakan Funnel sungguhan "
+          "(matikan lagi dengan `SM-online.bat --hentikan`) ...")
     berhasil, alamat, catatan = mulai_tailscale(jalur, port, https_port)
     if berhasil:
         print(f"  Uji nyala    : BERHASIL — {alamat or 'alamat belum terbaca'} → "
               f"http://127.0.0.1:{port}")
-        if alamat:
-            siap, keterangan = _alamat_publik_siap(alamat, detik=15)
-            print(f"  Uji dibuka   : {'alamat publik menjawab' if siap else 'BELUM menjawab'}"
-                  f" ({keterangan})")
+        if not alamat:
+            return 0
+        siap, keterangan = _alamat_publik_siap(alamat, detik=15)
+        print(f"  Uji dibuka   : {'alamat publik menjawab' if siap else 'BELUM menjawab'}"
+              f" ({keterangan})")
+        if not siap:
+            print("\n  Langkah periksa:")
+            for baris in petunjuk_tidak_menjawab():
+                print(f"   - {baris}")
+            return 1
         print("\n  Semua siap. Jalankan SM-online.bat (atau `python SM-online.py`) seperti biasa.")
         return 0
-    print(f"  Uji nyala    : GAGAL — {catatan}")
+    print(f"  Uji nyala    : BELUM BERHASIL — {catatan}")
     print("\n  Langkah perbaikan:")
     for baris in _perbaikan_tailscale(catatan):
         print(f"   - {baris}")
@@ -421,12 +554,15 @@ def main() -> int:
                     print(f"      Uji alamat publik: "
                           f"{'menjawab' if siap else 'BELUM menjawab'} ({keterangan})")
                     if not siap:
-                        print("      Kalau tetap tidak menjawab: pastikan Tailscale «Connected»,",
-                              "HTTPS & Funnel aktif di konsol admin, dan PC tidak sedang tidur.")
+                        for baris in petunjuk_tidak_menjawab():
+                            print(f"      {baris}")
             else:
-                print(f"      Tailscale belum bisa dipakai: {catatan}")
+                print(f"      Tailscale belum menyala: {catatan}")
                 for baris in _perbaikan_tailscale(catatan):
                     print(f"      - {baris}")
+                if "menunggu persetujuan" in catatan:
+                    print("      Setelah Anda menyetujui izinnya, jalankan SM-online.bat sekali "
+                          "lagi — kali ini selesai dalam sekejap.")
         if not alamat and "cloudflared" in tersedia:
             print("[2/3] Menyalakan Cloudflare quick tunnel ...")
             terowongan, alamat = mulai_cloudflared(tersedia["cloudflared"], args.port)

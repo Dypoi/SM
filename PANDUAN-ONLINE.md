@@ -46,9 +46,21 @@ Vercel, datanya sementara, dan bot tidak bisa jalan. Di sini aplikasi tetap mili
    buka <https://login.tailscale.com/admin/dns> → aktifkan **MagicDNS** dan
    **HTTPS Certificates** (klik *Enable HTTPS*).
    Ini wajib: tanpa HTTPS, Funnel menolak menyala.
-4. **Izin Funnel** — Tailscale CLI menambahkan sendiri izin ini untuk pengguna pemilik/admin
-   saat perintah funnel pertama dijalankan. Bila muncul pesan izin, bagian 10 menunjukkan
-   yang harus diketuk di <https://login.tailscale.com/admin/acls>.
+4. **Izin Funnel** (sekali saja). Ada dua cara — pilih salah satu, keduanya sama sahnya:
+
+   * **Cara A — biarkan Tailscale meminta izin saat pertama dijalankan.** Pada saat itu perintah
+     `tailscale funnel` mencetak tautan seperti
+     `https://login.tailscale.com/f/funnel?node=…` lalu **menunggu**. Buka tautan itu (klik/tekan
+     Ctrl+klik), klik **Approve/Setujui**; jendela `SM-online.bat` akan **lanjut sendiri**
+     setelah Anda menyetujui (menunggu sampai ±9 menit — lebih dari cukup untuk membuka peramban).
+   * **Cara B — isi sendiri dari konsol admin (lebih pasti, tanpa menunggu):**
+     1. <https://login.tailscale.com/admin/dns> → aktifkan **MagicDNS** dan **HTTPS Certificates**;
+     2. <https://login.tailscale.com/admin/acls> → buka bagian **Funnel** → tombol
+        **Add Funnel to policy** → **Save**.
+     Setelah itu perintah funnel selesai dalam sekejap, tanpa pertanyaan apa pun.
+
+   > Keluhan “*[2/3] Menyalakan Tailscale Funnel* berhenti lama / keluar sendiri” hampir selalu
+   > berarti langkah ini belum dikerjakan. Pesan jujurnya: **menunggu persetujuan Funnel**.
 
 > Catatan: cukup satu akun Tailscale untuk sekolah ini. Di PC lain (mis. laptop kepala sekolah)
 > bisa dipasang Tailscale yang sama bila ingin membuka aplikasi **tanpa** lewat internet —
@@ -74,7 +86,9 @@ Vercel, datanya sementara, dan bot tidak bisa jalan. Di sini aplikasi tetap mili
    ```
 
    Bila tertulis **“BELUM menjawab”**, tunggu 10–30 detik lalu cek lagi (DNS/relay Tailscale
-   kadang butuh beberapa detik saat pertama kali) — rincian di bagian 10.
+   kadang butuh beberapa detik saat pertama kali). Bila tetap belum: klik kanan ikon Tailscale di
+   sudut kanan bawah → **Quit**, lalu buka Tailscale lagi — ini bug Tailscale di Windows (pengaturan
+   funnel baru dikirim ke servernya setelah aplikasi dijalankan ulang) — rincian di bagian 9.
 4. **Bagikan alamat publik itu** kepada petugas/guru/siswa. Sama seperti biasa:
    petugas masuk dengan akun admin, siswa dengan NISN.
 5. Alamat itu juga tersimpan di `data/alamat-publik.txt` dan tampil di
@@ -161,6 +175,9 @@ Untuk memakai `serve`, tambahkan akun guru di <https://login.tailscale.com/admin
 
 | Gejala | Sebab & jalan keluar |
 | --- | --- |
+| **`[2/3]` berhenti lama**, lalu pesannya «menunggu persetujuan Funnel» | Bukan rusak: Tailscale menunggu Anda menyetujui Funnel **sekali saja** untuk akun ini. Buka tautan `login.tailscale.com/f/funnel?node=…` yang tercetak di jendela konsol → **Approve**. Bila tidak muncul tautan: kerjakan langkah **2 → nomor 4 (Cara B)** di atas (admin/dns + admin/acls → *Add Funnel to policy*), lalu jalankan `SM-online.bat` lagi |
+| Izin funnel sudah disetujui, tetapi `tailscale funnel status` tetap **`No serve config`** | Perintahnya berhenti sebelum selesai (mis. jendela ditutup/Ctrl+C). Jalankan `SM-online.bat` lagi dan biarkan sampai baris «[3/3]» muncul |
+| «Aplikasi belum bisa dibuka dari internet» padahal Funnel aktif | Tailscale di Windows kadang belum mengirim pengaturan funnel ke servernya: klik kanan ikon Tailscale → *Quit* → buka lagi, atau (Administrator) `sc stop tailscale` lalu `sc start tailscale`, tunggu ±30 detik |
 | `Funnel is not enabled on your tailnet` | Izin Funnel belum ada. Jalankan perintah funnel **sebagai pemilik/admin tailnet** (CLI menambahkan izinnya sendiri), atau tambahkan `nodeAttrs` berisi `funnel` di <https://login.tailscale.com/admin/acls> |
 | `HTTPS is not enabled on your tailnet` | Buka <https://login.tailscale.com/admin/dns> → aktifkan **HTTPS Certificates** |
 | `Logged out` / `no state` / `stopped` | Tailscale belum masuk: klik ikonnya di sudut kanan bawah → *Log in*, tunggu **Connected** |
@@ -196,6 +213,11 @@ tidak terasa.
 
 **Kalau PC sekolah mati?** Aplikasi tidak bisa dibuka dari luar (lokal di sekolah pun tidak).
 Untuk itu Vercel bisa dipakai sebagai “etalase” pratinjau — lihat `PANDUAN-VERCEL.md`.
+
+**Kata konsolnya «menunggu persetujuan Funnel» — apa yang harus saya klik?** Itu izin sekali
+saja per akun Tailscale. Buka tautan `login.tailscale.com/f/funnel?node=…` yang tercetak di
+jendela konsol, klik *Approve*, dan jendela `SM-online.bat` lanjut sendiri. Kalau tautannya tidak
+muncul, kerjakan cara B di bagian 2 (admin/dns + admin/acls → *Add Funnel to policy*).
 
 **Berapa biaya totalnya?** Rp0: Tailscale Personal gratis dan aplikasi SM tidak memerlukan
 layanan berbayar.
