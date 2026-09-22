@@ -821,6 +821,16 @@ def cek_http_pengajuan():
     assert "Menu siswa" in kerangka and "sidebar" not in kerangka, \
         "kerangka ruang siswa tidak boleh memuat menu petugas"
 
+    # Halaman masuk juga bagian pertama yang dilihat anak (r29): tab siswa besar,
+    # sapaan «Halo, teman!», dan langkah 1-2-3 supaya tidak bingung.
+    masuk = (_cfg.BASE_DIR / "app/templates/login.html").read_text(encoding="utf-8")
+    for tanda in ("pl-masuk-siswa", "pl-sapa", "pl-langkah", "pl-tombol-besar", "portal.css"):
+        assert tanda in masuk, f"halaman masuk belum ramah siswa: {tanda!r} tidak ada"
+    assert "sm-peran-terakhir" in masuk, "halaman masuk kehilangan pengingat pilihan peran"
+    potongan_tema = (_cfg.BASE_DIR / "app/static/css/portal.css").read_text(encoding="utf-8")
+    for tanda in (".pl-sapa", ".pl-langkah", ".pl-no", ".pl-masuk-siswa"):
+        assert tanda in potongan_tema, f"portal.css tidak memuat gaya {tanda!r}"
+
     return "halaman admin aman; form siswa tanpa kolom NISN; kerangka ruang siswa & pratinjau siap"
 
 @cek("17. Halaman HTTP (status 200 & izin akses)")

@@ -34,7 +34,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 HALAMAN = (
-    ("/login", "masuk.html", "Halaman masuk (petugas / siswa / pembina)"),
+    ("/login?mode=siswa", "masuk.html", "Halaman masuk — tab Siswa (yang dilihat anak)"),
     ("/portal", "beranda.html", "Beranda siswa"),
     ("/portal/profil", "dataku.html", "Dataku (data lengkap)"),
     ("/portal/ekstrakurikuler", "kegiatan.html", "Kegiatan / klub"),
@@ -158,7 +158,7 @@ def main() -> int:
             # klien yang sudah masuk, /login hanya mengalihkan ke beranda.
             async with httpx.AsyncClient(transport=transport, base_url="http://pratinjau") as tamu:
                 for jalur, berkas, ket in HALAMAN:
-                    if jalur != "/login":
+                    if not jalur.startswith("/login"):
                         continue
                     jawab = await tamu.get(jalur)
                     if jawab.status_code == 200:
@@ -168,8 +168,8 @@ def main() -> int:
                         print(f"[OK] {jalur:26} → {args.keluaran}/{berkas} ({len(isi) // 1024} KB)")
             for jalur, berkas, ket in HALAMAN:
                 jawab = await klien.get(jalur)
-                if jalur == "/login" or jawab.status_code != 200:
-                    if jalur != "/login":
+                if jalur.startswith("/login") or jawab.status_code != 200:
+                    if not jalur.startswith("/login"):
                         print(f"[!] {jalur} → {jawab.status_code} (dilewati)")
                     continue
                 isi = _arahkan_tautan(_sisipkan_statis(jawab.text, css, js))

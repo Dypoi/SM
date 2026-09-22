@@ -283,6 +283,8 @@ akta lahir, kesehatan, sampai koordinat rumah.
   seperti aplikasi HP, huruf lebih besar (16,5–17 px), tombol setidaknya 44 px, dan bahasa
   sederhana untuk anak kelas 7 (`Belum diisi`, `Minta perbaikan`, `Kegiatan / klub`).
   Beranda memakai kartu **«Yang perlu kamu lakukan»** supaya anak tahu langkah berikutnya.
+  **Halaman masuk** juga ramah anak: tab «Siswa — cukup NISN, tanpa sandi», sapaan «Halo, teman!»,
+  dan langkah 1-2-3 cara masuk (tampilan tab Admin/Guru & Ekstrakurikuler tidak berubah).
 - Ingin melihat tampilannya tanpa memasang aplikasi? Jalankan
   `python scripts/pratinjau_tampilan.py`, lalu `python -m http.server 8090 --directory pratinjau`
   dan buka <http://localhost:8090> — halaman siswa (beranda, dataku, kegiatan, minta perbaikan)

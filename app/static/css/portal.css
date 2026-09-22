@@ -411,3 +411,114 @@
   .pl-hero::after { display: none; }
   .pl-card, .pl-aksi, .pl-kegiatan { box-shadow: none; }
 }
+
+
+/* ========================================================================== */
+/* Halaman MASUK — bagian siswa dibuat ramah anak (ronde 29)                  */
+/* Semua aturan di bawah hanya berlaku pada halaman login, dan bagian siswa    */
+/* ditandai .pl-masuk-siswa; tampilan petugas tidak diubah selain tombol yang  */
+/* diperbesar supaya mudah disentuh di HP.                                    */
+/* ========================================================================== */
+
+.login-ramah {
+  --pl-primary: #2563eb;
+  --pl-primary-tua: #1d4ed8;
+  --pl-primary-lembut: #e9f1ff;
+  --pl-hijau: #15a34a;
+  --pl-hijau-lembut: #e8f9ee;
+  --pl-tinta: #17233d;
+  --pl-redup: #5b6884;
+  --pl-garis: #e6edf8;
+}
+
+/* Tab peran: sasaran sentuh besar dan tulisan jelas. */
+.login-ramah .switch button { min-height: 66px; border-radius: 15px; }
+.login-ramah .switch button .icon { width: 22px; height: 22px; }
+.login-ramah .switch button strong { font-size: .97rem; }
+.login-ramah .switch button small { font-size: .78rem; }
+.login-ramah .pl-tab-siswa.active { border-color: #bcd6ff; background: var(--pl-primary-lembut); }
+
+.login-ramah .login-card h2 { font-size: 1.5rem; letter-spacing: -.01em; }
+.login-ramah .login-card .sub { font-size: .9rem; }
+
+/* Kartu sapaan siswa */
+.pl-sapa {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  padding: .8rem .9rem;
+  margin-bottom: .9rem;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #eef6ff, #e6f0ff);
+  border: 1px solid #d5e5ff;
+}
+
+.pl-sapa-emoji { font-size: 1.9rem; line-height: 1; }
+.pl-sapa strong { display: block; font-size: 1.08rem; color: var(--pl-primary-tua); }
+.pl-sapa span { display: block; font-size: .92rem; color: #3c4a68; }
+
+/* Langkah 1-2-3 */
+.pl-langkah {
+  list-style: none;
+  margin: .2rem 0 1rem;
+  padding: .8rem .9rem;
+  border-radius: 14px;
+  background: #f8fbff;
+  border: 1px dashed #cfe0ff;
+  display: grid;
+  gap: .5rem;
+  font-size: .95rem;
+}
+
+.pl-langkah li { display: flex; align-items: flex-start; gap: .55rem; }
+
+.pl-no {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--pl-primary);
+  color: #fff;
+  font-size: .8rem;
+  font-weight: 800;
+}
+
+/* Isian & tombol siswa: besar, jelas, mudah disentuh */
+.pl-masuk-siswa .field label { font-size: .98rem; font-weight: 600; }
+.pl-masuk-siswa input.input-nisn {
+  font-size: 1.4rem;
+  padding: .75rem .9rem;
+  min-height: 58px;
+  border-radius: 14px;
+  letter-spacing: .16em;
+}
+.pl-masuk-siswa .hint { font-size: .86rem; }
+.pl-masuk-siswa .pl-tombol-besar {
+  min-height: 60px;
+  font-size: 1.08rem;
+  border-radius: 16px;
+  box-shadow: 0 8px 18px rgba(29, 78, 216, .22);
+}
+.pl-masuk-siswa .login-siswa-head .ikon { background: var(--pl-hijau-lembut); color: var(--pl-hijau); }
+.pl-masuk-siswa .login-siswa-head h3 { font-size: 1.05rem; }
+.pl-masuk-siswa .login-siswa-head p { font-size: .9rem; }
+.pl-masuk-siswa .login-bantuan {
+  background: #fffaf0;
+  border: 1px solid #f6e3c4;
+  border-radius: 14px;
+  padding: .8rem .9rem;
+}
+.pl-masuk-siswa .login-bantuan strong { font-size: .95rem; }
+.pl-masuk-siswa .login-bantuan ol { margin: .4rem 0 0; padding-left: 1.1rem; font-size: .9rem; }
+
+/* Layar HP: hero dipersingkat supaya isian langsung terlihat. */
+@media (max-width: 720px) {
+  .login-ramah .login-hero { padding: 1.3rem 1.1rem; gap: .7rem; }
+  .login-ramah .login-hero h1 { font-size: 1.35rem; }
+  .login-ramah .login-hero p { font-size: .9rem; }
+  .login-ramah .login-peran-kartu span { font-size: .82rem; }
+  .login-ramah .login-page > .login-hero .login-features { display: none; }
+  .pl-masuk-siswa input.input-nisn { font-size: 1.3rem; }
+}

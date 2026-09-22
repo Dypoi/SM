@@ -9,9 +9,10 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M9 21V11l7-4 7 4v10' stroke='white' stroke-width='2.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   {#- Cadangan bila proses masih memakai kode lama sesaat sesudah pembaruan ditarik. -#}
   <link rel="stylesheet" href="{{ static_url('css/app.css') if static_url is defined else '/static/css/app.css' }}">
+  <link rel="stylesheet" href="{{ static_url('css/portal.css') if static_url is defined else '/static/css/portal.css' }}">
 </head>
 <body>
-<div class="login-page">
+<div class="login-page login-ramah">
   <section class="login-hero">
     <div class="login-brand">
       <div class="brand-mark">
@@ -26,10 +27,10 @@
       </div>
     </div>
 
-    <h1>Selamat datang di {{ profil.nama }}.</h1>
+    <h1>Halo! Selamat datang di {{ profil.nama }}.</h1>
     <p>
-      Satu pintu untuk data peserta didik, ekstrakurikuler, dan pengajuan perbaikan data.
-      Pilih peran Bapak/Ibu atau siswa di sebelah, lalu masuk.
+      <strong style="color:#fff">Siswa:</strong> masuk cukup dengan NISN, langsung sampai di ruang siswa.
+      <strong style="color:#fff">Guru, tata usaha, pembina, dan pelatih:</strong> pilih peran di sebelah, lalu masuk.
     </p>
 
     <div class="login-peran">
@@ -101,10 +102,10 @@
           {{ icon('users') }}
           <span><strong>Admin / Guru</strong><small>Pengelola data</small></span>
         </button>
-        <button type="button" role="tab" class="{{ 'active' if mode_aktif == 'siswa' }}"
+        <button type="button" role="tab" class="pl-tab-siswa {{ 'active' if mode_aktif == 'siswa' }}"
                 aria-selected="{{ 'true' if mode_aktif == 'siswa' else 'false' }}" data-tab="siswa">
           {{ icon('user') }}
-          <span><strong>Siswa</strong><small>Cukup NISN</small></span>
+          <span><strong>Siswa</strong><small>Cukup NISN — tanpa sandi</small></span>
         </button>
         <button type="button" role="tab" class="{{ 'active' if mode_aktif == 'ekskul' }}"
                 aria-selected="{{ 'true' if mode_aktif == 'ekskul' else 'false' }}" data-tab="ekskul">
@@ -130,17 +131,32 @@
         <p class="login-hint">Akun awal: <code>admin</code> / <code>admin123</code> — segera ubah dari menu Pengaturan.</p>
       </form>
 
-      <form method="post" action="/login" class="tab-panel {{ 'active' if mode_aktif == 'siswa' }}" data-panel="siswa">
+      <form method="post" action="/login"
+            class="tab-panel pl-masuk-siswa {{ 'active' if mode_aktif == 'siswa' }}" data-panel="siswa">
         <input type="hidden" name="mode" value="siswa">
         <input type="hidden" name="next" value="{{ next }}">
+
+        <div class="pl-sapa">
+          <span class="pl-sapa-emoji" aria-hidden="true">👋</span>
+          <div>
+            <strong>Halo, teman!</strong>
+            <span>Masuk pakai <strong>NISN</strong> saja ya — tidak perlu kata sandi.</span>
+          </div>
+        </div>
 
         <div class="login-siswa-head">
           <div class="ikon">{{ icon('user') }}</div>
           <div>
-            <h3>Masuk dengan NISN</h3>
-            <p>Tidak perlu kata sandi. NISN tertulis di kartu pelajar atau rapor.</p>
+            <h3>Cara masuk — 3 langkah</h3>
+            <p>Tulis NISN, tekan tombol hijau/biru, selesai. NISN ada di kartu pelajar atau rapor.</p>
           </div>
         </div>
+
+        <ol class="pl-langkah">
+          <li><span class="pl-no">1</span> Tulis <strong>NISN</strong> (10 angka) di kotak di bawah.</li>
+          <li><span class="pl-no">2</span> Tekan tombol besar <strong>Masuk sebagai siswa</strong>.</li>
+          <li><span class="pl-no">3</span> Kamu sampai di <strong>ruang siswa</strong>: lihat data, nilai kegiatan, dan minta perbaikan data.</li>
+        </ol>
 
         <div class="field">
           <label for="nisn">Nomor Induk Siswa Nasional (NISN)</label>
@@ -158,14 +174,16 @@
         </div>
         {% endif %}
 
-        <button class="btn btn-primary btn-block btn-lg mt-3" type="submit">{{ icon('logout') }} Masuk sebagai siswa</button>
+        <button class="btn btn-primary btn-block btn-lg mt-3 pl-tombol-besar" type="submit">
+          {{ icon('logout') }} Masuk sebagai siswa
+        </button>
 
         <div class="login-bantuan">
-          <strong>Belum tahu NISN atau data belum benar?</strong>
+          <strong>Belum tahu NISN, atau NISN-nya tidak bisa masuk?</strong>
           <ol>
-            <li>Tanyakan NISN kepada wali kelas atau tata usaha sekolah.</li>
-            <li>Masuk kembali, lalu buka menu <strong>Ajukan Perubahan</strong> untuk memperbaiki data.</li>
-            <li>Perbaikan diperiksa admin sebelum disimpan.</li>
+            <li>Tanya <strong>wali kelas</strong> atau <strong>tata usaha</strong> — NISN ada di kartu pelajar.</li>
+            <li>Sudah masuk tapi data salah? Buka <strong>Minta perbaikan data</strong> di ruang siswa.</li>
+            <li>Perbaikan diperiksa admin dulu sebelum disimpan. 🙂</li>
           </ol>
         </div>
       </form>
