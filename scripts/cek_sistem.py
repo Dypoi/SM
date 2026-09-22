@@ -801,7 +801,27 @@ def cek_http_pengajuan():
             await klien.post("/logout")
 
     asyncio.run(skenario())
-    return "halaman admin aman; form siswa tampil tanpa kolom NISN"
+
+    # --- Tampilan siswa (r28): berkas kerangka + alat pratinjau ----------------- #
+    # Masukan dari sekolah: halaman siswa dulu memakai kerangka petugas (sidebar,
+    # tabel padat, kalimat teknis) sehingga terasa berat untuk anak kelas 7.
+    from app import config as _cfg
+
+    for berkas in ("app/static/css/portal.css", "app/templates/portal/_base.html",
+                   "scripts/pratinjau_tampilan.py"):
+        assert (_cfg.BASE_DIR / berkas).exists(), f"berkas tampilan siswa hilang: {berkas}"
+    potongan_portal = (_cfg.BASE_DIR / "app/static/css/portal.css").read_text(encoding="utf-8")
+    for tanda in (".pl-nav", ".pl-hero", ".pl-aksi", ".pl-kosong", "position: fixed"):
+        assert tanda in potongan_portal, f"portal.css tidak memuat {tanda!r}"
+    for nama in ("home.html", "profile.html", "ekskul.html", "request.html"):
+        isi = (_cfg.BASE_DIR / "app/templates/portal" / nama).read_text(encoding="utf-8")
+        assert isi.startswith('{% extends "portal/_base.html" %}'), \
+            f"portal/{nama} belum memakai kerangka ruang siswa"
+    kerangka = (_cfg.BASE_DIR / "app/templates/portal/_base.html").read_text(encoding="utf-8")
+    assert "Menu siswa" in kerangka and "sidebar" not in kerangka, \
+        "kerangka ruang siswa tidak boleh memuat menu petugas"
+
+    return "halaman admin aman; form siswa tanpa kolom NISN; kerangka ruang siswa & pratinjau siap"
 
 @cek("17. Halaman HTTP (status 200 & izin akses)")
 def cek_http():
@@ -925,6 +945,27 @@ def cek_http():
             assert siswa_masuk.status_code == 303, "login siswa gagal"
             portal = await client.get("/portal")
             assert portal.status_code == 200, f"/portal -> {portal.status_code}"
+
+            # --- Tampilan siswa (r28): anak kelas 7 memakai kerangka SENDIRI ------- #
+            # Masukan dari sekolah: halaman siswa dulu memakai kerangka petugas (sidebar
+            # + tabel padat + kalimat teknis) sehingga terasa berat untuk anak 12-13
+            # tahun. Sekarang portal memakai portal/_base.html: menu bawah besar, huruf
+            # lebih besar, dan TIDAK ada menu petugas sama sekali.
+            assert "portal-shell" in portal.text and "pl-nav" in portal.text, \
+                "beranda siswa tidak memakai kerangka ruang siswa (portal/_base.html)"
+            for menu_petugas in ('href="/data-siswa"', 'href="/impor"', 'href="/bot-dapodik"',
+                                 'href="/pengaturan"', 'href="/pembaruan"', 'class="sidebar"'):
+                assert menu_petugas not in portal.text, \
+                    f"halaman siswa masih memuat menu petugas {menu_petugas!r}"
+            for wajib_siswa in ('href="/portal/profil"', 'href="/portal/ekstrakurikuler"',
+                                "Ruang Siswa", "Beranda", "Kegiatan"):
+                assert wajib_siswa in portal.text, f"halaman siswa tidak memuat {wajib_siswa!r}"
+            for jalan in ("/portal/profil", "/portal/ekstrakurikuler", "/portal/pengajuan"):
+                h = await client.get(jalan)
+                assert h.status_code == 200, f"{jalan} -> {h.status_code}"
+                assert "portal-shell" in h.text, f"{jalan} belum memakai kerangka ruang siswa"
+                assert 'href="/pengaturan"' not in h.text, f"{jalan} masih menautkan Pengaturan"
+
             terlarang = await client.get("/pengaturan")
             assert terlarang.status_code in (303, 403), "siswa seharusnya tidak bisa membuka Pengaturan"
 

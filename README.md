@@ -277,6 +277,16 @@ akta lahir, kesehatan, sampai koordinat rumah.
 - Statistik: jumlah kegiatan, keanggotaan, siswa terlibat, dan ekskul yang belum berpendamping.
 
 ### Portal siswa
+- **Ruang siswa terpisah dari halaman petugas.** Siswa tidak melihat menu petugas (Impor,
+  Bot Dapodik, Pengaturan, …) sama sekali: halamannya memakai kerangka sendiri
+  (`app/templates/portal/_base.html` + `app/static/css/portal.css`) dengan menu bawah besar
+  seperti aplikasi HP, huruf lebih besar (16,5–17 px), tombol setidaknya 44 px, dan bahasa
+  sederhana untuk anak kelas 7 (`Belum diisi`, `Minta perbaikan`, `Kegiatan / klub`).
+  Beranda memakai kartu **«Yang perlu kamu lakukan»** supaya anak tahu langkah berikutnya.
+- Ingin melihat tampilannya tanpa memasang aplikasi? Jalankan
+  `python scripts/pratinjau_tampilan.py`, lalu `python -m http.server 8090 --directory pratinjau`
+  dan buka <http://localhost:8090> — halaman siswa (beranda, dataku, kegiatan, minta perbaikan)
+  tersalin jadi berkas HTML mandiri. Folder `pratinjau/` berisi data siswa → **jangan** di-commit.
 - Siswa masuk hanya dengan **NISN** (opsional ditambah tanggal lahir, diatur di Pengaturan).
 - Beranda, data lengkap miliknya, kelengkapan data, dan status berkas (akta kelahiran,
   kartu keluarga, ijazah).

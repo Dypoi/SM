@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "portal/_base.html" %}
 {% from "_macros.html" import icon, nilai, pengajuan_badge %}
 
 {% block content %}
@@ -7,15 +7,15 @@
     <div class="profile-head">
       <div class="avatar-lg">{{ siswa.nama[:1] if siswa.nama else '?' }}</div>
       <div style="flex:1;min-width:220px">
-        <h2 style="margin-bottom:.15rem">{{ siswa.nama }}</h2>
+        <h2 class="pl-judul" style="margin-bottom:.15rem">{{ siswa.nama | title }}</h2>
         <div class="flex flex-wrap gap-1">
           <span class="chip">{{ icon('user') }} NISN {{ siswa.nisn or '-' }}</span>
           {% if siswa.rombel %}<span class="chip chip-muted">{{ siswa.rombel }}</span>{% endif %}
           <span class="badge badge-{{ siswa.status | badge }}">{{ siswa.status }}</span>
         </div>
-        <p class="muted mt-1" style="font-size:.82rem">
-          Data ini berasal dari berkas Dapodik sekolah. Bila ada yang salah, ajukan perbaikan —
-          admin akan memeriksa dan menyetujuinya.
+        <p class="pl-sub mt-1">
+          Ini data kamu yang tercatat di sekolah (dari Dapodik). Bila ada yang salah,
+          ajukan perbaikan — admin akan memeriksa dan menyetujuinya.
         </p>
       </div>
       {% if pengajuan_aktif %}
@@ -30,8 +30,8 @@
     <div class="card">
       <div class="card-head">
         <div>
-          <h3>Data Saya</h3>
-          <p>NISN tidak dapat diubah. Kolom lain dapat diusulkan perbaikannya lewat pengajuan.</p>
+          <h3>Data lengkapku</h3>
+          <p>NISN tidak dapat diubah. Data lain bisa diajukan perbaikannya lewat <em>Minta perbaikan</em>.</p>
         </div>
       </div>
       <div class="card-body p-0 table-wrap">
@@ -54,9 +54,11 @@
                       <span class="mono">{{ nilai(siswa.get(spec.key)) }}</span>
                       <span class="badge badge-muted">tidak dapat diubah</span>
                     {% elif spec.kind == 'date' %}
-                      {{ siswa.get(spec.key) | tanggal_id }}
+                      {% if siswa.get(spec.key) %}{{ siswa.get(spec.key) | tanggal_id }}
+                      {%- else %}<span class="pl-kosong">Belum diisi</span>{% endif %}
                     {% else %}
-                      {{ nilai(siswa.get(spec.key)) }}
+                      {% if siswa.get(spec.key) %}{{ siswa.get(spec.key) }}
+                      {%- else %}<span class="pl-kosong">Belum diisi</span>{% endif %}
                     {% endif %}
                   </td>
                 </tr>
@@ -70,8 +72,8 @@
     <div class="card mt-2">
       <div class="card-head">
         <div>
-          <h3>Riwayat Pengajuan</h3>
-          <p>Perubahan yang Anda ajukan beserta keputusan admin.</p>
+          <h3>Riwayat perbaikan dataku</h3>
+          <p>Perbaikan yang kamu ajukan beserta keputusan admin.</p>
         </div>
         {% if pengajuan_aktif %}
         <a class="btn btn-outline btn-sm" href="/portal/pengajuan">{{ icon('plus') }} Pengajuan baru</a>
@@ -133,7 +135,7 @@
         {% endfor %}
         {% if pengajuan_aktif %}
         <div class="form-actions sticky-actions mt-2">
-          <a class="btn btn-outline btn-sm" href="/portal/pengajuan">{{ icon('upload') }} Unggah / perbarui</a>
+          <a class="btn btn-primary btn-sm" href="/portal/pengajuan">{{ icon('camera') }} Unggah / perbarui foto berkas</a>
         </div>
         {% endif %}
       </div>

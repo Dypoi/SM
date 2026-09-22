@@ -86,6 +86,10 @@ def beranda_siswa(request: Request, user: auth.SessionUser = Depends(auth.requir
             "pengajuan": pengajuan,
             "menunggu": sum(1 for item in pengajuan if item["status"] == "menunggu"),
             "dokumen": services.dokumen_terbaru(int(siswa["id"])),
+            # Dipakai beranda gaya baru (ruang siswa): daftar berkas + apakah
+            # sekolah sedang membuka pengajuan perubahan data.
+            "dokumen_jenis": services.DOKUMEN_JENIS,
+            "pengajuan_aktif": services.pengajuan_aktif(),
         },
     )
 

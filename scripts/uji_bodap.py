@@ -92,7 +92,8 @@ def uji_payload() -> dict:
     cek("app.zip memuat seluruh program SM", wajib.issubset(set(nama)),
         f"kurang: {sorted(wajib - set(nama))}")
     terlarang = [n for n in nama
-                 if n.startswith(("data/", "sample-data/", ".venv/", "pemasang/payload/"))
+                 if n.startswith(("data/", "sample-data/", ".venv/", "pemasang/payload/",
+                                  "pratinjau/"))
                  or n.endswith((".sqlite3", ".pyc"))
                  or (n.endswith((".xlsx", ".xls", ".ods"))
                      and "template-import/" not in n)]

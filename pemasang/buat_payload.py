@@ -40,6 +40,9 @@ ABAIKAN_FOLDER = {
     ".git", ".venv", "venv", "env", "data", "sample-data", "node_modules", "payload",
     "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".idea", ".vscode",
     "dist", "build",
+    # Hasil `scripts/pratinjau_tampilan.py`: salinan halaman siswa **berisi data siswa**
+    # dan hanya untuk dilihat — tidak boleh ikut ke pemasangan sekolah.
+    "pratinjau",
 }
 ABAIKAN_POLA = (
     "*.pyc", "*.pyo", "*.sqlite3*", "*.log", ".env", "secrets.env",

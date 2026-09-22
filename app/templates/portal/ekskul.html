@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "portal/_base.html" %}
 {% from "_macros.html" import icon, empty_state %}
 
 {% block content %}
@@ -6,15 +6,15 @@
   <div class="card-body">
     <div class="flex between flex-wrap" style="gap:1rem">
       <div>
-        <h2 style="margin-bottom:.2rem">Ekstrakurikuler</h2>
-        <p class="soft" style="margin:0">
-          Pilih kegiatan yang ingin kamu ikuti, lalu tunggu persetujuan
-          <strong>pembina/pelatih</strong>. Setelah disetujui, namamu masuk daftar anggota.
+        <h2 class="pl-judul" style="margin-bottom:.2rem">Kegiatan &amp; Klub</h2>
+        <p class="pl-sub" style="margin:0">
+          Pilih kegiatan yang kamu suka, lalu tunggu persetujuan <strong>pembina/pelatih</strong>.
+          Setelah disetujui, namamu masuk daftar anggota. 😊
         </p>
       </div>
       <div class="btn-group">
-        <a class="btn btn-outline btn-sm" href="/portal">{{ icon('home') }} Beranda Saya</a>
-        <a class="btn btn-outline btn-sm" href="/portal/profil">{{ icon('user') }} Data Saya</a>
+        <a class="btn btn-outline btn-sm" href="/portal">{{ icon('home') }} Beranda</a>
+        <a class="btn btn-outline btn-sm" href="/portal/profil">{{ icon('user') }} Dataku</a>
       </div>
     </div>
   </div>

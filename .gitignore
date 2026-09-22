@@ -37,6 +37,9 @@ SM-*-paket.zip
 bahan/
 dist/
 
+# --- Hasil pratinjau tampilan (berisi data siswa, jangan di-commit) ---
+pratinjau/
+
 # --- Hasil pembangunan pemasang bodap (jangan di-commit) ---
 pemasang/payload/
 pemasang/bodap.ico
