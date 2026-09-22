@@ -1125,7 +1125,46 @@ def cek_peluncur_online():
     assert (BASE_DIR / "scripts" / "buat_peluncur_online.py").exists()
     readme = (BASE_DIR / "README.md").read_text(encoding="utf-8")
     assert "Menjalankan online" in readme, "README belum memuat panduan online"
-    return "pola alamat cloudflared, mode lokal, SM-online.bat CRLF, panduan README"
+    # --- Bagian 3: perintah jalur Tailscale Funnel (r26) --------------------- #
+    # Dipakai sekolah di PC Windows: periksa kesiapan, diagnosa galat yang ramah,
+    # port publik yang diizinkan Tailscale, dan perintah mematikan akses publik.
+    import importlib.util as _ilu
+
+    spesifikasi = _ilu.spec_from_file_location("sm_online_uji", BASE_DIR / "SM-online.py")
+    modul = _ilu.module_from_spec(spesifikasi)
+    spesifikasi.loader.exec_module(modul)
+    assert tuple(modul.PORT_FUNNEL) == (443, 8443, 10000), \
+        f"port publik Tailscale berubah: {modul.PORT_FUNNEL}"
+    tolak = modul.mulai_tailscale(sys.executable, 8000, https_port=8080)
+    assert tolak[0] is False and "443" in tolak[2], \
+        "port di luar 443/8443/10000 seharusnya ditolak dengan penjelasan"
+
+    contoh_galat = {
+        "Funnel is not enabled on your tailnet": "acls",
+        "HTTPS is not enabled on your tailnet": "HTTPS",
+        "Logged out": "Log in",
+        "MagicDNS is not enabled": "MagicDNS",
+        "port 443 is already in use": "8443",
+    }
+    for galat, harus_ada in contoh_galat.items():
+        saran = " ".join(modul._perbaikan_tailscale(galat))
+        assert harus_ada.lower() in saran.lower(), \
+            f"diagnosa untuk {galat!r} tidak memuat {harus_ada!r}: {saran[:120]}"
+
+    isi_online = (BASE_DIR / "SM-online.py").read_text(encoding="utf-8")
+    for tanda in ("--cek", "--hentikan", "--https-port", "Uji alamat publik",
+                  "_perbaikan_tailscale", "PANDUAN-ONLINE.md"):
+        assert tanda in isi_online, f"SM-online.py tidak memuat {tanda!r}"
+    panduan_online = (BASE_DIR / "PANDUAN-ONLINE.md").read_text(encoding="utf-8")
+    for tanda in ("Tailscale Funnel", "MagicDNS", "HTTPS", "Aman Online", "serve",
+                  "Pemecahan masalah", "Bot Dapodik"):
+        assert tanda in panduan_online, f"PANDUAN-ONLINE.md tidak menjelaskan {tanda!r}"
+    assert "PANDUAN-ONLINE.md" in (BASE_DIR / "README.md").read_text(encoding="utf-8"), \
+        "README belum menunjuk PANDUAN-ONLINE.md"
+
+    return ("peluncur online: deteksi Tailscale/cloudflared, penanda & daftar periksa keamanan, "
+            "perintah --cek/--hentikan, diagnosa galat Tailscale → langkah perbaikan, "
+            "port publik 443/8443/10000, panduan PANDUAN-ONLINE.md lengkap")
 
 
 @cek("20. Akun ekstrakurikuler (NIK 16 digit, 1 pembina + 1 pelatih per ekskul)")

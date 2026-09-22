@@ -660,6 +660,7 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 │   ├── pasang.py               #   pemasang multi-platform: pasang/periksa/perbarui/hapus
 │   ├── pencabut_sm.py          #   pencabut + entri Control Panel «Aplikasi & Fitur»
 │   └── buat_paket.py           #   pembuat paket ZIP (mis. + berkas pustaka untuk offline)
+├── PANDUAN-ONLINE.md          # petunjuk online lewat Tailscale Funnel (disarankan; data tetap di sekolah)
 ├── PANDUAN-VERCEL.md          # petunjuk deploy online gratis ke Vercel (data sementara)
 ├── scripts/
 │   ├── cek_sistem.py          # pemeriksaan mandiri (menyeluruh, lihat bagian Uji)
@@ -725,10 +726,20 @@ router**. Caranya: server tetap berjalan di komputer sekolah seperti biasa, lalu
 
 ### Cara tercepat (Windows)
 
-1. Klik dua kali **`SM-online.bat`**.
-2. Jendela konsol menampilkan alamat publik yang bisa dibagikan ke petugas/siswa.
-3. Alamat itu juga tersimpan di `data/alamat-publik.txt` dan tampil di
+1. Pasang **Tailscale** (gratis) di PC sekolah, masuk, lalu nyalakan **MagicDNS** &
+   **HTTPS Certificates** di <https://login.tailscale.com/admin/dns> — sekali saja.
+2. Klik dua kali **`SM-online.bat`**.
+3. Jendela konsol menampilkan alamat publik tetap, mis.
+   `https://sm-sekolah.tautan-anda.ts.net`, lengkap dengan **bukti alamat itu menjawab**
+   (`Uji alamat publik: menjawab (HTTP 303)`) — bukan sekadar dugaan.
+4. Alamat itu juga tersimpan di `data/alamat-publik.txt` dan tampil di
    **Pengaturan → Sistem → Aman Online**, lengkap dengan daftar periksa keamanan.
+
+Perintah tambahan: `SM-online.bat --cek` (periksa kesiapan Tailscale sebelum dijalankan),
+`SM-online.bat --hentikan` (matikan akses publik; aplikasi lokal tetap jalan),
+`--https-port 8443` (bila port 443 sudah dipakai layanan lain).
+**Panduan lengkap langkah demi langkah: `PANDUAN-ONLINE.md`** (termasuk daftar periksa
+keamanan, cara menjaga PC tetap terjangkau, dan pemecahan masalah).
 
 Bila Tailscale/cloudflared belum terpasang, aplikasi **tetap berjalan untuk jaringan sekolah**
 dan petunjuk pemasangannya ditampilkan di jendela konsol.
@@ -737,7 +748,7 @@ dan petunjuk pemasangannya ditampilkan di jendela konsol.
 
 | Cara | Perlu akun? | Alamat | Catatan |
 | --- | --- | --- | --- |
-| **Tailscale Funnel** (disarankan) | akun Tailscale gratis | tetap: `https://<nama>.<tautan>.ts.net` | HTTPS otomatis, tanpa kartu kredit, tanpa buka port router |
+| **Tailscale Funnel** (disarankan) | akun Tailscale gratis | tetap: `https://<nama>.<tautan>.ts.net` | HTTPS otomatis, tanpa kartu kredit, tanpa buka port router; **data tetap di PC sekolah** dan bot Dapodik tetap bisa jalan — hanya port publik 443/8443/10000 yang diizinkan Tailscale |
 | **Cloudflare quick tunnel** | tidak | berubah setiap dijalankan: `https://xxxx.trycloudflare.com` | praktis untuk uji coba atau berbagi sesaat |
 
 Langkah **Tailscale**: unduh dari <https://tailscale.com/download>, pasang, lalu masuk; aktifkan
