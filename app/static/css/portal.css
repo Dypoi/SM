@@ -231,6 +231,8 @@
   transition: transform .12s ease, box-shadow .12s ease;
 }
 
+/* Dipakai juga sebagai <button> (mis. «Cetak / simpan PDF») → warisi huruf halaman. */
+.pl-aksi { font: inherit; text-align: left; cursor: pointer; width: 100%; }
 .pl-aksi:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(23, 35, 61, .09); }
 .pl-aksi strong { display: block; font-size: 1rem; }
 .pl-aksi span { display: block; color: var(--pl-redup); font-size: .84rem; }
