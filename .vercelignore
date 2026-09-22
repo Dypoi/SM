@@ -1,0 +1,47 @@
+# Berkas & folder yang TIDAK perlu ikut ke Vercel.
+# Tujuannya dua: (1) paket fungsi tetap kecil & cepat dingin-mulai,
+# (2) data pribadi siswa tidak pernah ikut terunggah.
+
+# --- Data sekolah (data pribadi siswa) ---
+data/
+sample-data/
+*.sqlite3
+*.sqlite3-*
+*.db
+.env
+secrets.env
+
+# --- Berkas Excel/CSV (kecuali contoh template yang memang dibagikan) ---
+*.xlsx
+*.xls
+*.xlsb
+*.ods
+!template-import/contoh-template-import.xlsx
+
+# --- Alat pemasangan & pembangunan (hanya untuk PC sekolah) ---
+pemasang/
+dist/
+build/
+SM-*-paket.zip
+*.exe
+*.msi
+
+# --- Berkas uji & pemeriksaan (dijalankan lokal, bukan di Vercel) ---
+scripts/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Berkas sistem & suntingan ---
+.git/
+.gitignore
+.venv/
+venv/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

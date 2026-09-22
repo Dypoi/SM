@@ -40,8 +40,9 @@ BASE_DIR = config.BASE_DIR
 GIT_TIMEOUT = int(os.getenv("SM_GIT_TIMEOUT", "180"))
 PIP_TIMEOUT = int(os.getenv("SM_PIP_TIMEOUT", "900"))
 
-#: Menonaktifkan fitur pembaruan: ``SM_GIT_UPDATE=0``.
-AKTIF = os.getenv("SM_GIT_UPDATE", "1").lower() not in {"0", "false", "no"}
+#: Menonaktifkan fitur pembaruan: ``SM_GIT_UPDATE=0`` (bawaan **mati** di Vercel: serverless
+#: tidak punya repo/git, jadi menu Pembaruan tidak ada gunanya).
+AKTIF = os.getenv("SM_GIT_UPDATE", "0" if config.VERCEL else "1").lower() not in {"0", "false", "no"}
 
 RESTART_MARKER = config.DATA_DIR / "restart-request.json"
 STATUS_FILE = config.DATA_DIR / "update-status.json"

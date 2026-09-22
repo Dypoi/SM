@@ -40,6 +40,18 @@
         </div>
       </div>
       {% endif %}
+      {% if mode_vercel is defined and mode_vercel %}
+      <div class="alert alert-warn" role="alert">
+        <span class="alert-icon">{{ icon('warning') }}</span>
+        <div>
+          <strong>Mode Vercel (pratinjau online).</strong>
+          Aplikasi berjalan di serverless: data disimpan <em>sementara</em> — hilang begitu
+          aplikasi tidur atau dideploy ulang — dan Bot Dapodik tidak bisa dijalankan di sini.
+          Untuk data sekolah sesungguhnya, jalankan SM di PC sekolah.
+          <a href="/pengaturan#aman-online">Pengaturan → Aman Online</a>
+        </div>
+      </div>
+      {% endif %}
       <div class="flash-area">{{ flash(msg, msg_level) }}</div>
       {% block content %}{% endblock %}
     </main>

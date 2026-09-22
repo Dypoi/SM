@@ -3135,6 +3135,101 @@ def cek_bodap():
             "mengubah apa pun")
 
 
+@cek("28. Kesiapan deploy ke Vercel (gratis) — berkas & mode serverless")
+def cek_vercel() -> None:
+    """Kesiapan deploy ke Vercel (gratis) + bukti «mode Vercel» benar-benar bekerja.
+
+    Yang diperiksa: berkas deploy lengkap & sah, aplikasi bisa **dingin-mulai** di serverless
+    (basis data di ``/tmp`` terbentuk), pembaruan git mati, dan Bot Dapodik menolak jalan
+    dengan penjelasan yang jujur. Semuanya dijalankan di subproses dengan environment seperti
+    Vercel, sehingga perilaku aslinya ikut terbukti.
+    """
+    import json as _json
+    import subprocess as _sp
+
+    for nama in ("api/index.py", "vercel.json", ".python-version", ".vercelignore",
+                 "PANDUAN-VERCEL.md"):
+        assert (BASE_DIR / nama).exists(), f"berkas deploy Vercel tidak ada: {nama}"
+
+    titik = (BASE_DIR / "api/index.py").read_text(encoding="utf-8")
+    assert "from app.main import app" in titik, \
+        "api/index.py tidak mengekspor instance `app` seperti yang dicari Vercel"
+    assert "SM_AUTO_SEED" in titik, "api/index.py tidak mematikan data contoh di serverless"
+
+    konfigurasi = _json.loads((BASE_DIR / "vercel.json").read_text(encoding="utf-8"))
+    fungsi = (konfigurasi.get("functions") or {}).get("api/index.py") or {}
+    assert int(fungsi.get("maxDuration") or 0) > 0, "vercel.json tanpa maxDuration"
+    assert "app/**" in str(fungsi.get("includeFiles") or ""), \
+        "vercel.json tidak membundel folder app/ ke dalam fungsi"
+    assert any("api/index" in str(baris.get("destination") or "")
+               for baris in (konfigurasi.get("rewrites") or [])), \
+        "vercel.json tidak mengalihkan seluruh alamat ke api/index"
+
+    versi = (BASE_DIR / ".python-version").read_text(encoding="utf-8").strip()
+    besar, kecil = (int(bagian) for bagian in versi.split(".")[:2])
+    assert besar == 3 and kecil >= 12, f".python-version tidak didukung Vercel: {versi}"
+
+    abaikan = (BASE_DIR / ".vercelignore").read_text(encoding="utf-8")
+    for pola in ("data/", "sample-data/", "*.xlsx", "pemasang/", "scripts/"):
+        assert pola in abaikan, f".vercelignore tidak mengecualikan {pola}"
+    baris_abaikan = {baris.strip() for baris in abaikan.splitlines()}
+    for wajib_ada in ("app/", "api/"):
+        assert wajib_ada not in baris_abaikan, f".vercelignore mengecualikan {wajib_ada}"
+
+    panduan = (BASE_DIR / "PANDUAN-VERCEL.md").read_text(encoding="utf-8")
+    for tanda in ("gratis", "SM_SECRET_KEY", "tidak permanen" if "tidak permanen" in panduan
+                  else "sementara", "Bot Dapodik"):
+        assert tanda in panduan, f"PANDUAN-VERCEL tidak menjelaskan {tanda!r}"
+    assert "Vercel" in (BASE_DIR / "README.md").read_text(encoding="utf-8"), \
+        "README belum menyebut cara menjalankan lewat Vercel"
+
+    # Simulasi dingin-mulai Vercel: environment dibersihkan, hanya VERCEL=1 yang ditambah.
+    lingkungan = {k: v for k, v in os.environ.items()
+                  if k not in {"SM_DATA_DIR", "SM_DB_PATH", "SM_AUTO_SEED", "SM_EKSKUL_SEKOLAH",
+                               "SM_GIT_UPDATE", "VERCEL", "VERCEL_ENV", "NOW_BUILDER"}}
+    skrip = (
+        "import json, os\n"
+        "from app import config, migrations, services, updater\n"
+        "migrations.init_database(verbose=False)\n"
+        "siap, pesan = services.bot_siap_pakai()\n"
+        "print(json.dumps({'vercel': config.VERCEL, 'data': str(config.DATA_DIR),\n"
+        "                  'db': str(config.DB_PATH), 'db_ada': config.DB_PATH.exists(),\n"
+        "                  'git': updater.AKTIF, 'bot_siap': siap, 'bot_pesan': pesan,\n"
+        "                  'seed': os.environ.get('SM_AUTO_SEED'),\n"
+        "                  'ekskul': os.environ.get('SM_EKSKUL_SEKOLAH')}))\n"
+    )
+    hasil = _sp.run([sys.executable, "-c", skrip], cwd=str(BASE_DIR), capture_output=True,
+                    text=True, encoding="utf-8", errors="replace", timeout=600,
+                    env={**lingkungan, "VERCEL": "1"})
+    keluaran = [baris for baris in (hasil.stdout or "").splitlines() if baris.startswith("{")]
+    assert keluaran, f"mode Vercel gagal dijalankan: {(hasil.stderr or '')[-400:]}"
+    laporan = _json.loads(keluaran[-1])
+    assert laporan["vercel"] is True, "mode Vercel tidak terdeteksi"
+    assert laporan["data"].replace("\\", "/").startswith(str(tempfile.gettempdir())), \
+        f"folder data tidak dipindah ke /tmp: {laporan['data']}"
+    assert laporan["db_ada"], "basis data Vercel tidak bisa dibuat (dingin-mulai gagal)"
+    assert laporan["git"] is False, "pembaruan git masih aktif di Vercel"
+    assert laporan["seed"] == "0" and laporan["ekskul"] == "0", \
+        f"data contoh/ekskul masih menyala di Vercel: {laporan}"
+    assert laporan["bot_siap"] is False and "Vercel" in laporan["bot_pesan"], \
+        f"bot tidak menolak jalan di Vercel dengan penjelasan: {laporan['bot_pesan'][:120]}"
+
+    # Di luar Vercel semuanya harus kembali seperti semula (data di folder aplikasi, git aktif).
+    hasil = _sp.run([sys.executable, "-c", skrip], cwd=str(BASE_DIR), capture_output=True,
+                    text=True, encoding="utf-8", errors="replace", timeout=600, env=lingkungan)
+    keluaran = [baris for baris in (hasil.stdout or "").splitlines() if baris.startswith("{")]
+    assert keluaran, f"aplikasi gagal dijalankan tanpa mode Vercel: {(hasil.stderr or '')[-300:]}"
+    lokal = _json.loads(keluaran[-1])
+    assert lokal["vercel"] is False and lokal["git"] is True, \
+        f"perilaku di luar Vercel berubah: {lokal}"
+    assert "sm-data" not in lokal["data"], f"folder data salah di luar Vercel: {lokal['data']}"
+
+    return ("berkas deploy lengkap (api/index.py · vercel.json · .python-version · .vercelignore "
+            "· PANDUAN-VERCEL.md) · dingin-mulai Vercel terbukti (basis data di /tmp) · git & "
+            "data contoh mati di serverless · bot menolak jalan dengan penjelasan · perilaku "
+            "lokal tidak berubah")
+
+
 @cek("27. Kode bersih dari peringatan Python (escape sequence & impor)")
 def cek_peringatan_kode():
     """Pastikan menjalankan aplikasi tidak memunculkan peringatan seperti di PC sekolah.
@@ -3240,6 +3335,7 @@ def main() -> int:
     cek_pemasang()
     cek_bodap()
     cek_peringatan_kode()
+    cek_vercel()
     if args.http:
         cek_http_pengajuan()
         cek_http()

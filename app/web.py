@@ -436,6 +436,7 @@ def render(request: Request, template: str, context: dict[str, Any] | None = Non
         "msg_level": request.query_params.get("level", "ok"),
         "page_title": PAGE_TITLES.get(request.url.path, config.APP_NAME),
         "peringatan_online": online.peringatan_aman(user),
+        "mode_vercel": config.VERCEL,
     }
     if context:
         ctx.update(context)

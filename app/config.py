@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import secrets
 import sqlite3
+import tempfile
 import time
 from pathlib import Path
 
@@ -16,6 +17,31 @@ from pathlib import Path
 # Path
 # --------------------------------------------------------------------------- #
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+#: **Mode Vercel** (serverless). Vercel menandai dirinya lewat environment ``VERCEL``;
+#: di sana sistem berkas hanya bisa ditulis di ``/tmp``, git tidak tersedia, dan tidak ada
+#: Chrome — jadi aplikasi menyesuaikan diri lewat :func:`_siapkan_mode_serverless`.
+VERCEL = any(os.getenv(nama) for nama in ("VERCEL", "VERCEL_ENV", "NOW_BUILDER"))
+
+
+def _siapkan_mode_serverless() -> None:
+    """Penyesuaian otomatis saat aplikasi berjalan di Vercel (serverless).
+
+    * folder data dipindah ke ``/tmp`` (di luar itu hanya-baca, dan isinya tidak permanen);
+    * ``SM_DATA_DIR`` di-set supaya seluruh proses (termasuk subproses) sepakat;
+    * pembaruan lewat git, data contoh, dan pengisian 14 ekskul resmi dimatikan.
+    """
+    if not VERCEL:
+        return
+    if not os.getenv("SM_DATA_DIR"):
+        os.environ["SM_DATA_DIR"] = str(Path(tempfile.gettempdir()) / "sm-data")
+    os.environ.setdefault("SM_GIT_UPDATE", "0")
+    os.environ.setdefault("SM_AUTO_SEED", "0")
+    os.environ.setdefault("SM_EKSKUL_SEKOLAH", "0")
+
+
+_siapkan_mode_serverless()
+
 DATA_DIR = Path(os.getenv("SM_DATA_DIR") or BASE_DIR / "data")
 UPLOAD_DIR = DATA_DIR / "uploads"
 EXPORT_DIR = DATA_DIR / "exports"
@@ -178,6 +204,9 @@ def _secret_key() -> str:
 
 
 SECRET_KEY = _secret_key()
+#: True bila kunci sesi datang dari environment (bukan berkas di folder data). Di Vercel ini
+#: wajib diisi (``SM_SECRET_KEY``) supaya login tidak terputus antar-instans fungsi.
+SECRET_KEY_DARI_ENV = bool(os.getenv("SM_SECRET_KEY"))
 
 # --------------------------------------------------------------------------- #
 # Akun admin pertama (hanya dipakai saat seeding awal)

@@ -1713,6 +1713,9 @@ def bot_pasang_pustaka() -> tuple[bool, str]:
     import subprocess
     import sys
 
+    if config.VERCEL:
+        return False, ("Di Vercel pustaka tidak bisa dipasang (sistem berkas hanya-baca) dan "
+                       "Chrome tidak tersedia. Bot Dapodik dijalankan di PC sekolah.")
     if bot_punya_selenium():
         return True, "Pustaka selenium sudah terpasang — bot siap dipakai."
     berkas = config.BASE_DIR / BERKAS_PUSTAKA_BOT
@@ -1743,6 +1746,11 @@ def bot_siap_pakai() -> tuple[bool, str]:
     untuk menemukan satu per satu penyebab bot belum bisa dijalankan.
     """
     cfg = bot_setting()
+    if config.VERCEL:
+        return False, ("Bot Dapodik tidak bisa dijalankan di Vercel: serverless tidak punya "
+                       "Chrome dan setiap permintaan dibatasi ±60 detik. Jalankan bot di PC "
+                       "sekolah dengan aplikasi SM yang sama (data bisa dipindahkan lewat "
+                       "Ekspor/Impor).")
     if cfg["bot_simulasi"] == "1":
         return True, "Mode uji coba (tanpa peramban): antrean & kemajuan tetap dicatat."
     kurang: list[str] = []

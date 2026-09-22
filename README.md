@@ -646,6 +646,10 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 │   │   ├── _macros.html, base.html, partials/
 │   │   └── students/, import/, ekskul/, portal/, approval/
 │   └── static/css/app.css, static/js/app.js
+├── api/index.py                # titik masuk Vercel (serverless) — lihat PANDUAN-VERCEL.md
+├── vercel.json                 # pengaturan fungsi & pengalihan alamat untuk Vercel
+├── .python-version             # versi Python yang dipakai Vercel (3.12)
+├── .vercelignore               # berkas yang tidak ikut diunggah ke Vercel (data, xlsx, dll.)
 ├── pemasang/                  # installer: pasang di komputer mana pun (lihat §9)
 │   ├── bodap_win.py            #   mesin + wizard pemasang SATU BERKAS (bodap.exe)
 │   ├── bodap.spec              #   resep PyInstaller untuk membungkus bodap.exe
@@ -656,8 +660,9 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 │   ├── pasang.py               #   pemasang multi-platform: pasang/periksa/perbarui/hapus
 │   ├── pencabut_sm.py          #   pencabut + entri Control Panel «Aplikasi & Fitur»
 │   └── buat_paket.py           #   pembuat paket ZIP (mis. + berkas pustaka untuk offline)
+├── PANDUAN-VERCEL.md          # petunjuk deploy online gratis ke Vercel (data sementara)
 ├── scripts/
-│   ├── cek_sistem.py          # pemeriksaan mandiri 26 titik uji
+│   ├── cek_sistem.py          # pemeriksaan mandiri (menyeluruh, lihat bagian Uji)
 │   ├── peramban_palsu.py      # peramban tiruan (alur penuh bot) untuk uji tanpa Chrome
 │   └── buat_template.py       # pembuat berkas template impor
 ├── template-import/           # contoh.xlsx berisi data fiktif (aman dibagikan)
@@ -696,7 +701,7 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 
 | Variabel | Bawaan | Kegunaan |
 | --- | --- | --- |
-| `SM_SECRET_KEY` | dibuat otomatis | Kunci penandatangan cookie sesi |
+| `SM_SECRET_KEY` | dibuat otomatis | Kunci penandatangan cookie sesi (**wajib diisi** bila di Vercel) |
 | `SM_ADMIN_USER` / `SM_ADMIN_PASSWORD` | `admin` / `admin123` | Akun admin pertama |
 | `SM_DATA_DIR` | `./data` | Lokasi database, unggahan, kunci |
 | `SM_MAX_UPLOAD_MB` | `64` | Batas ukuran berkas unggahan |
@@ -705,7 +710,7 @@ Dokumentasi interaktif: <http://localhost:8000/api/docs>
 | `SM_AUTO_SEED` | `1` | Impor otomatis berkas contoh saat database kosong (`0` = database baru dibiarkan kosong) |
 | `SM_EKSKUL_SEKOLAH` | `0` | `1` = isi otomatis 14 daftar ekskul resmi saat aplikasi pertama dijalankan |
 | `SM_API_PUBLIC` | `0` | `1` = API baca dapat diakses tanpa kunci |
-| `SM_GIT_UPDATE` | `1` | `0` = matikan fitur pembaruan `git pull` di aplikasi |
+| `SM_GIT_UPDATE` | `1` (Vercel: `0`) | `0` = matikan fitur pembaruan `git pull` di aplikasi |
 | `SM_GIT_BIN` | otomatis | Path `git` bila tidak terdeteksi otomatis |
 | `SM_GIT_TIMEOUT` | `180` | Batas waktu perintah git (detik) |
 | `SM_RESTART_CMD` | `run.py` | Perintah untuk memulai ulang server setelah pembaruan |
@@ -765,6 +770,37 @@ Buka **Pengaturan → Sistem → Aman Online**, lalu benahi yang bertanda *perlu
    siapa pun yang tahu NISN seorang siswa dapat melihat data pribadinya (NIK, No. KK, alamat,
    nama orang tua).
 3. Salin folder `data/` sebagai cadangan berkala.
+
+### Pratinjau online lewat Vercel (gratis, data sementara)
+
+Selain cara di atas, aplikasi ini bisa dijalankan **online di Vercel paket gratis (Hobby)**
+tanpa menyiapkan apa pun di komputer sekolah — cocok untuk pratinjau, demo, atau latihan
+petugas. Berkasnya sudah tersedia di repo: `api/index.py`, `vercel.json`, `.python-version`,
+dan `.vercelignore`.
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FDypoi%2FSM&env=SM_SECRET_KEY,SM_ADMIN_PASSWORD)
+
+1. Buka <https://vercel.com/new> → **Import** repo ini → tekan **Deploy** (atau tekan tombol
+   *Deploy with Vercel* di atas — Vercel menanyakan nama proyek & variabel lingkungan).
+2. Sebelum deploy, isi dua variabel lingkungan: **`SM_SECRET_KEY`** (teks acak panjang) dan
+   **`SM_ADMIN_PASSWORD`**. Tanpa `SM_SECRET_KEY`, login bisa terputus-putus.
+3. Alamat aplikasi langsung jadi, mis. `https://sm-sekolah.vercel.app`. Setiap `git push`
+   otomatis mendeploy ulang.
+
+**Batasannya perlu diketahui sejak awal** — Vercel menjalankan aplikasi per permintaan
+(*serverless*), jadi:
+
+| Bisa | Tidak bisa |
+| --- | --- |
+| membuka semua halaman, login, impor Excel/CSV untuk dicoba | **menyimpan data permanen** — data ada di `/tmp` dan hilang saat fungsi tidur/deploy ulang |
+| dibagikan ke guru untuk melihat tampilan | **menjalankan Bot Dapodik** (butuh Chrome & proses panjang) |
+| diperbarui otomatis tiap `git push` | pembaruan lewat menu **Pembaruan** di aplikasi (tanpa git) |
+
+Karena itu, **untuk data sekolah yang sesungguhnya tetap pakai cara pertama** (PC sekolah +
+Tailscale Funnel): data ada di komputer sekolah, bot bisa jalan. Vercel juga membatasi paket
+gratisnya untuk pemakaian **non-komersial**; sekolah yang memungut biaya melalui aplikasi ini
+sebaiknya memakai server sendiri atau paket berbayar. Petunjuk langkah demi langkah, termasuk
+pemecahan masalah: **`PANDUAN-VERCEL.md`**.
 
 ### Tanya jawab online
 

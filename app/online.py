@@ -176,6 +176,22 @@ def pemeriksaan_keamanan() -> list[dict[str, Any]]:
                   f"Aktif: maksimal {config.LOGIN_MAKS_GAGAL_AKUN} percobaan gagal per akun/NISN "
                   f"dan {config.LOGIN_MAKS_GAGAL_IP_PUBLIK} per alamat IP, jeda 10 menit."),
     })
+    if config.VERCEL:
+        catatan.append({
+            "label": "Kunci sesi tetap (SM_SECRET_KEY)",
+            "ok": config.SECRET_KEY_DARI_ENV,
+            "pesan": ("Sudah diisi lewat environment Vercel — login tidak terputus antar-instans."
+                      if config.SECRET_KEY_DARI_ENV else
+                      "Belum diisi: setiap instans Vercel membuat kunci sendiri sehingga login "
+                      "bisa terputus-putus. Isi SM_SECRET_KEY di dasbor Vercel lalu deploy ulang."),
+        })
+        catatan.append({
+            "label": "Penyimpanan permanen (Vercel)",
+            "ok": False,
+            "pesan": ("Mode Vercel menyimpan data di /tmp yang tidak permanen: data hilang saat "
+                      "fungsi tidur atau dideploy ulang. Untuk data sekolah sesungguhnya, "
+                      "jalankan SM di PC sekolah."),
+        })
     catatan.append({
         "label": "Salinan cadangan data",
         "ok": None,

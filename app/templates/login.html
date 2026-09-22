@@ -64,6 +64,12 @@
   </section>
 
   <section class="login-panel">
+    {% if mode_vercel is defined and mode_vercel %}
+    <div class="alert alert-warn" role="status" style="margin-bottom:.9rem">
+      {{ icon('warning') }} <span><strong>Pratinjau Vercel:</strong> data hanya sementara
+      (hilang saat aplikasi tidur) dan Bot Dapodik tidak bisa dijalankan di sini.</span>
+    </div>
+    {% endif %}
     <div class="login-card">
       <div class="login-mobile-brand">
         <div class="brand-mark">
