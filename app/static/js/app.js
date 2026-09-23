@@ -31,6 +31,38 @@
     });
   });
 
+  // --- Petunjuk «!» (popup kecil di ruang siswa) ---------------------------
+  // Tata cara tidak ditulis memenuhi halaman: cukup tombol «!», popup dibuka saat
+  // diklik. Hanya satu popup terbuka sekaligus; klik di luar atau Esc menutupnya.
+  function tutupInfo(kecuali) {
+    document.querySelectorAll(".pl-info").forEach(function (wadah) {
+      if (wadah === kecuali) return;
+      var pop = wadah.querySelector(".pl-info-pop");
+      var tombol = wadah.querySelector(".pl-info-tombol");
+      if (pop) pop.hidden = true;
+      if (tombol) tombol.setAttribute("aria-expanded", "false");
+    });
+  }
+  document.querySelectorAll(".pl-info-tombol").forEach(function (tombol) {
+    tombol.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      var wadah = tombol.closest(".pl-info");
+      var pop = wadah ? wadah.querySelector(".pl-info-pop") : null;
+      if (!pop) return;
+      var akanDibuka = pop.hidden;
+      tutupInfo(wadah);
+      pop.hidden = !akanDibuka;
+      tombol.setAttribute("aria-expanded", String(akanDibuka));
+    });
+  });
+  document.querySelectorAll(".pl-info-pop").forEach(function (pop) {
+    pop.addEventListener("click", function (ev) { ev.stopPropagation(); });
+  });
+  document.addEventListener("click", function () { tutupInfo(null); });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") tutupInfo(null);
+  });
+
   // --- Tab -----------------------------------------------------------------
   // Kelompok tab bisa berupa .tabs (halaman Pengaturan) atau .switch (halaman
   // login). Dulu penyorot hanya dilepas dari elemen berkelas .tab di dalam

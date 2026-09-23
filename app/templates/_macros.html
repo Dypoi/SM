@@ -62,6 +62,19 @@
 </svg>
 {% endmacro %}
 
+{% macro petunjuk(isi, judul="", kelas="") %}
+{#- Tombol «!» kecil: tata cara tidak lagi memenuhi halaman, dibuka saat diklik.
+    Dipakai halaman siswa (ruang siswa); isinya ditulis di template pemanggil. -#}
+<span class="pl-info {{ kelas }}">
+  <button type="button" class="pl-info-tombol" data-info aria-expanded="false"
+          aria-label="Penjelasan bagian ini">!</button>
+  <span class="pl-info-pop" hidden role="note">
+    {% if judul %}<strong>{{ judul }}</strong>{% endif %}
+    <span class="pl-info-isi">{{ isi | safe }}</span>
+  </span>
+</span>
+{% endmacro %}
+
 {% macro empty_state(judul, pesan="", ikon="inbox", aksi_label="", aksi_href="", aksi_ikon="plus") %}
 <div class="empty-state">
   <div class="empty-icon">{{ icon(ikon) }}</div>

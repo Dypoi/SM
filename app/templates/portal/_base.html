@@ -71,8 +71,7 @@
   </nav>
 
   <footer class="pl-foot">
-    {{ profil.nama | title }} · Tahun Ajaran {{ profil.tahun_ajaran }} · Semester {{ profil.semester }}
-    <br>Butuh bantuan? Tanya <strong>wali kelas</strong> atau <strong>tata usaha</strong>.
+    {{ profil.nama | title }} · {{ profil.tahun_ajaran }} · Semester {{ profil.semester }}
   </footer>
 </div>
 <script src="{{ static_url('js/app.js') if static_url is defined else '/static/js/app.js' }}" defer></script>

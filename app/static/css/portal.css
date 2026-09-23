@@ -142,7 +142,9 @@
 /* Kartu sambutan (hero) */
 .pl-hero {
   position: relative;
-  overflow: hidden;
+  /* Popup «!» harus boleh keluar dari kartu → jangan dipotong; dekorasi
+     lingkaran dipindah ke dalam batas kartu agar tetap rapi. */
+  overflow: visible;
   border-radius: 22px;
   padding: 1.15rem 1.25rem;
   color: #fff;
@@ -153,12 +155,13 @@
 .pl-hero::after {
   content: "";
   position: absolute;
-  right: -46px;
-  top: -46px;
-  width: 170px;
-  height: 170px;
+  right: 10px;
+  top: 10px;
+  width: 110px;
+  height: 110px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, .14);
+  background: rgba(255, 255, 255, .12);
+  pointer-events: none;
 }
 
 .pl-hero-isi { position: relative; display: flex; align-items: center; gap: .95rem; flex-wrap: wrap; }
@@ -584,3 +587,81 @@
   .pl-cari, .pl-petak, .pl-card-ket { display: none !important; }
   .pl-baris dd .pl-tanda { display: none; }
 }
+
+
+/* ========================================================================== */
+/* Tombol petunjuk «!» + popup kecil (ronde 32)                               */
+/* Gagasan sekolah: tata cara jangan memenuhi halaman — cukup tanda «!»,       */
+/* dibuka saat diklik. Hanya dipakai di ruang siswa.                          */
+/* ========================================================================== */
+.pl-info { position: relative; display: inline-flex; vertical-align: middle; }
+
+.pl-info-tombol {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1.5px solid #bccbe4;
+  border-radius: 50%;
+  background: #f4f8ff;
+  color: #46587c;
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 800;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.pl-info-tombol:hover,
+.pl-info-tombol[aria-expanded="true"] {
+  background: var(--pl-primary);
+  border-color: var(--pl-primary);
+  color: #fff;
+}
+
+.pl-info-pop {
+  position: absolute;
+  top: calc(100% + 9px);
+  left: 0;
+  z-index: 60;
+  width: max-content;
+  max-width: min(280px, 78vw);
+  padding: .6rem .7rem;
+  border-radius: 12px;
+  background: #1f2b45;
+  color: #fff;
+  font-size: .85rem;
+  font-weight: 500;
+  line-height: 1.45;
+  text-align: left;
+  box-shadow: 0 12px 26px rgba(15, 23, 42, .28);
+}
+
+.pl-info-pop::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 9px;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: #1f2b45;
+  transform: rotate(45deg);
+}
+
+.pl-info-pop strong { display: block; margin-bottom: .15rem; }
+.pl-info.pop-kanan .pl-info-pop { left: auto; right: 0; }
+.pl-info.pop-kanan .pl-info-pop::before { left: auto; right: 9px; }
+
+/* Judul kartu: judul + tombol «!» sejajar, tanpa kalimat panjang. */
+.pl-kartu-judul,
+.pl-card > h3.pl-kartu-judul { display: flex; align-items: center; gap: .4rem; }
+.pl-card > h3 { margin: 0 0 .2rem; }
+.pl-card.pl-ringkas { padding: .85rem 1rem; }
+
+/* Satu baris ringkas untuk kelengkapan data. */
+.pl-mini-baris { display: flex; align-items: center; gap: .6rem; }
+.pl-mini-baris .pl-mini-label { color: var(--pl-redup); font-size: .9rem; flex: none; }
+.pl-mini-baris .pl-mini-angka { font-weight: 800; }
+.pl-mini-baris .pl-progress { flex: 1; margin: 0; height: 10px; }

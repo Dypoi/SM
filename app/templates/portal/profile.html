@@ -1,17 +1,12 @@
 {% extends "portal/_base.html" %}
-{% from "_macros.html" import icon, pengajuan_badge %}
+{% from "_macros.html" import icon, nilai, pengajuan_badge, petunjuk %}
 
-{#- «Dataku» untuk siswa (ronde 31).
+{#- «Dataku» untuk siswa (ronde 32) — sederhana.
 
-    Sebelumnya halaman ini berupa satu tabel raksasa bergaya lembar kerja
-    (kepala kolom «KOLOM / ISI DATA», puluhan baris berderet, nilai apa adanya
-    termasuk «L» dan deretan angka NIK/KK). Masukan sekolah: itu bagian yang
-    paling jelek dilihat anak kelas 7.
-
-    Sekarang: data dipecah menjadi **kartu per kelompok** (Identitas, Alamat,
-    Data Ayah, …), setiap baris berbentuk «nama data — isi», ada kolom
-    **pencarian**, dan nilai yang berupa kode diterjemahkan seperlunya
-    (L → Laki-laki) **tanpa mengubah isi data aslinya**. -#}
+    Data dikelompokkan menjadi kartu; tiap kartu **satu baris judul + tombol «!»**
+    (penjelasan singkat ada di popup, bukan memenuhi halaman). Data ditampilkan
+    apa adanya; nilai berupa kode diterjemahkan maknanya (L → Laki-laki).
+    Label dirapikan lewat `rapikan_label` dengan akronim tetap benar. -#}
 
 {% set label_ringkas = {
   'nipd': 'Nomor induk sekolah (NIS lokal)',
@@ -35,67 +30,51 @@
 {% set grup_judul = {
   'identitas': 'Tentang saya', 'alamat': 'Alamat & kontak',
   'ayah': 'Data ayah', 'ibu': 'Data ibu', 'wali': 'Data wali',
-  'akademik': 'Sekolah', 'bantuan': 'Bantuan sekolah (KPS/KIP/PIP)',
-  'kesehatan': 'Kesehatan & keluarga', 'lainnya': 'Data lainnya',
+  'akademik': 'Sekolah', 'bantuan': 'Bantuan sekolah', 'kesehatan': 'Kesehatan & keluarga',
+  'lainnya': 'Data lainnya',
 } %}
 {% set grup_ikon = {
   'identitas': 'user', 'alamat': 'home', 'ayah': 'users', 'ibu': 'smile',
   'wali': 'users', 'akademik': 'book', 'bantuan': 'star', 'kesehatan': 'info',
 } %}
 {% set grup_ket = {
-  'identitas': 'Data diri kamu yang tercatat di sekolah.',
-  'alamat': 'Tempat tinggal dan cara menghubungi kamu.',
+  'identitas': 'Data diri dari Dapodik. NISN tidak bisa diubah.',
+  'alamat': 'Tempat tinggal dan kontak kamu.',
   'ayah': 'Data ayah seperti di kartu keluarga.',
   'ibu': 'Data ibu seperti di kartu keluarga.',
-  'wali': 'Diisi hanya bila kamu tinggal bersama wali.',
-  'akademik': 'Kelas dan riwayat sekolah. Bagian ini hanya bisa diubah sekolah.',
-  'bantuan': 'Bantuan biaya sekolah (bila ada).',
-  'kesehatan': 'Catatan kesehatan & jumlah saudara.',
+  'wali': 'Hanya bila kamu tinggal bersama wali.',
+  'akademik': 'Kelas dan riwayat sekolah. Bagian ini diatur sekolah (lewat impor Excel).',
+  'bantuan': 'Bantuan biaya sekolah. Kosong berarti tidak ada.',
+  'kesehatan': 'Catatan kesehatan dan jumlah saudara.',
 } %}
-{% set hanya_sekolah = ['rombel', 'tingkat', 'nisn'] %}
+{% set hanya_sekolah = ['rombel', 'tingkat'] %}
 
 {% block content %}
 
-<div class="card">
-  <div class="card-body">
-    <div class="profile-head">
-      <div class="avatar-lg">{{ siswa.nama[:1] if siswa.nama else '?' }}</div>
-      <div style="flex:1;min-width:220px">
-        <h2 class="pl-judul" style="margin-bottom:.15rem">{{ siswa.nama | title }}</h2>
-        <div class="flex flex-wrap gap-1">
-          <span class="chip">{{ icon('user') }} NISN {{ siswa.nisn or '-' }}</span>
-          {% if siswa.rombel %}<span class="chip chip-muted">Kelas {{ siswa.rombel }}</span>{% endif %}
-          <span class="badge badge-{{ siswa.status | badge }}">{{ siswa.status }}</span>
-        </div>
-        <p class="pl-sub mt-1">
-          Ini data kamu yang tercatat di sekolah (dari Dapodik). Bila ada yang salah,
-          ajukan perbaikan — admin akan memeriksa dan menyetujuinya.
-        </p>
-      </div>
-      {% if pengajuan_aktif %}
-      <a class="btn btn-primary" href="/portal/pengajuan">{{ icon('edit') }} Minta perbaikan data</a>
-      {% endif %}
+<div class="pl-card pl-ringkas">
+  <div class="flex between flex-wrap" style="align-items:center;gap:.6rem">
+    <div class="flex flex-wrap gap-1">
+      <span class="chip">{{ icon('user') }} NISN {{ siswa.nisn or '-' }}</span>
+      {% if siswa.rombel %}<span class="chip chip-muted">Kelas {{ siswa.rombel }}</span>{% endif %}
+      <span class="badge badge-{{ siswa.status | badge }}">{{ siswa.status }}</span>
     </div>
+    {% if pengajuan_aktif %}
+    <a class="btn btn-primary btn-sm" href="/portal/pengajuan">{{ icon('edit') }} Minta perbaikan</a>
+    {% endif %}
   </div>
-</div>
-
-{#- Pencarian: dengan puluhan data, anak perlu cara cepat menemukan satu baris. -#}
-<div class="pl-card">
-  <label class="pl-cari">
+  <div class="pl-cari mt-2">
     {{ icon('search') }}
-    <input type="search" id="cari-data" placeholder="Cari data… (mis. alamat, ayah, NIK)"
+    <input type="search" id="cari-data" placeholder="Cari data… (alamat, ayah, NIK)"
            autocomplete="off" aria-label="Cari data saya">
-  </label>
-  <p class="pl-card-ket" style="margin:.5rem 0 0" id="cari-ket">
-    {{ grup_field | length }} kelompok data, {{ jumlah_medan }} baris.
-    Ketik untuk menyaring — semua isi tetap ditampilkan apa adanya seperti di berkas sekolah.
-  </p>
+  </div>
 </div>
 
 {% for grup, daftar in grup_field.items() %}
 <div class="pl-card pl-grup" data-grup="{{ grup }}">
-  <h3 class="pl-card-judul">{{ icon(grup_ikon.get(grup, 'file')) }} {{ grup_judul.get(grup, grup) }}</h3>
-  <p class="pl-card-ket">{{ grup_ket.get(grup, '') }}</p>
+  <h3 class="pl-kartu-judul">
+    {{ icon(grup_ikon.get(grup, 'file')) }} {{ grup_judul.get(grup, grup) }}
+    {{ petunjuk(grup_ket.get(grup, 'Data ini tercatat di sekolah.'), kelas='pop-kanan') }}
+  </h3>
   <dl class="pl-daftar" style="margin:0">
     {% for spec in daftar %}
     {% set isi = siswa.get(spec.key) %}
@@ -105,14 +84,13 @@
         {% set label_asli = spec.label.replace('Ayah - ', '').replace('Ibu - ', '').replace('Wali - ', '') %}
         {% set label_pakai = label_ringkas.get(spec.key) or label_asli %}
         {{ rapikan_label(label_pakai) if rapikan_label is defined else label_pakai }}
-        {% if spec.key in hanya_sekolah and spec.key != 'nisn' %}
-        <span class="pl-tanda kosong" style="font-size:.72rem">diatur sekolah</span>
+        {% if spec.key in hanya_sekolah %}
+        <span class="pl-tanda kosong" style="font-size:.72rem">sekolah</span>
         {% endif %}
       </dt>
       <dd>
         {% if spec.key == 'nisn' %}
           <span class="mono">{{ isi or '-' }}</span>
-          <span class="pl-tanda kosong" style="font-size:.72rem">tidak dapat diubah</span>
         {% elif spec.key == 'jk' %}
           {{ 'Laki-laki' if isi == 'L' else ('Perempuan' if isi == 'P' else (isi or '')) }}
         {% elif spec.kind == 'date' %}
@@ -136,97 +114,75 @@
 {% endfor %}
 
 <p class="pl-card pl-card-ket" id="cari-kosong" hidden style="text-align:center">
-  Tidak ada data yang cocok dengan kata itu. Coba kata lain, mis. <strong>alamat</strong> atau <strong>ibu</strong>.
+  Tidak ada yang cocok. Coba kata lain, mis. <strong>alamat</strong>.
 </p>
 
-<div class="pl-petak">
+<div class="pl-petak mt-2">
   <button class="pl-aksi" type="button" id="cetak-data">
     <span class="pl-aksi-ikon">{{ icon('download') }}</span>
-    <span><strong>Cetak / simpan PDF</strong><span>Untuk ditunjukkan ke orang tua atau wali kelas.</span></span>
+    <span><strong>Cetak / simpan PDF</strong></span>
   </button>
   {% if pengajuan_aktif %}
   <a class="pl-aksi utama" href="/portal/pengajuan">
     <span class="pl-aksi-ikon">{{ icon('edit') }}</span>
-    <span><strong>Minta perbaikan data</strong><span>Isi kolom yang salah, lampirkan foto, lalu kirim.</span></span>
+    <span><strong>Minta perbaikan data</strong></span>
   </a>
   {% endif %}
 </div>
 
-<div class="pl-card">
-  <h3 class="pl-card-judul">{{ icon('file') }} Berkas pendukung</h3>
-  <p class="pl-card-ket">Akta kelahiran, kartu keluarga, dan ijazah.</p>
-  {% for jenis, label, _ in dokumen_jenis %}
+{#- Berkas & riwayat: dilipat supaya halaman tetap ringkas. -#}
+<div class="pl-card pl-ringkas mt-2">
+  <details>
+    <summary style="cursor:pointer;font-weight:700">
+      Berkas &amp; riwayat perbaikan
+      {{ petunjuk(
+         'Akta kelahiran, kartu keluarga, dan ijazah diunggah saat kamu <strong>minta perbaikan data</strong>. '
+         ~ 'Riwayat berisi perbaikan yang pernah kamu kirim beserta keputusan admin.', kelas='pop-kanan') }}
+    </summary>
+
+    <div class="pl-seksi">Berkas pendukung</div>
+    {% for jenis, label, _ in dokumen_jenis %}
     <div class="pl-baris">
       <span class="pl-label">{{ label }}</span>
       {% if dokumen.get(jenis) %}
-        <a class="pl-tanda ok" href="/portal/dokumen/{{ dokumen[jenis].id }}"
-           target="_blank" rel="noopener">sudah ada · lihat</a>
+        <a class="pl-tanda ok" href="/portal/dokumen/{{ dokumen[jenis].id }}" target="_blank" rel="noopener">lihat</a>
       {% else %}
         <span class="pl-tanda kosong">belum ada</span>
       {% endif %}
     </div>
-  {% endfor %}
-  {% if pengajuan_aktif %}
-  <div class="mt-2">
-    <a class="btn btn-outline btn-sm" href="/portal/pengajuan">{{ icon('camera') }} Unggah / perbarui foto berkas</a>
-  </div>
-  {% endif %}
-</div>
-
-<div class="pl-card">
-  <h3 class="pl-card-judul">{{ icon('chart') }} Kelengkapan dataku</h3>
-  <p class="pl-card-ket">
-    {% if not kelengkapan.belum %}Mantap! Semua data penting sudah terisi.
-    {% else %}Data berikut belum ada — lengkapi lewat <strong>Minta perbaikan data</strong>:{% endif %}
-  </p>
-  <div class="flex between" style="align-items:baseline">
-    <span class="pl-angka">{{ kelengkapan.persen }}%</span>
-    <span class="pl-tanda {{ 'ok' if not kelengkapan.belum else 'tunggu' }}">
-      {{ 'lengkap' if not kelengkapan.belum else ((kelengkapan.belum | length) ~ ' kolom kosong') }}
-    </span>
-  </div>
-  <div class="pl-progress {{ '' if not kelengkapan.belum else 'warn' }}">
-    <span style="width: {{ kelengkapan.persen }}%"></span>
-  </div>
-  {% if kelengkapan.belum %}
-  <div class="flex flex-wrap gap-1 mt-2">
-    {% for item in kelengkapan.belum %}<span class="pl-tanda tunggu">{{ item.label }}</span>{% endfor %}
-  </div>
-  {% endif %}
-</div>
-
-<div class="pl-card">
-  <h3 class="pl-card-judul">{{ icon('clock') }} Riwayat perbaikan dataku</h3>
-  <p class="pl-card-ket">Perbaikan yang kamu ajukan beserta keputusan admin.</p>
-  {% if pengajuan %}
-    {% for item in pengajuan %}
-    <div class="pl-baris">
-      <span class="pl-label">
-        #{{ item.id }} · {{ item.item_count }} kolom
-        <br><span style="font-size:.82rem">{{ item.diajukan_at | tanggal_waktu }}</span>
-        {% if item["items"] %}
-        <br><details>
-          <summary style="font-size:.82rem;cursor:pointer">lihat rinciannya</summary>
-          <ul class="mt-1" style="font-size:.84rem;padding-left:1.1rem">
-            {% for it in item["items"] %}
-            <li><strong>{{ it.label }}</strong>: {{ it.nilai_lama or '—' }} → {{ it.nilai_baru or '—' }}</li>
-            {% endfor %}
-          </ul>
-        </details>
-        {% endif %}
-      </span>
-      <span style="text-align:right">
-        {{ pengajuan_badge(item.status) }}
-        {% if item.catatan_admin %}
-        <br><span style="font-size:.82rem;color:var(--pl-redup)">{{ item.catatan_admin }}</span>
-        {% endif %}
-      </span>
-    </div>
     {% endfor %}
-  {% else %}
-    <p class="pl-card-ket" style="margin:0">Belum ada pengajuan. Kalau ada data yang salah, tekan
-      <strong>Minta perbaikan data</strong>.</p>
-  {% endif %}
+
+    <div class="pl-seksi">Riwayat perbaikan</div>
+    {% if pengajuan %}
+      {% for item in pengajuan %}
+      <div class="pl-baris">
+        <span class="pl-label">
+          #{{ item.id }} · {{ item.item_count }} kolom
+          <br><span style="font-size:.82rem">{{ item.diajukan_at | tanggal_waktu }}</span>
+          {% if item["items"] %}
+          <br><details>
+            <summary style="font-size:.82rem;cursor:pointer">rincian</summary>
+            <ul class="mt-1" style="font-size:.84rem;padding-left:1.1rem">
+              {% for it in item["items"] %}
+              <li><strong>{{ it.label }}</strong>: {{ it.nilai_lama or '—' }} → {{ it.nilai_baru or '—' }}</li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% endif %}
+        </span>
+        <span style="text-align:right">{{ pengajuan_badge(item.status) }}</span>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p class="pl-card-ket" style="margin:0">Belum ada pengajuan.</p>
+    {% endif %}
+
+    {% if pengajuan_aktif %}
+    <div class="mt-2">
+      <a class="btn btn-outline btn-sm" href="/portal/pengajuan">{{ icon('camera') }} Unggah / perbarui berkas</a>
+    </div>
+    {% endif %}
+  </details>
 </div>
 
 {% endblock %}
@@ -242,10 +198,8 @@
   var baris = Array.prototype.slice.call(document.querySelectorAll(".pl-grup .pl-baris"));
   var grup = Array.prototype.slice.call(document.querySelectorAll(".pl-grup"));
   var kosong = document.getElementById("cari-kosong");
-  var ket = document.getElementById("cari-ket");
-  var teksAsli = ket ? ket.innerHTML : "";
 
-  function saring() {
+  kotak.addEventListener("input", function () {
     var kata = kotak.value.trim().toLowerCase();
     var tampil = 0;
     baris.forEach(function (b) {
@@ -257,15 +211,7 @@
       g.hidden = g.querySelectorAll(".pl-baris:not([hidden])").length === 0;
     });
     if (kosong) kosong.hidden = tampil > 0;
-    if (ket) {
-      ket.innerHTML = kata
-        ? "Menampilkan <strong>" + tampil + "</strong> baris yang memuat «" + kata + "»."
-        : teksAsli;
-    }
-  }
-
-  kotak.addEventListener("input", saring);
-  kotak.addEventListener("search", saring);
+  });
 
   var cetak = document.getElementById("cetak-data");
   if (cetak) cetak.addEventListener("click", function () { window.print(); });

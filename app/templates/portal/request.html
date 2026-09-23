@@ -1,20 +1,20 @@
 {% extends "portal/_base.html" %}
-{% from "_macros.html" import icon, input_medan, pengajuan_badge, bagian_wali %}
+{% from "_macros.html" import icon, input_medan, pengajuan_badge, bagian_wali, petunjuk as jelaskan %}
 
 {% block content %}
-<div class="card">
-  <div class="card-head">
-    <div>
-      <h3>Minta perbaikan data</h3>
-      <p>
-        Isi kolom yang perlu diperbaiki, lampirkan foto <strong>akta kelahiran</strong>,
-        <strong>kartu keluarga</strong>, dan <strong>ijazah</strong>, lalu kirim. Perubahan baru
-        dipakai setelah disetujui admin. <strong>NISN tidak bisa diubah.</strong>
-        Perlu bantuan? Minta wali kelas atau tata usaha menemani. 🙂
-      </p>
-    </div>
-    <a class="btn btn-outline btn-sm" href="/portal/profil">{{ icon('user') }} Dataku</a>
-  </div>
+<div class="pl-card pl-ringkas">
+  <h3 class="pl-kartu-judul">
+    {{ icon('edit') }} Minta perbaikan data
+    {{ jelaskan(
+       '<strong>1.</strong> Isi hanya kolom yang salah. <strong>2.</strong> Lampirkan foto '
+       ~ '<strong>akta kelahiran</strong>, <strong>kartu keluarga</strong>, dan <strong>ijazah</strong>. '
+       ~ '<strong>3.</strong> Tekan <em>Kirim pengajuan</em>. Perubahan baru dipakai setelah disetujui admin, '
+       ~ 'dan <strong>NISN tidak bisa diubah</strong>. Butuh bantuan? Minta wali kelas atau tata usaha menemani 🙂',
+       kelas='pop-kanan') }}
+  </h3>
+  <p class="pl-card-ket" style="margin:.35rem 0 0">
+    Isi kolom yang salah, lampirkan foto berkas, lalu kirim.
+  </p>
 </div>
 
 {% if not pengajuan_aktif %}

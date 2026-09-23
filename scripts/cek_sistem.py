@@ -821,15 +821,47 @@ def cek_http_pengajuan():
     assert "Menu siswa" in kerangka and "sidebar" not in kerangka, \
         "kerangka ruang siswa tidak boleh memuat menu petugas"
 
-    # Halaman masuk juga bagian pertama yang dilihat anak (r29): tab siswa besar,
-    # sapaan «Halo, teman!», dan langkah 1-2-3 supaya tidak bingung.
+    # Halaman masuk juga bagian pertama yang dilihat anak: tab siswa besar dan sapaan
+    # singkat. Tata cara TIDAK lagi memenuhi halaman — pindah ke tombol «!» (r32).
     masuk = (_cfg.BASE_DIR / "app/templates/login.html").read_text(encoding="utf-8")
-    for tanda in ("pl-masuk-siswa", "pl-sapa", "pl-langkah", "pl-tombol-besar", "portal.css"):
+    for tanda in ("pl-masuk-siswa", "pl-sapa", "petunjuk(", "pl-tombol-besar", "portal.css"):
         assert tanda in masuk, f"halaman masuk belum ramah siswa: {tanda!r} tidak ada"
     assert "sm-peran-terakhir" in masuk, "halaman masuk kehilangan pengingat pilihan peran"
+    assert "pl-langkah" not in masuk, \
+        "tata cara di halaman masuk seharusnya pindah ke popup «!», bukan ditulis memenuhi halaman"
     potongan_tema = (_cfg.BASE_DIR / "app/static/css/portal.css").read_text(encoding="utf-8")
-    for tanda in (".pl-sapa", ".pl-langkah", ".pl-no", ".pl-masuk-siswa"):
+    for tanda in (".pl-sapa", ".pl-info-tombol", ".pl-info-pop", ".pl-masuk-siswa"):
         assert tanda in potongan_tema, f"portal.css tidak memuat gaya {tanda!r}"
+
+    # --- Sistem petunjuk «!» (r32) ------------------------------------------- #
+    # Sekolah meminta tampilan yang lebih sederhana: tata cara tidak ditulis di
+    # halaman, cukup tanda «!» yang membuka popup kecil saat diklik.
+    makro = (_cfg.BASE_DIR / "app/templates/_macros.html").read_text(encoding="utf-8")
+    for tanda in ("macro petunjuk", "pl-info-tombol", "pl-info-pop", "aria-expanded"):
+        assert tanda in makro, f"makro petunjuk tidak lengkap: {tanda!r} tidak ada"
+    app_js = (_cfg.BASE_DIR / "app/static/js/app.js").read_text(encoding="utf-8")
+    for tanda in (".pl-info-tombol", ".pl-info-pop", "tutupInfo", "Escape"):
+        assert tanda in app_js, f"app.js belum membuka popup «!»: {tanda!r} tidak ada"
+    from app import web as _web_uji
+
+    keluaran_makro = _web_uji.templates.env.from_string(
+        '{% from "_macros.html" import petunjuk %}{{ petunjuk("halo <b>dunia</b>") }}'
+    ).render()
+    assert "pl-info-tombol" in keluaran_makro and "halo <b>dunia</b>" in keluaran_makro, \
+        "makro petunjuk tidak menghasilkan tombol + isi popup seperti yang diharapkan"
+
+    # Halaman siswa: tiap halaman memakai tombol «!», dan halaman yang panjang
+    # (Dataku & Kegiatan) tidak lagi memakai tabel gaya lembar kerja.
+    for nama_halaman in ("home.html", "profile.html", "ekskul.html", "request.html"):
+        isi_halaman = (_cfg.BASE_DIR / "app/templates/portal" / nama_halaman).read_text(encoding="utf-8")
+        # request.html mengimpor makronya dengan alias `jelaskan` (nama `petunjuk`
+        # sudah dipakai untuk keterangan jenis berkas di dalam loop).
+        assert ("petunjuk(" in isi_halaman or "jelaskan(" in isi_halaman), \
+            f"portal/{nama_halaman} belum memakai tombol «!»"
+    for nama_halaman in ("profile.html", "ekskul.html"):
+        isi_halaman = (_cfg.BASE_DIR / "app/templates/portal" / nama_halaman).read_text(encoding="utf-8")
+        assert "<table" not in isi_halaman, \
+            f"portal/{nama_halaman} seharusnya tidak lagi memakai tabel gaya lembar kerja"
 
     # «Dataku» untuk siswa (r31): tabel gaya lembar kerja diganti kartu per kelompok +
     # pencarian. Label dirapikan untuk anak, TAPI isi data tidak diubah dan akronim
@@ -1682,11 +1714,14 @@ def cek_pendaftaran_ekskul():
             await klien.post("/login", data={"mode": "siswa", "nisn": str(murid[2]["nisn"])})
             halaman = await klien.get("/portal/ekstrakurikuler")
             assert halaman.status_code == 200, halaman.status_code
-            assert "Klub Daftar Uji" in halaman.text and "Riwayat Pendaftaran" in halaman.text
+            assert "Klub Daftar Uji" in halaman.text, "kegiatan tidak muncul di portal siswa"
             kirim = await klien.post(f"/portal/ekstrakurikuler/{ekskul_id}/daftar",
                                      data={"catatan": "Saya ingin ikut"})
             assert kirim.status_code == 200, kirim.status_code
             assert "menunggu persetujuan" in kirim.text.lower(), "siswa harus diberi tahu menunggu"
+            # Riwayat tetap terlihat siswa, tetapi sejak r32 judulnya ringkas dan dilipat
+            # di dalam <details>; blok ini muncul setelah siswa punya pendaftaran.
+            assert "Riwayat pendaftaran" in kirim.text, "riwayat pendaftaran siswa hilang"
 
         async with httpx.AsyncClient(transport=transport, base_url="http://cek",
                                      follow_redirects=True) as pembina:

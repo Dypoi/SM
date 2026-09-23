@@ -283,6 +283,12 @@ akta lahir, kesehatan, sampai koordinat rumah.
   seperti aplikasi HP, huruf lebih besar (16,5–17 px), tombol setidaknya 44 px, dan bahasa
   sederhana untuk anak kelas 7 (`Belum diisi`, `Minta perbaikan`, `Kegiatan / klub`).
   Beranda memakai kartu **«Yang perlu kamu lakukan»** supaya anak tahu langkah berikutnya.
+  **Tampilan sengaja dibuat sederhana** (masukan sekolah: «designnya rame banget»): tata cara
+  tidak ditulis memenuhi halaman, melainkan dipindah ke tombol **`!`** kecil yang membuka
+  **popup** singkat saat diklik (`petunjuk()` di `_macros.html` + bagian `.pl-info` di
+  `portal.css` + pembukanya di `app.js`). Beranda hanya memuat empat blok: sapaan, «Perlu
+  dilakukan», kelengkapan data satu baris, dan kegiatan yang diikuti; berkas & riwayat dilipat
+  di dalam «Dataku».
   **Dataku** disusun sebagai kartu per kelompok (Tentang saya, Alamat & kontak, Data ayah/ibu/wali,
   Sekolah, Bantuan, Kesehatan) dengan pencarian cepat dan tombol **Cetak / simpan PDF**; nilai
   berupa kode diterjemahkan seperlunya (L → Laki-laki, 1 → Ya) tanpa mengubah isi data aslinya.
