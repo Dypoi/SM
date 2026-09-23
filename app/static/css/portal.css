@@ -665,3 +665,48 @@
 .pl-mini-baris .pl-mini-label { color: var(--pl-redup); font-size: .9rem; flex: none; }
 .pl-mini-baris .pl-mini-angka { font-weight: 800; }
 .pl-mini-baris .pl-progress { flex: 1; margin: 0; height: 10px; }
+
+/* Bagian yang bisa dilipat: satu baris judul, isinya dibuka saat perlu.
+   Dipakai halaman «Minta perbaikan data» (isian per bagian) & riwayat. */
+.pl-lipat {
+  border: 1px solid var(--pl-garis, #e2e6f0);
+  border-radius: 12px;
+  margin-bottom: .5rem;
+  background: #fff;
+}
+.pl-lipat > summary {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .7rem .85rem;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+.pl-lipat > summary::-webkit-details-marker { display: none; }
+.pl-lipat > summary::after {
+  content: "▾";
+  margin-left: auto;
+  color: var(--pl-redup, #6b7280);
+  transition: transform .15s ease;
+}
+.pl-lipat[open] > summary::after { transform: rotate(180deg); }
+.pl-lipat[open] > summary { border-bottom: 1px solid var(--pl-garis, #e2e6f0); }
+.pl-lipat-jumlah {
+  font-weight: 600;
+  color: var(--pl-redup, #6b7280);
+  font-size: .8rem;
+  margin-left: auto;
+  padding-left: .5rem;
+}
+.pl-lipat-jumlah + .pl-lipat-jumlah { margin-left: .2rem; }
+.pl-lipat > .form-grid,
+.pl-lipat > .card-body { padding: .85rem; }
+
+/* Riwayat pengajuan siswa: baris ringkas, bukan tabel lembar kerja. */
+.pl-riwayat-item { padding: .7rem .85rem; border-top: 1px solid var(--pl-garis, #e2e6f0); }
+.pl-riwayat .pl-riwayat-item:first-of-type { border-top: 0; }
+.pl-riwayat-kepala { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; }
+.pl-riwayat-isi { margin-top: .35rem; font-size: .92rem; }
+.pl-riwayat-isi ul { margin: .35rem 0 0; padding-left: 1.1rem; }
+.pl-riwayat-isi summary { cursor: pointer; }

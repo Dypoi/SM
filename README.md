@@ -287,8 +287,9 @@ akta lahir, kesehatan, sampai koordinat rumah.
   tidak ditulis memenuhi halaman, melainkan dipindah ke tombol **`!`** kecil yang membuka
   **popup** singkat saat diklik (`petunjuk()` di `_macros.html` + bagian `.pl-info` di
   `portal.css` + pembukanya di `app.js`). Beranda hanya memuat empat blok: sapaan, «Perlu
-  dilakukan», kelengkapan data satu baris, dan kegiatan yang diikuti; berkas & riwayat dilipat
-  di dalam «Dataku».
+  dilakukan», kelengkapan data satu baris, dan kegiatan yang diikuti; berkas & riwayat dilipat di dalam «Dataku»; form «Minta perbaikan
+  data» dibuka per bagian (49 isian tetap lengkap — tidak ada yang dihapus, hanya tidak
+  ditampilkan sekaligus).
   **Dataku** disusun sebagai kartu per kelompok (Tentang saya, Alamat & kontak, Data ayah/ibu/wali,
   Sekolah, Bantuan, Kesehatan) dengan pencarian cepat dan tombol **Cetak / simpan PDF**; nilai
   berupa kode diterjemahkan seperlunya (L → Laki-laki, 1 → Ya) tanpa mengubah isi data aslinya.
