@@ -83,7 +83,8 @@
               <td><span class="badge badge-{{ item.status | badge }}">{{ item.status }}</span></td>
               <td class="nowrap muted" style="font-size:.8rem">{{ item.created_at | tanggal_waktu }}</td>
               <td class="text-right nowrap">
-                <a class="btn btn-outline btn-sm" href="/impor/{{ item.id }}">{{ icon('search') }}</a>
+                <a class="btn btn-outline btn-sm" href="/impor/{{ item.id }}"
+                   title="Buka rincian impor" aria-label="Buka rincian impor">{{ icon('search') }}</a>
                 {% if user.is_admin %}
                 <form method="post" action="/impor/{{ item.id }}/hapus" style="display:inline"
                       data-confirm="Hapus riwayat impor '{{ item.filename }}'?">

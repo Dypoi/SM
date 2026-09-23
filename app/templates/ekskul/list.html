@@ -61,8 +61,10 @@
                 </span>
               </td>
               <td class="text-right nowrap" data-label="Aksi">
-                <a class="btn btn-outline btn-sm" href="/ekstrakurikuler/{{ item.id }}">{{ icon('users') }}</a>
-                <a class="btn btn-outline btn-sm" href="/ekstrakurikuler?edit={{ item.id }}#form-ekskul">{{ icon('edit') }}</a>
+                <a class="btn btn-outline btn-sm" href="/ekstrakurikuler/{{ item.id }}"
+                   title="Buka daftar anggota {{ item.nama }}" aria-label="Buka daftar anggota {{ item.nama }}">{{ icon('users') }}</a>
+                <a class="btn btn-outline btn-sm" href="/ekstrakurikuler?edit={{ item.id }}#form-ekskul"
+                   title="Ubah {{ item.nama }}" aria-label="Ubah {{ item.nama }}">{{ icon('edit') }}</a>
                 {% if user.is_staff %}
                 <form method="post" action="/ekstrakurikuler/{{ item.id }}/hapus" style="display:inline"
                       data-confirm="Hapus ekstrakurikuler {{ item.nama }} beserta anggotanya?">

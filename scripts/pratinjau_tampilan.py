@@ -198,6 +198,83 @@ langsung ketahuan sebelum dipakai di PC sekolah.</p>
 """
     return halaman.replace("__JUMLAH__", str(len(kotak))).replace("__BARIS__", "\n".join(baris))
 
+def _demo_notifikasi() -> str:
+    """Bilah atas petugas dengan lonceng notifikasi (tertutup & terbuka).
+
+    Peringatan «aplikasi dapat dibuka dari internet» tidak lagi memenuhi halaman;
+    contoh ini memperlihatkan bentuk barunya supaya sekolah bisa menilai.
+    """
+    from app import online, web as web_uji
+
+    pesan = online.pemeriksaan_singkat() or [
+        "Kata sandi admin masih bawaan (admin123) — ganti di Pengaturan → Pengguna.",
+        "Login siswa masih memakai NISN saja — nyalakan pengaman tanggal lahir.",
+    ]
+    env = web_uji.templates.env
+    ikon = env.from_string('{% from "_macros.html" import icon %}{{ icon(nama) }}')
+
+    def popup(buka: bool) -> str:
+        daftar = "".join(f"<li>{html.escape(teks)}</li>" for teks in pesan)
+        tanda = "" if buka else " hidden"
+        return (
+            f'<div class="notif-pop"{tanda}>'
+            f'<strong class="notif-judul">{ikon.render(nama="warning")} Aplikasi dapat dibuka '
+            "dari internet</strong>"
+            f"<ul>{daftar}</ul>"
+            '<a class="btn btn-outline btn-sm btn-block">Buka Pengaturan → Sistem → Aman Online</a>'
+            "</div>"
+        )
+
+    def bilah(buka: bool) -> str:
+        return (
+            '<div class="bilah-demo">'
+            f'<a class="btn btn-primary btn-sm">{ikon.render(nama="upload")} Impor Berkas</a>'
+            '<div class="notif"><button type="button" class="notif-tombol" aria-expanded="false">'
+            f'{ikon.render(nama="bell")}<span class="notif-titik">{len(pesan)}</span></button>'
+            f"{popup(buka)}</div>"
+            '<div class="avatar">A</div>'
+            "</div>"
+        )
+
+    return f"""<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notifikasi bilah atas — SM</title>
+<link rel="stylesheet" href="app-galeri.css">
+<style>
+ body {{ font-family: "Segoe UI", system-ui, Roboto, Arial, sans-serif; background:#f3f7fd; color:#17233d;
+        margin:0; padding:1.5rem clamp(1rem,4vw,2.5rem); }}
+ h1 {{ font-size:1.3rem; margin:0 0 .3rem; }}
+ h2 {{ font-size:1rem; margin:1.6rem 0 .5rem; color:#5b6884; }}
+ p.ket {{ color:#5b6884; margin:0 0 .4rem; max-width:78ch; }}
+ .bilah-demo {{ display:flex; align-items:center; gap:.5rem; padding:.85rem 1.4rem; background:#fff;
+                border:1px solid #e6edf8; border-radius:14px; box-shadow:0 6px 20px rgba(23,35,61,.06);
+                min-height:76px; }}
+ .bilah-demo .notif {{ margin-left:auto; }}
+ .bilah-demo .avatar {{ margin-left:0; }}
+ code {{ background:#eef2fa; padding:.05rem .3rem; border-radius:5px; }}
+</style></head>
+<body>
+<h1>Peringatan penting → lonceng notifikasi</h1>
+<p class="ket">Masukan sekolah: spanduk kuning <em>«Aplikasi sedang dapat dibuka dari internet»</em> yang
+memenuhi halaman dihapus. Peringatannya sekarang berupa <strong>lonceng kecil di samping tombol
+«Impor Berkas»</strong> dengan angka jumlah peringatan; isinya muncul saat lonceng diklik
+(klik di luar atau <code>Esc</code> menutup). Lonceng hanya tampil bila aplikasi memang sedang
+dibuka dari internet — saat lokal, bilah atas bersih.</p>
+
+<h2>1. Keadaan biasa (popup tertutup)</h2>
+{bilah(False)}
+
+<h2>2. Setelah lonceng diklik</h2>
+{bilah(True)}
+
+<p class="ket" style="margin-top:1.4rem">Isi peringatannya tetap sama dengan yang dulu ditulis di spanduk,
+dan tautan ke <code>Pengaturan → Sistem → Aman Online</code> tidak hilang. Tombol <strong>«+ Siswa»</strong>
+sudah dihapus dari bilah atas karena data siswa hanya masuk lewat impor Dapodik.</p>
+</body></html>
+"""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Buat pratinjau HTML halaman siswa (statis)")
     parser.add_argument("--nisn", default="", help="NISN siswa yang dipakai (bawaan: siswa pertama)")
@@ -285,6 +362,12 @@ def main() -> int:
                     print(f"[OK] {jalur:26} → {args.keluaran}/{berkas} ({len(isi) // 1024} KB)")
             else:
                 print("[i] Halaman petugas dilewati (sandi admin bukan bawaan).")
+
+        # --- demo notifikasi: bentuk baru peringatan «online» ------------------- #
+        (tujuan / "notifikasi.html").write_text(_demo_notifikasi(), encoding="utf-8")
+        hasil.append(("/notifikasi", "notifikasi.html",
+                      "Peringatan online → lonceng notifikasi (dulu spanduk kuning)"))
+        print(f"[OK] demo notifikasi          → {args.keluaran}/notifikasi.html")
 
         # --- galeri ikon: bukti semua ikon «pas» -------------------------------- #
         (tujuan / "app-galeri.css").write_text(css["app.css"], encoding="utf-8")

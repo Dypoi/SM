@@ -321,11 +321,37 @@
 .pl-tanda.gagal { background: var(--pl-merah-lembut); color: #b91c1c; }
 
 /* Kartu kegiatan (ekskul) */
+/* Kartu kegiatan (halaman siswa): ikon duduk SEBARIS dengan nama kegiatan —
+   sebelumnya kotak ikon 46 px menggantung di pojok kartu yang tinggi sehingga
+   terlihat «tidak pada tempatnya». Susunannya: kepala (ikon + nama) → jadwal →
+   tombol; semuanya rata karena memakai flex, bukan tebakan piksel. */
 .pl-kegiatan {
   border: 1px solid var(--pl-garis);
   border-radius: 16px;
-  padding: .85rem .95rem;
+  padding: .8rem .85rem;
   background: #fff;
+  min-height: 0;
+}
+.pl-aksi .pl-kegiatan-kepala { display: flex; align-items: center; gap: .5rem; }
+.pl-kegiatan-kepala strong { display: block; font-size: 1rem; line-height: 1.25; }
+.pl-kegiatan-ikon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: var(--pl-primary-lembut);
+  color: var(--pl-primary-tua);
+}
+.pl-kegiatan-ikon svg { width: 18px; height: 18px; }
+.pl-kegiatan-ket { margin-top: .3rem; color: var(--pl-redup); font-size: .85rem; }
+.pl-kegiatan-aksi { margin-top: .55rem; }
+.pl-aksi .pl-kegiatan-tombol {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .4rem;
 }
 
 .pl-kegiatan + .pl-kegiatan { margin-top: .6rem; }

@@ -66,17 +66,21 @@
     {% for item in tersedia %}
     {% set daftar_ini = pendaftaran.get(item.id) %}
     {% set anggota = diikuti | selectattr('nama', 'equalto', item.nama) | list %}
-    <div class="pl-aksi" style="align-items:flex-start">
-      <span class="pl-aksi-ikon">{{ icon('flag') }}</span>
-      <span style="flex:1;min-width:0">
+    {#- Ikon duduk SEBARIS dengan nama kegiatan (flex, rata tengah) supaya tidak
+        menggantung di pojok kartu seperti sebelumnya. -#}
+    <div class="pl-aksi pl-kegiatan">
+      <div class="pl-kegiatan-kepala">
+        <span class="pl-kegiatan-ikon">{{ icon('flag') }}</span>
         <strong>{{ item.nama }}</strong>
-        <span>
-          {% if item.hari %}{{ item.hari }}{% endif %}
-          {% if item.jam_mulai %} {{ item.jam_mulai }}{% if item.jam_selesai %}–{{ item.jam_selesai }}{% endif %}{% endif %}
-          {% if not item.hari and not item.jam_mulai %}jadwal belum ditetapkan{% endif %}
-          · {{ item.jumlah_anggota }} anggota
-        </span>
-        <span style="margin-top:.5rem;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap">
+      </div>
+      <div class="pl-kegiatan-ket">
+        {% if item.hari %}{{ item.hari }}{% endif %}
+        {% if item.jam_mulai %} {{ item.jam_mulai }}{% if item.jam_selesai %}–{{ item.jam_selesai }}{% endif %}{% endif %}
+        {% if not item.hari and not item.jam_mulai %}Jadwal belum ditetapkan{% endif %}
+        · {{ item.jumlah_anggota }} anggota
+      </div>
+      <div class="pl-kegiatan-aksi">
+        <div class="pl-kegiatan-tombol">
           {% if anggota %}
             <span class="pl-tanda ok">{{ icon('check') }} anggota</span>
           {% elif daftar_ini and daftar_ini.status == 'menunggu' %}
@@ -95,8 +99,8 @@
               <button class="btn btn-primary btn-sm" type="submit">{{ icon('plus') }} Daftar</button>
             </form>
           {% endif %}
-        </span>
-      </span>
+        </div>
+      </div>
     </div>
     {% else %}
     <p class="pl-card-ket" style="margin:0">Belum ada kegiatan yang dibuka sekolah.</p>

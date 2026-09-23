@@ -31,23 +31,35 @@
     });
   });
 
-  // --- Petunjuk «!» (popup kecil di ruang siswa) ---------------------------
-  // Tata cara tidak ditulis memenuhi halaman: cukup tombol «!», popup dibuka saat
-  // diklik. Hanya satu popup terbuka sekaligus; klik di luar atau Esc menutupnya.
+  // --- Popup kecil: petunjuk «!» (ruang siswa) & lonceng notifikasi --------
+  // Tata cara/peringatan tidak ditulis memenuhi halaman: cukup tombol kecil,
+  // popup dibuka saat diklik. Hanya satu popup terbuka sekaligus; klik di luar
+  // atau Esc menutupnya. Tombol membawa data-info / data-notif.
+  var POPUP_TOMBOL = "[data-info], [data-notif]";
+  var POPUP_ISI = ".pl-info-pop, .notif-pop";
+
+  function wadahPopup(tombol) {
+    var naik = tombol.parentElement;
+    while (naik && naik !== document.body && !naik.querySelector(POPUP_ISI)) naik = naik.parentElement;
+    return naik === document.body ? null : naik;
+  }
+
   function tutupInfo(kecuali) {
-    document.querySelectorAll(".pl-info").forEach(function (wadah) {
-      if (wadah === kecuali) return;
-      var pop = wadah.querySelector(".pl-info-pop");
-      var tombol = wadah.querySelector(".pl-info-tombol");
-      if (pop) pop.hidden = true;
-      if (tombol) tombol.setAttribute("aria-expanded", "false");
+    document.querySelectorAll(POPUP_ISI).forEach(function (pop) {
+      var wadah = pop.parentElement;
+      if (wadah && wadah !== kecuali) {
+        pop.hidden = true;
+        var t = wadah.querySelector(POPUP_TOMBOL);
+        if (t) t.setAttribute("aria-expanded", "false");
+      }
     });
   }
-  document.querySelectorAll(".pl-info-tombol").forEach(function (tombol) {
+
+  document.querySelectorAll(POPUP_TOMBOL).forEach(function (tombol) {
     tombol.addEventListener("click", function (ev) {
       ev.stopPropagation();
-      var wadah = tombol.closest(".pl-info");
-      var pop = wadah ? wadah.querySelector(".pl-info-pop") : null;
+      var wadah = wadahPopup(tombol);
+      var pop = wadah ? wadah.querySelector(POPUP_ISI) : null;
       if (!pop) return;
       var akanDibuka = pop.hidden;
       tutupInfo(wadah);
@@ -55,7 +67,7 @@
       tombol.setAttribute("aria-expanded", String(akanDibuka));
     });
   });
-  document.querySelectorAll(".pl-info-pop").forEach(function (pop) {
+  document.querySelectorAll(POPUP_ISI).forEach(function (pop) {
     pop.addEventListener("click", function (ev) { ev.stopPropagation(); });
   });
   document.addEventListener("click", function () { tutupInfo(null); });

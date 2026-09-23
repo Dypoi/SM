@@ -21,7 +21,27 @@
   <div class="topbar-actions">
     {% if user and user.is_staff %}
       <a class="btn btn-primary btn-sm" href="/impor">{{ icon('upload') }} <span class="hide-sm">Impor Berkas</span></a>
-      <a class="btn btn-outline btn-sm" href="/data-siswa/baru">{{ icon('plus') }} <span class="hide-sm">Siswa</span></a>
+      {#- Data siswa datang dari impor Dapodik, jadi tidak ada tombol «+ Siswa».
+          Peringatan penting (mis. aplikasi terbuka dari internet) muncul sebagai
+          lonceng notifikasi di sebelah tombol Impor. -#}
+      {% if peringatan_online is defined and peringatan_online %}
+      <div class="notif">
+        <button type="button" class="notif-tombol" data-notif aria-expanded="false"
+                aria-label="Peringatan penting ({{ peringatan_online | length }})">
+          {{ icon('bell') }}
+          <span class="notif-titik" aria-hidden="true">{{ peringatan_online | length }}</span>
+        </button>
+        <div class="notif-pop" hidden role="note">
+          <strong class="notif-judul">{{ icon('warning') }} Aplikasi dapat dibuka dari internet</strong>
+          <ul>
+            {% for pesan in peringatan_online %}<li>{{ pesan }}</li>{% endfor %}
+          </ul>
+          <a class="btn btn-outline btn-sm btn-block" href="/pengaturan#aman-online">
+            Buka Pengaturan → Sistem → Aman Online
+          </a>
+        </div>
+      </div>
+      {% endif %}
     {% endif %}
     <div class="avatar" title="{{ user.nama if user else '' }}">{{ user.inisial if user else '?' }}</div>
   </div>

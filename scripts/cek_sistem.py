@@ -840,8 +840,8 @@ def cek_http_pengajuan():
     for tanda in ("macro petunjuk", "pl-info-tombol", "pl-info-pop", "aria-expanded"):
         assert tanda in makro, f"makro petunjuk tidak lengkap: {tanda!r} tidak ada"
     app_js = (_cfg.BASE_DIR / "app/static/js/app.js").read_text(encoding="utf-8")
-    for tanda in (".pl-info-tombol", ".pl-info-pop", "tutupInfo", "Escape"):
-        assert tanda in app_js, f"app.js belum membuka popup «!»: {tanda!r} tidak ada"
+    for tanda in ("[data-info]", "[data-notif]", ".pl-info-pop", ".notif-pop", "tutupInfo", "Escape"):
+        assert tanda in app_js, f"app.js belum membuka popup (petunjuk/notifikasi): {tanda!r} tidak ada"
     from app import web as _web_uji
 
     keluaran_makro = _web_uji.templates.env.from_string(
@@ -3532,6 +3532,63 @@ def cek_ikon():
     return asyncio.run(jalankan())
 
 
+@cek("30. Bilah atas petugas (notifikasi, tanpa tombol «+ Siswa») & ikon tombol Masuk")
+def cek_bilah_atas():
+    """Masukan sekolah ronde 34: spanduk «Aplikasi sedang dapat dibuka dari internet»
+    memenuhi halaman → dipindah menjadi **lonceng notifikasi** di samping tombol
+    «Impor Berkas»; tombol «+ Siswa» dihapus (data siswa hanya dari impor Dapodik);
+    ikon halaman masuk/keluar tidak lagi tertukar.
+    """
+    from app import config as _cfg
+
+    dasar = (_cfg.BASE_DIR / "app/templates/base.html").read_text(encoding="utf-8")
+    assert "Aplikasi sedang dapat dibuka dari internet" not in dasar, \
+        "spanduk internet seharusnya sudah pindah ke lonceng notifikasi di bilah atas"
+    assert "peringatan_online" not in dasar, "base.html masih memakai peringatan_online"
+
+    bilah = (_cfg.BASE_DIR / "app/templates/partials/topbar.html").read_text(encoding="utf-8")
+    for tanda in ("notif", "data-notif", "notif-tombol", "icon('bell')", "peringatan_online",
+                  "aman-online"):
+        assert tanda in bilah, f"bilah atas belum memuat notifikasi: {tanda!r} tidak ada"
+    assert "/data-siswa/baru" not in bilah, \
+        "tombol «+ Siswa» seharusnya dihapus dari bilah atas (data hanya lewat impor)"
+
+    daftar_siswa = (_cfg.BASE_DIR / "app/templates/students/list.html").read_text(encoding="utf-8")
+    assert "/data-siswa/baru" not in daftar_siswa, \
+        "halaman Data Siswa tidak boleh menawarkan tambah siswa manual"
+
+    # Gaya lonceng + popupnya ada di app.css, dan ikon «bell» ada di makro.
+    tema = (_cfg.BASE_DIR / "app/static/css/app.css").read_text(encoding="utf-8")
+    for tanda in (".notif-tombol", ".notif-titik", ".notif-pop"):
+        assert tanda in tema, f"app.css tidak memuat gaya {tanda!r}"
+    makro = (_cfg.BASE_DIR / "app/templates/_macros.html").read_text(encoding="utf-8")
+    assert 'nama == "bell"' in makro and 'nama == "login"' in makro, \
+        "ikon «bell»/«login» belum ada di makro"
+
+    # Tombol Masuk memakai ikon masuk (dulu tertukar dengan ikon keluar).
+    masuk = (_cfg.BASE_DIR / "app/templates/login.html").read_text(encoding="utf-8")
+    assert masuk.count("icon('login')") >= 3, "tombol «Masuk» belum memakai ikon masuk"
+    assert "icon('logout')" not in masuk, "halaman masuk masih memakai ikon keluar"
+
+    # Kartu kegiatan siswa: ikon sebaris dengan nama kegiatan (tidak menggantung).
+    ekskul = (_cfg.BASE_DIR / "app/templates/portal/ekskul.html").read_text(encoding="utf-8")
+    assert "pl-kegiatan-kepala" in ekskul and "align-items:flex-start" not in ekskul, \
+        "kartu kegiatan siswa masih menaruh ikon menggantung di pojok kartu"
+    potongan_portal = (_cfg.BASE_DIR / "app/static/css/portal.css").read_text(encoding="utf-8")
+    for tanda in (".pl-kegiatan-kepala", ".pl-kegiatan-ikon"):
+        assert tanda in potongan_portal, f"portal.css tidak memuat gaya {tanda!r}"
+
+    # Ikon kotak di halaman masuk tidak lagi menempel di atas baris teksnya.
+    css_masuk = (_cfg.BASE_DIR / "app/static/css/app.css").read_text(encoding="utf-8")
+    for aturan in (".login-peran-kartu", ".login-siswa-head"):
+        potong = css_masuk.split(aturan + " {", 1)[1].split("}", 1)[0]
+        assert "align-items: center" in potong, \
+            f"{aturan} belum menyejajarkan ikonnya dengan teks (align-items: center)"
+
+    return ("spanduk internet → lonceng notifikasi (1 popup), tombol «+ Siswa» dihapus, "
+            "ikon Masuk/Keluar tidak tertukar, ikon kartu kegiatan sebaris dengan judul")
+
+
 @cek("27. Kode bersih dari peringatan Python (escape sequence & impor)")
 def cek_peringatan_kode():
     """Pastikan menjalankan aplikasi tidak memunculkan peringatan seperti di PC sekolah.
@@ -3639,6 +3696,7 @@ def main() -> int:
     cek_peringatan_kode()
     cek_vercel()
     cek_ikon()
+    cek_bilah_atas()
     if args.http:
         cek_http_pengajuan()
         cek_http()

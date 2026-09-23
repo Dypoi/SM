@@ -283,6 +283,11 @@ akta lahir, kesehatan, sampai koordinat rumah.
   seperti aplikasi HP, huruf lebih besar (16,5–17 px), tombol setidaknya 44 px, dan bahasa
   sederhana untuk anak kelas 7 (`Belum diisi`, `Minta perbaikan`, `Kegiatan / klub`).
   Beranda memakai kartu **«Yang perlu kamu lakukan»** supaya anak tahu langkah berikutnya.
+  **Peringatan keamanan tidak memenuhi halaman**: bila aplikasi sedang dibuka dari internet
+  (Tailscale Funnel), peringatannya muncul sebagai **lonceng kecil di samping tombol «Impor
+  Berkas»** — angka jumlah peringatan di atasnya, isinya terbuka saat diklik. Saat aplikasi
+  lokal, lonceng itu tidak tampil sama sekali. Tombol «+ Siswa» **tidak ada**, karena data
+  peserta didik hanya masuk lewat impor berkas Dapodik (Excel/CSV) — bukan diketik manual.
   **Ikon** digambar pada kanvas 24×24 dengan aturan tetap: pusat (12, 12), gambar di dalam
   kotak aman 2–22, dan sisi terpanjang minimal 14 — jadi semua ikon seragam dan tidak ada yang
   miring/menempel tepi. Ikon yang menempel pada teks ikut sejajar (`vertical-align` di `.icon`),

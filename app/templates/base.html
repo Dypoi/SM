@@ -28,18 +28,8 @@
         <p>{{ app_long_name }} · {{ app_name }} v{{ app_version }}</p>
       </div>
       {% from "_macros.html" import flash %}
-      {% if peringatan_online is defined and peringatan_online %}
-      <div class="alert alert-warn" role="alert">
-        <span class="alert-icon">{{ icon('warning') }}</span>
-        <div>
-          <strong>Aplikasi sedang dapat dibuka dari internet.</strong>
-          <ul class="mb-0">
-            {% for pesan in peringatan_online %}<li>{{ pesan }}</li>{% endfor %}
-          </ul>
-          <a href="/pengaturan#aman-online">Buka Pengaturan → Sistem → Aman Online</a>
-        </div>
-      </div>
-      {% endif %}
+      {#- Peringatan «dapat dibuka dari internet» TIDAK lagi memenuhi halaman: dipindah
+          ke tombol lonceng di bilah atas (partials/topbar.html) supaya tampilan bersih. -#}
       {% if mode_vercel is defined and mode_vercel %}
       <div class="alert alert-warn" role="alert">
         <span class="alert-icon">{{ icon('warning') }}</span>

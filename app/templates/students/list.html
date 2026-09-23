@@ -239,7 +239,8 @@
       <a class="btn btn-outline btn-sm" href="/data-siswa/ekspor/xlsx{{ qs }}">{{ icon('download') }} Excel</a>
       <a class="btn btn-outline btn-sm" href="/data-siswa/ekspor/csv{{ qs }}">{{ icon('download') }} CSV</a>
       <button class="btn btn-outline btn-sm" type="button" data-print>{{ icon('printer') }} Cetak</button>
-      <a class="btn btn-primary btn-sm" href="/data-siswa/baru">{{ icon('plus') }} Tambah</a>
+      {#- Tidak ada tombol «Tambah»: data siswa hanya masuk lewat impor Dapodik
+          (berkas Excel/CSV), bukan diketik satu-satu. -#}
     </div>
   </div>
 
