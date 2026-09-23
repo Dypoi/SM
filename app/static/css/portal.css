@@ -251,7 +251,7 @@
   color: var(--pl-primary-tua);
 }
 
-.pl-aksi-ikon svg { width: 24px; height: 24px; }
+.pl-aksi-ikon svg { width: 25px; height: 25px; }
 .pl-aksi.utama { background: var(--pl-primary-lembut); border-color: #cfe0ff; }
 .pl-aksi.utama .pl-aksi-ikon { background: #fff; }
 .pl-aksi.perhatian .pl-aksi-ikon { background: var(--pl-ceria-lembut); color: #b45309; }
@@ -462,61 +462,9 @@
 .pl-sapa strong { display: block; font-size: 1.08rem; color: var(--pl-primary-tua); }
 .pl-sapa span { display: block; font-size: .92rem; color: #3c4a68; }
 
-/* Langkah 1-2-3 */
-.pl-langkah {
-  list-style: none;
-  margin: .2rem 0 1rem;
-  padding: .8rem .9rem;
-  border-radius: 14px;
-  background: #f8fbff;
-  border: 1px dashed #cfe0ff;
-  display: grid;
-  gap: .5rem;
-  font-size: .95rem;
-}
-
-.pl-langkah li { display: flex; align-items: flex-start; gap: .55rem; }
-
-.pl-no {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--pl-primary);
-  color: #fff;
-  font-size: .8rem;
-  font-weight: 800;
-}
-
-/* Isian & tombol siswa: besar, jelas, mudah disentuh */
-.pl-masuk-siswa .field label { font-size: .98rem; font-weight: 600; }
-.pl-masuk-siswa input.input-nisn {
-  font-size: 1.4rem;
-  padding: .75rem .9rem;
-  min-height: 58px;
-  border-radius: 14px;
-  letter-spacing: .16em;
-}
-.pl-masuk-siswa .hint { font-size: .86rem; }
-.pl-masuk-siswa .pl-tombol-besar {
-  min-height: 60px;
-  font-size: 1.08rem;
-  border-radius: 16px;
-  box-shadow: 0 8px 18px rgba(29, 78, 216, .22);
-}
 .pl-masuk-siswa .login-siswa-head .ikon { background: var(--pl-hijau-lembut); color: var(--pl-hijau); }
 .pl-masuk-siswa .login-siswa-head h3 { font-size: 1.05rem; }
 .pl-masuk-siswa .login-siswa-head p { font-size: .9rem; }
-.pl-masuk-siswa .login-bantuan {
-  background: #fffaf0;
-  border: 1px solid #f6e3c4;
-  border-radius: 14px;
-  padding: .8rem .9rem;
-}
-.pl-masuk-siswa .login-bantuan strong { font-size: .95rem; }
-.pl-masuk-siswa .login-bantuan ol { margin: .4rem 0 0; padding-left: 1.1rem; font-size: .9rem; }
 
 /* Layar HP: hero dipersingkat supaya isian langsung terlihat. */
 @media (max-width: 720px) {
@@ -594,7 +542,8 @@
 /* Gagasan sekolah: tata cara jangan memenuhi halaman — cukup tanda «!»,       */
 /* dibuka saat diklik. Hanya dipakai di ruang siswa.                          */
 /* ========================================================================== */
-.pl-info { position: relative; display: inline-flex; vertical-align: middle; }
+.pl-info { position: relative; display: inline-flex; align-items: center;
+  vertical-align: middle; align-self: center; }
 
 .pl-info-tombol {
   width: 22px;

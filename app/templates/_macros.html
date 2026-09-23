@@ -1,49 +1,65 @@
 {# Makro komponen UI yang dipakai ulang di seluruh halaman #}
 
 {% macro icon(nama, kelas="") %}
+{#- Ikon garis 24×24. Aturan agar semua ikon «pas» (dicek scripts/cek_sistem.py):
+    - gambar berada di dalam kotak aman 3–21 (tepi 0–24 hanya untuk stroke),
+    - titik pusat gambar tepat di (12, 12),
+    - ukuran gambar 15–18 px supaya bobotnya seragam antar ikon.
+    `data-ikon` dipakai uji otomatis untuk memastikan semua nama ikon ada. -#}
 <svg class="icon {{ kelas }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-ikon="{{ nama }}">
   {%- if nama == "home" -%}
-    <path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/>
+    <path d="M3.2 10.6 12 3.2l8.8 7.4"/><path d="M5.4 9.6V20.8h13.2V9.6"/><path d="M9.4 20.8v-6h5.2v6"/>
   {%- elif nama == "users" -%}
-    <circle cx="9" cy="8" r="3.2"/><path d="M2.8 20a6.2 6.2 0 0 1 12.4 0"/><path d="M16.5 5.6a3 3 0 0 1 0 5.6"/><path d="M17.6 13.4a6 6 0 0 1 3.6 5.1"/>
-  {%- elif nama == "upload" -%}
-    <path d="M12 16V4"/><path d="m7.5 8.5 4.5-4.5 4.5 4.5"/><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"/>
-  {%- elif nama == "flag" -%}
-    <path d="M5 3v18"/><path d="M5 4h11l-1.5 4L16 12H5z"/>
-  {%- elif nama == "chart" -%}
-    <path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>
-  {%- elif nama == "check" -%}
-    <path d="M20 6 9 17l-5-5"/>
-  {%- elif nama == "cog" -%}
-    <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>
+    <circle cx="9" cy="7.7" r="3.3"/><path d="M2.9 19.5a6.1 6.1 0 0 1 12.2 0"/><path d="M16.6 5.4a3 3 0 0 1 0 5.6"/><path d="M17.7 13.2a6 6 0 0 1 3.4 5.1"/>
   {%- elif nama == "user" -%}
-    <circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>
-  {%- elif nama == "search" -%}
-    <circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>
-  {%- elif nama == "plus" -%}
-    <path d="M12 5v14"/><path d="M5 12h14"/>
+    <circle cx="12" cy="7.4" r="3.6"/><path d="M4.6 20.3a7.4 7.4 0 0 1 14.8 0"/>
+  {%- elif nama == "upload" -%}
+    <path d="M12 16.4V3.6"/><path d="m7.4 8.2 4.6-4.6 4.6 4.6"/><path d="M3.6 15v3.4a2 2 0 0 0 2 2h12.8a2 2 0 0 0 2-2V15"/>
   {%- elif nama == "download" -%}
-    <path d="M12 4v12"/><path d="m7.5 11.5 4.5 4.5 4.5-4.5"/><path d="M4 19h16"/>
+    <path d="M12 3.5v12.6"/><path d="m7.2 11.2 4.8 4.8 4.8-4.8"/><path d="M3.8 20.5h16.4"/>
+  {%- elif nama == "flag" -%}
+    <path d="M5.6 3.4v17.2"/><path d="M5.6 4.6h12.8l-2.3 4.1 2.3 4.1H5.6z"/>
+  {%- elif nama == "chart" -%}
+    <path d="M5 20.4V11"/><path d="M12 20.4V3.6"/><path d="M19 20.4v-6.4"/><path d="M3.4 20.4h17.2"/>
+  {%- elif nama == "check" -%}
+    <path d="M4.4 12.5 9.5 17.6 19.6 6.4"/>
+  {%- elif nama == "cog" -%}
+    <circle cx="12" cy="12" r="6.6"/><circle cx="12" cy="12" r="2.6"/>
+    <path d="M20.8 12h-2.2"/><path d="m18.2 18.2-1.5-1.5"/><path d="M12 20.8v-2.2"/>
+    <path d="m5.8 18.2 1.5-1.5"/><path d="M3.2 12h2.2"/><path d="m5.8 5.8 1.5 1.5"/>
+    <path d="M12 3.2v2.2"/><path d="m18.2 5.8-1.5 1.5"/>
+  {%- elif nama == "search" -%}
+    <circle cx="10.8" cy="10.8" r="7.3"/><path d="m20.5 20.5-4.4-4.4"/>
+  {%- elif nama == "plus" -%}
+    <path d="M12 4.5v15"/><path d="M4.5 12h15"/>
+  {%- elif nama == "x" -%}
+    <path d="M4.8 4.8 19.2 19.2"/><path d="m19.2 4.8-14.4 14.4"/>
   {%- elif nama == "trash" -%}
-    <path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/>
+    <path d="M3.6 6.8h16.8"/><path d="M9.6 11v6.2M14.4 11v6.2"/><path d="M5.8 6.8l1 13h10.4l1-13"/><path d="M9.2 6.8V3.6h5.6v3.2"/>
   {%- elif nama == "edit" -%}
     <path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>
   {%- elif nama == "file" -%}
     <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>
+  {%- elif nama == "folder" -%}
+    <path d="M3.4 6.6a2 2 0 0 1 2-2h3.9l2 2.4h7.3a2 2 0 0 1 2 2v8.4a2 2 0 0 1-2 2H5.4a2 2 0 0 1-2-2z"/>
+  {%- elif nama == "printer" -%}
+    <path d="M7 9V3.6h10V9"/><path d="M6.6 18H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-1.6"/><path d="M7 14.4h10v6H7z"/>
   {%- elif nama == "info" -%}
     <circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>
   {%- elif nama == "warning" -%}
-    <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>
+    <path d="M10.4 4.3 2.9 17.2a1.9 1.9 0 0 0 1.6 2.9h15a1.9 1.9 0 0 0 1.6-2.9L13.6 4.3a1.9 1.9 0 0 0-3.2 0z"/><path d="M12 9.6v4.1"/><path d="M12 16.8h.01"/>
   {%- elif nama == "robot" -%}
     <rect x="3" y="8" width="18" height="12" rx="3"/><path d="M12 4v4"/><circle cx="9" cy="14" r="1.2"/><circle cx="15" cy="14" r="1.2"/>
   {%- elif nama == "logout" -%}
-    <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h9"/>
+    <path d="M14 4.4h3.8a2 2 0 0 1 2 2v11.2a2 2 0 0 1-2 2H14"/><path d="M4.2 12h9"/><path d="m9.8 8.4 3.6 3.6-3.6 3.6"/>
   {%- elif nama == "menu" -%}
-    <path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/>
+    <path d="M3.6 7h16.8"/><path d="M3.6 12h16.8"/><path d="M3.6 17h16.8"/>
   {%- elif nama == "refresh" -%}
-    <path d="M20 11a8 8 0 0 0-13.7-4.7L4 8.5"/><path d="M4 4v5h5"/>
-    <path d="M4 13a8 8 0 0 0 13.7 4.7L20 15.5"/><path d="M20 20v-5h-5"/>
+    <path d="M20.4 11.4a8.4 8.4 0 0 0-14.4-4.9L3.6 8.1"/><path d="M3.6 3.6v4.5h4.5"/>
+    <path d="M3.6 12.6a8.4 8.4 0 0 0 14.4 4.9l2.4-1.6"/><path d="M20.4 20.4v-4.5h-4.5"/>
+  {%- elif nama == "history" -%}
+    <path d="M3.6 12a8.4 8.4 0 1 0 2.5-6L3.6 8.3"/><path d="M3.6 4.2v4.1h4.1"/><path d="M12 7.8V12l3.3 2"/>
   {%- elif nama == "inbox" -%}
     <path d="M4 13h4l1.5 3h5L16 13h4"/><path d="M5.5 5h13l2.5 8v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5z"/>
   {%- elif nama == "clock" -%}
@@ -57,7 +73,9 @@
   {%- elif nama == "smile" -%}
     <circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/><path d="M9 9.5h.01"/><path d="M15 9.5h.01"/>
   {%- else -%}
-    <circle cx="12" cy="12" r="9"/>
+    {#- Nama ikon tidak dikenal: gambar penanda agar langsung ketahuan saat diuji.
+        (dir/berkas lama hanya menampilkan lingkaran biasa sehingga sulit dilacak) -#}
+    <rect class="icon-kosong" x="4.5" y="4.5" width="15" height="15" rx="4"/><path d="M12 8.5v7"/>
   {%- endif -%}
 </svg>
 {% endmacro %}

@@ -5,6 +5,28 @@
 {% from "_macros.html" import pagination as render_pagination %}
 
 {% block content %}
+{#- Ringkasan jumlah siswa diletakkan di ATAS tabel (masukan sekolah): angka
+    penting dulu, daftar menyusul. Tidak ikut tersaring — selalu jumlah seluruh
+    siswa terdaftar. -#}
+<div class="grid grid-4 mb-2">
+  <div class="stat-card stat-primary">
+    <div class="stat-icon">{{ icon('user') }}</div>
+    <div class="stat-body"><div class="stat-label">Laki-laki</div><div class="stat-value">{{ statistik.laki_laki | angka_id }}</div></div>
+  </div>
+  <div class="stat-card stat-info">
+    <div class="stat-icon">{{ icon('users') }}</div>
+    <div class="stat-body"><div class="stat-label">Perempuan</div><div class="stat-value">{{ statistik.perempuan | angka_id }}</div></div>
+  </div>
+  <div class="stat-card stat-success">
+    <div class="stat-icon">{{ icon('check') }}</div>
+    <div class="stat-body"><div class="stat-label">Penerima KIP</div><div class="stat-value">{{ statistik.penerima_kip | angka_id }}</div></div>
+  </div>
+  <div class="stat-card stat-violet">
+    <div class="stat-icon">{{ icon('star') }}</div>
+    <div class="stat-body"><div class="stat-label">Layak PIP</div><div class="stat-value">{{ statistik.layak_pip | angka_id }}</div></div>
+  </div>
+</div>
+
 {#- Ringkasan keadaan filter lanjutan (dipakai untuk membuka panel & lencana) -#}
 {% set kolom_masalah = temuan_aktif.kolom if temuan_aktif is defined else [] %}
 {% set filter_lanjutan = (filters.agama or filters.kelurahan or filters.status or filters.incomplete_only
@@ -216,7 +238,7 @@
     <div class="btn-group">
       <a class="btn btn-outline btn-sm" href="/data-siswa/ekspor/xlsx{{ qs }}">{{ icon('download') }} Excel</a>
       <a class="btn btn-outline btn-sm" href="/data-siswa/ekspor/csv{{ qs }}">{{ icon('download') }} CSV</a>
-      <button class="btn btn-outline btn-sm" type="button" data-print>{{ icon('file') }} Cetak</button>
+      <button class="btn btn-outline btn-sm" type="button" data-print>{{ icon('printer') }} Cetak</button>
       <a class="btn btn-primary btn-sm" href="/data-siswa/baru">{{ icon('plus') }} Tambah</a>
     </div>
   </div>
@@ -296,22 +318,4 @@
   {{ render_pagination(pagination, qs) }}
 </div>
 
-<div class="grid grid-4 mt-2">
-  <div class="stat-card stat-primary">
-    <div class="stat-icon">{{ icon('users') }}</div>
-    <div class="stat-body"><div class="stat-label">Laki-laki</div><div class="stat-value">{{ statistik.laki_laki | angka_id }}</div></div>
-  </div>
-  <div class="stat-card stat-info">
-    <div class="stat-icon">{{ icon('users') }}</div>
-    <div class="stat-body"><div class="stat-label">Perempuan</div><div class="stat-value">{{ statistik.perempuan | angka_id }}</div></div>
-  </div>
-  <div class="stat-card stat-success">
-    <div class="stat-icon">{{ icon('check') }}</div>
-    <div class="stat-body"><div class="stat-label">Penerima KIP</div><div class="stat-value">{{ statistik.penerima_kip | angka_id }}</div></div>
-  </div>
-  <div class="stat-card stat-violet">
-    <div class="stat-icon">{{ icon('check') }}</div>
-    <div class="stat-body"><div class="stat-label">Layak PIP</div><div class="stat-value">{{ statistik.layak_pip | angka_id }}</div></div>
-  </div>
-</div>
 {% endblock %}

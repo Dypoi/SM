@@ -41,6 +41,14 @@ HALAMAN = (
     ("/portal/pengajuan", "perbaikan.html", "Minta perbaikan data"),
 )
 
+# Halaman petugas (opsional, perlu sandi admin bawaan): ikut dipratinjaukan supaya
+# perubahan tata letak — mis. kartu jumlah siswa yang dipindah ke atas tabel —
+# bisa dilihat tanpa menjalankan aplikasi.
+HALAMAN_PETUGAS = (
+    ("/", "dasbor.html", "Dasbor petugas"),
+    ("/data-siswa", "data-siswa.html", "Data Siswa — kartu jumlah di atas tabel"),
+)
+
 
 def _baca_statis(nama: str) -> str:
     return (BASE_DIR / "app" / "static" / nama).read_text(encoding="utf-8")
@@ -111,6 +119,85 @@ Pratinjau dibuat otomatis dengan <code>python scripts/pratinjau_tampilan.py</cod
 """
 
 
+def _galeri_ikon() -> str:
+    """Galeri semua ikon + hasil ukurannya (bukti ikon «pas»), untuk dilihat sekolah."""
+    import importlib.util
+
+    from app import web as web_uji
+
+    jalur = Path(__file__).resolve().parent / "cek_ikon.py"
+    spesifikasi = importlib.util.spec_from_file_location("cek_ikon", jalur)
+    modul = importlib.util.module_from_spec(spesifikasi)
+    sys.modules["cek_ikon"] = modul
+    spesifikasi.loader.exec_module(modul)
+
+    templat = web_uji.templates.env.from_string(
+        '{% from "_macros.html" import icon %}{{ icon(nama, kelas) }}')
+
+    def svg(nama: str, kelas: str = "") -> str:
+        return templat.render(nama=nama, kelas=kelas)
+
+    kotak = modul.ukur_semua()
+    baris = []
+    for nama in sorted(kotak):
+        k = kotak[nama]
+        px, py = k.pusat
+        pas = abs(px - 12) <= 0.8 and abs(py - 12) <= 0.8
+        baris.append(
+            f'<tr><td class="nama">{html.escape(nama)}</td>'
+            f'<td class="tengah"><span class="panggung">{svg(nama)}</span></td>'
+            f'<td class="tengah"><button class="btn btn-outline btn-sm">{svg(nama)} Contoh</button></td>'
+            f'<td class="tengah"><span class="keping">{svg(nama)}</span></td>'
+            f'<td>Contoh teks {svg(nama)} sejajar dengan ikon</td>'
+            f'<td class="angka">{px:.1f}, {py:.1f}</td>'
+            f'<td class="angka">{k.lebar:.1f} &times; {k.tinggi:.1f}</td>'
+            f'<td>{"pas" if pas else "PERIKSA"}</td></tr>')
+
+    halaman = """<!DOCTYPE html>
+<html lang="id"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Galeri ikon — SM</title>
+<link rel="stylesheet" href="app-galeri.css">
+<style>
+ body { font-family: "Segoe UI", system-ui, Roboto, Arial, sans-serif; background:#f3f7fd; color:#17233d;
+        margin:0; padding:1.5rem clamp(1rem,4vw,2.5rem); }
+ h1 { font-size:1.35rem; margin:0 0 .3rem; }
+ p.ket { color:#5b6884; margin:0 0 1.1rem; max-width:78ch; }
+ table { border-collapse:collapse; background:#fff; border:1px solid #e6edf8; border-radius:14px;
+         overflow:hidden; box-shadow:0 6px 20px rgba(23,35,61,.06); }
+ th, td { padding:.5rem .7rem; border-bottom:1px solid #eef2fa; font-size:.88rem; text-align:left;
+          vertical-align:middle; }
+ th { background:#f7faff; font-size:.78rem; text-transform:uppercase; letter-spacing:.04em; color:#5b6884; }
+ td.nama, td.angka { font-variant-numeric:tabular-nums; }
+ td.nama { font-weight:700; }
+ td.tengah { text-align:center; }
+ .panggung { display:inline-grid; place-items:center; width:40px; height:40px; border:1px dashed #cfe0ff;
+             border-radius:10px; color:#2563eb; }
+ .keping { display:inline-grid; place-items:center; width:44px; height:44px; border-radius:12px;
+           background:#eff5ff; color:#2563eb; }
+ .panggung svg, .keping svg { width:22px; height:22px; }
+ .catatan { margin-top:1.2rem; max-width:80ch; color:#5b6884; font-size:.88rem; }
+ code { background:#eef2fa; padding:.05rem .3rem; border-radius:5px; }
+</style></head>
+<body>
+<h1>Galeri ikon — __JUMLAH__ ikon</h1>
+<p class="ket">Masukan sekolah: «icon-nya seperti tidak pas». Semua ikon garis digambar pada kanvas
+<strong>24&times;24</strong> dengan titik pusat <strong>(12, 12)</strong>, di dalam kotak aman 2–22, dan
+sisi terpanjangnya minimal 14 — jadi bobotnya seragam dan tidak ada yang menempel tepi. Dua kolom
+terakhir adalah <em>hasil pengukuran otomatis</em> (<code>scripts/cek_ikon.py</code>), bukan perkiraan.</p>
+<table>
+<thead><tr><th>Nama</th><th>Ukuran wajar (22 px)</th><th>Di dalam tombol</th><th>Di keping 44 px</th>
+<th>Sejajar teks</th><th>Pusat</th><th>Lebar &times; tinggi</th><th>Hasil</th></tr></thead>
+<tbody>
+__BARIS__
+</tbody></table>
+<p class="catatan">Ikon yang sama dipakai di halaman aplikasi. Pemeriksaannya ikut berjalan pada
+<code>python scripts/cek_sistem.py</code> (blok «Kerapian ikon»), jadi ikon baru yang tidak pas
+langsung ketahuan sebelum dipakai di PC sekolah.</p>
+</body></html>
+"""
+    return halaman.replace("__JUMLAH__", str(len(kotak))).replace("__BARIS__", "\n".join(baris))
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Buat pratinjau HTML halaman siswa (statis)")
     parser.add_argument("--nisn", default="", help="NISN siswa yang dipakai (bawaan: siswa pertama)")
@@ -180,6 +267,30 @@ def main() -> int:
                 (tujuan / berkas).write_text(isi, encoding="utf-8")
                 hasil.append((jalur, berkas, ket))
                 print(f"[OK] {jalur:26} → {args.keluaran}/{berkas} ({len(isi) // 1024} KB)")
+
+        # --- halaman petugas (opsional) ---------------------------------------- #
+        async with httpx.AsyncClient(transport=transport, base_url="http://pratinjau") as petugas:
+            masuk_petugas = await petugas.post(
+                "/login", data={"mode": "staff", "username": "admin", "password": "admin123"},
+                follow_redirects=False)
+            if masuk_petugas.status_code in (303, 307):
+                for jalur, berkas, ket in HALAMAN_PETUGAS:
+                    jawab = await petugas.get(jalur)
+                    if jawab.status_code != 200:
+                        print(f"[!] {jalur} → {jawab.status_code} (dilewati)")
+                        continue
+                    isi = _arahkan_tautan(_sisipkan_statis(jawab.text, css, js))
+                    (tujuan / berkas).write_text(isi, encoding="utf-8")
+                    hasil.append((jalur, berkas, ket))
+                    print(f"[OK] {jalur:26} → {args.keluaran}/{berkas} ({len(isi) // 1024} KB)")
+            else:
+                print("[i] Halaman petugas dilewati (sandi admin bukan bawaan).")
+
+        # --- galeri ikon: bukti semua ikon «pas» -------------------------------- #
+        (tujuan / "app-galeri.css").write_text(css["app.css"], encoding="utf-8")
+        (tujuan / "ikon.html").write_text(_galeri_ikon(), encoding="utf-8")
+        hasil.append(("/ikon", "ikon.html", "Galeri semua ikon + hasil ukur (uji perataan)"))
+        print(f"[OK] galeri ikon              → {args.keluaran}/ikon.html")
 
         (tujuan / "index.html").write_text(
             _index(f"Pratinjau tampilan siswa — {services.school_profile()['nama']}",

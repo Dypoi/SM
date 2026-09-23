@@ -741,7 +741,10 @@ td.empty-cell { padding: 0; }
    wadah baru (mis. ringkasan panel filter) tampil raksasa karena SVG tanpa
    ukuran memenuhi lebar induknya. Ukuran dasar ini mencegahnya; aturan wadah
    yang lebih khusus (.btn .icon, .stat-icon .icon, dan seterusnya) tetap menang. */
-.icon { width: 18px; height: 18px; flex: 0 0 auto; }
+.icon { width: 18px; height: 18px; flex: 0 0 auto; vertical-align: -0.18em; }
+/* vertical-align membuat ikon yang menempel pada teks (mis. di dalam <h3> atau <summary>)
+   duduk sejajar dengan huruf, bukan menggantung di garis dasar. Di dalam wadah flex
+   (tombol, kartu) aturan ini diabaikan dan perataan diatur align-items. */
 .icon-besar { width: 26px; height: 26px; }
 
 /* ==========================================================================

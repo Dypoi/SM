@@ -283,6 +283,14 @@ akta lahir, kesehatan, sampai koordinat rumah.
   seperti aplikasi HP, huruf lebih besar (16,5–17 px), tombol setidaknya 44 px, dan bahasa
   sederhana untuk anak kelas 7 (`Belum diisi`, `Minta perbaikan`, `Kegiatan / klub`).
   Beranda memakai kartu **«Yang perlu kamu lakukan»** supaya anak tahu langkah berikutnya.
+  **Ikon** digambar pada kanvas 24×24 dengan aturan tetap: pusat (12, 12), gambar di dalam
+  kotak aman 2–22, dan sisi terpanjang minimal 14 — jadi semua ikon seragam dan tidak ada yang
+  miring/menempel tepi. Ikon yang menempel pada teks ikut sejajar (`vertical-align` di `.icon`),
+  dan nama ikon yang tidak ada di makro menampilkan penanda agar langsung ketahuan. Semuanya
+  diperiksa otomatis oleh `scripts/cek_ikon.py` (ikut berjalan di `scripts/cek_sistem.py`);
+  hasilnya bisa dilihat sebagai **galeri ikon** lewat `scripts/pratinjau_tampilan.py`
+  (`pratinjau/ikon.html`). Pada halaman Data Siswa, kartu jumlah (laki-laki, perempuan, KIP,
+  PIP) berada **di atas** tabel.
   **Tampilan sengaja dibuat sederhana** (masukan sekolah: «designnya rame banget»): tata cara
   tidak ditulis memenuhi halaman, melainkan dipindah ke tombol **`!`** kecil yang membuka
   **popup** singkat saat diklik (`petunjuk()` di `_macros.html` + bagian `.pl-info` di

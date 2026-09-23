@@ -3435,6 +3435,103 @@ def cek_vercel() -> None:
             "lokal tidak berubah")
 
 
+@cek("29. Kerapian ikon (pusat, kotak aman, ukuran) & letak kartu jumlah")
+def cek_ikon():
+    """Masukan sekolah ronde 33: «icon-nya seperti tidak pas» dan «jumlah laki-laki di bawah».
+
+    Dua hal yang diperiksa: (1) geometri setiap ikon di makro ``icon``
+    (``scripts/cek_ikon.py``) — gambar harus di tengah kanvas 24×24, tidak menempel tepi,
+    dan tidak kekecilan; nama ikon yang dipakai template harus ada (kalau tidak, halaman
+    menampilkan penanda ``icon-kosong``); (2) ikon yang menempel pada teks diberi
+    ``vertical-align`` supaya sejajar, dan semua aturan CSS ukuran ikon harus persegi
+    (lebar = tinggi) agar gambarnya tidak gepeng; (3) kartu ringkasan jumlah siswa harus
+    berada di ATAS tabel pada halaman Data Siswa.
+    """
+    import asyncio
+    import importlib.util
+    import re as _re
+
+    import httpx
+
+    from app.main import app
+
+    # --- (1) geometri ikon -------------------------------------------------- #
+    jalur = BASE_DIR / "scripts/cek_ikon.py"
+    assert jalur.exists(), "scripts/cek_ikon.py hilang — alat ukur ikon tidak ada"
+    import sys as _sys
+
+    spesifikasi = importlib.util.spec_from_file_location("cek_ikon", jalur)
+    modul = importlib.util.module_from_spec(spesifikasi)
+    _sys.modules["cek_ikon"] = modul  # supaya modul bisa memakai dataclass/dekorator lain
+    spesifikasi.loader.exec_module(modul)
+
+    masalah_geometri = modul.periksa_makro()
+    assert not masalah_geometri, "ikon belum pas: " + "; ".join(masalah_geometri)
+    dipakai, masalah_nama = modul.periksa_pemakaian(BASE_DIR / "app/templates")
+    assert not masalah_nama, "; ".join(masalah_nama)
+    jumlah_ikon = len(modul.baca_makro())
+    assert jumlah_ikon >= 25, f"jumlah ikon di makro hanya {jumlah_ikon}"
+
+    # --- (2) perataan & ukuran ikon di CSS ---------------------------------- #
+    potongan: dict[str, str] = {}
+    for nama_berkas in ("app.css", "portal.css"):
+        potongan[nama_berkas] = (BASE_DIR / "app/static/css" / nama_berkas).read_text(encoding="utf-8")
+    # Cari aturan DASAR `.icon` (bukan `.nav-link .icon` dsb.), yaitu yang selectornya
+    # tepat «.icon» dan berada di awal baris.
+    dasar = _re.search(r"(?:^|\n)\.icon\s*\{([^}]*)\}", potongan["app.css"])
+    assert dasar and "vertical-align" in dasar.group(1), \
+        "aturan .icon dasar belum memakai vertical-align (ikon menempel pada teks akan naik/turun)"
+    gepeng: list[str] = []
+    jumlah_aturan = 0
+    for nama_berkas, teks_css in potongan.items():
+        bersih = _re.sub(r"/\*.*?\*/", "", teks_css, flags=_re.S)
+        for aturan in _re.finditer(r"([^{}]*)\{([^}]*)\}", bersih):
+            if not _re.search(r"\.icon(?![\w-])", aturan.group(1)):
+                continue
+            badan = aturan.group(2)
+            lebar = _re.search(r"(?<!-)width:\s*([^;]+)", badan)
+            tinggi = _re.search(r"(?<!-)height:\s*([^;]+)", badan)
+            if lebar or tinggi:
+                jumlah_aturan += 1
+                nilai_l = (lebar.group(1).strip() if lebar else "")
+                nilai_t = (tinggi.group(1).strip() if tinggi else "")
+                if nilai_l != nilai_t:
+                    gepeng.append(f"{nama_berkas} {aturan.group(1).strip()}: {nilai_l} × {nilai_t}")
+    assert not gepeng, "ikon bisa tampil gepeng (lebar ≠ tinggi): " + "; ".join(gepeng)
+    assert jumlah_aturan >= 12, f"aturan ukuran ikon hanya {jumlah_aturan} — ada yang hilang?"
+
+    # --- (3) hasil di halaman: tidak ada ikon tak dikenal & kartu jumlah di atas -- #
+    transport = httpx.ASGITransport(app=app)
+
+    async def jalankan() -> str:
+        tak_dikenal: list[str] = []
+        async with httpx.AsyncClient(transport=transport, base_url="http://cek",
+                                     follow_redirects=True) as klien:
+            await klien.post("/login", data={"mode": "staff", "username": "admin",
+                                             "password": "admin123"})
+            for path in ("/", "/data-siswa", "/statistik", "/kualitas-data", "/ekstrakurikuler",
+                         "/impor", "/pengaturan", "/pembaruan", "/bot-dapodik", "/pengajuan",
+                         "/profil-akun"):
+                balasan = await klien.get(path)
+                assert balasan.status_code == 200, f"{path} -> {balasan.status_code}"
+                if "icon-kosong" in balasan.text:
+                    tak_dikenal.append(path)
+            halaman = await klien.get("/data-siswa")
+            letak_kartu = halaman.text.find("stat-card")
+            letak_tabel = halaman.text.find("<table")
+            assert letak_kartu != -1, "halaman Data Siswa kehilangan kartu ringkasan jumlah"
+            assert letak_kartu < letak_tabel, \
+                "kartu jumlah (laki-laki/perempuan/KIP/PIP) harus di ATAS tabel, bukan di bawahnya"
+            await klien.post("/logout")
+        assert not tak_dikenal, ("halaman memakai nama ikon yang tidak ada di makro: "
+                                 + ", ".join(tak_dikenal))
+        return (f"{jumlah_ikon} ikon diperiksa (pusat 12,12 · kotak aman 2–22 · ukuran ≥14); "
+                f"{len(dipakai)} nama pemakaian dikenal; {jumlah_aturan} aturan ukuran persegi; "
+                "kartu jumlah di atas tabel")
+
+    return asyncio.run(jalankan())
+
+
 @cek("27. Kode bersih dari peringatan Python (escape sequence & impor)")
 def cek_peringatan_kode():
     """Pastikan menjalankan aplikasi tidak memunculkan peringatan seperti di PC sekolah.
@@ -3541,6 +3638,7 @@ def main() -> int:
     cek_bodap()
     cek_peringatan_kode()
     cek_vercel()
+    cek_ikon()
     if args.http:
         cek_http_pengajuan()
         cek_http()
