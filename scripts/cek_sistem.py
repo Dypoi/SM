@@ -3585,8 +3585,58 @@ def cek_bilah_atas():
         assert "align-items: center" in potong, \
             f"{aturan} belum menyejajarkan ikonnya dengan teks (align-items: center)"
 
-    return ("spanduk internet → lonceng notifikasi (1 popup), tombol «+ Siswa» dihapus, "
-            "ikon Masuk/Keluar tidak tertukar, ikon kartu kegiatan sebaris dengan judul")
+    # Hasil di halaman: saat aplikasi online, lonceng muncul (tanpa spanduk lama) dan
+    # tombolnya benar-benar berpasangan dengan popupnya — sama seperti yang dijalankan
+    # app.js (satu wadah = satu tombol + satu popup).
+    import asyncio
+
+    import httpx
+
+    from app import online
+    from app.main import app
+
+    transport = httpx.ASGITransport(app=app)
+
+    async def periksa_halaman() -> str:
+        async with httpx.AsyncClient(transport=transport, base_url="http://cek",
+                                     follow_redirects=True) as klien:
+            await klien.post("/login", data={"mode": "staff", "username": "admin",
+                                             "password": "admin123"})
+            halaman = await klien.get("/")
+            assert halaman.status_code == 200, halaman.status_code
+            teks = halaman.text
+            assert "Aplikasi sedang dapat dibuka dari internet" not in teks, \
+                "spanduk lama masih muncul saat aplikasi online"
+            assert teks.count("data-notif") == 1, "lonceng notifikasi tidak muncul saat online"
+            assert "notif-pop" in teks and "notif-titik" in teks, "lonceng tanpa titik/popup"
+            # Susunan wadah harus: .notif > (tombol + popup) — sama dengan pencarian app.js.
+            potong = teks.split('class="notif"', 1)[1].split("</div>\n      {% endif %}", 1)[0]
+            assert potong.count("notif-tombol") == 1 and potong.count("notif-pop") == 1, \
+                "wadah lonceng harus berisi tepat satu tombol dan satu popup"
+            await klien.post("/logout")
+            return "satu tombol + satu popup"
+
+    try:
+        online.simpan_status("https://sm-uji.tailnet.ts.net", "Tailscale Funnel (uji)", 8000)
+        rincian = asyncio.run(periksa_halaman())
+    finally:
+        online.hapus_status()
+
+    # Saat aplikasi lokal, lonceng tidak boleh tampil (bilah atas bersih).
+    async def periksa_lokal() -> None:
+        async with httpx.AsyncClient(transport=transport, base_url="http://cek",
+                                     follow_redirects=True) as klien:
+            await klien.post("/login", data={"mode": "staff", "username": "admin",
+                                             "password": "admin123"})
+            teks = (await klien.get("/")).text
+            assert "data-notif" not in teks, "lonceng muncul padahal aplikasi hanya lokal"
+            await klien.post("/logout")
+
+    asyncio.run(periksa_lokal())
+
+    return ("spanduk internet → lonceng notifikasi (" + rincian + ", hilang saat lokal), "
+            "tombol «+ Siswa» dihapus, ikon Masuk/Keluar tidak tertukar, "
+            "ikon kartu kegiatan sebaris dengan judul")
 
 
 @cek("27. Kode bersih dari peringatan Python (escape sequence & impor)")
