@@ -294,7 +294,11 @@ akta lahir, kesehatan, sampai koordinat rumah.
   dan nama ikon yang tidak ada di makro menampilkan penanda agar langsung ketahuan. Semuanya
   diperiksa otomatis oleh `scripts/cek_ikon.py` (ikut berjalan di `scripts/cek_sistem.py`);
   hasilnya bisa dilihat sebagai **galeri ikon** lewat `scripts/pratinjau_tampilan.py`
-  (`pratinjau/ikon.html`). Pada halaman Data Siswa, kartu jumlah (laki-laki, perempuan, KIP,
+  (`pratinjau/ikon.html`) atau sebagai **lembar PNG** `pratinjau/ikon.png`
+  (`scripts/ikon_png.py`). **Susunan halaman** (bukan cuma isinya) diperiksa
+  `scripts/cek_tampilan.py`: menolak tag blok di dalam tag sebaris, kartu baris yang
+  berisi blok, dan wadah teks panjang tanpa pembungkus — kelas kesalahan yang membuat
+  kartu kegiatan meluber pada ronde 34. Pada halaman Data Siswa, kartu jumlah (laki-laki, perempuan, KIP,
   PIP) berada **di atas** tabel.
   **Tampilan sengaja dibuat sederhana** (masukan sekolah: «designnya rame banget»): tata cara
   tidak ditulis memenuhi halaman, melainkan dipindah ke tombol **`!`** kecil yang membuka

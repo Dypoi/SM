@@ -62,13 +62,14 @@
     {{ petunjuk('Menampilkan kegiatan yang dibuka sekolah tahun ajaran ini. Jumlah anggota '
                 ~ 'ditulis kecil di setiap kartu.') }}
   </h3>
-  <div class="pl-petak">
+  <div class="pl-petak pl-petak-lebar">
     {% for item in tersedia %}
     {% set daftar_ini = pendaftaran.get(item.id) %}
     {% set anggota = diikuti | selectattr('nama', 'equalto', item.nama) | list %}
-    {#- Ikon duduk SEBARIS dengan nama kegiatan (flex, rata tengah) supaya tidak
-        menggantung di pojok kartu seperti sebelumnya. -#}
-    <div class="pl-aksi pl-kegiatan">
+    {#- Kartu kegiatan mandiri (.pl-kegiatan, susunan MENURUN: kepala → jadwal →
+        tombol). Jangan memakai .pl-aksi di sini: .pl-aksi itu baris mendatar
+        (ikon + teks) sehingga isi kartu meluber ke luar seperti pada ronde 34. -#}
+    <div class="pl-kegiatan">
       <div class="pl-kegiatan-kepala">
         <span class="pl-kegiatan-ikon">{{ icon('flag') }}</span>
         <strong>{{ item.nama }}</strong>

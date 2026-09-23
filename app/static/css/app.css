@@ -671,7 +671,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
   top: calc(100% + .5rem);
   right: 0;
   z-index: 60;
-  width: min(330px, 84vw);
+  width: max-content;
+  max-width: min(330px, 84vw);
   padding: .8rem .9rem;
   background: #fff;
   border: 1px solid #fde68a;

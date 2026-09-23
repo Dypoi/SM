@@ -164,9 +164,17 @@ class Kotak:
 
 
 def kotak_kode(kode: str) -> Kotak | None:
-    """Kotak batas sebuah potongan SVG (gambar satu ikon)."""
+    """Kotak batas sebuah potongan SVG (gambar satu ikon), dari titik hasil sampel."""
     xs: list[float] = []
     ys: list[float] = []
+    for polilin in polylinien(kode):
+        for px, py in polilin:
+            xs.append(px)
+            ys.append(py)
+    if xs:
+        return Kotak(min(xs), max(xs), min(ys), max(ys))
+
+
 
     def tambah(daftar: list[tuple[float, float]]) -> None:
         for px, py in daftar:
@@ -196,6 +204,134 @@ def kotak_kode(kode: str) -> Kotak | None:
     if not xs:
         return None
     return Kotak(min(xs), max(xs), min(ys), max(ys))
+
+
+def _sampel_bezier(p0, p1, p2, p3, langkah: int = 24):
+    keluar = []
+    for i in range(1, langkah + 1):
+        t = i / langkah
+        u = 1 - t
+        keluar.append((
+            u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0],
+            u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1],
+        ))
+    return keluar
+
+
+def polylinien(kode: str) -> list[list[tuple[float, float]]]:
+    """Semua garis gambar pada potongan SVG ikon (kurva & busur sudah disampel)."""
+    keluar: list[list[tuple[float, float]]] = []
+
+    for m in re.finditer(r'<circle[^>]*cx="([\d.\-]+)"[^>]*cy="([\d.\-]+)"[^>]*r="([\d.\-]+)"', kode):
+        cx, cy, r = map(float, m.groups())
+        keluar.append([(cx + r * math.cos(2 * math.pi * i / 64),
+                        cy + r * math.sin(2 * math.pi * i / 64)) for i in range(65)])
+    for m in re.finditer(r'<rect[^>]*x="([\d.\-]+)"[^>]*y="([\d.\-]+)"'
+                         r'[^>]*width="([\d.\-]+)"[^>]*height="([\d.\-]+)"', kode):
+        x, y, w, h = map(float, m.groups())
+        sudut = float(re.search(r'rx="([\d.\-]+)"', m.group(0)).group(1)) if 'rx=' in m.group(0) else 0.0
+        if sudut <= 0:
+            keluar.append([(x, y), (x + w, y), (x + w, y + h), (x, y + h), (x, y)])
+        else:
+            r = min(sudut, w / 2, h / 2)
+            titik = []
+            for cx, cy, mulai in ((x + w - r, y + r, -90), (x + w - r, y + h - r, 0),
+                                  (x + r, y + h - r, 90), (x + r, y + r, 180)):
+                for i in range(13):
+                    a = math.radians(mulai + i * 90 / 12)
+                    titik.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+            keluar.append(titik + [titik[0]])
+    for m in re.finditer(r'<line[^>]*x1="([\d.\-]+)"[^>]*y1="([\d.\-]+)"'
+                         r'[^>]*x2="([\d.\-]+)"[^>]*y2="([\d.\-]+)"', kode):
+        x1, y1, x2, y2 = map(float, m.groups())
+        keluar.append([(x1, y1), (x2, y2)])
+    for m in re.finditer(r'<(?:polyline|polygon)[^>]*points="([^"]+)"', kode):
+        nilai = [float(v) for v in ANGKA.findall(m.group(1))]
+        keluar.append(list(zip(nilai[0::2], nilai[1::2])))
+
+    for m in re.finditer(r'<path[^>]*d="([^"]+)"', kode):
+        d = m.group(1)
+        kini: list[tuple[float, float]] = []
+        x = y = 0.0
+        x0 = y0 = 0.0
+        x_ctrl = y_ctrl = None      # titik kendali sebelumnya (untuk S/T)
+        perintah_awal = None
+        def tutup():
+            nonlocal kini
+            if kini:
+                keluar.append(kini)
+                kini = []
+
+        for huruf, badan in PERINTAH.findall(d):
+            n = [float(v) for v in ANGKA.findall(badan)]
+            kecil = huruf.islower()
+            if huruf in "Mm":
+                tutup()
+                for i in range(0, len(n) - 1, 2):
+                    x, y = (n[i], n[i + 1]) if not kecil else (x + n[i], y + n[i + 1])
+                    kini.append((x, y))
+                x0, y0 = x, y
+                perintah_awal = "M"
+            elif huruf in "Ll":
+                for i in range(0, len(n) - 1, 2):
+                    x, y = (n[i], n[i + 1]) if not kecil else (x + n[i], y + n[i + 1])
+                    kini.append((x, y))
+            elif huruf in "Hh":
+                for v in n:
+                    x = v if not kecil else x + v
+                    kini.append((x, y))
+            elif huruf in "Vv":
+                for v in n:
+                    y = v if not kecil else y + v
+                    kini.append((x, y))
+            elif huruf in "Cc":
+                for i in range(0, len(n) - 5, 6):
+                    titik = [(n[i], n[i + 1]), (n[i + 2], n[i + 3]), (n[i + 4], n[i + 5])]
+                    if kecil:
+                        titik = [(x + a, y + b) for a, b in titik]
+                    kini += _sampel_bezier((x, y), titik[0], titik[1], titik[2])
+                    x_ctrl, y_ctrl = titik[1]
+                    x, y = titik[2]
+            elif huruf in "Ss":
+                for i in range(0, len(n) - 3, 4):
+                    kendali1 = (n[i], n[i + 1])
+                    akhir = (n[i + 2], n[i + 3])
+                    if kecil:
+                        kendali1 = (x + kendali1[0], y + kendali1[1])
+                        akhir = (x + akhir[0], y + akhir[1])
+                    if x_ctrl is not None:
+                        kendali1 = (2 * x - x_ctrl, 2 * y - y_ctrl)
+                    kini += _sampel_bezier((x, y), kendali1, kendali1, akhir)
+                    x_ctrl, y_ctrl = kendali1
+                    x, y = akhir
+            elif huruf in "Qq":
+                for i in range(0, len(n) - 3, 4):
+                    kendali = (n[i], n[i + 1])
+                    akhir = (n[i + 2], n[i + 3])
+                    if kecil:
+                        kendali = (x + kendali[0], y + kendali[1])
+                        akhir = (x + akhir[0], y + akhir[1])
+                    k1 = (x + 2 / 3 * (kendali[0] - x), y + 2 / 3 * (kendali[1] - y))
+                    k2 = (akhir[0] + 2 / 3 * (kendali[0] - akhir[0]),
+                          akhir[1] + 2 / 3 * (kendali[1] - akhir[1]))
+                    kini += _sampel_bezier((x, y), k1, k2, akhir)
+                    x_ctrl, y_ctrl = kendali
+                    x, y = akhir
+            elif huruf in "Aa":
+                for i in range(0, len(n) - 6, 7):
+                    rx, ry, rot, besar, searah, px, py = n[i:i + 7]
+                    px, py = (px, py) if not kecil else (x + px, y + py)
+                    kini += _busur(x, y, abs(rx), abs(ry), rot, bool(int(besar)),
+                                   bool(int(searah)), px, py)
+                    x, y = px, py
+            elif huruf in "Zz":
+                if kini:
+                    kini.append(kini[0])
+                    tutup()
+                x, y = x0, y0
+        tutup()
+    return keluar
+
 
 
 # --------------------------------------------------------------------------- #

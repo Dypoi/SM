@@ -375,6 +375,18 @@ def main() -> int:
         hasil.append(("/ikon", "ikon.html", "Galeri semua ikon + hasil ukur (uji perataan)"))
         print(f"[OK] galeri ikon              → {args.keluaran}/ikon.html")
 
+        # --- lembar PNG ikon (opsional: butuh Pillow) --------------------------- #
+        try:
+            import PIL  # noqa: F401
+
+            import subprocess
+
+            subprocess.run([sys.executable, str(BASE_DIR / "scripts/ikon_png.py"),
+                            "--skala", "2"], check=False, cwd=BASE_DIR)
+            hasil.append(("/ikon.png", "ikon.png", "Lembar PNG semua ikon (untuk diperiksa mata)"))
+        except ImportError:
+            print("[i] Lewati lembar PNG ikon (Pillow belum dipasang).")
+
         (tujuan / "index.html").write_text(
             _index(f"Pratinjau tampilan siswa — {services.school_profile()['nama']}",
                    "Buka satu per satu untuk melihat halaman siswa seperti yang dilihat anak "

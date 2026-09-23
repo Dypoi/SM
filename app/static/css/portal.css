@@ -219,6 +219,10 @@
 
 /* Petak aksi besar (mudah disentuh di HP) */
 .pl-petak { display: grid; gap: .7rem; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); }
+/* Kartu kegiatan lebih banyak teksnya (nama + jadwal + tombol) → kolomnya
+   dibuat lebih lebar supaya «Jadwal belum ditetapkan · 0 anggota» tidak
+   terpotong menjadi banyak baris di layar sempit. */
+.pl-petak.pl-petak-lebar { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
 
 .pl-aksi {
   display: flex;
@@ -234,8 +238,11 @@
   transition: transform .12s ease, box-shadow .12s ease;
 }
 
-/* Dipakai juga sebagai <button> (mis. «Cetak / simpan PDF») → warisi huruf halaman. */
-.pl-aksi { font: inherit; text-align: left; cursor: pointer; width: 100%; }
+/* Dipakai juga sebagai <button> (mis. «Cetak / simpan PDF») → warisi huruf halaman.
+   flex-wrap supaya teks panjang membungkus ke baris berikutnya, bukan meluber
+   keluar kartu (kesalahan yang terlihat di halaman kegiatan pada ronde 34). */
+.pl-aksi { font: inherit; text-align: left; cursor: pointer; width: 100%; flex-wrap: wrap; }
+.pl-aksi > span:not(.pl-aksi-ikon) { min-width: 0; flex: 1 1 12ch; }
 .pl-aksi:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(23, 35, 61, .09); }
 .pl-aksi strong { display: block; font-size: 1rem; }
 .pl-aksi span { display: block; color: var(--pl-redup); font-size: .84rem; }
@@ -326,13 +333,17 @@
    terlihat «tidak pada tempatnya». Susunannya: kepala (ikon + nama) → jadwal →
    tombol; semuanya rata karena memakai flex, bukan tebakan piksel. */
 .pl-kegiatan {
+  display: flex;
+  flex-direction: column;      /* kepala → jadwal → tombol; WAJIB menurun */
+  gap: .3rem;
   border: 1px solid var(--pl-garis);
   border-radius: 16px;
   padding: .8rem .85rem;
   background: #fff;
-  min-height: 0;
+  min-width: 0;
+  height: 100%;
 }
-.pl-aksi .pl-kegiatan-kepala { display: flex; align-items: center; gap: .5rem; }
+.pl-kegiatan-kepala { display: flex; align-items: center; gap: .5rem; min-width: 0; }
 .pl-kegiatan-kepala strong { display: block; font-size: 1rem; line-height: 1.25; }
 .pl-kegiatan-ikon {
   flex: none;
@@ -345,9 +356,9 @@
   color: var(--pl-primary-tua);
 }
 .pl-kegiatan-ikon svg { width: 18px; height: 18px; }
-.pl-kegiatan-ket { margin-top: .3rem; color: var(--pl-redup); font-size: .85rem; }
-.pl-kegiatan-aksi { margin-top: .55rem; }
-.pl-aksi .pl-kegiatan-tombol {
+.pl-kegiatan-ket { color: var(--pl-redup); font-size: .85rem; line-height: 1.4; }
+.pl-kegiatan-aksi { margin-top: auto; padding-top: .5rem; }
+.pl-kegiatan-tombol {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -636,7 +647,8 @@
 .pl-card.pl-ringkas { padding: .85rem 1rem; }
 
 /* Satu baris ringkas untuk kelengkapan data. */
-.pl-mini-baris { display: flex; align-items: center; gap: .6rem; }
+.pl-mini-baris { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; }
+.pl-mini-baris > * { min-width: 0; }
 .pl-mini-baris .pl-mini-label { color: var(--pl-redup); font-size: .9rem; flex: none; }
 .pl-mini-baris .pl-mini-angka { font-weight: 800; }
 .pl-mini-baris .pl-progress { flex: 1; margin: 0; height: 10px; }

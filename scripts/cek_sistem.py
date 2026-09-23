@@ -3639,6 +3639,45 @@ def cek_bilah_atas():
             "ikon kartu kegiatan sebaris dengan judul")
 
 
+@cek("31. Kerapian susunan halaman (tag sebaris, kartu baris, wadah teks panjang)")
+def cek_kerapian_susunan():
+    """Masukan sekolah ronde 35: kartu kegiatan siswa berantakan (tombol melayang keluar
+    kartu) karena memakai kelas baris ``.pl-aksi`` padahal isinya blok bertumpuk.
+
+    Pemeriksaan ini menangkap *kelas kesalahan* itu, bukan hanya «teksnya ada»:
+    (1) tag blok di dalam tag sebaris (``<span><div>…``) — peramban memperbaikinya
+    sendiri sehingga letak elemen meleset; (2) ``.pl-aksi`` berisi blok; (3) kelas
+    ``.pl-kegiatan`` dipakai bersama ``.pl-aksi`` atau tidak bertumpuk (``column``);
+    (4) wadah baris tanpa izin membungkus (``flex-wrap``/``min-width: 0``) sehingga
+    teks panjang bisa melimpah keluar kotaknya.
+    """
+    import asyncio
+    import importlib.util
+    import sys as _sys
+
+    jalur = BASE_DIR / "scripts/cek_tampilan.py"
+    assert jalur.exists(), "scripts/cek_tampilan.py hilang — pemeriksa susunan tidak ada"
+    spesifikasi = importlib.util.spec_from_file_location("cek_tampilan", jalur)
+    modul = importlib.util.module_from_spec(spesifikasi)
+    _sys.modules["cek_tampilan"] = modul
+    spesifikasi.loader.exec_module(modul)
+
+    masalah_css: list[str] = []
+    for nama in ("app/static/css/portal.css", "app/static/css/app.css"):
+        masalah_css += modul.periksa_css((BASE_DIR / nama).read_text(encoding="utf-8"))
+    assert not masalah_css, "susunan CSS: " + "; ".join(masalah_css)
+
+    masalah, jumlah = asyncio.run(modul.periksa_halaman())
+    assert not masalah, "susunan halaman: " + "; ".join(masalah[:4])
+
+    ekskul = (BASE_DIR / "app/templates/portal/ekskul.html").read_text(encoding="utf-8")
+    assert 'class="pl-aksi pl-kegiatan"' not in ekskul, \
+        "kartu kegiatan tidak boleh memakai kelas baris .pl-aksi (isinya blok bertumpuk)"
+    return (f"{jumlah} halaman diperiksa: tidak ada tag blok di dalam tag sebaris, "
+            "tidak ada kartu baris berisi blok, kartu kegiatan bertumpuk, wadah teks panjang "
+            "memakai flex-wrap/min-width")
+
+
 @cek("27. Kode bersih dari peringatan Python (escape sequence & impor)")
 def cek_peringatan_kode():
     """Pastikan menjalankan aplikasi tidak memunculkan peringatan seperti di PC sekolah.
@@ -3747,6 +3786,7 @@ def main() -> int:
     cek_vercel()
     cek_ikon()
     cek_bilah_atas()
+    cek_kerapian_susunan()
     if args.http:
         cek_http_pengajuan()
         cek_http()
