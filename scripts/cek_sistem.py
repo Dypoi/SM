@@ -3774,6 +3774,105 @@ def cek_lencana_ikon():
             f"{len(halaman)} halaman siswa bebas emoji mentah (memakai ikon SVG)")
 
 
+@cek("33. Halaman «Ajukan Perubahan» siswa ramah & responsif")
+def cek_halaman_pengajuan_siswa():
+    """Masukan sekolah ronde 37: halaman ``/portal/pengajuan`` tampilannya «tidak saya sukai».
+
+    Yang salah (terlihat setelah halaman dipotret di peramban):
+
+    1. **Isian berkas bawaan peramban** menyisakan tulisan **«Choose File / No file chosen»**
+       (bahasa Inggris, gaya sistem) di halaman anak. Diganti panel ``.pl-unggah``: isian
+       berkas disembunyikan (``.pl-berkas``) dan yang diklik siswa label bergaya tombol;
+       nama berkas pilihan ditampilkan skrip (``data-berkas-masuk`` di ``app.js``).
+    2. **Tombol «Kirim Pengajuan» di TENGAH halaman** karena bilah ``.form-actions.sticky-actions``
+       lengket di dalam kartu — di ponsel tertutup bilah menu bawah (bilah menu ``z-index: 40``
+       menang atas bilah tombol ``z-index: 5``). Sekarang tombol berada di akhir halaman
+       (``.pl-kirim``), setelah kolom isian DAN setelah panel unggah — sesuai tata cara
+       «isi kolom → lampirkan foto → kirim».
+    3. **Teks pecah di tempat yang tak seharusnya**: lencana «kurang 3» jadi dua baris
+       (``.badge``) dan «8 isian» jadi dua baris (``.pl-lipat-jumlah``); pada layar sempit
+       ``.field.span-2`` membuat kolom kedua tersembunyi.
+    """
+    import re as _re
+
+    BASE = BASE_DIR
+    request = (BASE / "app/templates/portal/request.html").read_text(encoding="utf-8")
+    portal_css = (BASE / "app/static/css/portal.css").read_text(encoding="utf-8")
+    app_css = (BASE / "app/static/css/app.css").read_text(encoding="utf-8")
+    app_js = (BASE / "app/static/js/app.js").read_text(encoding="utf-8")
+
+    # --- (1) panel unggah ramah, bukan isian berkas bawaan --- #
+    for tanda in ("pl-unggah", "pl-berkas", "data-berkas-nama", "data-berkas-masuk"):
+        assert tanda in request, f"request.html kehilangan penanda unggah berkas: {tanda!r}"
+    assert 'class="pl-berkas" type="file"' in request or 'type="file"' in request, \
+        "isian berkas harus tetap ada (nama field dipakai server)"
+    # Nama field dibuat template (Jinja), jadi yang diperiksa polanya — nama
+    # sesungguhnya diverifikasi lewat halaman hasil render di bagian (4).
+    assert 'name="dokumen_{{ jenis }}"' in request, \
+        "isian berkas kehilangan name= yang dipakai server"
+    assert 'accept="image/*,.pdf"' in request, "isian berkas kehilangan batas jenis berkas"
+    assert "dokumen_jenis" in request, "daftar jenis berkas (akta/KK/ijazah) tidak dipakai"
+    assert "data-berkas-masuk" in app_js, \
+        "app.js tidak menampilkan nama berkas yang dipilih (siswa tak tahu berkas masuk)"
+    rapat_portal = _re.sub(r"/\*.*?\*/", " ", portal_css, flags=_re.S)
+    assert _re.search(r"\.pl-berkas\s*\{[^}]*opacity:\s*0", rapat_portal), \
+        "portal.css: .pl-berkas harus disembunyikan (isian bawaan peramban berbahasa Inggris)"
+    assert _re.search(r"\.pl-unggah-pilih\s*\{[^}]*flex-wrap", rapat_portal), \
+        "portal.css: .pl-unggah-pilih belum boleh membungkus"
+
+    # --- (2) tombol kirim di akhir halaman, bukan lengket di dalam kartu --- #
+    assert "sticky-actions" not in request, \
+        "tombol kirim tidak boleh lengket di dalam kartu (di ponsel tertutup bilah menu)"
+    assert "pl-kirim" in request, "request.html kehilangan baris tombol kirim (.pl-kirim)"
+    letak_kirim = request.index('class="pl-kirim')
+    letak_unggah_terakhir = request.rindex('class="pl-unggah"')
+    assert letak_kirim > letak_unggah_terakhir, \
+        "tombol kirim harus SESUDAH panel unggah berkas (isi kolom → lampirkan foto → kirim)"
+    assert _re.search(r"\.pl-kirim\s*\{[^}]*flex-wrap", rapat_portal), \
+        "portal.css: .pl-kirim belum boleh membungkus"
+    assert "@media (max-width: 620px)" in rapat_portal and ".pl-kirim-tombol .btn" in rapat_portal, \
+        "portal.css: di ponsel tombol kirim harus selebar layar"
+
+    # --- (3) teks tidak pecah di tempat yang salah --- #
+    assert _re.search(r"\.badge\s*\{[^}]*white-space:\s*nowrap", app_css), \
+        "app.css: lencana seperti «kurang 3» bisa pecah dua baris"
+    assert _re.search(r"\.pl-lipat-jumlah\s*\{[^}]*white-space:\s*nowrap", rapat_portal), \
+        "portal.css: «8 isian» bisa pecah dua baris"
+    assert "@media (max-width: 620px)" in app_css and ".field.span-2" in app_css, \
+        "app.css: .field.span-2 harus kembali satu kolom di layar sempit"
+
+    # --- (4) halaman nyatanya: urutan & tidak ada bilah lengket --- #
+    import asyncio
+    import httpx
+
+    async def periksa() -> tuple[int, int]:
+        from app.main import app
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://cek",
+                                     follow_redirects=True) as klien:
+            await klien.post("/login", data={"mode": "siswa", "nisn": "3900000009"})
+            halaman = await klien.get("/portal/pengajuan")
+            assert halaman.status_code == 200, halaman.status_code
+            teks = halaman.text
+            assert "sticky-actions" not in teks, "bilah tombol lengket masih muncul di halaman"
+            assert teks.count("pl-unggah\"") >= 3, "tiga panel unggah berkas tidak muncul"
+            assert 'class="pl-kirim' in teks, "baris tombol kirim tidak muncul"
+            # Urutan di halaman: panel unggah dulu, baru tombol kirim.
+            assert teks.index('class="pl-kirim') > teks.rindex('class="pl-unggah"'), \
+                "tombol kirim muncul sebelum panel unggah berkas"
+            for jenis in ("akta_lahir", "kk", "ijazah"):
+                assert f'name="dokumen_{jenis}"' in teks, \
+                    f"field dokumen_{jenis} tidak sampai ke peramban — berkas tak akan terkirim"
+            await klien.post("/logout")
+            return teks.count("pl-unggah\""), len(teks)
+
+    jumlah_panel, panjang = asyncio.run(periksa())
+    return (f"{jumlah_panel} panel unggah ramah (tanpa tulisan «Choose File»), tombol kirim di akhir "
+            f"halaman (bukan lengket di dalam kartu), lencana & «isian» tidak pecah baris, "
+            f"halaman {panjang // 1024} KB diperiksa lewat HTTP")
+
+
 @cek("27. Kode bersih dari peringatan Python (escape sequence & impor)")
 def cek_peringatan_kode():
     """Pastikan menjalankan aplikasi tidak memunculkan peringatan seperti di PC sekolah.
@@ -3884,6 +3983,7 @@ def main() -> int:
     cek_bilah_atas()
     cek_kerapian_susunan()
     cek_lencana_ikon()
+    cek_halaman_pengajuan_siswa()
     if args.http:
         cek_http_pengajuan()
         cek_http()

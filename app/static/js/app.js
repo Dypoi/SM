@@ -146,6 +146,26 @@
     });
   }
 
+  // --- Nama berkas yang dipilih (panel unggah halaman pengajuan siswa) -----
+  document.querySelectorAll("input[data-berkas-masuk]").forEach(function (input) {
+    var panel = input.closest(".pl-unggah");
+    var nama = document.querySelector('[data-berkas-nama="' + input.id + '"]');
+    if (!nama) return;
+    input.addEventListener("change", function () {
+      var berkas = input.files && input.files.length ? input.files[0] : null;
+      if (!berkas) {
+        nama.textContent = "Belum ada berkas dipilih";
+        if (panel) panel.classList.remove("siap");
+        return;
+      }
+      var ukuran = berkas.size >= 1048576
+        ? (berkas.size / 1048576).toFixed(1) + " MB"
+        : Math.max(1, Math.round(berkas.size / 1024)) + " KB";
+      nama.textContent = berkas.name + " · " + ukuran + " · siap dikirim";
+      if (panel) panel.classList.add("siap");
+    });
+  });
+
   // --- Konfirmasi aksi berbahaya ------------------------------------------
   document.querySelectorAll("form[data-confirm]").forEach(function (form) {
     form.addEventListener("submit", function (event) {

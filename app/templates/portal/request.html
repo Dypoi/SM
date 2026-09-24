@@ -96,13 +96,6 @@
             <textarea id="catatan_siswa" name="catatan_siswa" rows="2"
                       placeholder="Contoh: nama ibu salah tulis, alamat sudah pindah sejak Juli."></textarea>
           </div>
-
-          <div class="form-actions sticky-actions">
-            <button class="btn btn-primary" type="submit" {{ '' if pengajuan_aktif else 'disabled' }}>
-              {{ icon('upload') }} Kirim Pengajuan
-            </button>
-            <a class="btn btn-outline" href="/portal/profil">Batal</a>
-          </div>
         </div>
       </div>
     </div>
@@ -137,28 +130,60 @@
           {% endif %}
 
           {% for jenis, label, petunjuk in dokumen_jenis %}
-            <div class="field">
-              <label for="dokumen_{{ jenis }}">{{ label }}</label>
-              {% if dokumen.get(jenis) %}
-                <div>
+            <div class="pl-unggah" data-berkas>
+              <div class="pl-unggah-kepala">
+                <strong>{{ label }}</strong>
+                {% if dokumen.get(jenis) %}
                   <span class="badge badge-success">sudah ada</span>
+                {% else %}
+                  <span class="badge badge-warning">belum ada</span>
+                {% endif %}
+              </div>
+
+              {% if dokumen.get(jenis) %}
+                <div class="pl-unggah-berkas">
                   <a href="/portal/dokumen/{{ dokumen[jenis].id }}" target="_blank" rel="noopener">
                     {{ dokumen[jenis].nama_asli | singkat(28) }}
                   </a>
-                  <div class="muted" style="font-size:.76rem">
-                    diunggah {{ dokumen[jenis].diunggah_at | tanggal_waktu }}
-                  </div>
+                  <span class="muted">diunggah {{ dokumen[jenis].diunggah_at | tanggal_waktu }}</span>
                 </div>
-              {% else %}
-                <div><span class="badge badge-warning">belum ada</span></div>
               {% endif %}
-              <input type="file" id="dokumen_{{ jenis }}" name="dokumen_{{ jenis }}"
-                     accept="image/*,.pdf" class="mt-1">
+
+              {# Isian berkas bawaan peramban menyisakan tulisan «Choose File / No file chosen»
+                 (bahasa Inggris) di halaman siswa. Isiannya tetap ada — hanya tak tampak —
+                 dan yang diklik siswa adalah label bergaya tombol di bawah ini. #}
+              <div class="pl-unggah-pilih">
+                <input class="pl-berkas" type="file" id="dokumen_{{ jenis }}"
+                       name="dokumen_{{ jenis }}" accept="image/*,.pdf" data-berkas-masuk>
+                <label class="btn btn-outline btn-sm" for="dokumen_{{ jenis }}">
+                  {{ icon('camera') }}
+                  {% if dokumen.get(jenis) %}Ganti berkas{% else %}Pilih foto / PDF{% endif %}
+                </label>
+                <span class="pl-berkas-nama" data-berkas-nama="dokumen_{{ jenis }}">Belum ada berkas dipilih</span>
+              </div>
               <span class="hint">{{ petunjuk }}</span>
             </div>
           {% endfor %}
         </div>
       </div>
+    </div>
+  </div>
+
+  {# Tombol kirim ditaruh di AKHIR halaman, di luar kedua kartu: dulu ia lengket di
+     dalam kartu sehingga di ponsel tertutup bilah menu bawah dan muncul sebelum
+     bagian unggah berkas. Urutannya sekarang mengikuti tata cara: isi kolom →
+     lampirkan foto → kirim. #}
+  <div class="pl-kirim mt-2">
+    <div class="pl-kirim-teks">
+      <strong>Sudah lengkap?</strong>
+      <span>Perubahan baru dipakai setelah admin menyetujui. NISN, rombel, dan tingkat
+      ditetapkan sekolah sehingga tidak ikut berubah.</span>
+    </div>
+    <div class="pl-kirim-tombol">
+      <a class="btn btn-outline" href="/portal/profil">Batal</a>
+      <button class="btn btn-primary" type="submit" {{ '' if pengajuan_aktif else 'disabled' }}>
+        {{ icon('upload') }} Kirim Pengajuan
+      </button>
     </div>
   </div>
 </form>

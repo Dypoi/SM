@@ -318,7 +318,13 @@ akta lahir, kesehatan, sampai koordinat rumah.
   # halaman petugas: --masuk-petugas
   # potongan diperbesar (untuk melihat ikon dekat): --potong 700,370,500,330 --perbesar 2
   # ukuran ponsel: --lebar 390 --tinggi 844
-  ``` Pada halaman Data Siswa, kartu jumlah (laki-laki, perempuan, KIP,
+  ```
+
+  Selain dipotret & diukur, alur halaman siswa diuji langsung di peramban:
+  memilih berkas pada panel unggah (nama & ukuran berkas harus muncul) dan
+  mengirim pengajuan (berkas harus diterima server). Bila ada perubahan tampilan
+  pada halaman siswa, jalankan `scripts/lihat_tampilan.py` untuk halaman
+  `/portal/pengajuan`, `/portal/profil`, `/portal/ekstrakurikuler`, dan `/portal`. Pada halaman Data Siswa, kartu jumlah (laki-laki, perempuan, KIP,
   PIP) berada **di atas** tabel.
   **Tampilan sengaja dibuat sederhana** (masukan sekolah: «designnya rame banget»): tata cara
   tidak ditulis memenuhi halaman, melainkan dipindah ke tombol **`!`** kecil yang membuka

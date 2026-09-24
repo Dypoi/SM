@@ -256,6 +256,8 @@ code, pre { font-family: var(--mono); font-size: .86em; }
   display: inline-block; padding: .16rem .52rem; border-radius: 999px;
   font-size: .735rem; font-weight: 700; letter-spacing: .02em;
   background: #f1f5f9; color: var(--text-soft); border: 1px solid var(--border);
+  /* Label pendek seperti «kurang 3» tidak boleh pecah dua baris. */
+  white-space: nowrap;
 }
 .badge-success { background: var(--success-50); color: #15803d; border-color: #bbf7d0; }
 .badge-warning { background: var(--warning-50); color: #b45309; border-color: #fde68a; }
@@ -278,6 +280,11 @@ code, pre { font-family: var(--mono); font-size: .86em; }
 .field label { font-size: .82rem; font-weight: 600; color: var(--text-soft); }
 .field .hint { font-size: .74rem; color: var(--muted); }
 .field.span-2 { grid-column: span 2; }
+/* Di layar sempit kisi hanya satu kolom: `span 2` justru membuat kolom kedua
+   tersembunyi (isi jadi setengah lebar). Kembalikan ke satu kolom. */
+@media (max-width: 620px) {
+  .field.span-2 { grid-column: auto; }
+}
 .field.span-full { grid-column: 1 / -1; }
 
 input[type="text"], input[type="password"], input[type="number"], input[type="date"],

@@ -708,6 +708,8 @@
   font-size: .8rem;
   margin-left: auto;
   padding-left: .5rem;
+  /* «8 isian» tidak boleh pecah jadi dua baris di layar sempit. */
+  white-space: nowrap;
 }
 .pl-lipat-jumlah + .pl-lipat-jumlah { margin-left: .2rem; }
 .pl-lipat > .form-grid,
@@ -720,3 +722,100 @@
 .pl-riwayat-isi { margin-top: .35rem; font-size: .92rem; }
 .pl-riwayat-isi ul { margin: .35rem 0 0; padding-left: 1.1rem; }
 .pl-riwayat-isi summary { cursor: pointer; }
+
+/* ==========================================================================
+   Halaman «Ajukan Perubahan» siswa (ronde 37)
+   ========================================================================== */
+
+/* --- Panel unggah berkas ---------------------------------------------------
+   Isian berkas bawaan peramban menyisakan tulisan «Choose File / No file chosen»
+   (bahasa Inggris, gaya sistem) yang tampak asing di halaman anak. Isiannya
+   disembunyikan tetapi tetap bisa difokus dengan papan tik; yang diklik siswa
+   adalah label bergaya tombol. Nama berkas pilihan ditampilkan skrip app.js. */
+.pl-unggah {
+  border: 1px solid var(--pl-garis);
+  border-radius: 14px;
+  background: #fbfdff;
+  padding: .7rem .8rem;
+  margin-top: .6rem;
+  min-width: 0;
+}
+
+.pl-unggah-kepala {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+
+.pl-unggah-kepala strong { font-size: .95rem; }
+
+.pl-unggah-berkas {
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+  margin-top: .4rem;
+  font-size: .84rem;
+  min-width: 0;
+}
+
+.pl-unggah-berkas a { overflow-wrap: anywhere; }
+
+.pl-unggah-pilih {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  flex-wrap: wrap;
+  margin-top: .55rem;
+  min-width: 0;
+}
+
+.pl-berkas {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pl-unggah-pilih .btn { flex: 0 0 auto; }
+.pl-berkas:focus-visible + .btn { outline: 2px solid var(--pl-primary); outline-offset: 2px; }
+
+.pl-berkas-nama {
+  flex: 1 1 12ch;
+  min-width: 0;
+  font-size: .8rem;
+  color: var(--pl-redup);
+  overflow-wrap: anywhere;
+}
+
+.pl-unggah.siap { border-color: #bfe7cd; background: #f6fdf9; }
+.pl-unggah.siap .pl-berkas-nama { color: var(--pl-hijau); font-weight: 600; }
+
+/* --- Baris «Kirim Pengajuan» di akhir halaman ----------------------------- */
+.pl-kirim {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .9rem;
+  flex-wrap: wrap;
+  padding: .9rem 1rem;
+  background: #fff;
+  border: 1px solid var(--pl-garis);
+  border-radius: var(--pl-radius);
+}
+
+.pl-kirim-teks { min-width: 0; }
+.pl-kirim-teks strong { display: block; font-size: .98rem; color: var(--pl-tinta); }
+.pl-kirim-teks span { display: block; font-size: .84rem; color: var(--pl-redup); }
+
+.pl-kirim-tombol { display: flex; gap: .6rem; flex-wrap: wrap; }
+
+@media (max-width: 620px) {
+  /* Di ponsel tombol jadi selebar layar dan yang utama berada paling bawah
+     (paling mudah dijangkau ibu jari). */
+  .pl-kirim { padding: .85rem .8rem; }
+  .pl-kirim-tombol { width: 100%; }
+  .pl-kirim-tombol .btn { flex: 1 1 100%; }
+}

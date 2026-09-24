@@ -114,6 +114,9 @@ def periksa_css(teks_css: str) -> list[str]:
     for wadah, wajib in ((".pl-aksi", ("flex-wrap", "min-width: 0")),
                          (".pl-mini-baris", ("flex-wrap", "min-width: 0")),
                          (".pl-baris", ("flex-wrap", "overflow-wrap", "min-width: 0")),
+                         (".pl-unggah-pilih", ("flex-wrap", "min-width: 0")),
+                         (".pl-kirim", ("flex-wrap",)),
+                         (".pl-kirim-tombol", ("flex-wrap",)),
                          (".notif-pop", ("max-width",))):
         if wadah not in bersih:
             continue          # kelas ini tidak ada di berkas ini (mis. .notif-pop di app.css)
