@@ -20,7 +20,7 @@
   <div class="pl-hero-isi">
     <div class="pl-avatar">{{ (siswa.nama or '?')[:1] | upper }}</div>
     <div style="flex:1;min-width:170px">
-      <h2>Halo, {{ siswa.nama | title | singkat(24) }}! 👋</h2>
+      <h2>Halo, {{ siswa.nama | title | singkat(24) }}!</h2>
       <div class="pl-hero-baris">
         {% if siswa.rombel %}<span class="pl-keping">Kelas {{ siswa.rombel }}</span>{% endif %}
         <span class="pl-keping">NISN {{ siswa.nisn }}</span>
@@ -45,7 +45,7 @@
   {% if selesai and not menunggu and not menunggu_ekskul %}
   <div class="pl-aksi selesai">
     <span class="pl-aksi-ikon">{{ icon('check') }}</span>
-    <span><strong>Semua beres 👍</strong><span>Tidak ada yang perlu dikerjakan sekarang.</span></span>
+    <span><strong>Semua beres</strong><span>Tidak ada yang perlu dikerjakan sekarang.</span></span>
   </div>
   {% else %}
   <div class="pl-petak">

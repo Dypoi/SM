@@ -449,6 +449,12 @@ table.tabel-kecil th, table.tabel-kecil td { padding: .4rem .55rem; font-size: .
 }
 
 .split { display: grid; grid-template-columns: 1fr 320px; gap: 1rem; align-items: start; }
+/* Anak grid bawaannya `min-width: auto` = selebar isi terkecilnya. Bila isinya
+   (kolom isian/tabel) lebih lebar daripada kolomnya, kolom ikut melar sampai
+   melewati tepi layar — di ponsel halaman jadi harus digulir ke samping
+   (halaman Pengajuan: 404 px di layar 390 px). `min-width: 0` mengizinkan
+   kolom menyusut, jadi isi yang panjang membungkus/digulir di dalam kotaknya. */
+.split > * { min-width: 0; }
 /* Kolom samping harus setinggi barisnya. Kalau tidak (align-items: start),
    panel lengket di dalamnya hanya "setengah lengket": ia berhenti menempel
    setelah beberapa baris lalu ikut tergulir naik. */

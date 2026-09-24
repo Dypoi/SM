@@ -298,7 +298,27 @@ akta lahir, kesehatan, sampai koordinat rumah.
   (`scripts/ikon_png.py`). **Susunan halaman** (bukan cuma isinya) diperiksa
   `scripts/cek_tampilan.py`: menolak tag blok di dalam tag sebaris, kartu baris yang
   berisi blok, dan wadah teks panjang tanpa pembungkus — kelas kesalahan yang membuat
-  kartu kegiatan meluber pada ronde 34. Pada halaman Data Siswa, kartu jumlah (laki-laki, perempuan, KIP,
+  kartu kegiatan meluber pada ronde 34. Karena pertanyaan «ikonnya sudah pas belum»
+  hanya bisa dijawab dengan **mengukur halaman sungguhan**, ada
+  `scripts/lihat_tampilan.py`: ia mengendalikan peramban (Chromium headless lewat
+  DevTools Protocol) untuk memotret halaman dan mengukur titik setiap ikon, isi yang
+  tertutup bilah menu bawah, serta luapan mendatar.
+  ```bash
+  # nyalakan peramban pengawas sekali (butuh Node; di luar sandbox bisa memakai
+  # Chrome/Chromium biasa dengan --remote-debugging-port=9222)
+  npm i @sparticuz/chromium   # unduh Chromium + pustaka NSS ke /tmp
+  node -e "import('@sparticuz/chromium').then(async m=>console.log(await m.default.executablePath()))"
+  LD_LIBRARY_PATH=/tmp/al2023/lib /tmp/chromium --headless --no-sandbox --disable-gpu \
+      --disable-dev-shm-usage --hide-scrollbars --remote-debugging-port=9222 \
+      --user-data-dir=/tmp/cdp-profile about:blank &
+
+  .venv/bin/python scripts/lihat_tampilan.py --masuk-siswa 3900000009 \
+      --ukur "/login?mode=siswa" --ukur "/portal" --ukur "/portal/ekstrakurikuler" \
+      --potret "/login?mode=siswa" --potret "/portal"
+  # halaman petugas: --masuk-petugas
+  # potongan diperbesar (untuk melihat ikon dekat): --potong 700,370,500,330 --perbesar 2
+  # ukuran ponsel: --lebar 390 --tinggi 844
+  ``` Pada halaman Data Siswa, kartu jumlah (laki-laki, perempuan, KIP,
   PIP) berada **di atas** tabel.
   **Tampilan sengaja dibuat sederhana** (masukan sekolah: «designnya rame banget»): tata cara
   tidak ditulis memenuhi halaman, melainkan dipindah ke tombol **`!`** kecil yang membuka

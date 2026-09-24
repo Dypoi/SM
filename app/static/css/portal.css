@@ -247,7 +247,12 @@
 .pl-aksi strong { display: block; font-size: 1rem; }
 .pl-aksi span { display: block; color: var(--pl-redup); font-size: .84rem; }
 
-.pl-aksi-ikon {
+/* Lencana ikon. Selector kedua (`.pl-aksi .pl-aksi-ikon`) sengaja lebih khusus
+   daripada aturan teks `.pl-aksi span { display: block; … }` di atas: dulu aturan
+   itu menang sehingga lencananya menjadi `block` dan ikon menempel di pojok
+   kiri-atas, bukan di tengah. */
+.pl-aksi-ikon,
+.pl-aksi .pl-aksi-ikon {
   flex: none;
   display: grid;
   place-items: center;
@@ -495,9 +500,27 @@
   border: 1px solid #d5e5ff;
 }
 
-.pl-sapa-emoji { font-size: 1.9rem; line-height: 1; }
-.pl-sapa strong { display: block; font-size: 1.08rem; color: var(--pl-primary-tua); }
-.pl-sapa span { display: block; font-size: .92rem; color: #3c4a68; }
+.pl-sapa-ikon {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border: 1px solid #d5e5ff;
+  color: var(--pl-primary);
+}
+
+.pl-sapa-ikon svg { width: 20px; height: 20px; }
+/* Semua aturan di bawah memakai pembatas `>` supaya hanya menyentuh teksnya:
+   lencana ikon (`.pl-sapa-ikon`) tidak boleh ikut menjadi `display: block`
+   (ikonnya akan menempel di pojok, bukan di tengah), dan kata yang ditebalkan
+   di tengah kalimat («NISN») tidak boleh jadi baris sendiri. */
+.pl-sapa > div > strong { display: block; font-size: 1.08rem; color: var(--pl-primary-tua); }
+.pl-sapa > div > span { display: block; font-size: .92rem; color: #3c4a68; }
+.pl-sapa > div > span strong { display: inline; font-size: inherit; }
 
 .pl-masuk-siswa .login-siswa-head .ikon { background: var(--pl-hijau-lembut); color: var(--pl-hijau); }
 .pl-masuk-siswa .login-siswa-head h3 { font-size: 1.05rem; }

@@ -3678,6 +3678,102 @@ def cek_kerapian_susunan():
             "memakai flex-wrap/min-width")
 
 
+@cek("32. Lencana ikon tidak tertimpa aturan teks, tanpa emoji, kolom bisa menyusut")
+def cek_lencana_ikon():
+    """Masukan sekolah ronde 36: «coba anda cek lagi apakah sudah pas penempatan icon nya».
+
+    Dua kesalahan nyata yang dijaga di sini:
+
+    (1) **Lencana ikon tertimpa aturan teks.** Aturan ``.pl-aksi span { display: block }``
+        (untuk keterangan di dalam kartu) ternyata juga mengenai ``span.pl-aksi-ikon``
+        karena kekhususannya lebih tinggi daripada ``.pl-aksi-ikon``. Akibatnya lencana
+        berubah jadi ``block`` dan ikon 25 px menempel di **pojok kiri-atas** kotak 46 px
+        (terukur 10,5 px melenceng — terlihat jelas dengan mata di halaman siswa).
+        Pelindungnya: selector ``.pl-aksi .pl-aksi-ikon`` yang lebih khusus.
+        Hal yang sama terjadi pada kartu sapa siswa (``.pl-sapa span``) yang membuat
+        ikon senyum menempel di pojok dan kalimat «Masuk pakai NISN saja ya.» pecah
+        tiga baris karena ``strong`` di tengah kalimat dipaksa ``display: block``.
+
+    (2) **Emoji mentah tidak selalu tergambar.** Emoji (``👋``, ``👍``, ``🙂``) bergantung
+        pada font sistem. Di peramban pemeriksa, ``👋`` muncul sebagai **kotak kosong**.
+        Ikon SVG dari makro ``icon()`` selalu tergambar sama di semua komputer sekolah.
+
+    (3) **Kolom grid meluber di ponsel.** Anak grid bawaannya ``min-width: auto``
+        (selebar isi terkecilnya). Di halaman Pengajuan, kolom isian membuat anak
+        ``.split`` melar sampai **404 px di layar 390 px** — siswa harus menggulir ke
+        samping. Pelindungnya ``.split > * { min-width: 0 }``.
+
+    Pemeriksaan ini statis (tanpa peramban) supaya bisa ikut berjalan di mana saja;
+    pemeriksaan **letak** ikon & luapan yang sesungguhnya diukur
+    ``scripts/lihat_tampilan.py`` lewat peramban sungguhan.
+    """
+    import re as _re
+
+    portal_css = (BASE_DIR / "app/static/css/portal.css").read_text(encoding="utf-8")
+    rapat = _re.sub(r"\s+", " ", _re.sub(r"/\*.*?\*/", " ", portal_css, flags=_re.S))
+
+    # --- (1) pelindung lencana ikon --- #
+    assert ".pl-aksi .pl-aksi-ikon" in rapat, (
+        "portal.css kehilangan selector '.pl-aksi .pl-aksi-ikon' — aturan teks "
+        "'.pl-aksi span' akan menimpa lencana ikon dan ikonnya menempel di pojok")
+    assert ".pl-sapa > div > span" in rapat, (
+        "portal.css kehilangan '.pl-sapa > div > span' — aturan '.pl-sapa span' "
+        "mengenai lencana ikon (menempel di pojok) dan memecah kalimat pengantar")
+    assert "pl-sapa-emoji" not in portal_css, "kelas lama .pl-sapa-emoji masih tertinggal"
+
+    # Ikon di dalam lencana harus diatur wadahnya (grid/place-items), bukan sebaris.
+    # Komentar CSS dibuang lebih dulu supaya tidak ikut terbaca sebagai aturan.
+    # Lencana bisa diatur di portal.css (halaman siswa) atau app.css (halaman masuk),
+    # jadi keduanya dibaca bersama.
+    app_css = (BASE_DIR / "app/static/css/app.css").read_text(encoding="utf-8")
+    bersih = _re.sub(r"/\*.*?\*/", " ", portal_css + "\n" + app_css, flags=_re.S)
+
+    def aturan_untuk(kelas: str) -> list[str]:
+        """Blok deklarasi dari setiap aturan yang selectornya memuat kelas itu."""
+        hasil = []
+        for cocok in _re.finditer(r"([^{}]*)\{([^{}]*)\}", bersih):
+            selector, isi = cocok.group(1), cocok.group(2)
+            if _re.search(r"(?<![\w-])" + _re.escape(kelas) + r"(?![\w-])", selector):
+                hasil.append(isi)
+        return hasil
+
+    for kelas in (".pl-aksi-ikon", ".pl-kegiatan-ikon", ".pl-sapa-ikon",
+                  ".login-siswa-head .ikon"):
+        aturan = aturan_untuk(kelas)
+        assert aturan, f"{kelas} tidak ada di portal.css"
+        assert any("place-items: center" in satu or "align-items: center" in satu
+                   for satu in aturan), (
+            f"{kelas} tidak menengahkan ikonnya (butuh place-items/align-items: center)")
+        # Lencana juga tidak boleh ikut jadi `block` (penyebab ikon menempel di pojok).
+        assert not any(_re.search(r"(?<![\w-])display:\s*block", satu) for satu in aturan), (
+            f"{kelas} dibuat `display: block` oleh salah satu aturan — ikon akan "
+            "menempel di pojok kiri-atas, bukan di tengah")
+
+    # --- (2) tidak ada emoji mentah di halaman siswa --- #
+    emoji = _re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F\u2B00-\u2BFF]")
+    halaman = [BASE_DIR / "app/templates/login.html"]
+    halaman += sorted((BASE_DIR / "app/templates/portal").glob("*.html"))
+    temuan = []
+    for berkas in halaman:
+        for nomor, baris in enumerate(berkas.read_text(encoding="utf-8").splitlines(), 1):
+            for cocok in emoji.finditer(baris):
+                temuan.append(f"{berkas.relative_to(BASE_DIR)}:{nomor} «{cocok.group()}»")
+    assert not temuan, ("emoji mentah di halaman siswa (bisa jadi kotak kosong di komputer "
+                        "sekolah; pakai ikon SVG makro icon()): " + "; ".join(temuan[:4]))
+
+    # --- (3) kolom grid harus boleh menyusut di layar sempit --- #
+    app_bersih = _re.sub(r"/\*.*?\*/", " ", app_css, flags=_re.S)
+    assert _re.search(r"\.split\s*>\s*\*\s*\{[^}]*min-width:\s*0", app_bersih), (
+        "app.css kehilangan '.split > * { min-width: 0 }' — anak grid bawaannya "
+        "`min-width: auto` sehingga kolom melar melewati tepi layar di ponsel "
+        "(halaman Pengajuan: 404 px di layar 390 px)")
+
+    return ("lencana ikon punya pelindung kekhususan (.pl-aksi .pl-aksi-ikon), "
+            "aturannya menengahkan ikon, kartu sapa memakai pembatas '>', "
+            "kolom .split boleh menyusut (min-width: 0), "
+            f"{len(halaman)} halaman siswa bebas emoji mentah (memakai ikon SVG)")
+
+
 @cek("27. Kode bersih dari peringatan Python (escape sequence & impor)")
 def cek_peringatan_kode():
     """Pastikan menjalankan aplikasi tidak memunculkan peringatan seperti di PC sekolah.
@@ -3787,6 +3883,7 @@ def main() -> int:
     cek_ikon()
     cek_bilah_atas()
     cek_kerapian_susunan()
+    cek_lencana_ikon()
     if args.http:
         cek_http_pengajuan()
         cek_http()
