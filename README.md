@@ -320,6 +320,10 @@ akta lahir, kesehatan, sampai koordinat rumah.
   # ukuran ponsel: --lebar 390 --tinggi 844
   ```
 
+  Alat itu juga memeriksa **teks yang terpotong di dalam kotak isian**
+  (`scrollWidth > clientWidth`) dan kolom yang lebih sempit dari 130 px — kelas
+  kesalahan yang membuat halaman pengajuan tampak «kepotong-potong» (ronde 38).
+
   Selain dipotret & diukur, alur halaman siswa diuji langsung di peramban:
   memilih berkas pada panel unggah (nama & ukuran berkas harus muncul) dan
   mengirim pengajuan (berkas harus diterima server). Bila ada perubahan tampilan

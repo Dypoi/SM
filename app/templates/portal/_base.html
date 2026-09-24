@@ -43,7 +43,9 @@
     </div>
   </header>
 
-  <main class="pl-main" id="konten" tabindex="-1">
+  {#- Halaman «Ajukan Perubahan» memakai dua kolom (isian + lampiran berkas), jadi di
+      layar lebar kerangkanya boleh lebih lega. Halaman siswa lain tetap 760 px. -#}
+  <main class="pl-main{{ ' pl-main-lebar' if halaman == '/portal/pengajuan' else '' }}" id="konten" tabindex="-1">
     <div class="print-only cetak-kepala">
       <div>
         <h1>{{ profil.nama }}</h1>

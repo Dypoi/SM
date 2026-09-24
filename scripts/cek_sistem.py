@@ -3838,8 +3838,8 @@ def cek_halaman_pengajuan_siswa():
         "app.css: lencana seperti «kurang 3» bisa pecah dua baris"
     assert _re.search(r"\.pl-lipat-jumlah\s*\{[^}]*white-space:\s*nowrap", rapat_portal), \
         "portal.css: «8 isian» bisa pecah dua baris"
-    assert "@media (max-width: 620px)" in app_css and ".field.span-2" in app_css, \
-        "app.css: .field.span-2 harus kembali satu kolom di layar sempit"
+    # (Cara `.field.span-2` dijaga berubah di ronde 38: kini `grid-column: 1 / -1`
+    #  sehingga tidak perlu dilonggarkan lewat media query — dijaga blok 34.)
 
     # --- (4) halaman nyatanya: urutan & tidak ada bilah lengket --- #
     import asyncio
@@ -3871,6 +3871,78 @@ def cek_halaman_pengajuan_siswa():
     return (f"{jumlah_panel} panel unggah ramah (tanpa tulisan «Choose File»), tombol kirim di akhir "
             f"halaman (bukan lengket di dalam kartu), lencana & «isian» tidak pecah baris, "
             f"halaman {panjang // 1024} KB diperiksa lewat HTTP")
+
+
+@cek("34. Isian tidak terpotong di wadah sempit (kisi grid boleh menyusut)")
+def cek_isian_tak_terpotong():
+    """Masukan sekolah ronde 38: «jelek kepotong potong gini halaman pengajuannya»
+    (tangkapan layar halaman Ajukan Perubahan).
+
+    Sebabnya bukan sekadar ukuran layar: kisi formulir memakai
+    ``repeat(auto-fit, minmax(230px, 1fr))``. Bila wadahnya tidak cukup untuk
+    **dua** kolom berisi 230 px, peramban tetap menyusun dua kolom lalu kolom kedua
+    tergencet sampai selebar 75 px — isian di dalamnya (``Kecamatan``, ``Tempat
+    Lahir``, ``NIPD``) jadi terpotong di tengah kata. Di kerangka siswa (760 px)
+    kartu kiri hanya ~385 px sehingga ini terjadi di hampir semua laptop.
+
+    Pelindungnya:
+    * ``minmax(min(230px, 100%), 1fr)`` — kisi tidak pernah menuntut kolom lebih
+      lebar daripada tempatnya, jadi otomatis satu kolom bila tidak muat;
+    * ``.field input/select/textarea { min-width: 0 }`` — isian bawaan peramban
+      punya lebar sendiri (atribut ``size``) dan bisa menolak menyusut;
+    * ``.field.span-2 { grid-column: 1 / -1 }`` — ``span 2`` pada kisi satu kolom
+      menyisipkan kolom kedua yang tersembunyi;
+    * ``.pl-main-lebar`` — halaman yang memakai dua kolom (isian + lampiran berkas)
+      boleh lebih dari 760 px di layar besar.
+    """
+    import re as _re
+
+    app_css = (BASE_DIR / "app/static/css/app.css").read_text(encoding="utf-8")
+    portal_css = (BASE_DIR / "app/static/css/portal.css").read_text(encoding="utf-8")
+    base = (BASE_DIR / "app/templates/portal/_base.html").read_text(encoding="utf-8")
+    bersih_app = _re.sub(r"/\*.*?\*/", " ", app_css, flags=_re.S)
+    bersih_portal = _re.sub(r"/\*.*?\*/", " ", portal_css, flags=_re.S)
+
+    for kisi, minimum in ((".form-grid", 230), (".grid-2", 320), (".grid-3", 240), (".grid-4", 200)):
+        pola = rf"{_re.escape(kisi)}[^{{}}]*\{{[^}}]*minmax\(min\(\s*{minimum}px\s*,\s*100%\s*\)"
+        assert _re.search(pola, bersih_app), (
+            f"{kisi} harus memakai minmax(min({minimum}px, 100%), 1fr) supaya kolomnya "
+            "boleh menyusut — tanpa itu isian terpotong di wadah sempit")
+
+    assert _re.search(r"\.field input,\s*\.field select,\s*\.field textarea\s*\{[^}]*min-width:\s*0",
+                      bersih_app), "isian di dalam .field harus boleh menyusut (min-width: 0)"
+    assert _re.search(r"\.field\.span-2\s*\{[^}]*grid-column:\s*1\s*/\s*-1", bersih_app), (
+        "'.field.span-2' harus memakai `grid-column: 1 / -1` — `span 2` pada kisi "
+        "satu kolom menyisipkan kolom tersembunyi sehingga isian jadi setengah lebar")
+    assert ".pl-main-lebar" in bersih_portal, (
+        "portal.css kehilangan .pl-main-lebar (kerangka lega untuk halaman dua kolom)")
+    assert "pl-main-lebar" in base and "/portal/pengajuan" in base, (
+        "_base.html belum memakai kerangka lega untuk halaman pengajuan siswa")
+
+    # Halaman nyatanya: kelas kerangka lega harus benar-benar terbit.
+    import asyncio
+    import httpx
+
+    async def periksa() -> str:
+        from app.main import app
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://cek",
+                                     follow_redirects=True) as klien:
+            await klien.post("/login", data={"mode": "siswa", "nisn": "3900000009"})
+            halaman = await klien.get("/portal/pengajuan")
+            assert halaman.status_code == 200, halaman.status_code
+            assert 'class="pl-main pl-main-lebar"' in halaman.text, \
+                "halaman pengajuan tidak memakai kerangka lega"
+            # Halaman siswa lain harus tetap 760 px (jangan ikut melebar).
+            lain = await klien.get("/portal")
+            assert "pl-main-lebar" not in lain.text, \
+                "halaman siswa lain tidak boleh ikut memakai kerangka lega"
+            await klien.post("/logout")
+            return "halaman pengajuan memakai kerangka lega, halaman siswa lain tetap 760 px"
+
+    return (f"kisi (form-grid/grid-2/3/4) memakai minmax(min(…, 100%), 1fr), isian boleh "
+            f"menyusut & .field.span-2 memakai 1 / -1; {asyncio.run(periksa())}")
 
 
 @cek("27. Kode bersih dari peringatan Python (escape sequence & impor)")
@@ -3984,6 +4056,7 @@ def main() -> int:
     cek_kerapian_susunan()
     cek_lencana_ikon()
     cek_halaman_pengajuan_siswa()
+    cek_isian_tak_terpotong()
     if args.http:
         cek_http_pengajuan()
         cek_http()

@@ -131,6 +131,11 @@
 
 .pl-main > * + * { margin-top: 1rem; }
 
+/* Halaman dengan dua kolom (isian + lampiran berkas) di layar lebar: kerangka
+   760 px membuat kolom isian hanya ~385 px sehingga kisi formulir 2 kolom
+   tergencet dan isiannya terpotong (keluhan sekolah ronde 38). */
+.pl-main-lebar { width: min(1060px, 100%); }
+
 .pl-judul {
   font-size: 1.32rem;
   margin: 0 0 .2rem;

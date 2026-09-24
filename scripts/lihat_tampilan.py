@@ -293,8 +293,13 @@ def periksa(hasil: dict) -> list[str]:
         # Ikon di atas label (menu bawah, susunan bertumpuk) memang sengaja.
         bertumpuk = induk["display"] == "flex" and "column" in induk["kelurus"]
 
-        # (3) sejajar dengan teks di sebelahnya.
-        if not bertumpuk and ikon["teks"]:
+        # (3) sejajar dengan teks di sebelahnya — hanya bila teksnya memang di
+        #     samping ikon. Kalau ikon berada sepenuhnya di ATAS teks (mis. kotak
+        #     unggah berkas: ikon → judul → keterangan), tidak ada yang perlu
+        #     disejajarkan dan perbandingan titik tengahnya tak berarti.
+        di_atas_teks = bool(ikon["teks"]) and ikon["pusatY"] + ikon["tinggi"] / 2 \
+            <= ikon["teks"]["atas"] + 2
+        if not bertumpuk and not di_atas_teks and ikon["teks"]:
             beda = ikon["pusatY"] - ikon["teks"]["tengah"]
             if abs(beda) > 2.5:
                 temuan.append(f"{tempat}: titik tengah ikon {beda:+.1f} px dari tengah teks "
@@ -342,6 +347,7 @@ def _lihat(sesi: Sesi, args, jalur: str, tujuan: Path) -> list[str]:
         masalah += periksa(hasil)
         masalah += periksa_tumpang_tindih(sesi, jalur)
         masalah += periksa_luapan(sesi, jalur)
+        masalah += periksa_isian(sesi, jalur)
     if jalur in args.potret:
         if jalur not in args.ukur:
             buka(sesi, f"{args.basis}{jalur}", args.lebar, args.tinggi)
@@ -440,6 +446,59 @@ def periksa_luapan(sesi: Sesi, jalur: str) -> list[str]:
                        for x in hasil["pelanggar"][:3])
     return [f"{jalur}: {hasil['jumlah']} bagian melewati tepi layar "
             f"(dokumen {hasil['lebarDokumen']} px vs layar {hasil['lebarLayar']} px): {paling}"]
+
+
+SKRIP_ISIAN = r"""
+(() => {
+  // Isian yang teksnya terpotong: isinya lebih lebar daripada kotaknya, sehingga
+  // siswa hanya melihat sebagian («Kec. Ne» dari «Kec. NEGERI»). Inilah keluhan
+  // «kepotong potong» pada halaman Ajukan Perubahan (ronde 38).
+  const terpotong = [];
+  for (const el of document.querySelectorAll('input, select, textarea')) {
+    if (!el.checkVisibility()) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) continue;
+    const gaya = getComputedStyle(el);
+    // Isian berkas yang sengaja disembunyikan (panel unggah) bukan temuan.
+    if (el.type === 'file') continue;
+    if (el.closest('.pl-unggah-pilih')) continue;
+    if (+gaya.opacity < 0.1 || r.width < 40 || r.height < 12) continue;
+    if (el.scrollWidth > el.clientWidth + 2 && r.width < 320) {
+      terpotong.push({tag: el.tagName.toLowerCase(), id: el.id || el.name || '',
+                      lebar: +r.width.toFixed(1), isiButuh: el.scrollWidth,
+                      nilai: (el.value || '').slice(0, 24)});
+    }
+  }
+  // Kolom kisi yang terlalu sempit untuk dibaca.
+  const sempit = [];
+  for (const el of document.querySelectorAll('.field, .form-grid > *')) {
+    if (!el.checkVisibility()) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width > 1 && r.width < 130) sempit.push({kelas: [...el.classList].join('.'),
+                                                   lebar: +r.width.toFixed(1)});
+  }
+  return {terpotong, jumlahTerpotong: terpotong.length,
+          sempit, jumlahSempit: sempit.length,
+          terlebar: document.documentElement.scrollWidth};
+})()
+"""
+
+
+def periksa_isian(sesi: Sesi, jalur: str) -> list[str]:
+    """Laporkan isian yang teksnya terpotong / kolom yang terlalu sempit."""
+    hasil = sesi.nilai(SKRIP_ISIAN)
+    if not hasil:
+        return []
+    temuan: list[str] = []
+    for x in hasil["terpotong"][:4]:
+        temuan.append(f"{jalur}: isian «{x['id']}» terpotong (kotak {x['lebar']} px, "
+                      f"isi butuh {x['isiButuh']} px) — nilainya tak terbaca penuh "
+                      f"(«{x['nilai']}»)")
+    if hasil["jumlahSempit"] > 2:
+        contoh = ", ".join(f"{x['kelas'] or '?'} {x['lebar']} px" for x in hasil["sempit"][:3])
+        temuan.append(f"{jalur}: {hasil['jumlahSempit']} kolom terlalu sempit untuk dibaca "
+                      f"(< 130 px): {contoh}")
+    return temuan
 
 
 def _nama_berkas(jalur: str, args) -> str:
