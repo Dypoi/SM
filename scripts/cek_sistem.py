@@ -3945,6 +3945,144 @@ def cek_isian_tak_terpotong():
             f"menyusut & .field.span-2 memakai 1 / -1; {asyncio.run(periksa())}")
 
 
+@cek("35. Halaman ekskul sisi pelatih utuh & responsif di layar ponsel")
+def cek_ekskul_ponsel():
+    """Masukan sekolah ronde 39: «ketika login sebagai pelatih, halamannya masih
+    tidak responsi… sisi hp harus bisa responsif tidak boleh ada terpotong».
+
+    Tiga sebab yang terukur di peramban sungguhan (bukan dugaan):
+
+    * **Aturan responsif kalah urutan.** Blok ``@media (max-width: 560px)`` yang
+      menjadikan ``.form-tambah-anggota``/``.form-cari-cepat``/``.form-jadwal``
+      satu kolom ditulis di baris ~759, sedangkan aturan dasarnya ada di baris
+      ~941/959/975. Kekhususan sama → yang belakangan menang, jadi di HP
+      formulir tetap 4 kolom: tombol «Masukkan» terukur 671 px pada layar 390 px
+      dan tercengkeram keluar kartu. Sekarang kisinya lentur
+      (``repeat(auto-fit, minmax(min(Npx, 100%), 1fr))``) **dan** aturan layar
+      sempitnya ditaruh di akhir berkas — dua-duanya diperiksa di sini supaya
+      tidak terulang.
+    * **Tabel tetap tabel di layar sempit.** ``table.data.kartu`` baru jadi daftar
+      kartu di ≤560 px, sehingga pada 600 px tabel 7–9 kolom (743–941 px)
+      terpotong tanpa tanda apa pun. Ambangnya kini 1400 px; tabel ``.data`` yang
+      tidak memakai kelas ``kartu`` jadi kartu di ≤900 px.
+    * **Sel kartu tidak boleh menyusut.** Lencana «1 pendaftar menunggu» yang
+      ``nowrap`` dan sel dengan beberapa isian menembus tepi kartu bila selnya
+      tidak boleh turun baris (``flex-wrap: wrap`` + lencana boleh membungkus).
+    """
+    import re as _re
+
+    app_css = (BASE_DIR / "app/static/css/app.css").read_text(encoding="utf-8")
+    detail = (BASE_DIR / "app/templates/ekskul/detail.html").read_text(encoding="utf-8")
+    daftar = (BASE_DIR / "app/templates/ekskul/list.html").read_text(encoding="utf-8")
+    bersih = _re.sub(r"/\*.*?\*/", " ", app_css, flags=_re.S)
+
+    # --- 1. Ketiga formulir halaman ekskul memakai kisi yang boleh menyusut ---
+    for kisi, minimum in ((".form-jadwal", 190), (".form-tambah-anggota", 220),
+                          (".form-cari-cepat", 200)):
+        pola = (rf"{_re.escape(kisi)}\s*\{{[^}}]*grid-template-columns:\s*repeat\(auto-fit,\s*"
+                rf"minmax\(min\(\s*{minimum}px\s*,\s*100%\s*\)")
+        assert _re.search(pola, bersih), (
+            f"{kisi} harus memakai repeat(auto-fit, minmax(min({minimum}px, 100%), 1fr)) "
+            "supaya kolomnya menyusut sendiri di layar sempit")
+
+    # --- 2. Aturan layar sempitnya TIDAK boleh berada sebelum definisi dasarnya ---
+    #     (inilah kesalahan ronde 39: kekhususan sama, urutan sumber yang menentukan)
+    for kisi in (".form-tambah-anggota", ".form-cari-cepat", ".form-jadwal"):
+        posisi_dasar = bersih.index(f"{kisi} {{")
+        posisi_sempit = [m.start() for m in _re.finditer(
+            rf"@media \(max-width: 700px\) \{{[^}}]*{_re.escape(kisi)}[^}}]*grid-template-columns:\s*1fr",
+            bersih, flags=_re.S)]
+        assert posisi_sempit, (
+            f"tidak ada aturan satu kolom untuk {kisi} pada layar ≤700 px")
+        assert min(posisi_sempit) > posisi_dasar, (
+            f"aturan layar sempit {kisi} berada SEBELUM definisi dasarnya — "
+            "aturan itu akan kalah dan formulirnya kembali 4 kolom di HP (ronde 39)")
+
+    # --- 3. Semua tabel jadi daftar kartu di layar sempit ---
+    pola_kartu = _re.search(r"@media \(max-width: (\d+)px\) \{\s*table\.data\.kartu \{ display: block; \}",
+                            bersih)
+    assert pola_kartu, "tidak ada blok «tabel jadi kartu» untuk table.data.kartu"
+    ambang = int(pola_kartu.group(1))
+    assert ambang >= 1400, (
+        f"ambang tabel kartu hanya {ambang} px — tabel anggota ekskul butuh 1166 px dan "
+        "Data Siswa 1097 px, jadi kolomnya terpotong di laptop 1366 px")
+    pola_semua = _re.search(r"@media \(max-width: (\d+)px\) \{\s*table\.data \{ display: block; \}",
+                            bersih)
+    assert pola_semua, "tabel .data tanpa kelas kartu tidak pernah jadi kartu di ponsel"
+    assert int(pola_semua.group(1)) >= 600, (
+        "tabel .data (dasbor, Statistik, Kualitas Data, Impor) tetap tabel di HP → terpotong")
+
+    # --- 4. Sel kartu boleh turun baris & lencana boleh membungkus ---
+    blok_kartu = bersih[pola_kartu.start():pola_kartu.start() + 2000]
+    assert _re.search(r"table\.data\.kartu td \{[^}]*flex-wrap:\s*wrap", blok_kartu), (
+        "sel mode kartu harus flex-wrap: wrap — tanpa itu isinya menembus tepi kartu")
+    assert _re.search(r"table\.data\.kartu td \.badge \{ white-space: normal", blok_kartu), (
+        "lencana di mode kartu harus boleh turun baris (nowrap membuatnya keluar kartu)")
+
+    # --- 5. Isian bawaan peramban boleh menyusut di mana pun ---
+    assert _re.search(r'input\[type="text"\][^{]*select,\s*textarea\s*\{[^}]*min-width:\s*0', bersih), (
+        "isian global harus punya min-width: 0 (lebar bawaan peramban menolak menyusut)")
+
+    # --- 6. Halaman daftar ekskul: kolom samping turun bila tabel tidak muat ---
+    assert _re.search(r"@media \(max-width: 1500px\) \{\s*\.split-tabel \{ grid-template-columns: 1fr; \}",
+                      bersih), "hilang aturan .split-tabel (kolom samping daftar ekskul)"
+    assert "split split-tabel" in daftar, \
+        "halaman daftar ekskul tidak memakai .split-tabel sehingga tabelnya terpotong pada 1101–1500 px"
+
+    # --- 7. Tabel di halaman pelatih harus memakai kelas kartu ---
+    assert detail.count('<table class="data kartu') >= 2, (
+        "tabel pendaftar & anggota halaman pelatih harus ber-kelas kartu")
+    assert '<table class="data tabel-kecil kartu"' in detail, (
+        "tabel hasil «Cari cepat siswa» harus ber-kelas kartu juga")
+
+    # --- 8. Halamannya benar-benar terbit & bisa dibuka pelatih ---
+    import asyncio
+
+    import httpx
+
+    async def periksa() -> str:
+        from app import db, services
+        from app.main import app
+
+        ekskul = [baris for baris in services.list_ekskul() if baris["nama"] == "PMR"]
+        assert ekskul, "ekskul PMR tidak ada — jalankan siapkan_data_uji.py"
+        ekskul_id = ekskul[0]["id"]
+        nik = "3204000000000009"
+        # Akun pelatih & satu anggota disemai sendiri: basis data uji bisa saja sudah
+        # punya akun PMR dengan NIK lain, dan tabel anggota hanya terbit bila ekskulnya
+        # beranggota (blok 35 harus menguji halaman yang utuh, bukan halaman kosong).
+        if db.query_value("SELECT COUNT(*) FROM ekskul_akun WHERE ekskul_id = ? AND nik = ?",
+                          (ekskul_id, nik)) == 0:
+            db.execute("INSERT INTO ekskul_akun (ekskul_id, peran, nik, nama, aktif) "
+                       "VALUES (?, 'pelatih', ?, 'Pelatih Uji', 1)", (ekskul_id, nik))
+        if db.query_value("SELECT COUNT(*) FROM ekskul_members WHERE ekskul_id = ?",
+                          (ekskul_id,)) == 0:
+            siswa_id = db.query_value("SELECT id FROM students ORDER BY id LIMIT 1")
+            assert siswa_id, "tidak ada siswa di basis data uji"
+            db.execute("INSERT INTO ekskul_members (ekskul_id, student_id, jabatan, tahun_ajaran, "
+                       "semester, status) VALUES (?, ?, 'Anggota', '2026/2027', 'Ganjil', 'aktif')",
+                       (ekskul_id, siswa_id))
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://cek",
+                                     follow_redirects=True) as klien:
+            masuk = await klien.post("/login", data={"mode": "ekskul", "peran": "pelatih",
+                                                     "ekskul_id": str(ekskul_id), "nik": nik})
+            assert masuk.status_code == 200, masuk.status_code
+            halaman = await klien.get(f"/ekstrakurikuler/{ekskul_id}")
+            assert halaman.status_code == 200, halaman.status_code
+            teks = halaman.text
+            for bagian in ("form-jadwal", "form-tambah-anggota", "form-cari-cepat",
+                           "data kartu anggota"):
+                assert bagian in teks, f"halaman pelatih kehilangan bagian «{bagian}»"
+            await klien.post("/logout")
+        return f"halaman /ekstrakurikuler/{ekskul_id} terbuka untuk pelatih (NIK {nik})"
+
+    return (f"3 formulir memakai kisi lentur & aturan sempitnya ada di akhir berkas; "
+            f"tabel jadi kartu di ≤{ambang} px (semua .data di ≤{pola_semua.group(1)} px); "
+            f"sel kartu & lencana boleh turun baris; {asyncio.run(periksa())}")
+
+
 @cek("27. Kode bersih dari peringatan Python (escape sequence & impor)")
 def cek_peringatan_kode():
     """Pastikan menjalankan aplikasi tidak memunculkan peringatan seperti di PC sekolah.
@@ -4057,6 +4195,7 @@ def main() -> int:
     cek_lencana_ikon()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
+    cek_ekskul_ponsel()
     if args.http:
         cek_http_pengajuan()
         cek_http()

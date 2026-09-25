@@ -120,7 +120,7 @@
       </div>
     </div>
     <div class="card-body p-0 table-wrap compact">
-      <table class="data">
+      <table class="data kartu">
         <thead>
           <tr>
             <th>Kolom</th><th>Grup</th><th class="num">Terisi</th><th class="num">Kosong</th>
@@ -130,13 +130,13 @@
         <tbody>
           {% for item in kualitas.fields %}
           <tr>
-            <td>
+            <td data-label="Kolom">
               {{ item.label }}
               {% if item.wajib %}<span class="badge badge-primary" title="Kolom wajib">wajib</span>{% endif %}
             </td>
-            <td class="muted">{{ label_grup.get(item.group, item.group) }}</td>
-            <td class="num">{{ item.terisi | angka_id }}</td>
-            <td class="num">
+            <td class="muted" data-label="Grup">{{ label_grup.get(item.group, item.group) }}</td>
+            <td class="num" data-label="Terisi">{{ item.terisi | angka_id }}</td>
+            <td class="num" data-label="Kosong">
               {% if item.kosong %}
                 <a href="/data-siswa?kosong={{ item.key }}"
                    title="Lihat {{ item.kosong | angka_id }} siswa yang kolom {{ item.label }} masih kosong">{{ item.kosong | angka_id }}</a>
@@ -144,7 +144,7 @@
                 {{ item.kosong | angka_id }}
               {% endif %}
             </td>
-            <td>
+            <td data-label="Kelengkapan">
               <div class="flex gap-1">
                 <div class="progress {{ 'danger' if item.persen < 50 else ('warn' if item.persen < 90 else '') }}" style="flex:1">
                   <span style="width: {{ item.persen }}%"></span>
@@ -152,7 +152,7 @@
                 <small class="muted" style="min-width:46px;text-align:right">{{ item.persen }}%</small>
               </div>
             </td>
-            <td class="text-right">
+            <td class="text-right" data-label="Tindakan">
               {% if item.kosong %}
                 <a class="btn btn-outline btn-sm" href="/data-siswa?kosong={{ item.key }}">Perbaiki</a>
               {% else %}

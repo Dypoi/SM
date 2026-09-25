@@ -324,6 +324,16 @@ akta lahir, kesehatan, sampai koordinat rumah.
   (`scrollWidth > clientWidth`) dan kolom yang lebih sempit dari 130 px — kelas
   kesalahan yang membuat halaman pengajuan tampak «kepotong-potong» (ronde 38).
 
+  Cara memeriksa **seluruh halaman sekaligus** (ronde 39 — inilah yang menemukan
+  halaman pelatih terpotong di HP): satu perulangan lebar layar, dan tiap halaman
+  diperiksa tiga hal — elemen yang melewati tepi konten, `.table-wrap` yang
+  `scrollWidth > clientWidth`, dan dokumen yang bisa digulir ke samping. Sapu itu
+  memakai `Sesi` dari `lihat_tampilan.py`; **tabnya ditutup** setiap selesai
+  (`/json/close/<id>`) supaya memori peramban tidak menumpuk. Tabel besar
+  (`table.data.kartu`) berubah menjadi daftar kartu di layar ≤1400 px, tabel
+  `.data` lain di ≤900 px, dan tabel di kolom sempit memakai container query
+  (`@container (max-width: 760px)`), jadi tidak ada kolom yang terpotong.
+
   Selain dipotret & diukur, alur halaman siswa diuji langsung di peramban:
   memilih berkas pada panel unggah (nama & ukuran berkas harus muncul) dan
   mengirim pengajuan (berkas harus diterima server). Bila ada perubahan tampilan

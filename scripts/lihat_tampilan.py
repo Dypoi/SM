@@ -58,6 +58,7 @@ class Sesi:
                 alamat_ws, suppress_origin=True, timeout=60, max_size=256 * 1024 * 1024)
         except OSError as galat:  # pragma: no cover - tergantung lingkungan
             raise GalatPeramban(f"Tidak bisa menyambung ke peramban: {galat}") from galat
+        self.alamat_ws = alamat_ws
         self.nomor = 0
 
     def panggil(self, metode: str, **param):
@@ -80,10 +81,32 @@ class Sesi:
         return hasil.get("result", {}).get("value")
 
     def tutup(self) -> None:
+        """Tutup tabnya, bukan sekadar menyambungnya.
+
+        Sebelum ronde 39 fungsi ini hanya menutup websocket; tabnya tetap hidup di
+        peramban. Setelah beberapa kali sapu (puluhan halaman × banyak lebar),
+        tab-tab itu menumpuk sampai memori mesin habis — gejalanya pemeriksaan
+        berikutnya gagal «Tidak bisa membuka tab peramban: timed out» dan seluruh
+        mesin melambat karena kehabisan memori. Sekarang tabnya benar-benar ditutup.
+        """
         try:
             self.ws.close()
         except Exception:  # pragma: no cover - pembereskan
             pass
+        target = _TARGET.get(self.alamat_ws)
+        if target:
+            port, id_target = target
+            _TARGET.pop(self.alamat_ws, None)
+            try:
+                with urlopen(f"http://127.0.0.1:{port}/json/close/{id_target}", timeout=10):
+                    pass
+            except Exception:  # pragma: no cover - pembereskan
+                pass
+
+
+# Alamat websocket → (porta, id tab). Dipakai `Sesi.tutup()` supaya tabnya benar-benar
+# ditutup, bukan hanya websocket-nya (lihat catatan di Sesi.tutup).
+_TARGET: dict[str, tuple[int, str]] = {}
 
 
 def tab_baru(port: int, url: str) -> str:
@@ -100,7 +123,9 @@ def tab_baru(port: int, url: str) -> str:
                 data = json.load(jawaban)
         except (URLError, OSError) as galat:
             raise GalatPeramban(f"Tidak bisa membuka tab peramban: {galat}") from galat
-    return data["webSocketDebuggerUrl"]
+    alamat_ws = data["webSocketDebuggerUrl"]
+    _TARGET[alamat_ws] = (port, data["id"])
+    return alamat_ws
 
 
 def tunggu_muat(sesi: Sesi, batas: float = 30.0) -> None:

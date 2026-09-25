@@ -222,7 +222,9 @@ code, pre { font-family: var(--mono); font-size: .86em; }
   border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden;
 }
 .card-head {
-  display: flex; align-items: center; justify-content: space-between; gap: .8rem;
+  /* flex-wrap: bila judul + tombol (mis. «Rapikan data wali (816)») tidak muat
+     sebaris, tombol turun ke baris berikutnya — bukan menembus tepi kartu. */
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .8rem;
   padding: .85rem 1.1rem; border-bottom: 1px solid var(--border-soft); background: #fcfdff;
 }
 .card-head h3 { margin: 0; font-size: .95rem; }
@@ -302,6 +304,10 @@ code, pre { font-family: var(--mono); font-size: .86em; }
 
 input[type="text"], input[type="password"], input[type="number"], input[type="date"],
 input[type="email"], input[type="search"], input[type="time"], select, textarea {
+  /* Isian bawaan peramban punya lebar sendiri (atribut size) dan bisa menolak
+     menyusut — di dalam sel tabel hal itu membuat tabel melebar sampai keluar
+     layar (ronde 38/39). */
+  min-width: 0;
   width: 100%; padding: .52rem .68rem; font: inherit; font-size: .89rem;
   color: var(--text); background: #fff;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -318,7 +324,12 @@ input[type="file"] { padding: .45rem; background: #fbfdff; }
 .form-actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1rem; }
 
 /* ---------------------------------------------------------------- Tabel --- */
-.table-wrap { overflow-x: auto; border-radius: 0 0 var(--radius) var(--radius); }
+/* `container-type: inline-size` membuat kotak ini bisa diukur lebar KOTAKNYA
+   sendiri (bukan lebar layar) lewat @container di bawah — perlu karena tabel yang
+   sama bisa berada di kolom sempit (mis. riwayat bot di samping) walau layarnya
+   lebar. Tanpa ini, tabel sepitih itu terpotong di layar 1440–1568 px. */
+.table-wrap { overflow-x: auto; border-radius: 0 0 var(--radius) var(--radius);
+  container-type: inline-size; }
 table.data {
   width: 100%; border-collapse: collapse; font-size: .87rem;
 }
@@ -756,9 +767,13 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: non
   .stat-value { font-size: 1.35rem; }
   .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
   .form-actions.sticky-actions { margin: 1rem -.85rem -.85rem; padding: .7rem .85rem; }
-  .form-tambah-anggota, .form-cari-cepat, .form-jadwal { grid-template-columns: 1fr; }
-  .form-tambah-anggota .btn, .form-cari-cepat .btn, .form-jadwal .btn { width: 100%; }
 }
+/* Catatan (ronde 39): aturan `.form-tambah-anggota/.form-cari-cepat/.form-jadwal`
+   DULU ditulis di sini — lalu KALAH oleh aturan dasarnya sendiri yang berada lebih
+   bawah di berkas ini (kekhususan sama, yang belakangan menang). Akibatnya di HP
+   ketiga formulir itu tetap 4 kolom dan tombolnya keluar dari kartu. Kini mereka
+   dibuat lentur (auto-fit + min()) dan aturan layar sempitnya ditaruh di AKHIR
+   berkas. Dijaga blok 35 `scripts/cek_sistem.py`. */
 
 /* --- Mode cetak: rapi untuk daftar siswa & laporan -------------------- */
 @media print {
@@ -801,8 +816,15 @@ td.empty-cell { padding: 0; }
 /* --- Tombol yang sedang menunggu balasan server ------------------------ */
 .btn-menunggu { opacity: .68; cursor: progress; }
 
-/* --- Ponsel: tabel jadi daftar kartu agar tidak perlu menggeser layar --- */
-@media (max-width: 560px) {
+/* --- Ponsel, tablet, & laptop kecil: tabel jadi daftar kartu agar tidak ada
+   yang terpotong ---
+   Ambangnya 1400 px (dulu 560, lalu 800, lalu 1340). Tabel anggota ekskul butuh
+   1166 px dan tabel Data Siswa 1097 px; dengan bilah samping, ruang isi pada layar
+   1180 px hanya ~926 px dan pada 1366 px ~1112 px sehingga kolom terakhir
+   terpotong tanpa tanda apa pun — terukur pada 600, 820, 900, 1024, 1180, dan
+   1366 px. Di layar ≥1401 px (ruang isi ≥1146 px) tabel kembali tampil sebagai
+   tabel. */
+@media (max-width: 1400px) {
   table.data.kartu { display: block; }
   table.data.kartu thead { display: none; }
   table.data.kartu tbody, table.data.kartu tr { display: block; }
@@ -812,7 +834,11 @@ td.empty-cell { padding: 0; }
   }
   table.data.kartu tr:nth-child(even) { background: #fbfdff; }
   table.data.kartu td {
-    display: flex; align-items: baseline; justify-content: space-between; gap: .75rem;
+    /* flex-wrap: sel yang memuat beberapa hal (tautan + lencana + catatan, atau
+       daftar isian di samping tombol) boleh turun baris. Tanpa ini isinya
+       menembus tepi kartu di layar sempit (ronde 39). */
+    display: flex; flex-wrap: wrap; align-items: baseline;
+    justify-content: space-between; gap: .35rem .75rem;
     padding: .16rem 0; border: 0; text-align: left; width: auto;
   }
   table.data.kartu td::before {
@@ -820,6 +846,9 @@ td.empty-cell { padding: 0; }
     font-size: .74rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
   }
   table.data.kartu td[data-label="#"] { display: none; }
+  /* Lencana panjang (mis. «1 pendaftar menunggu») boleh turun baris di dalam
+     kartu. Dengan `nowrap` ia menembus tepi kartu di layar sempit (ronde 39). */
+  table.data.kartu td .badge { white-space: normal; }
   /* Keadaan kosong harus tetap terlihat: satu sel selebar kartu. */
   table.data.kartu td.empty-cell { display: block; padding: 0; }
   table.data.kartu td.empty-cell::before { content: none; }
@@ -909,7 +938,9 @@ table.data.anggota td input[name="catatan"] { min-width: 190px; }
 /* --- Halaman Bot Dapodik ---------------------------------------------- */
 .form-bot {
   display: grid; gap: .8rem; align-items: end;
-  grid-template-columns: 190px 190px minmax(240px, 1fr);
+  /* Dulu 190px 190px minmax(240px, 1fr): di layar 390–600 px isinya terpotong
+     (isian «Batasi jumlah siswa» dan kotak «Daftar NISN» keluar dari kartu). */
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
 }
 .form-bot .field { margin: 0; }
 .form-bot .field.span-3 { grid-column: 1 / -1; }
@@ -940,7 +971,9 @@ table.data td.sel-masalah .badge { margin-left: .3rem; }
 /* --- Form jadwal ekskul (hari & jam oleh pembina/pelatih) --------------- */
 .form-jadwal {
   display: grid; gap: .8rem; align-items: end;
-  grid-template-columns: 220px 160px 160px auto;
+  /* auto-fit + min(): kolom menyusut sendiri tanpa media query, jadi tidak
+     pernah meluber walau aturan ini berada setelah blok responsif. */
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
 }
 .form-jadwal .field { margin: 0; }
 
@@ -958,7 +991,7 @@ table.data td.sel-masalah .badge { margin-left: .3rem; }
 .cari-cepat-isi { padding: .95rem 1.1rem 1.1rem; }
 .form-cari-cepat {
   display: grid; gap: .8rem; align-items: end;
-  grid-template-columns: minmax(200px, 1fr) 190px auto auto;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
 }
 .form-cari-cepat .field { margin: 0; }
 .cari-ringkas { margin: .95rem 0 .5rem; font-size: .84rem; color: var(--text-soft); }
@@ -974,7 +1007,7 @@ table.data td.sel-masalah .badge { margin-left: .3rem; }
 }
 .form-tambah-anggota {
   display: grid; gap: .8rem; align-items: end;
-  grid-template-columns: minmax(220px, 1fr) 180px auto;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
 }
 .form-tambah-anggota .field { margin: 0; }
 .form-tambah-anggota .btn { white-space: nowrap; }
@@ -1075,4 +1108,95 @@ input.input-nik {
 
 @media (max-width: 640px) {
   .bot-ringkas { grid-template-columns: 1fr 1fr; }
+}
+
+/* --- Formulir bersusun banyak kolom: di layar sempit jadi satu kolom ---------
+   Ditaruh di AKHIR berkas dengan sengaja: kekhususan selectornya sama dengan
+   aturan dasarnya, jadi urutan yang menentukan. Bila dipindah ke atas, aturan
+   ini akan kalah dan tombolnya kembali keluar dari kartu di HP (lihat ronde 39). */
+@media (max-width: 700px) {
+  .form-tambah-anggota, .form-cari-cepat, .form-jadwal { grid-template-columns: 1fr; }
+  .form-tambah-anggota .btn, .form-cari-cepat .btn, .form-jadwal .btn { width: 100%; }
+  .cari-cepat-isi, .card-body.tambah-anggota { padding: .8rem; }
+}
+
+/* --- Halaman «Daftar Ekstrakurikuler»: tabelnya butuh ±870 px --------------
+   Pada 1101–1500 px tata letak terbelah masih dipertahankan, tetapi kolom
+   kirinya (±730–865 px) lebih sempit daripada tabel sehingga kolom «Aksi»
+   terpotong. Jadi di rentang itu kolom sampingnya turun ke bawah. */
+@media (max-width: 1500px) {
+  .split-tabel { grid-template-columns: 1fr; }
+}
+
+/* --- Ponsel & tablet kecil: SEMUA tabel .data jadi daftar kartu -------------
+   Sebagian tabel admin (dasbor, Statistik, Kualitas Data, Impor, Audit) tidak
+   memakai kelas `kartu`, jadi sampai ronde 39 isinya tetap tabel dan kolomnya
+   terpotong di layar 390–600 px (terukur: dasbor 474 px, Kualitas Data 671 px,
+   Impor 506 px pada ruang 361 px). Ambangnya 900 px — di atas itu semua tabel
+   itu sudah muat. Isi aturannya sama dengan blok 1400 px di atas. */
+@media (max-width: 900px) {
+  table.data { display: block; }
+  table.data thead { display: none; }
+  table.data tbody, table.data tr { display: block; }
+  table.data tr {
+    border-bottom: 1px solid var(--border);
+    padding: .6rem .75rem;
+  }
+  table.data tr:nth-child(even) { background: #fbfdff; }
+  table.data td {
+    /* flex-wrap: sel yang memuat beberapa hal (tautan + lencana + catatan, atau
+       daftar isian di samping tombol) boleh turun baris. Tanpa ini isinya
+       menembus tepi kartu di layar sempit (ronde 39). */
+    display: flex; flex-wrap: wrap; align-items: baseline;
+    justify-content: space-between; gap: .35rem .75rem;
+    padding: .16rem 0; border: 0; text-align: left; width: auto;
+  }
+  table.data td::before {
+    content: attr(data-label); flex: 0 0 42%; color: var(--muted);
+    font-size: .74rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  }
+  table.data td[data-label="#"] { display: none; }
+  /* Lencana panjang (mis. «1 pendaftar menunggu») boleh turun baris di dalam
+     kartu. Dengan `nowrap` ia menembus tepi kartu di layar sempit (ronde 39). */
+  table.data td .badge { white-space: normal; }
+  /* Keadaan kosong harus tetap terlihat: satu sel selebar kartu. */
+  table.data td.empty-cell { display: block; padding: 0; }
+  table.data td.empty-cell::before { content: none; }
+}
+
+/* --- Kotak tabel yang sempit: tabel jadi daftar kartu walau layarnya lebar ---
+   Contoh nyata: daftar riwayat bot (kolom 318 px) dan tabel temuan di kolom
+   kiri Kualitas Data (543 px) — pada layar 1440–1568 px keduanya masih tabel
+   dan kolomnya terpotong. Yang diukur di sini adalah lebar kotaknya
+   (`.table-wrap` di atas), bukan lebar layar. Hanya tabel ber-kelas `kartu`
+   yang ikut aturan ini supaya tabel kecil di kolom samping (mis. dasbor) tidak
+   ikut berubah bentuk di layar lebar. */
+@container (max-width: 760px) {
+  table.data.kartu { display: block; }
+  table.data.kartu thead { display: none; }
+  table.data.kartu tbody, table.data.kartu tr { display: block; }
+  table.data.kartu tr {
+    border-bottom: 1px solid var(--border);
+    padding: .6rem .75rem;
+  }
+  table.data.kartu tr:nth-child(even) { background: #fbfdff; }
+  table.data.kartu td {
+    /* flex-wrap: sel yang memuat beberapa hal (tautan + lencana + catatan, atau
+       daftar isian di samping tombol) boleh turun baris. Tanpa ini isinya
+       menembus tepi kartu di layar sempit (ronde 39). */
+    display: flex; flex-wrap: wrap; align-items: baseline;
+    justify-content: space-between; gap: .35rem .75rem;
+    padding: .16rem 0; border: 0; text-align: left; width: auto;
+  }
+  table.data.kartu td::before {
+    content: attr(data-label); flex: 0 0 42%; color: var(--muted);
+    font-size: .74rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  }
+  table.data.kartu td[data-label="#"] { display: none; }
+  /* Lencana panjang (mis. «1 pendaftar menunggu») boleh turun baris di dalam
+     kartu. Dengan `nowrap` ia menembus tepi kartu di layar sempit (ronde 39). */
+  table.data.kartu td .badge { white-space: normal; }
+  /* Keadaan kosong harus tetap terlihat: satu sel selebar kartu. */
+  table.data.kartu td.empty-cell { display: block; padding: 0; }
+  table.data.kartu td.empty-cell::before { content: none; }
 }
