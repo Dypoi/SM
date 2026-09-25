@@ -5,7 +5,7 @@
 <div class="card">
   <div class="card-body">
     <div class="flex between flex-wrap" style="gap:1rem">
-      <div style="min-width:260px">
+      <div style="min-width:min(260px,100%)">
         <h2 style="margin-bottom:.2rem">{{ impor.filename | singkat(60) }}</h2>
         <div class="flex flex-wrap gap-1">
           <span class="chip chip-muted">{{ impor.file_format or impor.file_ext }}</span>

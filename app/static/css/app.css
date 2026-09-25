@@ -166,8 +166,12 @@ code, pre { font-family: var(--mono); font-size: .86em; }
   border-bottom: 1px solid var(--border);
 }
 .topbar-title h1 { margin: 0; font-size: 1.16rem; }
+/* Judul boleh menyusut; tombol di kanan tidak boleh terdesak keluar layar. */
+.topbar-title { min-width: 0; flex: 1 1 auto; }
+.topbar-title h1 { margin: 0; font-size: 1.16rem; overflow-wrap: anywhere; }
 .topbar-sub { margin: 0; font-size: .78rem; color: var(--muted); }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: .5rem; }
+.topbar-actions { flex: 0 0 auto; }
 .avatar {
   width: 36px; height: 36px; border-radius: 50%;
   background: linear-gradient(140deg, var(--primary), var(--teal));
@@ -376,7 +380,7 @@ table.tabel-kecil th, table.tabel-kecil td { padding: .4rem .55rem; font-size: .
 
 /* --------------------------------------------------------------- Filter --- */
 .filter-bar {
-  display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));   grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
   align-items: end;
 }
 .filter-bar .span-2 { grid-column: span 2; }
@@ -556,6 +560,11 @@ table.tabel-kecil th, table.tabel-kecil td { padding: .4rem .55rem; font-size: .
   .kv dt { margin-top: .4rem; }
   .filter-bar .span-2 { grid-column: span 1; }
   .bar-list li { grid-template-columns: 38% 1fr 40px; }
+  /* Label diagram tidak dipotong: pecah baris daripada memakai elipsis. */
+  .bar-label { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+  /* Kotak peringatan: tombol di dalamnya turun baris, bukan keluar dari kartu. */
+  .alert { flex-wrap: wrap; }
+  .alert > * { min-width: 0; }
 }
 
 /* --- Blok Data Wali (formulir siswa & petugas) --------------------------- */
@@ -887,7 +896,7 @@ td.empty-cell { padding: 0; }
 
 /* Pilihan peran di panel kanan (admin/guru, siswa, ekstrakurikuler) —
    sasaran sentuh besar, rapi walau kartunya sempit. */
-.switch { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: .5rem; background: none; padding: 0; }
+.switch { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: .5rem; background: none; padding: 0; } .switch { grid-template-columns: repeat(auto-fit, minmax(min(128px, 100%), 1fr)); }
 .switch button {
   display: flex; align-items: center; gap: .6rem; text-align: left;
   background: #fff; border: 1.5px solid var(--border); border-radius: 13px;
@@ -946,7 +955,7 @@ table.data.anggota td input[name="catatan"] { min-width: 190px; }
 .form-bot .field.span-3 { grid-column: 1 / -1; }
 .form-bot .form-aksi { grid-column: 1 / -1; }
 .opsi-bot {
-  display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));   grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
 }
 /* Baris opsi pada form uji koneksi Dapodik (tetap ringkas di kepala kartu). */
 .opsi-uji { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
@@ -1056,6 +1065,11 @@ input.input-nik {
 }
 @media (max-width: 380px) {
   .switch { grid-template-columns: 1fr; }
+  /* Catatan (ronde 40): di layar ≤380 px (HP lama/kompak, panel pratinjau)
+     tombol ber-`white-space: nowrap` menembus tepi kartu — isinya terpotong.
+     Mulai sekarang tombol panjang boleh turun baris daripada terpotong. */
+  .btn, .form-tambah-anggota .btn { white-space: normal; max-width: 100%; }
+  .card-head > div { min-width: 0; }
 }
 
 /* --- Halaman Bot Dapodik (ronde 23): ringkas, kotak keadaan, panel catatan --- */
@@ -1064,6 +1078,7 @@ input.input-nik {
 .bot-ringkas {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
   gap: .55rem .9rem;
   margin: .5rem 0 .35rem;
 }

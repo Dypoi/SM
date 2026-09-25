@@ -6,7 +6,7 @@
   <div class="card-body">
     <div class="profile-head">
       <div class="avatar-lg">{{ siswa.nama[:1] if siswa.nama else '?' }}</div>
-      <div style="flex:1;min-width:220px">
+      <div style="flex:1;min-width:min(220px,100%)">
         <h2 style="margin-bottom:.15rem">{{ siswa.nama }}</h2>
         <div class="flex flex-wrap gap-1">
           <span class="chip">{{ icon('user') }} NISN {{ siswa.nisn or '-' }}</span>

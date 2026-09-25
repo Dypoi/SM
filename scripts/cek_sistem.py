@@ -4153,6 +4153,102 @@ def cek_peringatan_kode():
             "app/ terkompilasi tanpa peringatan")
 
 
+@cek("36. Layar sangat sempit (≤380 px): tidak ada isi yang terpotong")
+def cek_layar_sempit():
+    """Masukan sekolah ronde 40: «ketika login sebagai pelatih, halamannya masih
+    tidak responsif… sisi hp harus bisa responsif tidak boleh ada terpotong».
+
+    Sapu 20 halaman × lebar 280/300/320/340/360 px di peramban sungguhan menemukan
+    tiga keluarga sebab yang semuanya memotong isi (bukan sekadar menduga):
+
+    * **`min-width` tetap di kepala halaman.** Lima templat memakai
+      ``style="min-width:220-300px"`` pada blok judul di dalam kartu. Di layar
+      300 px ruang dalam kartu hanya ~236 px, sehingga kotak itu 24 px lebih lebar
+      dari kartunya — teks menempel ke tepi dan huruf terakhir terpotong
+      (``.card`` memakai ``overflow: hidden``). Kini semuanya
+      ``min-width: min(Npx, 100%)``.
+    * **Kisi `auto-fit` tanpa `min()`.** ``minmax(Npx, 1fr)`` tidak bisa menyusut
+      di bawah N, jadi di layar sempit kolomnya tetap N px dan keluar kartu —
+      di halaman Bot Dapodik kolom 280 px berada dalam ruang 254 px. Semua
+      ``minmax(Npx, 1fr)`` di app.css/portal.css kini punya pasangan
+      ``minmax(min(Npx, 100%), 1fr)``.
+    * **Teks `nowrap` yang tak boleh turun baris.** Tombol ``.btn`` (termasuk
+      ``.form-tambah-anggota .btn``), lencana di kepala kartu, label diagram
+      batang ber-elipsis, dan ``.alert`` yang tidak boleh membungkus menembus
+      tepi kartu. Aturan ≤380 px membuat tombol boleh turun baris, dan label
+      diagram membungkus alih-alih dipotong.
+    """
+    import re as _re
+
+    app_css = (BASE_DIR / "app/static/css/app.css").read_text(encoding="utf-8")
+    portal_css = (BASE_DIR / "app/static/css/portal.css").read_text(encoding="utf-8")
+    bersih = _re.sub(r"/\*.*?\*/", " ", app_css, flags=_re.S)
+    bersih_portal = _re.sub(r"/\*.*?\*/", " ", portal_css, flags=_re.S)
+
+    # --- 1. Setiap kisi auto-fit yang dipatok boleh menyusut di layar sempit ---
+    #     Baris lama `minmax(Npx, 1fr)` tetap ada sebagai cadangan peramban tua,
+    #     tetapi WAJIB disusul `minmax(min(Npx, 100%), 1fr)` dengan N yang sama.
+    for nama, isi in (("app.css", bersih), ("portal.css", bersih_portal)):
+        kaku = [(int(n), m.start()) for n, m in
+                ((m.group(1), m) for m in _re.finditer(r"minmax\(\s*(\d+)px", isi))]
+        lunak = {int(m.group(1)) if m.group(1) else None:
+                 m.start() for m in _re.finditer(r"minmax\(\s*min\(\s*(\d+)px", isi)}
+        for n, posisi in kaku:
+            assert n in lunak, (
+                f"{nama}: minmax({n}px, 1fr) tidak punya pasangan minmax(min({n}px, 100%), 1fr) — "
+                "di layar sempit kolomnya tidak menyusut dan isinya keluar kartu (ronde 40)")
+            assert lunak[n] > posisi, (
+                f"{nama}: baris minmax(min({n}px, 100%), 1fr) harus SETELAH minmax({n}px, 1fr) "
+                "supaya menang di urutan berkas")
+
+    # --- 2. Tidak ada lagi `min-width` tetap di templat ---
+    for berkas in sorted((BASE_DIR / "app/templates").rglob("*.html")):
+        isi = berkas.read_text(encoding="utf-8")
+        # Sel tabel (`<td>`/`<th>`) memang boleh punya lebar minimum: tabelnya
+        # digulir di dalam `.table-wrap` (dan di layar sempit sudah jadi kartu).
+        isi = _re.sub(r'<(?:td|th)\b[^>]*style="[^"]*?min-width:\s*\d+px[^"]*"', " ", isi)
+        for temuan in _re.finditer(r'style="[^"]*?min-width:\s*(\d+)px', isi):
+            # Nilai kecil (mis. 46 px untuk kolom persen) tidak akan pernah menembus
+            # tepi kartu di layar ≥280 px; yang berbahaya adalah blok 120 px ke atas.
+            if int(temuan.group(1)) < 120:
+                continue
+            assert False, (
+                f"{berkas.relative_to(BASE_DIR)}: min-width:{temuan.group(1)}px tetap — "
+                "pakai min-width: min(Npx, 100%) supaya tidak terpotong di ≤330 px")
+
+    # --- 3. Tombol boleh turun baris di layar ≤380 px ---
+    nowrap = [m.start() for m in _re.finditer(r"\.btn[^{,\n]*\{[^}]*white-space:\s*nowrap", bersih)]
+    lunak = [m.start() for m in _re.finditer(r"\.btn[^{,\n]*\{[^}]*white-space:\s*normal", bersih)]
+    assert nowrap, "aturan .btn { white-space: nowrap } hilang — periksa ulang berkas CSS"
+    assert lunak and max(lunak) > max(nowrap), (
+        "aturan tombol «boleh turun baris» harus ditulis SETELAH aturan nowrap "
+        "(kekhususan sama → yang belakangan menang), kalau tidak tombol panjang "
+        "menembus tepi kartu di layar ≤380 px")
+
+    # --- 4. Bilah atas: judul menyusut, aksi di kanan tetap utuh ---
+    assert ".topbar-title { min-width: 0" in bersih, (
+        "judul bilah atas harus boleh menyusut (min-width: 0) — tanpa itu tombol di "
+        "kanan terdesak keluar layar dan halaman bisa digeser ke samping")
+    assert ".topbar-actions { flex: 0 0 auto; }" in bersih, "aksi bilah atas harus tetap utuh"
+
+    # --- 5. Label diagram batang membungkus, bukan dipotong elipsis ---
+    potong = _re.search(r"\.bar-label \{[^}]*white-space:\s*normal", bersih)
+    assert potong, ("label diagram batang harus membungkus di layar sempit "
+                    "(elipsis terbaca sebagai «terpotong» di HP)")
+    posisi_elipsis = bersih.index(".bar-label { color:")
+    assert potong.start() > posisi_elipsis, (
+        "aturan label diagram membungkus harus setelah aturan aslinya, "
+        "kalau tidak akan kalah dan labelnya kembali terpotong")
+
+    # --- 6. Kotak peringatan boleh membungkus ---
+    assert _re.search(r"\.alert \{ flex-wrap:\s*wrap; \}", bersih), (
+        "kotak peringatan harus boleh membungkus supaya tombol di dalamnya tidak "
+        "keluar dari kartu di layar sempit")
+
+    return ("kisi auto-fit semuanya minmax(min(…, 100%)), tidak ada min-width tetap di "
+            "templat, tombol/label/peringatan boleh turun baris, bilah atas menyusut")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -4196,6 +4292,7 @@ def main() -> int:
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()
+    cek_layar_sempit()
     if args.http:
         cek_http_pengajuan()
         cek_http()

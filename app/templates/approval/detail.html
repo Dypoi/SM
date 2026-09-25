@@ -6,7 +6,7 @@
   <div class="card-body">
     <div class="profile-head">
       <div class="avatar-lg">{{ (p.nama or '?')[:1] }}</div>
-      <div style="flex:1;min-width:240px">
+      <div style="flex:1;min-width:min(240px,100%)">
         <h2 style="margin-bottom:.15rem">{{ p.nama or 'Tanpa nama' }}</h2>
         <div class="flex flex-wrap gap-1">
           <span class="chip">{{ icon('user') }} NISN {{ p.nisn or '-' }}</span>

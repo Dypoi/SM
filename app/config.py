@@ -145,7 +145,9 @@ def ensure_dirs() -> None:
 # --------------------------------------------------------------------------- #
 APP_NAME = "SM"
 APP_LONG_NAME = "Sistem Informasi Manajemen Sekolah"
-APP_VERSION = "0.1.0"
+#: Penanda versi — dinaikkan tiap ronde perbaikan supaya pengguna bisa memastikan
+#: versi mana yang sedang dibuka (di footer halaman tertulis «SM v<versi>»).
+APP_VERSION = "0.1.1"
 
 # --------------------------------------------------------------------------- #
 # Mode online (aplikasi dibuka dari luar jaringan sekolah)

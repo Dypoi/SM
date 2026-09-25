@@ -223,11 +223,11 @@
 .pl-card-ket { margin: 0 0 .8rem; color: var(--pl-redup); font-size: .9rem; }
 
 /* Petak aksi besar (mudah disentuh di HP) */
-.pl-petak { display: grid; gap: .7rem; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); }
+.pl-petak { display: grid; gap: .7rem; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); } .pl-petak { grid-template-columns: repeat(auto-fit, minmax(min(215px, 100%), 1fr)); }
 /* Kartu kegiatan lebih banyak teksnya (nama + jadwal + tombol) → kolomnya
    dibuat lebih lebar supaya «Jadwal belum ditetapkan · 0 anggota» tidak
    terpotong menjadi banyak baris di layar sempit. */
-.pl-petak.pl-petak-lebar { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+.pl-petak.pl-petak-lebar { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); } .pl-petak.pl-petak-lebar { grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); }
 
 .pl-aksi {
   display: flex;

@@ -19,7 +19,7 @@
 <div class="pl-hero">
   <div class="pl-hero-isi">
     <div class="pl-avatar">{{ (siswa.nama or '?')[:1] | upper }}</div>
-    <div style="flex:1;min-width:170px">
+    <div style="flex:1;min-width:min(170px,100%)">
       <h2>Halo, {{ siswa.nama | title | singkat(24) }}!</h2>
       <div class="pl-hero-baris">
         {% if siswa.rombel %}<span class="pl-keping">Kelas {{ siswa.rombel }}</span>{% endif %}

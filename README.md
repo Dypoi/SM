@@ -334,6 +334,19 @@ akta lahir, kesehatan, sampai koordinat rumah.
   `.data` lain di ≤900 px, dan tabel di kolom sempit memakai container query
   (`@container (max-width: 760px)`), jadi tidak ada kolom yang terpotong.
 
+  Sapu itu **wajib turun sampai 280 px** (ronde 40): pada 280–340 px halaman
+  masih terpotong karena `min-width` tetap di kepala halaman, kisi
+  `minmax(Npx, 1fr)` tanpa `min(…, 100%)`, dan teks `nowrap` yang tak boleh
+  turun baris — di 300 px kotak judul 260 px meluber 24 px ke dalam kartu
+  (`overflow: hidden` memotong huruf terakhirnya). Pemeriksa harus membuang
+  temuan palsu dari `text-overflow: ellipsis` dan menandai wadah ber-
+  `overflow: hidden` yang `scrollWidth > clientWidth` sebagai «isi terpotong».
+  Supaya tidak terulang, blok 36 `cek_sistem.py` menjaga: semua kisi punya
+  pasangan `min(…, 100%)`, tidak ada `min-width` tetap ≥120 px di templat,
+  tombol/label/bilah atas tetap lentur di ≤380 px. Penanda versi
+  (`app/config.py` → footer «SM v…») dinaikkan tiap ronde perbaikan supaya
+  mudah memastikan versi mana yang sedang dibuka.
+
   Selain dipotret & diukur, alur halaman siswa diuji langsung di peramban:
   memilih berkas pada panel unggah (nama & ukuran berkas harus muncul) dan
   mengirim pengajuan (berkas harus diterima server). Bila ada perubahan tampilan
