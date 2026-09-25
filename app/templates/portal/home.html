@@ -1,0 +1,124 @@
+{% extends "portal/_base.html" %}
+{% from "_macros.html" import icon, nilai, pengajuan_badge, petunjuk %}
+
+{#- Beranda siswa (ronde 32) — **sederhana**.
+
+    Masukan sekolah: «designnya rame banget, kenapa ga dibikin simple aja» dan
+    «tidak perlu banyak notif/tata cara». Karena itu beranda hanya memuat empat
+    hal: (1) sapaan singkat, (2) yang perlu dikerjakan, (3) kelengkapan data satu
+    baris, (4) kegiatan yang diikuti. Penjelasan panjang pindah ke tombol «!».
+    Data lain (berkas, riwayat, sekolah) ada di menu **Dataku**. -#}
+
+{% set belum = kelengkapan.belum | default([]) %}
+{% set selesai = (belum | length) == 0 %}
+{% set menunggu_ekskul = (pendaftaran_ekskul | default([])) | selectattr('status', 'equalto', 'menunggu') | list %}
+{% set boleh_ajukan = pengajuan_aktif if pengajuan_aktif is defined else true %}
+
+{% block content %}
+
+<div class="pl-hero">
+  <div class="pl-hero-isi">
+    <div class="pl-avatar">{{ (siswa.nama or '?')[:1] | upper }}</div>
+    <div style="flex:1;min-width:min(170px,100%)">
+      <h2>Halo, {{ siswa.nama | title | singkat(24) }}!</h2>
+      <div class="pl-hero-baris">
+        {% if siswa.rombel %}<span class="pl-keping">Kelas {{ siswa.rombel }}</span>{% endif %}
+        <span class="pl-keping">NISN {{ siswa.nisn }}</span>
+      </div>
+    </div>
+    {{ petunjuk(
+       'Ini ruang siswa <strong>' ~ (profil.nama | title) ~ '</strong>. Di sini kamu bisa melihat datamu, '
+       ~ 'nilai kegiatan, dan minta perbaikan data. Pakai menu di bawah layar: '
+       ~ '<strong>Beranda · Dataku · Kegiatan</strong>.', kelas='pop-kanan') }}
+  </div>
+</div>
+
+{#- Yang perlu dikerjakan: hanya baris yang benar-benar perlu. -#}
+<div class="pl-card pl-ringkas">
+  <h3 class="pl-kartu-judul">
+    Perlu dilakukan
+    {{ petunjuk(
+       'Kerjakan baris berwarna kuning; kalau semuanya hijau, tidak ada yang perlu kamu lakukan. '
+       ~ 'Baris ini hanya menunjuk ke menu <strong>Dataku</strong> atau <strong>Kegiatan</strong>.') }}
+  </h3>
+
+  {% if selesai and not menunggu and not menunggu_ekskul %}
+  <div class="pl-aksi selesai">
+    <span class="pl-aksi-ikon">{{ icon('check') }}</span>
+    <span><strong>Semua beres</strong><span>Tidak ada yang perlu dikerjakan sekarang.</span></span>
+  </div>
+  {% else %}
+  <div class="pl-petak">
+    {% if not selesai %}
+    <a class="pl-aksi perhatian" href="/portal/profil">
+      <span class="pl-aksi-ikon">{{ icon('edit') }}</span>
+      <span><strong>{{ belum | length }} data belum diisi</strong><span>{{ belum | map(attribute='label') | join(', ') | singkat(46) }}</span></span>
+    </a>
+    {% endif %}
+    {% if menunggu %}
+    <a class="pl-aksi" href="/portal/profil">
+      <span class="pl-aksi-ikon">{{ icon('clock') }}</span>
+      <span><strong>Perbaikan datamu diperiksa admin</strong><span>{{ menunggu }} pengajuan menunggu.</span></span>
+    </a>
+    {% endif %}
+    {% if menunggu_ekskul %}
+    <a class="pl-aksi perhatian" href="/portal/ekstrakurikuler">
+      <span class="pl-aksi-ikon">{{ icon('clock') }}</span>
+      <span><strong>Menunggu pembina/pelatih</strong><span>{{ menunggu_ekskul | map(attribute='nama') | join(', ') | singkat(40) }}</span></span>
+    </a>
+    {% endif %}
+    {% if boleh_ajukan and not menunggu %}
+    <a class="pl-aksi" href="/portal/pengajuan">
+      <span class="pl-aksi-ikon">{{ icon('upload') }}</span>
+      <span><strong>Ada data yang salah?</strong><span>Minta perbaikan data.</span></span>
+    </a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{#- Kelengkapan data: satu baris, tanpa penjelasan. -#}
+<div class="pl-card pl-ringkas">
+  <div class="pl-mini-baris">
+    <span class="pl-mini-label">Kelengkapan data</span>
+    <span class="pl-mini-angka">{{ kelengkapan.persen }}%</span>
+    <div class="pl-progress {{ '' if selesai else 'warn' }}"><span style="width: {{ kelengkapan.persen }}%"></span></div>
+    {{ petunjuk(
+       'Persentase data penting yang sudah terisi. Yang masih kosong bisa kamu lengkapi lewat '
+       ~ '<strong>Dataku → Minta perbaikan data</strong>.', kelas='pop-kanan') }}
+  </div>
+</div>
+
+{#- Kegiatan yang diikuti. -#}
+<div class="pl-card pl-ringkas">
+  <h3 class="pl-kartu-judul">
+    Kegiatan saya
+    {{ petunjuk(
+       'Kegiatan yang kamu ikuti beserta nilai dan catatan pembina. Menambah atau berhenti dari '
+       ~ 'kegiatan dilakukan di menu <strong>Kegiatan</strong>.', kelas='pop-kanan') }}
+  </h3>
+  {% if ekskul %}
+    {% for item in ekskul %}
+    <div class="pl-baris">
+      <span class="pl-label">
+        <strong>{{ item.nama }}</strong>
+        <br><span style="font-size:.82rem">{{ item.jabatan }}{% if item.hari %} · {{ item.hari }}{% endif %}{% if item.jam_mulai %} {{ item.jam_mulai }}{% if item.jam_selesai %}–{{ item.jam_selesai }}{% endif %}{% endif %}</span>
+      </span>
+      <span>
+        {% if item.predikat %}<span class="pl-tanda ok">Nilai {{ item.predikat }}</span>
+        {% else %}<span class="pl-tanda kosong">belum dinilai</span>{% endif %}
+      </span>
+    </div>
+    {% if item.catatan %}
+    <p class="pl-card-ket" style="margin:-.2rem 0 .6rem">Catatan: {{ item.catatan }}</p>
+    {% endif %}
+    {% endfor %}
+    <a class="btn btn-outline btn-sm mt-2" href="/portal/ekstrakurikuler">Lihat kegiatan lain</a>
+  {% else %}
+    <p class="pl-card-ket" style="margin:0">
+      Belum ikut kegiatan. <a href="/portal/ekstrakurikuler">Pilih kegiatan</a>.
+    </p>
+  {% endif %}
+</div>
+
+{% endblock %}

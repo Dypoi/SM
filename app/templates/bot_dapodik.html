@@ -1,0 +1,704 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, empty_state %}
+
+{% block content %}
+{% set hidup = status_hidup or {} %}
+{% set job = ringkas.job or {} %}
+{% set hitung = ringkas.hitung or {} %}
+
+{# ---------------------------------------------------------------- keadaan -- #}
+<div class="card bot-kepala" id="kemajuan">
+  <div class="card-body">
+    <div class="flex between flex-wrap" style="gap:1rem">
+      <div style="min-width:min(300px,100%); flex:1 1 420px">
+        <h2 style="margin-bottom:.35rem">
+          Bot Dapodik
+          {% if hidup and hidup.berjalan %}
+            <span class="badge badge-success badge-lg" id="badge-keadaan">Sedang bekerja</span>
+          {% elif job and job.status == 'jalan' %}
+            <span class="badge badge-warning badge-lg" id="badge-keadaan">Berjalan/terputus</span>
+          {% else %}
+            <span class="badge badge-muted badge-lg" id="badge-keadaan">Menganggur</span>
+          {% endif %}
+        </h2>
+        <p class="soft" style="margin:0 0 .1rem; font-size:.83rem">
+          <strong>Memperbarui data Dapodik dari data aplikasi SM.</strong>
+          Bot mengambil antrean dari aplikasi ini lalu menyelaraskannya siswa demi siswa;
+          kemajuannya tampil di halaman ini.
+        </p>
+        <div class="bot-ringkas">
+          <div><span class="muted">Alamat Dapodik</span>
+            <strong class="mono">{{ cfg.bot_url or '—' }}</strong></div>
+          <div><span class="muted">Akun Dapodik</span>
+            <strong>{{ cfg.bot_username or 'belum diisi' }}</strong></div>
+          <div><span class="muted">Peramban</span>
+            <strong>{% if cfg.bot_simulasi == '1' %}Mode uji coba (tanpa peramban){% elif cfg.bot_headless == '1' %}Tanpa jendela Chrome{% else %}Jendela Chrome tampak{% endif %}</strong></div>
+          <div><span class="muted">Kode SM</span>
+            <strong class="mono">{{ versi_kode or 'tidak diketahui' }}</strong></div>
+        </div>
+      <div class="btn-group">
+        {% if hidup and hidup.berjalan %}
+        <form method="post" action="/bot-dapodik/hentikan" class="inline-form"
+              data-confirm="Hentikan bot? Siswa yang sedang diproses akan diselesaikan dulu.">
+          <button class="btn btn-danger btn-sm" type="submit">{{ icon('x') }} Hentikan bot</button>
+        </form>
+        {% endif %}
+        <form method="post" action="/bot-dapodik/uji" class="inline-form opsi-uji"
+              data-confirm="Buka Dapodik sebentar untuk memeriksa halaman & selector? Bot perlu berhenti dan Chrome akan dibuka lalu ditutup.">
+          <label class="cek-bot" title="Kolom login diisi &amp; tombol masuk ditekan seperti pekerjaan sungguhan, lalu hasilnya dilaporkan (bisa sampai ±1 menit).">
+            <input type="checkbox" name="coba_login" value="1" checked><span>Coba masuk</span></label>
+          <label class="cek-bot" title="Uji sekali ini saja dengan jendela Chrome terlihat, seperti menjalankan skrip manual.">
+            <input type="checkbox" name="tampak" value="1"><span>Jendela tampak</span></label>
+          <button class="btn btn-outline btn-sm" type="submit">{{ icon('search') }} Uji koneksi Dapodik</button>
+        </form>
+        <a class="btn btn-outline btn-sm" href="/bot-dapodik/log.csv">{{ icon('download') }} Log CSV</a>
+        <a class="btn btn-outline btn-sm" href="/bot-dapodik/log.xlsx">{{ icon('download') }} Log Excel</a>
+      </div>
+    </div>
+
+    {% if not siap %}
+    <div class="alert alert-warning mt-2" role="status">
+      <span class="alert-icon">{{ icon('warning') }}</span>
+      <div>
+        <p style="margin:0 0 .35rem">{{ keterangan_siap }}</p>
+        {% if not punya_selenium %}
+        <p class="soft" style="margin:0 0 .5rem; font-size:.83rem">
+          Bisa juga lewat Command Prompt pada folder aplikasi:
+          <code class="mono-block" style="display:inline-block; padding:.15rem .4rem">{{ perintah_pip }}</code>
+          — pastikan memakai Python milik aplikasi (<code>.venv</code>), bukan Python lain di komputer.
+        </p>
+        <form method="post" action="/bot-dapodik/pasang" class="inline-form"
+              data-confirm="Pasang pustaka selenium sekarang? Butuh internet dan bisa memakan 1–2 menit.">
+          <button class="btn btn-primary btn-sm" type="submit">{{ icon('download') }} Pasang pustaka bot</button>
+          <span class="hint">Butuh internet, sekali saja. Aplikasi tetap bisa dipakai setelahnya.</span>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="mt-2" id="kotak-kemajuan">
+      <div class="progress" style="height:12px">
+        {% set total = job.total_item or 0 %}
+        {% set maju = (job.sukses_item or 0) + (job.gagal_item or 0) + (hitung.dilewati or 0) %}
+        <span id="bar-kemajuan" style="width: {{ (maju / total * 100) if total else 0 }}%"></span>
+      </div>
+      <div class="grid grid-4 mt-2">
+        <div><div class="muted" style="font-size:.78rem">Jumlah siswa</div><strong id="angka-total">{{ total | angka_id }}</strong></div>
+        <div><div class="muted" style="font-size:.78rem">Sudah diproses</div><strong id="angka-maju">{{ maju | angka_id }}</strong></div>
+        <div><div class="muted" style="font-size:.78rem">Berhasil</div><strong id="angka-sukses" style="color:var(--success)">{{ (job.sukses_item or 0) | angka_id }}</strong></div>
+        <div>
+          <div class="muted" style="font-size:.78rem">Gagal / dilewati</div>
+          <strong id="angka-gagal" style="color:var(--danger)">{{ (job.gagal_item or 0) | angka_id }}</strong>
+          <span class="muted">/ <span id="angka-lewat">{{ (hitung.dilewati or 0) | angka_id }}</span></span>
+        </div>
+      </div>
+      <p class="muted mt-1" style="font-size:.83rem" id="baris-sedang">
+        {% if hidup and hidup.berjalan %}
+          Sedang memproses: <strong>{{ hidup.sedang or '—' }}</strong>
+          ({{ hidup.sedang_nisn or '' }}) · kecepatan {{ hidup.kecepatan }} siswa/menit
+          {% if hidup.perkiraan_detik %}· perkiraan sisa {{ (hidup.perkiraan_detik // 60) }} menit{% endif %}
+        {% elif job %}
+          Pekerjaan #{{ job.id }} — {{ job.status }}{{ ' · selesai ' ~ job.finished_at if job.finished_at else '' }}
+        {% else %}
+          Belum ada pekerjaan. Susun antrean pada kartu «Jalankan Bot» di bawah.
+        {% endif %}
+      </p>
+      <details class="filter-panel mt-2">
+        <summary>Penjelasan &amp; catatan teknis bot</summary>
+        <div class="filter-body">
+          <p class="soft" style="margin:0 0 .5rem; font-size:.85rem">
+            <strong>Uji koneksi</strong> dapat sekalian <em>mencoba masuk</em> (kolom login diisi &amp;
+            tombol masuk ditekan seperti pekerjaan sungguhan, sampai ±1 menit) dan/atau dijalankan
+            dengan <strong>jendela Chrome tampak</strong> untuk membandingkan bila mode di belakang
+            layar gagal.
+          </p>
+          <p class="soft" style="margin:0 0 .5rem; font-size:.85rem">
+            Tahap yang sudah dikerjakan bot: <strong>pendaftaran peserta didik (Registrasi)</strong>
+            bagi siswa yang belum ada di Dapodik, sekaligus mengisi <strong>NIS</strong> dari kolom
+            NIPD, jawaban «Ya», Hobi, dan Cita-cita — lalu (bila dicentang) <strong>BIO</strong> dan
+            <strong>Data Periodik</strong>. Kolom lain ditambahkan dengan pola yang sama.
+          </p>
+          <p class="soft" style="margin:0 0 .5rem; font-size:.85rem" id="versi-kode">
+            <span class="badge badge-muted">Kode SM: {{ versi_kode or 'tidak diketahui' }}</span>
+            {% if versi_kode and versi_kode != 'tidak diketahui' %}
+              <small>— bila nomornya belum berubah setelah pembaruan, tutup lalu jalankan ulang
+                <code>run.bat</code> supaya kode baru benar-benar dipakai.</small>
+            {% else %}
+              <small>— folder aplikasi ini bukan salinan git, jadi pembaruan otomatis tidak bisa
+                dipakai; salin berkas baru secara manual lalu jalankan ulang <code>run.bat</code>.</small>
+            {% endif %}
+          </p>
+          <p class="soft" style="margin:0; font-size:.85rem">
+            Catatan kesalahan &amp; pelajaran bot (kesalahpahaman yang pernah membuat perbaikan
+            meleset, peta <em>gejala → baris log → fungsi</em>, daftar periksa sebelum mengubah bot):
+            berkas <code>CATATAN-KESALAHAN.md</code> di folder aplikasi — bagian 4 README
+            menjelaskannya.
+          </p>
+        </div>
+      </details>
+    </div>
+  </div>
+</div>
+
+{# ------------------------------------------------------- hasil uji koneksi -- #}
+{% if laporan_uji %}
+<div class="card mt-2" id="catatan-uji">
+  <div class="card-head">
+    <div>
+      <h3>Hasil Uji Koneksi Dapodik</h3>
+      <p>{{ laporan_uji.waktu }} · {{ laporan_uji.url }}{{ ' · jendela tampak' if not laporan_uji.headless else ' · di belakang layar' }}{{ ' · percobaan masuk: ' ~ ('berhasil' if (laporan_uji.masuk or {}).get('berhasil') else 'belum berhasil') if laporan_uji.masuk }}</p>
+    </div>
+    <form method="post" action="/bot-dapodik/uji" class="inline-form opsi-uji">
+      <label class="cek-bot" title="Kolom login diisi &amp; tombol masuk ditekan seperti pekerjaan sungguhan.">
+        <input type="checkbox" name="coba_login" value="1" checked><span>Coba masuk</span></label>
+      <label class="cek-bot" title="Jalankan uji ini dengan jendela Chrome terlihat.">
+        <input type="checkbox" name="tampak" value="1" {{ 'checked' if not laporan_uji.headless }}><span>Jendela tampak</span></label>
+      <button class="btn btn-outline btn-sm" type="submit">Ulangi uji koneksi</button>
+    </form>
+  </div>
+  <div class="card-body">
+    {% if laporan_uji.galat %}
+      <div class="alert alert-warning" role="status">
+        <span class="alert-icon">{{ icon('warning') }}</span>
+        <div>{{ laporan_uji.galat }}</div>
+      </div>
+    {% else %}
+      <div class="grid grid-4">
+        <div><div class="muted" style="font-size:.78rem">Judul halaman</div><strong>{{ laporan_uji.judul or '(tanpa judul)' }}</strong></div>
+        <div><div class="muted" style="font-size:.78rem">Alamat akhir</div><span class="mono" style="font-size:.78rem">{{ laporan_uji.url or '—' }}</span></div>
+        <div><div class="muted" style="font-size:.78rem">Formulir login tampil</div>
+          <strong>{{ 'ya' if laporan_uji.formulir_tampil else 'belum' }}</strong></div>
+        <div><div class="muted" style="font-size:.78rem">Kesiapan halaman</div>
+          <strong>{{ (laporan_uji.halaman or {}).get('readyState', '—') }}</strong>
+          <span class="muted">· overlay {{ (laporan_uji.halaman or {}).get('overlay', 0) }}</span></div>
+      </div>
+
+      {% if laporan_uji.catatan %}
+      <ul class="langkah-bot mt-2">
+        {% for baris in laporan_uji.catatan %}<li>{{ baris }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+
+      {% if laporan_uji.masuk %}
+      {% set masuk = laporan_uji.masuk %}
+      <div class="alert {{ 'alert-success' if masuk.berhasil else 'alert-warning' }} mt-2" role="status">
+        <span class="alert-icon">{{ icon('check') if masuk.berhasil else icon('warning') }}</span>
+        <div>
+          <strong>Percobaan masuk: {{ 'BERHASIL' if masuk.berhasil else 'belum berhasil' }}</strong>
+          <span class="muted">· {{ masuk.detik }} detik</span>
+          <div style="font-size:.86rem">{{ masuk.pesan }}</div>
+          {% if masuk.terisi %}
+          <div class="muted" style="font-size:.78rem">
+            {% for kunci, info in masuk.terisi.items() %}{{ kunci }}: {{ 'terisi ' ~ info.panjang ~ ' karakter' if info.terisi else 'GAGAL terisi' }}{{ ' · ' if not loop.last }}{% endfor %}
+          </div>
+          {% endif %}
+          {% if not masuk.berhasil %}
+          <div class="muted" style="font-size:.78rem">Ingin lebih pasti? Ulangi uji dengan centang
+            <strong>«Tampilkan jendela Chrome»</strong> supaya terlihat apa yang dikerjakan peramban.</div>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="section-title">Status selector login</div>
+      <p class="muted" style="font-size:.8rem; margin:.1rem 0 .4rem">
+        Bot memakai selector pada «Peta tombol Dapodik» (Pengaturan Bot). Bila ada yang
+        <strong>tidak ditemukan</strong> atau <strong>ada tetapi belum terlihat</strong>,
+        naikkan «Jeda muat halaman Dapodik» lalu uji lagi — atau sesuaikan nilainya di
+        «Peta tombol Dapodik». Popup pengumuman Dapodik («Selamat Datang …») ditunggu bot
+        lalu ditutup sendiri lewat tombol <em>Tutup</em>, jadi tidak lagi menelan klik
+        tombol <em>Registrasi</em>.
+      </p>
+      <div class="table-wrap compact">
+        <table class="data tabel-kecil kartu">
+          <caption class="sr-only">Status selector tombol Dapodik</caption>
+          <thead><tr><th>Selector</th><th>Keadaan</th><th>Nilai yang dipakai</th></tr></thead>
+          <tbody>
+            {% for kunci, keadaan in (laporan_uji.selector_status or {}).items() %}
+            <tr>
+              <td class="mono" data-label="Selector">{{ kunci }}</td>
+              <td data-label="Keadaan">
+                {% if keadaan.keadaan == 'terlihat' %}
+                  <span class="badge badge-success">cocok{{ ' (cadangan)' if keadaan.cadangan }}</span>
+                {% elif keadaan.keadaan == 'ada_tak_terlihat' %}
+                  <span class="badge badge-warning">ada, belum terlihat</span>
+                {% else %}
+                  <span class="badge badge-danger">tidak ditemukan</span>
+                {% endif %}
+              </td>
+              <td class="mono" data-label="Nilai" style="font-size:.76rem">{{ keadaan.nilai or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <details class="filter-panel mt-2">
+        <summary>Unsur yang terbaca pada halaman ({{ (laporan_uji.kolom | length) + (laporan_uji.tombol | length) }})</summary>
+        <div class="filter-body">
+          <div class="table-wrap compact">
+            <table class="data tabel-kecil kartu">
+              <caption class="sr-only">Kolom isian yang terbaca pada halaman Dapodik</caption>
+              <thead><tr><th>Jenis</th><th>Nama</th><th>Id</th><th>Terlihat</th><th>Ukuran</th></tr></thead>
+              <tbody>
+                {% for k in laporan_uji.kolom %}
+                <tr>
+                  <td data-label="Jenis"><span class="mono">{{ k.tag }}{{ '/' + k.type if k.type }}</span></td>
+                  <td class="mono" data-label="Nama">{{ k.name or '—' }}</td>
+                  <td class="mono" data-label="Id">{{ k.id or '—' }}</td>
+                  <td data-label="Terlihat">{% if k.terlihat %}<span class="badge badge-success">ya</span>{% else %}<span class="badge badge-muted">belum</span>{% endif %}</td>
+                  <td class="mono" data-label="Ukuran">{{ k.ukuran }}</td>
+                </tr>
+                {% endfor %}
+                {% for t in laporan_uji.tombol %}
+                <tr>
+                  <td data-label="Jenis"><span class="mono">{{ t.tag }}{{ '/' + t.type if t.type }}</span></td>
+                  <td data-label="Nama" colspan="2"><strong>{{ t.teks }}</strong></td>
+                  <td data-label="Terlihat">{% if t.terlihat %}<span class="badge badge-success">ya</span>{% else %}<span class="badge badge-muted">belum</span>{% endif %}</td>
+                  <td class="mono" data-label="Ukuran">{{ t.ukuran }}</td>
+                </tr>
+                {% endfor %}
+                {% if not laporan_uji.kolom and not laporan_uji.tombol %}
+                <tr><td colspan="5" class="empty-cell"><p class="empty">Tidak ada kolom/tombol yang terbaca.</p></td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+          {% if laporan_uji.teks_awal %}<p class="muted" style="font-size:.8rem">Teks halaman: {{ laporan_uji.teks_awal }}</p>{% endif %}
+          {% if laporan_uji.bukti %}<p class="muted" style="font-size:.8rem">Tangkapan layar &amp; HTML tersimpan: <code>{{ laporan_uji.bukti }}</code></p>{% endif %}
+        </div>
+      </details>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# --------------------------------------------------------------- menjalankan -- #}
+<div class="card mt-2" id="jalankan">
+  <div class="card-head">
+    <div>
+      <h3>Jalankan Bot</h3>
+      <p>
+        Sumber antrean: <strong>data siswa di aplikasi SM</strong> (bukan berkas Excel) — NISN
+        untuk mencari siswa di Dapodik, NIPD/NIS untuk mengisi kolom NIS. Siswa berstatus
+        Lulus/Mutasi/Keluar/Non-aktif tidak diikutkan.
+      </p>
+    </div>
+  </div>
+  <div class="card-body">
+    <ol class="langkah-bot bot-langkah">
+      <li><strong>Tentukan antrean</strong> — pilih kelas/batas jumlah lalu tekan
+        <em>Tampilkan antrean</em>.</li>
+      <li><strong>Mulai bot</strong> — bot bekerja di belakang layar; aplikasi SM tetap bisa dipakai.</li>
+      <li><strong>Pantau kemajuannya</strong> pada tabel <em>Rincian Pekerjaan</em> di bawah
+        (diperbarui sendiri setiap 2 detik).</li>
+    </ol>
+    <form method="get" action="/bot-dapodik" class="form-bot">
+      <input type="hidden" name="pratinjau" value="1">
+      <div class="field">
+        <label for="rombel">Kelas / rombel</label>
+        <select id="rombel" name="rombel">
+          <option value="">— semua kelas —</option>
+          {% for rb in opsi_rombel %}
+          <option value="{{ rb }}" {{ 'selected' if opsi.rombel == rb }}>{{ rb }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="limit">Batasi jumlah siswa</label>
+        <input type="number" id="limit" name="limit" min="0" max="2000" value="{{ opsi.limit or '' }}"
+               placeholder="0 = semua">
+        <span class="hint">Isi 1–5 siswa untuk percobaan pertama.</span>
+      </div>
+      <div class="field span-3">
+        <label for="nisn_manual">Daftar NISN (opsional, satu per baris)</label>
+        <textarea id="nisn_manual" name="nisn_manual" rows="3"
+                  placeholder="Kosongkan untuk mengambil seluruh siswa sesuai pilihan di atas">{{ opsi.nisn_manual }}</textarea>
+        <span class="hint">Bisa dipakai meniru daftar dari Excel — tempel saja NISN-nya di sini.</span>
+      </div>
+      <div class="field">
+        <label for="lewati_sukses">Siswa yang sudah berhasil</label>
+        <select id="lewati_sukses" name="lewati_sukses">
+          <option value="1" {{ 'selected' if opsi.lewati_sukses }}>Dilewati (lanjutkan pekerjaan)</option>
+          <option value="0" {{ 'selected' if not opsi.lewati_sukses }}>Diproses ulang semua</option>
+        </select>
+        <span class="hint">{{ jumlah_berhasil | angka_id }} siswa pernah berhasil.</span>
+      </div>
+      <div class="field">
+        <label for="hanya_tanpa_nipd">Penyaringan tambahan</label>
+        <select id="hanya_tanpa_nipd" name="hanya_tanpa_nipd">
+          <option value="0" {{ 'selected' if not opsi.hanya_tanpa_nipd }}>Semua siswa</option>
+          <option value="1" {{ 'selected' if opsi.hanya_tanpa_nipd }}>Hanya yang NIPD/NIS kosong</option>
+        </select>
+      </div>
+      <div class="form-aksi">
+        <button class="btn btn-outline" type="submit">{{ icon('search') }} Tampilkan antrean</button>
+      </div>
+    </form>
+
+    {% if pratinjau %}
+      <div class="section-title">Antrean ({{ antrean_total | angka_id }} siswa)</div>
+      {% if antrean %}
+      <div class="table-wrap compact">
+        <table class="data tabel-kecil kartu">
+          <caption class="sr-only">Siswa yang akan diproses bot</caption>
+          <thead><tr><th>#</th><th>NISN</th><th>Nama</th><th>Rombel</th><th>NIS/NIPD</th><th>Sekolah Asal</th></tr></thead>
+          <tbody>
+            {% for s in antrean %}
+            <tr>
+              <td class="muted" data-label="#">{{ loop.index }}</td>
+              <td class="mono" data-label="NISN">{{ s.nisn }}</td>
+              <td data-label="Nama"><strong>{{ s.nama }}</strong></td>
+              <td data-label="Rombel">{{ s.rombel or '—' }}</td>
+              <td class="mono" data-label="NIS/NIPD">
+                {% if s.nis %}{{ s.nis }}{% else %}<span class="badge badge-warning">belum ada NIS</span>{% endif %}
+              </td>
+              <td data-label="Sekolah Asal">
+                {% if s.sekolah_asal %}{{ s.sekolah_asal }}{% else %}<span class="muted">—</span>{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if antrean_total > antrean | length %}
+      <p class="muted" style="font-size:.8rem">Menampilkan {{ antrean | length }} siswa pertama.</p>
+      {% endif %}
+      {% else %}
+      <p class="empty">Tidak ada siswa yang cocok dengan pilihan di atas.</p>
+      {% endif %}
+
+      <form method="post" action="/bot-dapodik/mulai" class="mt-2 aksi-utama">
+        <input type="hidden" name="rombel" value="{{ opsi.rombel }}">
+        <input type="hidden" name="limit" value="{{ opsi.limit }}">
+        <input type="hidden" name="nisn_manual" value="{{ opsi.nisn_manual }}">
+        <input type="hidden" name="lewati_sukses" value="{{ '1' if opsi.lewati_sukses else '0' }}">
+        <input type="hidden" name="hanya_tanpa_nipd" value="{{ '1' if opsi.hanya_tanpa_nipd else '0' }}">
+        <button class="btn btn-primary" type="submit" {{ 'disabled' if not antrean or (hidup and hidup.berjalan) }}>
+          {{ icon('robot') }} Mulai bot untuk {{ antrean_total | angka_id }} siswa
+        </button>
+        {% if hidup and hidup.berjalan %}
+        <span class="muted" style="font-size:.83rem; margin-left:.6rem">
+          Bot sedang berjalan — hentikan dulu bila ingin memulai antrean baru.
+        </span>
+        {% endif %}
+      </form>
+    {% else %}
+      <p class="muted" style="font-size:.85rem">
+        Tekan <strong>Tampilkan antrean</strong> untuk melihat siapa saja yang akan diproses,
+        lalu tekan <strong>Mulai bot</strong>. Bot berjalan di belakang layar, jadi aplikasi SM
+        tetap bisa dipakai.
+      </p>
+    {% endif %}
+  </div>
+</div>
+
+{# ----------------------------------------------------------------- kemajuan -- #}
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Rincian Pekerjaan {% if job %}#{{ job.id }}{% endif %}</h3>
+      <p>Diperbarui otomatis saat bot bekerja (setiap 2 detik).</p>
+    </div>
+  </div>
+  <div class="card-body p-0 table-wrap compact">
+    <table class="data kartu" id="tabel-item">
+      <caption class="sr-only">Rincian siswa yang diproses bot</caption>
+      <thead>
+        <tr><th>#</th><th>NISN</th><th>NIS/NIPD</th><th>Nama</th><th>Status</th><th>Pesan</th><th>Waktu</th></tr>
+      </thead>
+      <tbody id="isi-item">
+        {% for item in items %}
+        <tr>
+          <td class="muted" data-label="#">{{ loop.index }}</td>
+          <td class="mono" data-label="NISN">{{ item.nisn or '—' }}</td>
+          <td class="mono" data-label="NIS/NIPD">{{ item.nipd or '—' }}</td>
+          <td data-label="Nama"><strong>{{ item.nama or '—' }}</strong></td>
+          <td data-label="Status">
+            <span class="badge badge-{{ {'sukses': 'success', 'gagal': 'danger', 'dilewati': 'muted'}.get(item.status, 'warning') }}">
+              {{ {'sukses': 'berhasil', 'gagal': 'gagal', 'dilewati': 'dilewati', 'menunggu': 'menunggu'}.get(item.status, item.status) }}
+            </span>
+          </td>
+          <td data-label="Pesan">{{ item.pesan or '—' }}</td>
+          <td class="muted nowrap" data-label="Waktu" style="font-size:.78rem">{{ item.waktu or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="empty-cell">
+          <p class="empty">Belum ada pekerjaan bot. Antrean dibuat dari data siswa pada kartu di atas.</p>
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if job and job.log %}
+  <div class="card-body">
+    <div class="section-title">Catatan berjalan</div>
+    <p class="muted" style="font-size:.8rem; margin:.1rem 0 .4rem">
+      12 baris terakhir — diperbarui otomatis selama bot bekerja.
+    </p>
+    <pre class="log-panel" id="log-bot">{{ job.log.splitlines()[-12:] | join('\n') }}</pre>
+  </div>
+  {% endif %}
+</div>
+
+<div class="split mt-2">
+  <div class="card" id="pengaturan-bot">
+    <div class="card-head">
+      <div>
+        <h3>Pengaturan Bot</h3>
+        <p>Akun Dapodik sekolah &amp; perilaku bot. Hanya admin yang dapat melihat halaman ini.</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <p class="soft" style="font-size:.83rem; margin-top:0">
+        Pustaka bot (selenium):
+        {% if punya_selenium %}
+          <span class="badge badge-success">terpasang</span>
+        {% else %}
+          <span class="badge badge-warning">belum terpasang</span> —
+          gunakan tombol <em>Pasang pustaka bot</em> di bagian atas halaman.
+        {% endif %}
+      </p>
+      <form method="post" action="/bot-dapodik/pengaturan">
+        <div class="form-grid">
+          <div class="field span-2">
+            <label for="url">Alamat Dapodik</label>
+            <input type="text" id="url" name="url" value="{{ cfg.bot_url }}" placeholder="http://localhost:5774/">
+          </div>
+          <div class="field">
+            <label for="username">Surel / NIK akun Dapodik</label>
+            <input type="text" id="username" name="username" value="{{ cfg.bot_username }}"
+                   placeholder="smpntangerang2@gmail.com" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="password">Kata sandi Dapodik</label>
+            <input type="password" id="password" name="password" autocomplete="new-password"
+                   placeholder="{{ '•••••• (sudah disimpan)' if cfg.bot_password else 'belum diisi' }}">
+            <span class="hint">Biarkan kosong bila tidak ingin mengubah.</span>
+          </div>
+          <div class="field">
+            <label for="hobi">Hobi (diisi ke Dapodik)</label>
+            <input type="text" id="hobi" name="hobi" value="{{ cfg.bot_hobi }}">
+          </div>
+          <div class="field">
+            <label for="cita">Cita-cita (diisi ke Dapodik)</label>
+            <input type="text" id="cita" name="cita" value="{{ cfg.bot_cita }}">
+          </div>
+          <div class="field">
+            <label for="timeout">Batas tunggu elemen (detik)</label>
+            <input type="number" id="timeout" name="timeout" min="3" max="120" value="{{ cfg.bot_timeout }}">
+          </div>
+          <div class="field">
+            <label for="retries">Percobaan klik ulang</label>
+            <input type="number" id="retries" name="retries" min="1" max="10" value="{{ cfg.bot_max_retries }}">
+          </div>
+          <div class="field">
+            <label for="jeda">Jeda antar siswa (detik)</label>
+            <input type="number" id="jeda" name="jeda" min="0" max="60" value="{{ cfg.bot_jeda }}">
+          </div>
+          <div class="field">
+            <label for="jeda_muat">Jeda muat halaman Dapodik (detik)</label>
+            <input type="number" id="jeda_muat" name="jeda_muat" min="0" max="120" value="{{ cfg.bot_jeda_muat }}">
+            <span class="hint">Naikkan bila Dapodik sekolah lambat terbuka (bawaan 8 detik; skrip asli 15 detik).</span>
+          </div>
+        </div>
+
+        <div class="section-title">Pilihan</div>
+        <div class="opsi-bot">
+          <label class="cek-bot"><input type="checkbox" name="headless" value="1" {{ 'checked' if cfg.bot_headless == '1' }}>
+            <span><strong>Bekerja di belakang layar</strong><br><small>Chrome tidak menampilkan jendela. Matikan bila perlu melihat prosesnya (mis. pemeriksaan tambahan saat login).</small></span></label>
+          <label class="cek-bot"><input type="checkbox" name="jawaban_ya" value="1" {{ 'checked' if cfg.bot_jawaban_ya == '1' }}>
+            <span><strong>Centang semua jawaban «Ya»</strong><br><small>Sama seperti skrip bot asli, tetapi hasilnya <em>diperiksa ulang</em>: bila Dapodik menelan kliknya (pernah terjadi — Ext JS mengabaikan klik lewat skrip), lognya memberi peringatan dan kotaknya dicoba lagi lewat wadah <code>x-form-cb-wrap-inner</code>.</small></span></label>
+          <label class="cek-bot"><input type="checkbox" name="pakai_nisn" value="1" {{ 'checked' if cfg.bot_pakai_nisn == '1' }}>
+            <span><strong>Pakai NISN bila NIPD/NIS kosong</strong><br><small>Bila tidak dicentang, siswa tanpa NIPD akan dilewati.</small></span></label>
+          <label class="cek-bot"><input type="checkbox" name="isi_bio" value="1" {{ 'checked' if cfg.bot_isi_bio == '1' }}>
+            <span><strong>Isi BIO lewat tombol «Ubah» (sebelum Data Periodik)</strong><br><small>Persis skrip sekolah: sesudah baris siswa dipilih, bot menekan tombol <strong>«Ubah»</strong> (ungu), menunggu jendelanya terbuka, lalu mengisi kolom <strong>No. Kartu Keluarga, No. Registrasi Akta Lahir, Alamat (Jalan), RT, RW, Kode Pos, Anak ke-berapa, Nama/NIK/Tahun Lahir/Pendidikan Ayah, dan NIK/Tahun Lahir/Pendidikan Ibu</strong> dengan data siswa dari aplikasi SM — tiap kolom: <em>Ctrl+A → ketik</em>, lalu diberi peristiwa <em>input → change → blur</em>. Jendela «Ubah» itu panjang dan punya area gulirnya sendiri, jadi kolomnya <strong>dibawa ke layar lebih dulu</strong> (jendelanya digulir, halaman juga bila perlu) — sama seperti kolom Data Periodik. Disimpan dengan tombol <strong>«Simpan»</strong>. Data yang <em>kosong</em> di SM tidak mengosongkan kolom Dapodik: kolom itu hanya dilewati dan dicatat pada log. Bila Dapodik sekolah tidak punya tombol «Ubah», langkah ini dilewati tanpa menggagalkan siswa.</small></span></label>
+          <label class="cek-bot"><input type="checkbox" name="data_periodik" value="1" {{ 'checked' if cfg.bot_data_periodik == '1' }}>
+            <span><strong>Isi Data Periodik sebelum Registrasi</strong><br><small>Persis skrip sekolah: tinggi badan, berat badan, lingkar kepala, <em>jarak rumah ke sekolah</em>, lalu jumlah saudara kandung — diambil dari data siswa SM, lalu <em>Simpan dan Tutup</em>. Dijalankan sesudah baris siswa dipilih dan <strong>sebelum</strong> tombol Registrasi ditekan.</small></span></label>
+          <label class="cek-bot"><input type="checkbox" name="periodik_jarak" value="1" {{ 'checked' if cfg.bot_periodik_jarak == '1' }}>
+            <span><strong>Isi baris «Jarak rumah ke sekolah»</strong><br><small>Dapodik punya <em>dua</em> pilihan — bot memilih sesuai kolom <strong>Jarak Rumah ke Sekolah (KM)</strong> milik siswa: <strong>≤ 1 km</strong> → «kurang dari 1 km», <strong>&gt; 1 km</strong> → «lebih dari 1 km» (pilihan yang sama dengan skrip sekolah) sekaligus mengisi kolom <em>«Sebutkan (dalam kilometer):»</em> (<code>jarak_rumah_ke_sekolah_km</code>). Bila jaraknya kosong, keduanya dilewati — Dapodik menolak centang tanpa keterangan kilometernya. Bot juga <strong>membawa panel Data Periodik ke layar</strong> lebih dulu (panel itu punya area gulirnya sendiri, jadi gulir halaman saja tidak cukup), memilih radionya lewat <strong>label <code>x-form-cb-label</code></strong> seperti skrip sekolah yang terbukti berhasil (bila tampilan berubah tetapi penanda <code>x-form-cb-checked</code> belum pindah — artinya nilai Ext JS belum berubah dan kolom kilometer tetap nonaktif — bot langsung memakai <code>Ext.getCmp(...).setValue(...)</code> lewat <code>data-componentid</code>; dan bila XPath-nya meleset, kotaknya dilacak lewat <b>teks pilihannya</b> (dibaca JavaScript), jadi tidak lagi berhenti dengan «kotak … tidak ada di halaman ini»), dan <strong>memeriksa ulang</strong> hasilnya — termasuk menunggu kolom kilometer yang semula <em>nonaktif</em> sampai pilihan «lebih dari 1 km» terpasang; kolom isiannya juga diberi peristiwa <em>input → change → blur</em>. Bila Dapodik tetap menolak, lognya berkata jujur bahwa centangnya belum berubah.</small></span></label>
+          <label class="cek-bot"><input type="checkbox" name="sekolah_asal" value="1" {{ 'checked' if cfg.bot_sekolah_asal == '1' }}>
+            <span><strong>Isi kolom «Sekolah Asal»</strong><br><small>Bot mengisi Sekolah Asal pada formulir Registrasi Dapodik dengan <em>kolom Sekolah Asal pada data siswa SM</em>. Bila Dapodik sekolah tidak punya kolom itu atau datanya kosong, langkah ini dilewati tanpa menggagalkan siswa.</small></span></label>
+          <label class="cek-bot"><input type="checkbox" name="simulasi" value="1" {{ 'checked' if cfg.bot_simulasi == '1' }}>
+            <span><strong>Mode uji coba (simulasi)</strong><br><small>Antrean &amp; kemajuan tetap dicatat, tetapi peramban/Dapodik tidak dibuka. Pakai untuk mencoba alur sebelum benar-benar mendaftar.</small></span></label>
+        </div>
+
+        <details class="filter-panel mt-2">
+          <summary>Peta tombol Dapodik (lanjutan)</summary>
+          <div class="filter-body">
+            <div class="field span-full">
+              <label for="selector_json">Penyesuaian selector (JSON)</label>
+              <textarea id="selector_json" name="selector_json" rows="4"
+                        placeholder='{"cari_nisn": "name:cari_text"}' class="mono-blok">{{ cfg.bot_selector_json }}</textarea>
+              <span class="hint">Kunci untuk jendela «Ubah» (BIO): <code>bio_ubah</code>, <code>bio_no_kk</code>, <code>bio_reg_akta</code>, <code>bio_alamat</code>, <code>bio_rt</code>, <code>bio_rw</code>, <code>bio_kode_pos</code>, <code>bio_anak_ke</code>, <code>bio_ayah_nama</code>, <code>bio_ayah_nik</code>, <code>bio_ayah_tahun</code>, <code>bio_ayah_pendidikan</code>, <code>bio_ibu_nik</code>, <code>bio_ibu_tahun</code>, <code>bio_ibu_pendidikan</code>, <code>bio_ayah_pekerjaan</code>, <code>bio_ayah_penghasilan</code>, <code>bio_ibu_pekerjaan</code>, <code>bio_ibu_penghasilan</code> (kolom dropdown), <code>bio_simpan</code>, <code>bio_jendela</code>.</span>
+              <span class="hint">
+                Kosongkan untuk memakai bawaan. Isi hanya bila Dapodik berubah versi, mis.
+                <code>{"input_nis": "name:nipd_baru"}</code>. Bentuk yang diterima:
+                <code>name:cari_text</code>, <code>css:input[name=nipd]</code>,
+                <code>xpath://*[@id="ext-element-66"]</code>, atau XPath apa adanya
+                (<code>//…</code> maupun <code>/html/body/…</code>).
+                Nama yang boleh diubah: {{ selector_kunci | join(', ') }}.
+              </span>
+            </div>
+          </div>
+        </details>
+
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit">{{ icon('check') }} Simpan pengaturan bot</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <aside>
+    <div class="card">
+      <div class="card-head"><h3>Cara Kerja Bot</h3></div>
+      <div class="card-body">
+        <ol class="langkah-bot">
+          <li>Antrean diambil dari <strong>data siswa SM</strong> (NISN sebagai kunci pencarian, NIPD sebagai NIS) — jadi Dapodik selalu mengikuti data yang ada di aplikasi ini.</li>
+          <li>Bot membuka Dapodik, masuk memakai akun di samping, lalu membuka daftar peserta didik.</li>
+          <li>Untuk setiap siswa: cari NISN → pilih baris → <em>Registrasi</em> → isi NIS → centang «Ya» → Hobi &amp; Cita-cita → <em>Simpan dan Tutup</em>.</li>
+          <li>Siswa yang NISN-nya <strong>tidak ada di Dapodik</strong> dicatat “tidak ditemukan”, sehingga mudah ditindaklanjuti (mis. NISN salah di data SM).</li>
+          <li>Setiap langkah dicatat di tabel di atas, dan bisa diunduh sebagai CSV/Excel.</li>
+          <li>Bila pekerjaan terputus, jalankan lagi dengan pilihan <em>“dilewati”</em> — siswa yang sudah berhasil tidak diulang.</li>
+          <li>Bila bot berhenti dengan pesan waktu habis, tekan <strong>Uji koneksi Dapodik</strong> untuk melihat halaman apa yang sebenarnya terbuka.</li>
+        </ol>
+        <p class="soft" style="font-size:.83rem">
+          Dapodik harus berjalan di PC ini (biasanya <code>{{ cfg.bot_url }}</code>).
+          Bot memakai Chrome yang sudah terpasang; bila belum ada, pasang Google Chrome dulu.
+        </p>
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Riwayat Pekerjaan</h3>
+          <p>Siswa yang berstatus berhasil otomatis dilewati pada pekerjaan berikutnya.</p>
+        </div>
+      </div>
+      <div class="card-body p-0 table-wrap">
+        <table class="data tabel-kecil kartu">
+          <caption class="sr-only">Riwayat pekerjaan bot Dapodik</caption>
+          <thead><tr><th>#</th><th>Mulai</th><th>Mode</th><th>Status</th><th class="num">Jumlah</th><th class="num">OK</th><th class="num">Gagal</th></tr></thead>
+          <tbody>
+            {% for r in riwayat %}
+            <tr>
+              <td class="mono" data-label="#">{{ r.id }}</td>
+              <td class="muted nowrap" data-label="Mulai" style="font-size:.76rem">{{ r.started_at or r.created_at or '—' }}</td>
+              <td data-label="Mode">{{ r.mode }}</td>
+              <td data-label="Status">
+                <span class="badge badge-{{ {'sukses': 'success', 'gagal': 'danger', 'batal': 'muted', 'jalan': 'warning'}.get(r.status, 'muted') }}">{{ r.status }}</span>
+              </td>
+              <td class="num" data-label="Jumlah">{{ r.total_item or 0 }}</td>
+              <td class="num" data-label="OK">{{ r.sukses_item or 0 }}</td>
+              <td class="num" data-label="Gagal">{{ r.gagal_item or 0 }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="empty-cell"><p class="empty">Belum ada pekerjaan bot.</p></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if riwayat %}
+      <div class="card-body">
+        <form method="post" action="/bot-dapodik/bersihkan" class="inline-form"
+              data-confirm="Hapus seluruh riwayat bot? Semua siswa akan dianggap belum pernah didaftarkan.">
+          <button class="btn btn-outline btn-sm" type="submit">Hapus riwayat bot</button>
+          <span class="hint">Pakai untuk memulai dari nol (mis. setelah uji coba).</span>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+  </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* Kemajuan bot diperbarui tanpa memuat ulang halaman. */
+(function () {
+  const url = "/bot-dapodik/status.json";
+  const tbody = document.getElementById("isi-item");
+  const badges = {
+    sukses: ["success", "berhasil"], gagal: ["danger", "gagal"],
+    dilewati: ["muted", "dilewati"], menunggu: ["warning", "menunggu"]
+  };
+  function sel(tag, teks, kelas) {
+    const el = document.createElement(tag);
+    if (kelas) el.className = kelas;
+    if (teks !== undefined && teks !== null) el.textContent = teks;
+    return el;
+  }
+  function perbarui(data) {
+    const job = data.job || {};
+    const hitung = data.hitung || {};
+    const total = job.total || 0;
+    const maju = (job.sukses || 0) + (job.gagal || 0) + (hitung.dilewati || 0);
+    const isi = (id, nilai) => { const el = document.getElementById(id); if (el) el.textContent = nilai; };
+    isi("angka-total", total.toLocaleString("id-ID"));
+    isi("angka-maju", maju.toLocaleString("id-ID"));
+    isi("angka-sukses", (job.sukses || 0).toLocaleString("id-ID"));
+    isi("angka-gagal", (job.gagal || 0).toLocaleString("id-ID"));
+    isi("angka-lewat", (hitung.dilewati || 0).toLocaleString("id-ID"));
+    const bar = document.getElementById("bar-kemajuan");
+    if (bar) bar.style.width = (total ? (maju / total * 100) : 0) + "%";
+    const badge = document.getElementById("badge-keadaan");
+    if (badge) {
+      const jalan = data.hidup && data.hidup.berjalan;
+      badge.textContent = jalan ? "Sedang bekerja" : (job.status === "jalan" ? "Berjalan/terputus" : "Menganggur");
+      badge.className = "badge badge-lg " + (jalan ? "badge-success" : (job.status === "jalan" ? "badge-warning" : "badge-muted"));
+    }
+    const baris = document.getElementById("baris-sedang");
+    if (baris && data.hidup && data.hidup.berjalan) {
+      baris.innerHTML = "Sedang memproses: <strong>" + (data.hidup.sedang || "—") + "</strong> (" +
+        (data.hidup.sedang_nisn || "") + ") · kecepatan " + data.hidup.kecepatan + " siswa/menit" +
+        (data.hidup.perkiraan_detik ? " · perkiraan sisa " + Math.floor(data.hidup.perkiraan_detik / 60) + " menit" : "");
+    }
+    if (tbody && data.items) {
+      tbody.replaceChildren();
+      if (!data.items.length) {
+        const tr = sel("tr");
+        const td = sel("td", "", "empty-cell");
+        td.colSpan = 7;
+        td.appendChild(sel("p", "Belum ada pekerjaan bot.", "empty"));
+        tr.appendChild(td); tbody.appendChild(tr);
+      }
+      data.items.forEach((item, i) => {
+        const tr = sel("tr");
+        const sel1 = sel("td", String(i + 1), "muted"); sel1.dataset.label = "#";
+        const sel2 = sel("td", item.nisn || "—", "mono"); sel2.dataset.label = "NISN";
+        const sel3 = sel("td", item.nis || "—", "mono"); sel3.dataset.label = "NIS/NIPD";
+        const sel4 = sel("td"); sel4.dataset.label = "Nama"; sel4.appendChild(sel("strong", item.nama || "—"));
+        const sel5 = sel("td"); sel5.dataset.label = "Status";
+        const info = badges[item.status] || ["muted", item.status];
+        sel5.appendChild(sel("span", info[1], "badge badge-" + info[0]));
+        const sel6 = sel("td", item.pesan || "—"); sel6.dataset.label = "Pesan";
+        const sel7 = sel("td", item.waktu || "—", "muted nowrap"); sel7.dataset.label = "Waktu";
+        tr.append(sel1, sel2, sel3, sel4, sel5, sel6, sel7);
+        tbody.appendChild(tr);
+      });
+    }
+    const log = document.getElementById("log-bot");
+    if (log && data.log) log.textContent = data.log.join("\n");
+  }
+  async function ambil() {
+    try {
+      const r = await fetch(url, { headers: { "Accept": "application/json" } });
+      if (!r.ok) return false;
+      const data = await r.json();
+      perbarui(data);
+      return Boolean(data.hidup && data.hidup.berjalan);
+    } catch (e) { return false; }
+  }
+  let gagal = 0;
+  const timer = setInterval(async () => {
+    const jalan = await ambil();
+    if (!jalan) { gagal += 1; if (gagal >= 2) clearInterval(timer); }
+    else gagal = 0;
+  }, 2000);
+  ambil();
+})();
+</script>
+{% endblock %}

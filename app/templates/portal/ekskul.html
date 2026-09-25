@@ -1,0 +1,139 @@
+{% extends "portal/_base.html" %}
+{% from "_macros.html" import icon, petunjuk %}
+
+{#- Kegiatan & Klub untuk siswa (ronde 32) — sederhana.
+
+    Ringkasan tata cara pindah ke tombol «!»; daftar kegiatan yang diikuti
+    memakai kartu (bukan tabel), riwayat pendaftaran dilipat di dalam
+    «Riwayat» supaya halaman tidak rame. -#}
+
+{% block content %}
+<div class="pl-card pl-ringkas">
+  <h3 class="pl-kartu-judul">
+    {{ icon('flag') }} Kegiatan &amp; Klub
+    {{ petunjuk(
+       'Pilih kegiatan yang kamu suka, tekan <strong>Daftar</strong>, lalu tunggu persetujuan '
+       ~ 'pembina/pelatih. Selama masih menunggu, kamu boleh membatalkan. Kalau pendaftaran '
+       ~ 'ditolak, alasannya tertulis di kartu kegiatan itu.', kelas='pop-kanan') }}
+  </h3>
+</div>
+
+{% set menunggu = pendaftaran.values() | selectattr('status', 'equalto', 'menunggu') | list %}
+{% if menunggu %}
+<div class="pl-card pl-ringkas">
+  <div class="pl-mini-baris">
+    {{ icon('clock') }}
+    <span class="pl-mini-label">Menunggu persetujuan:</span>
+    <strong>{{ menunggu | map(attribute='nama') | join(', ') | singkat(40) }}</strong>
+    {{ petunjuk('Pembina/pelatih akan memutuskan. Kamu tidak perlu mendaftar ulang.') }}
+  </div>
+</div>
+{% endif %}
+
+<div class="pl-card pl-ringkas">
+  <h3 class="pl-kartu-judul">{{ icon('check') }} Saya ikut ({{ diikuti | length }})</h3>
+  {% if diikuti %}
+    {% for item in diikuti %}
+    <div class="pl-baris">
+      <span class="pl-label">
+        <strong>{{ item.nama }}</strong>
+        <br><span style="font-size:.82rem">
+          {{ item.jabatan }}{% if item.hari %} · {{ item.hari }}{% endif %}
+          {% if item.jam_mulai %} {{ item.jam_mulai }}{% if item.jam_selesai %}–{{ item.jam_selesai }}{% endif %}{% endif %}
+          {% if item.pembina %}<br>Pembina: {{ item.pembina }}{% endif %}
+          {% if item.pelatih %} · Pelatih: {{ item.pelatih }}{% endif %}
+        </span>
+      </span>
+      <span style="text-align:right">
+        {% if item.predikat %}<span class="pl-tanda ok">Nilai {{ item.predikat }}</span>
+        {% else %}<span class="pl-tanda kosong">belum dinilai</span>{% endif %}
+      </span>
+    </div>
+    {% if item.catatan %}<p class="pl-card-ket" style="margin:-.2rem 0 .6rem">Catatan: {{ item.catatan }}</p>{% endif %}
+    {% endfor %}
+  {% else %}
+    <p class="pl-card-ket" style="margin:0">Belum ikut kegiatan. Pilih di bawah ini.</p>
+  {% endif %}
+</div>
+
+<div class="pl-card pl-ringkas">
+  <h3 class="pl-kartu-judul">
+    Pilihan kegiatan ({{ tersedia | length }})
+    {{ petunjuk('Menampilkan kegiatan yang dibuka sekolah tahun ajaran ini. Jumlah anggota '
+                ~ 'ditulis kecil di setiap kartu.') }}
+  </h3>
+  <div class="pl-petak pl-petak-lebar">
+    {% for item in tersedia %}
+    {% set daftar_ini = pendaftaran.get(item.id) %}
+    {% set anggota = diikuti | selectattr('nama', 'equalto', item.nama) | list %}
+    {#- Kartu kegiatan mandiri (.pl-kegiatan, susunan MENURUN: kepala → jadwal →
+        tombol). Jangan memakai .pl-aksi di sini: .pl-aksi itu baris mendatar
+        (ikon + teks) sehingga isi kartu meluber ke luar seperti pada ronde 34. -#}
+    <div class="pl-kegiatan">
+      <div class="pl-kegiatan-kepala">
+        <span class="pl-kegiatan-ikon">{{ icon('flag') }}</span>
+        <strong>{{ item.nama }}</strong>
+      </div>
+      <div class="pl-kegiatan-ket">
+        {% if item.hari %}{{ item.hari }}{% endif %}
+        {% if item.jam_mulai %} {{ item.jam_mulai }}{% if item.jam_selesai %}–{{ item.jam_selesai }}{% endif %}{% endif %}
+        {% if not item.hari and not item.jam_mulai %}Jadwal belum ditetapkan{% endif %}
+        · {{ item.jumlah_anggota }} anggota
+      </div>
+      <div class="pl-kegiatan-aksi">
+        <div class="pl-kegiatan-tombol">
+          {% if anggota %}
+            <span class="pl-tanda ok">{{ icon('check') }} anggota</span>
+          {% elif daftar_ini and daftar_ini.status == 'menunggu' %}
+            <span class="pl-tanda tunggu">menunggu</span>
+            <form method="post" action="/portal/ekstrakurikuler/pendaftaran/{{ daftar_ini.id }}/batalkan"
+                  data-confirm="Batalkan pendaftaran {{ item.nama }}?">
+              <button class="btn btn-outline btn-sm" type="submit">Batalkan</button>
+            </form>
+          {% elif daftar_ini and daftar_ini.status == 'ditolak' %}
+            <span class="pl-tanda gagal">ditolak</span>
+            <form method="post" action="/portal/ekstrakurikuler/{{ item.id }}/daftar">
+              <button class="btn btn-primary btn-sm" type="submit">Daftar lagi</button>
+            </form>
+          {% else %}
+            <form method="post" action="/portal/ekstrakurikuler/{{ item.id }}/daftar">
+              <button class="btn btn-primary btn-sm" type="submit">{{ icon('plus') }} Daftar</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <p class="pl-card-ket" style="margin:0">Belum ada kegiatan yang dibuka sekolah.</p>
+    {% endfor %}
+  </div>
+</div>
+
+{% if pendaftaran %}
+<div class="pl-card pl-ringkas">
+  <details>
+    <summary style="cursor:pointer;font-weight:700">
+      Riwayat pendaftaran ({{ pendaftaran | length }})
+      {{ petunjuk('Semua pendaftaran yang pernah kamu kirim beserta keputusan pembina/pelatih '
+                  ~ 'dan catatannya.') }}
+    </summary>
+    {% for item in pendaftaran.values() %}
+    <div class="pl-baris">
+      <span class="pl-label">
+        <strong>{{ item.nama }}</strong>
+        <br><span style="font-size:.82rem">{{ item.diputus_at or 'belum diputuskan' }}</span>
+      </span>
+      <span style="text-align:right">
+        {% if item.status == 'menunggu' %}<span class="pl-tanda tunggu">{{ status_label.get(item.status, item.status) }}</span>
+        {% elif item.status == 'disetujui' %}<span class="pl-tanda ok">{{ status_label.get(item.status, item.status) }}</span>
+        {% else %}<span class="pl-tanda gagal">{{ status_label.get(item.status, item.status) }}</span>{% endif %}
+        {% if item.catatan_pembina %}
+        <br><span style="font-size:.82rem;color:var(--pl-redup)">{{ item.catatan_pembina }}</span>
+        {% endif %}
+      </span>
+    </div>
+    {% endfor %}
+  </details>
+</div>
+{% endif %}
+{% endblock %}

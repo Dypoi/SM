@@ -1,0 +1,1217 @@
+/* ==========================================================================
+   SM — Sistem Informasi Manajemen Sekolah
+   Gaya antarmuka: bersih, terang, tanpa dependensi eksternal (tanpa CDN).
+   ========================================================================== */
+
+:root {
+  --primary: #2563eb;
+  --primary-600: #1d4ed8;
+  --primary-50: #eff6ff;
+  --primary-100: #dbeafe;
+  --teal: #0d9488;
+  --teal-50: #f0fdfa;
+  --success: #16a34a;
+  --success-50: #f0fdf4;
+  --warning: #d97706;
+  --warning-50: #fffbeb;
+  --danger: #dc2626;
+  --danger-50: #fef2f2;
+  --info: #0891b2;
+  --info-50: #ecfeff;
+  --violet: #7c3aed;
+
+  --bg: #f4f6fb;
+  --card: #ffffff;
+  --sidebar: #0f172a;
+  --sidebar-hover: #1e293b;
+  --sidebar-text: #cbd5e1;
+
+  --text: #0f172a;
+  --text-soft: #475569;
+  /* --muted dipakai untuk teks kecil: #64748b >= 4.5:1 di atas kartu putih. */
+  --muted: #64748b;
+  /* Versi terang untuk latar gelap (sidebar) supaya tetap kontras. */
+  --muted-terang: #94a3b8;
+  /* Tinggi topbar lengket — dipakai sisi lengket & jarak aman saat melompat
+     ke bagian halaman (scroll-padding). JANGAN dipakai sebagai offset kepala
+     tabel: kepala tabel jadi melayang di tengah tabel dan menutupi baris. */
+  --topbar-h: 65px;
+  --border: #e2e8f0;
+  --border-soft: #eef2f7;
+
+  --radius: 14px;
+  --radius-sm: 9px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, .06), 0 1px 3px rgba(15, 23, 42, .05);
+  --shadow: 0 4px 14px rgba(15, 23, 42, .07);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, .12);
+
+  --sidebar-w: 254px;
+  --font: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Roboto, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+/* Saat melompat ke bagian halaman (#form-ekskul, tautan dalam), bagian atas
+   tidak bersembunyi di bawah bilah atas yang lengket. */
+html { scroll-padding-top: calc(var(--topbar-h) + 12px); }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--primary-600); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1, h2, h3, h4 { margin: 0 0 .5rem; line-height: 1.25; font-weight: 700; letter-spacing: -.01em; }
+h1 { font-size: 1.3rem; }
+h2 { font-size: 1.1rem; }
+h3 { font-size: 1rem; }
+p { margin: 0 0 .75rem; }
+code, pre { font-family: var(--mono); font-size: .86em; }
+.muted { color: var(--muted); }
+.soft { color: var(--text-soft); }
+.nowrap { white-space: nowrap; }
+.text-right { text-align: right; }
+.text-center { text-align: center; }
+.mt-0 { margin-top: 0; }
+.mt-1 { margin-top: .5rem; }
+.mt-2 { margin-top: 1rem; }
+.mt-3 { margin-top: 1.5rem; }
+.mb-0 { margin-bottom: 0; }
+.mb-2 { margin-bottom: 1rem; }
+.gap-1 { gap: .5rem; }
+.flex { display: flex; align-items: center; }
+.flex-wrap { flex-wrap: wrap; }
+.between { justify-content: space-between; }
+.grid { display: grid; gap: 1rem; }
+/* `min(…, 100%)`: kisi tidak pernah menuntut kolom lebih lebar daripada
+   tempatnya (tanpa itu kolom kedua bisa tergencet sampai isinya terpotong).
+   Baris kedua = cadangan untuk peramban tua yang belum mengenal min(). */
+.grid-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }
+.grid-3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); }
+.grid-4 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); }
+
+/* ---------------------------------------------------------------- Layout -- */
+.layout { display: flex; min-height: 100vh; }
+
+.sidebar {
+  /* Di latar gelap, teks redup memakai nada yang lebih terang agar terbaca. */
+  --muted: var(--muted-terang);
+  width: var(--sidebar-w);
+  flex: 0 0 var(--sidebar-w);
+  background: var(--sidebar);
+  color: var(--sidebar-text);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  z-index: 40;
+}
+
+.brand { display: flex; align-items: center; gap: .7rem; padding: 1.1rem 1rem .9rem; }
+.brand-mark {
+  width: 38px; height: 38px; flex: 0 0 38px; border-radius: 11px;
+  background: linear-gradient(140deg, var(--primary), var(--violet));
+  color: #fff; display: grid; place-items: center;
+}
+.brand-mark svg { width: 22px; height: 22px; }
+.brand-text strong { display: block; color: #fff; font-size: 1.02rem; letter-spacing: .02em; }
+.brand-text small { color: var(--muted); font-size: .74rem; }
+.sidebar-close { display: none; margin-left: auto; background: none; border: 0; color: var(--muted); font-size: 1.6rem; line-height: 1; cursor: pointer; }
+
+.sidebar-school {
+  margin: 0 .75rem .8rem;
+  padding: .5rem .7rem;
+  background: rgba(148, 163, 184, .12);
+  border-radius: var(--radius-sm);
+  font-size: .78rem;
+  display: flex; align-items: center; gap: .5rem;
+}
+.sidebar-school .dot { width: 7px; height: 7px; border-radius: 50%; background: #34d399; flex: 0 0 7px; }
+
+.nav { display: flex; flex-direction: column; gap: .15rem; padding: 0 .6rem; overflow-y: auto; flex: 1; }
+.nav-link {
+  display: flex; align-items: center; gap: .65rem;
+  padding: .58rem .7rem; border-radius: var(--radius-sm);
+  color: var(--sidebar-text); font-weight: 500; font-size: .895rem;
+  transition: background .15s, color .15s;
+}
+.nav-link:hover { background: var(--sidebar-hover); color: #fff; text-decoration: none; }
+.nav-link.active { background: var(--primary); color: #fff; box-shadow: 0 4px 12px rgba(37, 99, 235, .35); }
+.nav-link .icon { width: 18px; height: 18px; flex: 0 0 18px; }
+
+.sidebar-foot { padding: .8rem; border-top: 1px solid rgba(148, 163, 184, .16); }
+.role-chip { display: flex; align-items: center; gap: .55rem; padding: .45rem .3rem .6rem; }
+.role-chip .icon { width: 18px; height: 18px; color: var(--primary); }
+.role-chip strong { display: block; color: #fff; font-size: .85rem; }
+.role-chip small { color: var(--muted); font-size: .74rem; }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 30;
+  display: flex; align-items: center; gap: 1rem;
+  padding: .85rem 1.4rem;
+  background: rgba(255, 255, 255, .92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-title h1 { margin: 0; font-size: 1.16rem; }
+/* Judul boleh menyusut; tombol di kanan tidak boleh terdesak keluar layar. */
+.topbar-title { min-width: 0; flex: 1 1 auto; }
+.topbar-title h1 { margin: 0; font-size: 1.16rem; overflow-wrap: anywhere; }
+.topbar-sub { margin: 0; font-size: .78rem; color: var(--muted); }
+.topbar-actions { margin-left: auto; display: flex; align-items: center; gap: .5rem; }
+.topbar-actions { flex: 0 0 auto; }
+.avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: linear-gradient(140deg, var(--primary), var(--teal));
+  color: #fff; display: grid; place-items: center; font-weight: 700; font-size: .85rem;
+}
+
+.content { padding: 1.4rem; flex: 1; max-width: 1600px; width: 100%; }
+.footer {
+  padding: .9rem 1.4rem; border-top: 1px solid var(--border);
+  display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+  font-size: .78rem; color: var(--muted); background: #fff;
+}
+
+/* --------------------------------------------------------------- Tombol --- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+  padding: .55rem .9rem; border-radius: var(--radius-sm);
+  border: 1px solid transparent; background: var(--primary); color: #fff;
+  font: inherit; font-weight: 600; font-size: .875rem; cursor: pointer;
+  transition: transform .06s, box-shadow .15s, background .15s;
+  white-space: nowrap;
+}
+.btn:hover { text-decoration: none; background: var(--primary-600); }
+.btn:active { transform: translateY(1px); }
+.btn .icon { width: 17px; height: 17px; }
+.btn-sm { padding: .38rem .65rem; font-size: .82rem; }
+.btn-lg { padding: .7rem 1.15rem; font-size: .95rem; }
+.btn-block { width: 100%; }
+.btn-primary { background: var(--primary); }
+.btn-outline { background: #fff; color: var(--text-soft); border-color: var(--border); }
+.btn-outline:hover { background: var(--primary-50); color: var(--primary-600); border-color: var(--primary-100); }
+.btn-ghost { background: rgba(148, 163, 184, .14); color: #e2e8f0; }
+.btn-ghost:hover { background: rgba(148, 163, 184, .24); }
+.btn-success { background: var(--success); }
+.btn-success:hover { background: #15803d; }
+.btn-danger { background: var(--danger); }
+.btn-danger:hover { background: #b91c1c; }
+.btn-warning { background: var(--warning); }
+.btn-warning:hover { background: #b45309; }
+.btn[disabled], .btn.disabled { opacity: .55; pointer-events: none; }
+.icon-btn {
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  width: 36px; height: 36px; display: grid; place-items: center; cursor: pointer; color: var(--text-soft);
+}
+.icon-btn:hover { background: var(--primary-50); color: var(--primary-600); }
+.icon-btn .icon { width: 18px; height: 18px; }
+.btn-group { display: flex; gap: .4rem; flex-wrap: wrap; }
+
+/* ---------------------------------------------------------------- Kartu --- */
+.card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden;
+}
+.card-head {
+  /* flex-wrap: bila judul + tombol (mis. «Rapikan data wali (816)») tidak muat
+     sebaris, tombol turun ke baris berikutnya — bukan menembus tepi kartu. */
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .8rem;
+  padding: .85rem 1.1rem; border-bottom: 1px solid var(--border-soft); background: #fcfdff;
+}
+.card-head h3 { margin: 0; font-size: .95rem; }
+.card-head p { margin: 0; font-size: .78rem; color: var(--muted); }
+.card-body { padding: 1.1rem; }
+.card-body.p-0 { padding: 0; }
+.card-foot { padding: .8rem 1.1rem; border-top: 1px solid var(--border-soft); background: #fcfdff; }
+.card-tight .card-body { padding: .8rem 1rem; }
+
+.stat-card {
+  background: #fff; border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 1rem; display: flex; align-items: center; gap: .85rem; box-shadow: var(--shadow-sm);
+}
+.stat-icon {
+  width: 44px; height: 44px; flex: 0 0 44px; border-radius: 12px;
+  display: grid; place-items: center; background: var(--primary-50); color: var(--primary-600);
+}
+.stat-icon .icon { width: 22px; height: 22px; }
+.stat-label { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+.stat-value {
+  font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.stat-note { font-size: .76rem; color: var(--muted); }
+.stat-success .stat-icon { background: var(--success-50); color: var(--success); }
+.stat-warning .stat-icon { background: var(--warning-50); color: var(--warning); }
+.stat-danger  .stat-icon { background: var(--danger-50);  color: var(--danger); }
+.stat-info    .stat-icon { background: var(--info-50);    color: var(--info); }
+.stat-violet  .stat-icon { background: #f5f3ff;          color: var(--violet); }
+.stat-teal    .stat-icon { background: var(--teal-50);    color: var(--teal); }
+
+/* --------------------------------------------------------------- Lencana -- */
+.badge {
+  display: inline-block; padding: .16rem .52rem; border-radius: 999px;
+  font-size: .735rem; font-weight: 700; letter-spacing: .02em;
+  background: #f1f5f9; color: var(--text-soft); border: 1px solid var(--border);
+  /* Label pendek seperti «kurang 3» tidak boleh pecah dua baris. */
+  white-space: nowrap;
+}
+.badge-success { background: var(--success-50); color: #15803d; border-color: #bbf7d0; }
+.badge-warning { background: var(--warning-50); color: #b45309; border-color: #fde68a; }
+.badge-danger  { background: var(--danger-50);  color: #b91c1c; border-color: #fecaca; }
+.badge-info    { background: var(--info-50);    color: #0e7490; border-color: #a5f3fc; }
+.badge-primary { background: var(--primary-50); color: var(--primary-600); border-color: var(--primary-100); }
+.badge-muted   { background: #f8fafc; color: var(--muted); }
+.badge-lg { font-size: .82rem; padding: .28rem .7rem; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: .3rem;
+  padding: .22rem .6rem; border-radius: 999px; background: var(--primary-50);
+  color: var(--primary-600); font-size: .77rem; font-weight: 600;
+}
+.chip-muted { background: #f1f5f9; color: var(--text-soft); }
+
+/* --------------------------------------------------------------- Formulir - */
+/* `min(…, 100%)` membuat kisi tidak pernah menuntut kolom lebih lebar daripada
+   tempatnya. Tanpa itu, di wadah sempit peramban tetap menyusun 2 kolom lalu
+   kolom kedua tergencet (pernah tinggal 75 px) sehingga isian di dalamnya
+   terpotong — dulu tak terlihat karena `.card` memakai `overflow: hidden`.
+   Baris kedua adalah cadangan untuk peramban tua yang belum mengenal min(). */
+.form-grid {
+  display: grid;
+  gap: .9rem;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr));
+}
+.field { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+.field label { font-size: .82rem; font-weight: 600; color: var(--text-soft); }
+.field .hint { font-size: .74rem; color: var(--muted); }
+/* Isian bawaan peramban punya lebar tersendiri (dari atribut size) sehingga bisa
+   menolak menyusut dan melimpah keluar kolomnya. */
+.field input, .field select, .field textarea { min-width: 0; }
+/* `span 2` pada kisi satu kolom menyisipkan kolom kedua yang tersembunyi
+   (isian jadi setengah lebar). `1 / -1` = selebar kisi, berapa pun kolomnya. */
+.field.span-2 { grid-column: 1 / -1; }
+.field.span-full { grid-column: 1 / -1; }
+
+input[type="text"], input[type="password"], input[type="number"], input[type="date"],
+input[type="email"], input[type="search"], input[type="time"], select, textarea {
+  /* Isian bawaan peramban punya lebar sendiri (atribut size) dan bisa menolak
+     menyusut — di dalam sel tabel hal itu membuat tabel melebar sampai keluar
+     layar (ronde 38/39). */
+  min-width: 0;
+  width: 100%; padding: .52rem .68rem; font: inherit; font-size: .89rem;
+  color: var(--text); background: #fff;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  transition: border-color .15s, box-shadow .15s;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none; border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .13);
+}
+textarea { min-height: 84px; resize: vertical; }
+input[type="file"] { padding: .45rem; background: #fbfdff; }
+.check { display: flex; align-items: center; gap: .5rem; font-size: .87rem; }
+.check input { width: auto; }
+.form-actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1rem; }
+
+/* ---------------------------------------------------------------- Tabel --- */
+/* `container-type: inline-size` membuat kotak ini bisa diukur lebar KOTAKNYA
+   sendiri (bukan lebar layar) lewat @container di bawah — perlu karena tabel yang
+   sama bisa berada di kolom sempit (mis. riwayat bot di samping) walau layarnya
+   lebar. Tanpa ini, tabel sepitih itu terpotong di layar 1440–1568 px. */
+.table-wrap { overflow-x: auto; border-radius: 0 0 var(--radius) var(--radius);
+  container-type: inline-size; }
+table.data {
+  width: 100%; border-collapse: collapse; font-size: .87rem;
+}
+table.data th, table.data td {
+  padding: .55rem .7rem; text-align: left; border-bottom: 1px solid var(--border-soft);
+  vertical-align: middle;
+}
+table.data thead th {
+  background: #f8fafc; color: var(--text-soft); font-size: .76rem;
+  text-transform: uppercase; letter-spacing: .05em; font-weight: 700;
+  white-space: nowrap;
+}
+/* Selang-seling baris memudahkan membaca tabel panjang. */
+table.data tbody tr:nth-child(even) { background: #fcfdff; }
+table.data tbody tr:hover { background: #f1f7ff; }
+table.data tbody tr.row-error,
+table.data tbody tr.row-error:hover { background: var(--danger-50); }
+/* Daftar panjang: tabel menggelinding sendiri di dalam kartu. */
+.table-wrap.daftar {
+  max-height: min(72vh, 760px);
+  overflow: auto;
+  overscroll-behavior-x: contain;
+}
+/* Kepala tabel HANYA menempel di dalam kotak yang benar-benar menggulung
+   sendiri, dan di sana ia menempel di tepi kotak (top: 0) dengan latar pekat
+   agar baris tidak tembus. Sebelumnya aturan umum memakai top: var(--topbar-h)
+   sehingga kepala tabel tampak melayang di tengah tabel dan menutupi sebagian
+   baris (mis. baris FUTSAL tertutup kepala tabel) — jangan diulang. */
+.table-wrap.daftar table.data thead th,
+.table-wrap.compact table.data thead th {
+  position: sticky; top: 0; z-index: 3;
+  background: #f8fafc;
+  box-shadow: 0 1px 0 var(--border), 0 7px 12px -12px rgba(15, 23, 42, .45);
+}
+.table-wrap.compact { overscroll-behavior-x: contain; }
+table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.data td.mono { font-family: var(--mono); font-size: .82rem; }
+table.data tbody tr.row-error { background: var(--danger-50); }
+table.tabel-kecil th, table.tabel-kecil td { padding: .4rem .55rem; font-size: .82rem; }
+.table-wrap.compact { max-height: 460px; overflow-y: auto; }
+
+.table-tools { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; }
+.table-tools .spacer { flex: 1; }
+
+/* --------------------------------------------------------------- Filter --- */
+.filter-bar {
+  display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));   grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+  align-items: end;
+}
+.filter-bar .span-2 { grid-column: span 2; }
+.filter-chips { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .7rem; }
+.filter-chip {
+  display: inline-flex; align-items: center; gap: .35rem;
+  background: var(--primary-50); color: var(--primary-600);
+  border: 1px solid var(--primary-100); border-radius: 999px;
+  padding: .2rem .6rem; font-size: .78rem; font-weight: 600;
+}
+.filter-chip a { color: inherit; text-decoration: none; opacity: .65; font-size: 1rem; line-height: 1; }
+.filter-chip a:hover { opacity: 1; }
+
+/* ------------------------------------------------------------ Peringatan -- */
+.alert {
+  display: flex; align-items: center; gap: .6rem;
+  padding: .7rem .9rem; border-radius: var(--radius-sm); margin-bottom: 1rem;
+  border: 1px solid var(--border); background: #fff; font-size: .88rem;
+}
+.alert-icon .icon { width: 18px; height: 18px; }
+.alert-ok    { background: var(--success-50); border-color: #bbf7d0; color: #166534; }
+.alert-warn  { background: var(--warning-50); border-color: #fde68a; color: #92400e; }
+.alert-err   { background: var(--danger-50);  border-color: #fecaca; color: #991b1b; }
+.alert-info  { background: var(--info-50);    border-color: #a5f3fc; color: #155e75; }
+.alert-close { margin-left: auto; background: none; border: 0; font-size: 1.2rem; cursor: pointer; color: inherit; opacity: .55; }
+.alert-close:hover { opacity: 1; }
+
+.note {
+  padding: .7rem .9rem; border-radius: var(--radius-sm); font-size: .85rem;
+  background: var(--primary-50); border: 1px solid var(--primary-100); color: #1e40af;
+}
+.note-warning { background: var(--warning-50); border-color: #fde68a; color: #92400e; }
+.note-danger { background: var(--danger-50); border-color: #fecaca; color: #991b1b; }
+.empty { color: var(--muted); font-size: .88rem; text-align: center; padding: 1.2rem 0; margin: 0; }
+
+/* ------------------------------------------------------------- Bar chart -- */
+.bar-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+.bar-list li { display: grid; grid-template-columns: 42% 1fr 46px; align-items: center; gap: .6rem; font-size: .84rem; }
+.bar-label { color: var(--text-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { background: #f1f5f9; border-radius: 999px; height: 9px; overflow: hidden; }
+.bar-fill { display: block; height: 100%; border-radius: 999px; background: var(--primary); transition: width .4s ease; }
+.bar-success { background: var(--success); }
+.bar-warning { background: var(--warning); }
+.bar-danger { background: var(--danger); }
+.bar-info { background: var(--info); }
+.bar-teal { background: var(--teal); }
+.bar-value { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.progress { height: 9px; background: #f1f5f9; border-radius: 999px; overflow: hidden; }
+.progress span { display: block; height: 100%; background: linear-gradient(90deg, var(--primary), var(--teal)); }
+.progress.warn span { background: linear-gradient(90deg, var(--warning), #f59e0b); }
+.progress.danger span { background: linear-gradient(90deg, var(--danger), #f87171); }
+
+/* --------------------------------------------------------------- Lain ------ */
+.pagination {
+  display: flex; align-items: center; justify-content: space-between; gap: .6rem;
+  padding: .75rem 1.1rem; border-top: 1px solid var(--border-soft); flex-wrap: wrap; font-size: .85rem;
+}
+.page-btn {
+  padding: .38rem .7rem; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: #fff; color: var(--text-soft); font-weight: 600;
+}
+.page-btn:hover { background: var(--primary-50); text-decoration: none; }
+.page-btn.disabled { opacity: .45; pointer-events: none; }
+.page-info { color: var(--muted); }
+
+.kv { display: grid; grid-template-columns: 190px 1fr; gap: .3rem .8rem; font-size: .87rem; }
+.kv dt { color: var(--muted); font-weight: 600; }
+.kv dd { margin: 0; word-break: break-word; }
+.kv-2 { grid-template-columns: 1fr 1fr; }
+
+.section-title {
+  display: flex; align-items: center; gap: .5rem; margin: 1.6rem 0 .7rem;
+  font-size: .82rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 700;
+}
+.section-title::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+
+.tabs { display: flex; gap: .3rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem; flex-wrap: wrap; }
+.tab {
+  padding: .5rem .85rem; border: 0; background: none; font: inherit; font-weight: 600;
+  color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; font-size: .88rem;
+}
+.tab.active { color: var(--primary-600); border-bottom-color: var(--primary); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+.upload-zone {
+  border: 2px dashed var(--border); border-radius: var(--radius); padding: 1.6rem;
+  text-align: center; background: #fbfdff; transition: border-color .15s, background .15s;
+}
+.upload-zone:hover, .upload-zone.dragover { border-color: var(--primary); background: var(--primary-50); }
+.upload-zone .icon { width: 34px; height: 34px; color: var(--primary); }
+.upload-zone h3 { margin: .5rem 0 .2rem; }
+.upload-zone p { color: var(--muted); font-size: .85rem; margin: 0 0 .9rem; }
+
+.preview-table { max-height: 320px; }
+.tag-list { display: flex; flex-wrap: wrap; gap: .3rem; }
+.mono-block {
+  font-family: var(--mono); font-size: .78rem; background: #0f172a; color: #e2e8f0;
+  padding: .8rem 1rem; border-radius: var(--radius-sm); overflow-x: auto; white-space: pre;
+}
+
+.split { display: grid; grid-template-columns: 1fr 320px; gap: 1rem; align-items: start; }
+/* Anak grid bawaannya `min-width: auto` = selebar isi terkecilnya. Bila isinya
+   (kolom isian/tabel) lebih lebar daripada kolomnya, kolom ikut melar sampai
+   melewati tepi layar — di ponsel halaman jadi harus digulir ke samping
+   (halaman Pengajuan: 404 px di layar 390 px). `min-width: 0` mengizinkan
+   kolom menyusut, jadi isi yang panjang membungkus/digulir di dalam kotaknya. */
+.split > * { min-width: 0; }
+/* Kolom samping harus setinggi barisnya. Kalau tidak (align-items: start),
+   panel lengket di dalamnya hanya "setengah lengket": ia berhenti menempel
+   setelah beberapa baris lalu ikut tergulir naik. */
+.split > aside { align-self: stretch; }
+
+/* Kartu samping TIDAK menempel saat halaman digulir (permintaan sekolah:
+   "Status Kelengkapan Data", "Anggota Terbanyak", dan kartu samping lain harus
+   ikut tergulir seperti isi lain). Dulu ada kelas .sticky-side dengan
+   position: sticky — jangan dihidupkan lagi; yang boleh lengket hanya bilah
+   samping, bilah atas, kepala tabel di kotak bergulir, dan bilah tombol form. */
+
+.avatar-lg {
+  width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center;
+  background: linear-gradient(140deg, var(--primary), var(--violet)); color: #fff;
+  font-weight: 700; font-size: 1.4rem;
+}
+.profile-head { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+
+/* --------------------------------------------------------------- Login ---- */
+.login-page {
+  min-height: 100vh; display: grid; grid-template-columns: 1.05fr .95fr;
+  background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 55%, #2563eb 100%);
+}
+.login-hero { padding: 3rem; color: #e2e8f0; display: flex; flex-direction: column; justify-content: center; gap: 1.2rem; }
+.login-hero h1 { color: #fff; font-size: 2.1rem; margin: 0; letter-spacing: -.02em; }
+.login-hero p { color: #bfdbfe; max-width: 46ch; font-size: .95rem; }
+.login-features { display: grid; gap: .55rem; margin-top: .5rem; }
+.login-feature { display: flex; align-items: center; gap: .6rem; font-size: .89rem; color: #dbeafe; }
+.login-feature .icon { width: 18px; height: 18px; color: #34d399; flex: 0 0 18px; }
+.login-brand { display: flex; align-items: center; gap: .7rem; margin-bottom: 1rem; }
+.login-brand .brand-mark { width: 44px; height: 44px; flex-basis: 44px; }
+.login-panel { background: #fff; display: grid; place-items: center; padding: 2rem; }
+.login-card { width: 100%; max-width: 392px; }
+.login-card h2 { font-size: 1.35rem; }
+.login-card .sub { color: var(--muted); font-size: .87rem; margin-bottom: 1.2rem; }
+.switch { display: flex; background: #f1f5f9; border-radius: 999px; padding: .22rem; margin-bottom: 1.1rem; }
+.switch button {
+  flex: 1; border: 0; background: none; padding: .5rem .8rem; border-radius: 999px;
+  font: inherit; font-weight: 600; font-size: .86rem; color: var(--text-soft); cursor: pointer;
+}
+.switch button.active { background: #fff; color: var(--primary-600); box-shadow: var(--shadow-sm); }
+.login-hint { font-size: .78rem; color: var(--muted); margin-top: .9rem; text-align: center; }
+.login-hint code { background: #f1f5f9; padding: .1rem .35rem; border-radius: 5px; }
+
+/* ----------------------------------------------------------- Responsif --- */
+.only-mobile { display: none; }
+.sidebar-backdrop { display: none; }
+
+@media (max-width: 1100px) {
+  .split { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 860px) {
+  .only-mobile { display: grid; }
+  .hide-sm { display: none; }
+  .sidebar {
+    position: fixed; left: 0; top: 0; transform: translateX(-100%);
+    transition: transform .22s ease; box-shadow: var(--shadow-lg);
+  }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-close { display: block; }
+  .sidebar-backdrop.show { display: block; position: fixed; inset: 0; background: rgba(15, 23, 42, .45); z-index: 35; }
+  .login-page { grid-template-columns: 1fr; }
+  .login-hero { display: none; }
+  .content { padding: 1rem; }
+  .topbar { padding: .7rem 1rem; }
+  .kv { grid-template-columns: 1fr; }
+  .kv dt { margin-top: .4rem; }
+  .filter-bar .span-2 { grid-column: span 1; }
+  .bar-list li { grid-template-columns: 38% 1fr 40px; }
+  /* Label diagram tidak dipotong: pecah baris daripada memakai elipsis. */
+  .bar-label { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+  /* Kotak peringatan: tombol di dalamnya turun baris, bukan keluar dari kartu. */
+  .alert { flex-wrap: wrap; }
+  .alert > * { min-width: 0; }
+}
+
+/* --- Blok Data Wali (formulir siswa & petugas) --------------------------- */
+/* Atribut `hidden` harus tetap menang walau elemennya diberi display lain. */
+[hidden] { display: none !important; }
+
+.wali-zone { margin-bottom: .5rem; }
+.wali-ask {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  flex-wrap: wrap;
+  padding: .7rem .9rem;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--primary-50);
+  margin-bottom: .9rem;
+}
+.wali-ask > span:first-child { font-weight: 600; color: var(--text); }
+.wali-ask [data-wali-jawaban] { margin-left: auto; }
+[data-wali-jawab].active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.wali-fields { margin-top: .2rem; }
+
+/* --- Tombol aksi sebaris dengan tautan (mis. Rapikan data wali) ---------- */
+.inline-form { display: inline-flex; margin: 0; }
+
+/* ==========================================================================
+   Penyempurnaan UX & aksesibilitas
+   ========================================================================== */
+
+/* --- Hanya untuk pembaca layar / hanya untuk cetak --------------------- */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.print-only { display: none; }
+
+/* --- Lompat ke konten (pengguna papan tunas) --------------------------- */
+.skip-link {
+  position: absolute; left: -9999px; top: .6rem; z-index: 100;
+  background: #fff; color: var(--primary-600); font-weight: 700; font-size: .88rem;
+  padding: .6rem .95rem; border-radius: var(--radius-sm); box-shadow: var(--shadow);
+}
+.skip-link:focus { left: .9rem; }
+
+/* --- Penanda fokus yang jelas untuk navigasi papan tunas --------------- */
+:focus-visible { outline: 3px solid rgba(37, 99, 235, .45); outline-offset: 2px; border-radius: 6px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; }
+::selection { background: var(--primary-100); }
+
+/* --- Hormati preferensi "kurangi gerakan" ------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important; scroll-behavior: auto !important;
+  }
+}
+
+/* --- Layar sentuh: sasaran sentuh lebih besar -------------------------- */
+@media (pointer: coarse) {
+  .btn, .icon-btn, .page-btn { min-height: 40px; }
+  .btn-sm { min-height: 36px; }
+  input, select, textarea { min-height: 40px; }
+}
+
+/* --- Panel filter ringkas (rincian tersembunyi) ------------------------ */
+.filter-panel {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: #fbfdff; margin-top: .8rem;
+}
+.filter-panel > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  display: flex; align-items: center; gap: .5rem;
+  padding: .62rem .85rem; font-weight: 600; font-size: .86rem; color: var(--text-soft);
+}
+.filter-panel > summary::-webkit-details-marker { display: none; }
+.filter-panel > summary::after {
+  content: "▾"; margin-left: auto; color: var(--muted);
+  transition: transform .15s ease;
+}
+.filter-panel[open] > summary::after { transform: rotate(180deg); }
+.filter-panel > summary:hover { background: var(--primary-50); color: var(--primary-600); border-radius: var(--radius-sm); }
+.filter-panel .filter-body { padding: .35rem .85rem .1rem; border-top: 1px dashed var(--border); }
+.filter-count {
+  background: var(--primary); color: #fff; border-radius: 999px;
+  font-size: .72rem; font-weight: 700; padding: .03rem .45rem;
+}
+
+/* --- Tombol aksi form yang selalu terjangkau saat menggulir ------------ */
+.form-actions.sticky-actions {
+  position: sticky; bottom: 0; z-index: 5;
+  margin: 1.1rem -1.1rem -1.1rem; padding: .8rem 1.1rem;
+  background: rgba(255, 255, 255, .96); backdrop-filter: blur(6px);
+  border-top: 1px solid var(--border);
+}
+
+/* --- Keadaan kosong yang menjelaskan langkah berikutnya ---------------- */
+.empty-state { text-align: center; padding: 1.8rem 1rem; }
+.empty-state .empty-icon {
+  width: 52px; height: 52px; margin: 0 auto .6rem; border-radius: 16px;
+  display: grid; place-items: center; background: var(--primary-50); color: var(--primary-600);
+}
+.empty-state .empty-icon .icon { width: 26px; height: 26px; }
+.empty-state h3 { margin: 0 0 .25rem; font-size: .98rem; }
+.empty-state p { color: var(--muted); font-size: .86rem; margin: 0 auto .9rem; max-width: 46ch; }
+
+/* --- Notifikasi di bilah atas (lonceng) --------------------------------- */
+
+/* Peringatan penting tidak lagi memenuhi halaman: cukup lonceng kecil di samping
+   tombol «Impor Berkas». Titik merah = ada peringatan; klik untuk membacanya. */
+.notif { position: relative; display: inline-flex; }
+.notif-tombol {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: #92400e;
+  cursor: pointer;
+}
+.notif-tombol:hover, .notif-tombol[aria-expanded="true"] { background: var(--warning-50); }
+.notif-tombol .icon { width: 19px; height: 19px; }
+.notif-titik {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger, #dc2626);
+  color: #fff;
+  font-size: .66rem;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
+  border: 2px solid #fff;
+  box-sizing: content-box;
+}
+.notif-pop {
+  position: absolute;
+  top: calc(100% + .5rem);
+  right: 0;
+  z-index: 60;
+  width: max-content;
+  max-width: min(330px, 84vw);
+  padding: .8rem .9rem;
+  background: #fff;
+  border: 1px solid #fde68a;
+  border-radius: 14px;
+  box-shadow: 0 16px 34px rgba(23, 35, 61, .16);
+  text-align: left;
+  white-space: normal;
+}
+.notif-pop .notif-judul {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: .92rem;
+  color: #92400e;
+  margin-bottom: .3rem;
+}
+.notif-pop .notif-judul .icon { width: 18px; height: 18px; flex: 0 0 18px; }
+.notif-pop ul { margin: 0 0 .6rem; padding-left: 1.05rem; font-size: .84rem; color: #5b6884; }
+.notif-pop li + li { margin-top: .25rem; }
+.notif-pop .btn { width: 100%; }
+
+/* --- Pencarian cepat di topbar ---------------------------------------- */
+.quick-search { position: relative; display: flex; align-items: center; margin-left: auto; }
+.quick-search .icon {
+  position: absolute; left: .6rem; width: 16px; height: 16px;
+  color: var(--muted); pointer-events: none;
+}
+.quick-search input { width: 264px; padding-left: 2.1rem; padding-right: 2.4rem; }
+.quick-search kbd {
+  position: absolute; right: .5rem; font: inherit; font-size: .68rem; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 5px; padding: 0 .32rem; background: #fff;
+}
+@media (max-width: 1180px) { .quick-search input { width: 180px; } }
+@media (max-width: 860px) { .quick-search { display: none; } }
+
+/* --- Label kelompok menu samping -------------------------------------- */
+.nav-label {
+  padding: .8rem .7rem .22rem; font-size: .68rem; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--muted);
+}
+.nav-label:first-child { padding-top: .15rem; }
+
+/* --- Pesan yang menutup sendiri (sisi tampilan, bukan data) ----------- */
+.alert { transition: opacity .35s ease, transform .35s ease; }
+.alert-hilang { opacity: 0; transform: translateY(-4px); }
+
+/* --- Penyesuaian layar sempit ----------------------------------------- */
+@media (max-width: 560px) {
+  body { font-size: 14px; }
+  .content { padding: .85rem; }
+  h1 { font-size: 1.15rem; }
+  .topbar-sub { display: none; }
+  .card-head { flex-direction: column; align-items: flex-start; }
+  .card-head .btn-group { width: 100%; }
+  .stat-value { font-size: 1.35rem; }
+  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+  .form-actions.sticky-actions { margin: 1rem -.85rem -.85rem; padding: .7rem .85rem; }
+}
+/* Catatan (ronde 39): aturan `.form-tambah-anggota/.form-cari-cepat/.form-jadwal`
+   DULU ditulis di sini — lalu KALAH oleh aturan dasarnya sendiri yang berada lebih
+   bawah di berkas ini (kekhususan sama, yang belakangan menang). Akibatnya di HP
+   ketiga formulir itu tetap 4 kolom dan tombolnya keluar dari kartu. Kini mereka
+   dibuat lentur (auto-fit + min()) dan aturan layar sempitnya ditaruh di AKHIR
+   berkas. Dijaga blok 35 `scripts/cek_sistem.py`. */
+
+/* --- Mode cetak: rapi untuk daftar siswa & laporan -------------------- */
+@media print {
+  @page { margin: 12mm; }
+  body { background: #fff; font-size: 11.5px; color: #000; }
+  .sidebar, .topbar, .footer, .filter-bar, .filter-panel, .table-tools, .btn-group,
+  .btn, .alert, .alert-close, .pagination, .quick-search, .no-print, .skip-link,
+  .sidebar-backdrop, .tabs, .upload-zone { display: none !important; }
+  .print-only { display: block !important; }
+  .layout { display: block; }
+  .content { padding: 0; max-width: none; }
+  .card { border: 1px solid #cbd5e1 !important; box-shadow: none !important; break-inside: avoid; }
+  .card-head { background: #fff; border-bottom: 1px solid #cbd5e1; flex-direction: row; }
+  .card-body { padding: .5rem 0; }
+  .table-wrap, .table-wrap.daftar { max-height: none !important; overflow: visible !important; }
+  table.data { font-size: 10.5px; }
+  table.data thead th {
+    position: static; background: #f1f5f9 !important; color: #0f172a; box-shadow: none;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  table.data th, table.data td { border-bottom: 1px solid #cbd5e1; padding: .28rem .42rem; }
+  table.data tbody tr { break-inside: avoid; }
+  table.data tbody tr:nth-child(even) {
+    background: #f8fafc !important;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .stat-card { border: 1px solid #cbd5e1; box-shadow: none; break-inside: avoid; }
+  .cetak-kepala {
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem;
+    border-bottom: 2px solid #0f172a; padding-bottom: .35rem; margin-bottom: .7rem;
+  }
+  .cetak-kepala h1 { font-size: 1rem; margin: 0; }
+  .cetak-kepala p { margin: .12rem 0 0; font-size: 10px; color: #334155; }
+}
+
+/* Sel tabel khusus keadaan kosong (tanpa padding bawaan .empty). */
+td.empty-cell { padding: 0; }
+.nav-link .nav-badge { margin-left: auto; }
+
+/* --- Tombol yang sedang menunggu balasan server ------------------------ */
+.btn-menunggu { opacity: .68; cursor: progress; }
+
+/* --- Ponsel, tablet, & laptop kecil: tabel jadi daftar kartu agar tidak ada
+   yang terpotong ---
+   Ambangnya 1400 px (dulu 560, lalu 800, lalu 1340). Tabel anggota ekskul butuh
+   1166 px dan tabel Data Siswa 1097 px; dengan bilah samping, ruang isi pada layar
+   1180 px hanya ~926 px dan pada 1366 px ~1112 px sehingga kolom terakhir
+   terpotong tanpa tanda apa pun — terukur pada 600, 820, 900, 1024, 1180, dan
+   1366 px. Di layar ≥1401 px (ruang isi ≥1146 px) tabel kembali tampil sebagai
+   tabel. */
+@media (max-width: 1400px) {
+  table.data.kartu { display: block; }
+  table.data.kartu thead { display: none; }
+  table.data.kartu tbody, table.data.kartu tr { display: block; }
+  table.data.kartu tr {
+    border-bottom: 1px solid var(--border);
+    padding: .6rem .75rem;
+  }
+  table.data.kartu tr:nth-child(even) { background: #fbfdff; }
+  table.data.kartu td {
+    /* flex-wrap: sel yang memuat beberapa hal (tautan + lencana + catatan, atau
+       daftar isian di samping tombol) boleh turun baris. Tanpa ini isinya
+       menembus tepi kartu di layar sempit (ronde 39). */
+    display: flex; flex-wrap: wrap; align-items: baseline;
+    justify-content: space-between; gap: .35rem .75rem;
+    padding: .16rem 0; border: 0; text-align: left; width: auto;
+  }
+  table.data.kartu td::before {
+    content: attr(data-label); flex: 0 0 42%; color: var(--muted);
+    font-size: .74rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  }
+  table.data.kartu td[data-label="#"] { display: none; }
+  /* Lencana panjang (mis. «1 pendaftar menunggu») boleh turun baris di dalam
+     kartu. Dengan `nowrap` ia menembus tepi kartu di layar sempit (ronde 39). */
+  table.data.kartu td .badge { white-space: normal; }
+  /* Keadaan kosong harus tetap terlihat: satu sel selebar kartu. */
+  table.data.kartu td.empty-cell { display: block; padding: 0; }
+  table.data.kartu td.empty-cell::before { content: none; }
+}
+
+/* ==========================================================================
+   Ikon: ukuran dasar yang aman
+   ========================================================================== */
+/* Sebelumnya setiap ikon disetel oleh wadahnya masing-masing. Akibatnya ikon di
+   wadah baru (mis. ringkasan panel filter) tampil raksasa karena SVG tanpa
+   ukuran memenuhi lebar induknya. Ukuran dasar ini mencegahnya; aturan wadah
+   yang lebih khusus (.btn .icon, .stat-icon .icon, dan seterusnya) tetap menang. */
+.icon { width: 18px; height: 18px; flex: 0 0 auto; vertical-align: -0.18em; }
+/* vertical-align membuat ikon yang menempel pada teks (mis. di dalam <h3> atau <summary>)
+   duduk sejajar dengan huruf, bukan menggantung di garis dasar. Di dalam wadah flex
+   (tombol, kartu) aturan ini diabaikan dan perataan diatur align-items. */
+.icon-besar { width: 26px; height: 26px; }
+
+/* ==========================================================================
+   Login: lebih ramah untuk siswa
+   ========================================================================== */
+.login-peran { display: grid; gap: .8rem; margin-top: .9rem; }
+.login-peran-kartu {
+  display: flex; gap: .75rem;
+  align-items: center; /* ikon sejajar tengah dengan teksnya, tidak menggantung di atas */
+  background: rgba(255, 255, 255, .07); border: 1px solid rgba(191, 219, 254, .22);
+  border-radius: 14px; padding: .85rem .95rem;
+}
+.login-peran-kartu .ikon {
+  flex: 0 0 38px; width: 38px; height: 38px; border-radius: 11px;
+  display: grid; place-items: center; background: rgba(255, 255, 255, .12); color: #bfdbfe;
+}
+.login-peran-kartu .ikon .icon { width: 20px; height: 20px; }
+.login-peran-kartu strong { display: block; color: #fff; font-size: .95rem; margin-bottom: .12rem; }
+.login-peran-kartu span { color: #cbd5e1; font-size: .84rem; line-height: 1.45; }
+
+/* Pilihan peran di panel kanan (admin/guru, siswa, ekstrakurikuler) —
+   sasaran sentuh besar, rapi walau kartunya sempit. */
+.switch { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: .5rem; background: none; padding: 0; } .switch { grid-template-columns: repeat(auto-fit, minmax(min(128px, 100%), 1fr)); }
+.switch button {
+  display: flex; align-items: center; gap: .6rem; text-align: left;
+  background: #fff; border: 1.5px solid var(--border); border-radius: 13px;
+  padding: .68rem .75rem; font-size: .9rem;
+}
+.switch button .icon { width: 20px; height: 20px; color: var(--muted); }
+.switch button strong { display: block; font-size: .9rem; color: var(--text); line-height: 1.25; }
+.switch button small { display: block; font-size: .74rem; font-weight: 500; color: var(--muted); }
+.switch button:hover { border-color: var(--primary-100); background: #f8fbff; }
+/* Kartu aktif harus paling menonjol: garis tepi biru penuh + latar biru muda. */
+.switch button.active {
+  background: var(--primary-50); border-color: var(--primary); box-shadow: none;
+  color: var(--primary-600);
+}
+.switch button.active .icon { color: var(--primary-600); }
+.switch button.active strong { color: var(--primary-600); }
+.switch button.active small { color: var(--primary-600); }
+
+/* Kepala panel siswa */
+.login-siswa-head { display: flex; gap: .7rem; align-items: center; margin: .3rem 0 1rem; }
+/* Ikon, judul, dan tombol «!» duduk pada satu garis tengah yang sama. */
+.login-siswa-head .ikon {
+  flex: 0 0 42px; width: 42px; height: 42px; border-radius: 13px; display: grid;
+  place-items: center; background: var(--primary-50); color: var(--primary-600);
+}
+.login-siswa-head .ikon .icon { width: 22px; height: 22px; }
+.login-siswa-head h3 { margin: 0 0 .15rem; font-size: 1rem; }
+.login-siswa-head p { margin: 0; color: var(--muted); font-size: .84rem; line-height: 1.45; }
+
+/* Isian NISN: angka besar dan mudah dibaca */
+input.input-nisn {
+  font-size: 1.15rem; font-weight: 600; letter-spacing: .12em;
+  font-variant-numeric: tabular-nums; padding: .7rem .8rem;
+}
+
+/* Baris nilai anggota ekskul: jabatan, nilai, catatan, status dalam satu baris. */
+/* --- Isian di dalam sel tabel anggota ekskul ---------------------------- */
+/* Setiap isian menempati selnya sendiri (sejajar dengan kepala tabel), jadi
+   ukurannya dibuat ringkas agar tabel tetap muat di layar biasa. */
+.baris-form { display: none; }
+table.data.anggota td select,
+table.data.anggota td input[type="text"] { padding: .34rem .5rem; font-size: .84rem; }
+table.data.anggota td select[name="nilai"] { max-width: 96px; }
+table.data.anggota td select[name="jabatan"] { max-width: 148px; }
+table.data.anggota td select[name="status"] { max-width: 118px; }
+table.data.anggota td input[name="catatan"] { min-width: 190px; }
+
+/* --- Halaman Bot Dapodik ---------------------------------------------- */
+.form-bot {
+  display: grid; gap: .8rem; align-items: end;
+  /* Dulu 190px 190px minmax(240px, 1fr): di layar 390–600 px isinya terpotong
+     (isian «Batasi jumlah siswa» dan kotak «Daftar NISN» keluar dari kartu). */
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+}
+.form-bot .field { margin: 0; }
+.form-bot .field.span-3 { grid-column: 1 / -1; }
+.form-bot .form-aksi { grid-column: 1 / -1; }
+.opsi-bot {
+  display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));   grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+}
+/* Baris opsi pada form uji koneksi Dapodik (tetap ringkas di kepala kartu). */
+.opsi-uji { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.opsi-uji .cek-bot { font-size: .82rem; }
+.opsi-uji .cek-bot span { white-space: nowrap; }
+
+.cek-bot {
+  display: flex; gap: .6rem; align-items: flex-start;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: .7rem .8rem; background: #fcfdff; cursor: pointer;
+}
+.cek-bot input { margin-top: .25rem; accent-color: var(--primary); width: 16px; height: 16px; }
+.cek-bot small { color: var(--muted); font-size: .76rem; }
+textarea.mono-blok { font-family: var(--mono); font-size: .8rem; }
+.langkah-bot { margin: 0; padding-left: 1.1rem; font-size: .85rem; color: var(--text-soft); }
+.langkah-bot li { margin-bottom: .4rem; }
+
+/* --- Sel yang perlu diperbaiki (dari temuan halaman Kualitas Data) ----- */
+table.data td.sel-masalah { background: var(--danger-50); box-shadow: inset 2px 0 0 var(--danger); }
+table.data td.sel-masalah .badge { margin-left: .3rem; }
+
+/* --- Form jadwal ekskul (hari & jam oleh pembina/pelatih) --------------- */
+.form-jadwal {
+  display: grid; gap: .8rem; align-items: end;
+  /* auto-fit + min(): kolom menyusut sendiri tanpa media query, jadi tidak
+     pernah meluber walau aturan ini berada setelah blok responsif. */
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
+}
+.form-jadwal .field { margin: 0; }
+
+/* --- Cari cepat siswa (halaman anggota ekskul) -------------------------- */
+.cari-cepat { border-bottom: 1px solid var(--border-soft); }
+.cari-cepat > summary {
+  display: flex; align-items: center; gap: .45rem; cursor: pointer;
+  padding: .7rem 1.1rem; font-size: .87rem; font-weight: 600; color: var(--primary);
+  list-style: none;
+}
+.cari-cepat > summary::-webkit-details-marker { display: none; }
+.cari-cepat > summary .icon { width: 16px; height: 16px; }
+.cari-cepat > summary:hover { background: #f8fafc; }
+.cari-cepat[open] > summary { background: #f8fafc; border-bottom: 1px solid var(--border-soft); }
+.cari-cepat-isi { padding: .95rem 1.1rem 1.1rem; }
+.form-cari-cepat {
+  display: grid; gap: .8rem; align-items: end;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+}
+.form-cari-cepat .field { margin: 0; }
+.cari-ringkas { margin: .95rem 0 .5rem; font-size: .84rem; color: var(--text-soft); }
+.cari-catatan { margin: .6rem 0 0; font-size: .78rem; color: var(--muted); }
+.hasil-cari { border: 1px solid var(--border-soft); border-radius: var(--radius-sm); }
+
+/* --- Baris "tambah anggota" di atas daftar anggota ekskul --------------- */
+/* Ditaruh di dalam kartu anggota (bukan panel samping lengket) supaya selalu
+   terjangkau: di layar lebar berdampingan, di layar sempit menumpuk. */
+.card-body.tambah-anggota {
+  background: #f8fafc;
+  border-bottom: 1px solid var(--border-soft);
+}
+.form-tambah-anggota {
+  display: grid; gap: .8rem; align-items: end;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+}
+.form-tambah-anggota .field { margin: 0; }
+.form-tambah-anggota .btn { white-space: nowrap; }
+
+/* NIK: 16 angka, mudah dibaca satu per satu */
+input.input-nik {
+  font-size: 1.1rem; font-weight: 600; letter-spacing: .14em;
+  font-variant-numeric: tabular-nums; padding: .7rem .8rem;
+}
+
+/* Pilihan Pembina / Pelatih berbentuk kartu radio */
+.pilih-peran { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.pilih-peran label {
+  display: flex; gap: .5rem; align-items: flex-start; cursor: pointer;
+  background: #fff; border: 1.5px solid var(--border); border-radius: 12px; padding: .6rem .7rem;
+}
+.pilih-peran label:hover { border-color: var(--primary-100); background: #f8fbff; }
+.pilih-peran label:has(input:checked) { border-color: var(--primary); background: var(--primary-50); }
+.pilih-peran input { margin: .2rem 0 0; accent-color: var(--primary); width: 16px; height: 16px; }
+.pilih-peran strong { display: block; font-size: .86rem; color: var(--text); }
+.pilih-peran small { display: block; font-size: .74rem; color: var(--muted); }
+
+/* Kotak bantuan & langkah */
+.login-bantuan {
+  margin-top: 1rem; background: #f8fafc; border: 1px dashed var(--border);
+  border-radius: 12px; padding: .75rem .85rem; font-size: .82rem; color: var(--text-soft);
+}
+.login-bantuan strong { display: block; color: var(--text); margin-bottom: .18rem; }
+.login-bantuan ol { margin: .35rem 0 0; padding-left: 1.1rem; }
+.login-bantuan li { margin-bottom: .12rem; }
+
+/* Nama sekolah tampil di panel saat layar kecil (hero disembunyikan) */
+.login-mobile-brand { display: none; }
+@media (max-width: 860px) {
+  .login-mobile-brand {
+    display: flex; align-items: center; gap: .6rem; margin-bottom: .9rem;
+  }
+  .login-mobile-brand .brand-mark { width: 40px; height: 40px; flex-basis: 40px; }
+  .login-mobile-brand strong { display: block; font-size: 1rem; }
+  .login-mobile-brand small { color: var(--muted); font-size: .78rem; }
+  .login-panel { padding: 1.4rem 1.1rem 2.2rem; align-items: start; }
+  .login-card { max-width: 100%; }
+  .switch button { padding: .6rem .62rem; }
+  .switch button strong { font-size: .84rem; }
+  .switch button small { font-size: .7rem; }
+}
+@media (max-width: 380px) {
+  .switch { grid-template-columns: 1fr; }
+  /* Catatan (ronde 40): di layar ≤380 px (HP lama/kompak, panel pratinjau)
+     tombol ber-`white-space: nowrap` menembus tepi kartu — isinya terpotong.
+     Mulai sekarang tombol panjang boleh turun baris daripada terpotong. */
+  .btn, .form-tambah-anggota .btn { white-space: normal; max-width: 100%; }
+  .card-head > div { min-width: 0; }
+}
+
+/* --- Halaman Bot Dapodik (ronde 23): ringkas, kotak keadaan, panel catatan --- */
+.bot-kepala .card-body { padding-top: .35rem; }
+
+.bot-ringkas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
+  gap: .55rem .9rem;
+  margin: .5rem 0 .35rem;
+}
+
+.bot-ringkas > div {
+  background: var(--surface-2, #f6f8fc);
+  border: 1px solid var(--border, #e3e8f0);
+  border-radius: 10px;
+  padding: .45rem .6rem;
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+  min-width: 0;
+}
+
+.bot-ringkas span { font-size: .74rem; text-transform: uppercase; letter-spacing: .02em; }
+.bot-ringkas strong { font-size: .88rem; overflow-wrap: anywhere; }
+
+.bot-langkah { margin: 0 0 .9rem; }
+.bot-langkah li + li { margin-top: .25rem; }
+
+.aksi-utama {
+  border: 1px solid var(--border, #e3e8f0);
+  border-left: 4px solid var(--primary, #2e7af0);
+  border-radius: 10px;
+  background: var(--surface-2, #f6f8fc);
+  padding: .7rem .8rem;
+}
+
+.log-panel {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: .6rem .75rem;
+  border-radius: 10px;
+  background: #0f1729;
+  color: #e6edf7;
+  font-size: .78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 640px) {
+  .bot-ringkas { grid-template-columns: 1fr 1fr; }
+}
+
+/* --- Formulir bersusun banyak kolom: di layar sempit jadi satu kolom ---------
+   Ditaruh di AKHIR berkas dengan sengaja: kekhususan selectornya sama dengan
+   aturan dasarnya, jadi urutan yang menentukan. Bila dipindah ke atas, aturan
+   ini akan kalah dan tombolnya kembali keluar dari kartu di HP (lihat ronde 39). */
+@media (max-width: 700px) {
+  .form-tambah-anggota, .form-cari-cepat, .form-jadwal { grid-template-columns: 1fr; }
+  .form-tambah-anggota .btn, .form-cari-cepat .btn, .form-jadwal .btn { width: 100%; }
+  .cari-cepat-isi, .card-body.tambah-anggota { padding: .8rem; }
+}
+
+/* --- Halaman «Daftar Ekstrakurikuler»: tabelnya butuh ±870 px --------------
+   Pada 1101–1500 px tata letak terbelah masih dipertahankan, tetapi kolom
+   kirinya (±730–865 px) lebih sempit daripada tabel sehingga kolom «Aksi»
+   terpotong. Jadi di rentang itu kolom sampingnya turun ke bawah. */
+@media (max-width: 1500px) {
+  .split-tabel { grid-template-columns: 1fr; }
+}
+
+/* --- Ponsel & tablet kecil: SEMUA tabel .data jadi daftar kartu -------------
+   Sebagian tabel admin (dasbor, Statistik, Kualitas Data, Impor, Audit) tidak
+   memakai kelas `kartu`, jadi sampai ronde 39 isinya tetap tabel dan kolomnya
+   terpotong di layar 390–600 px (terukur: dasbor 474 px, Kualitas Data 671 px,
+   Impor 506 px pada ruang 361 px). Ambangnya 900 px — di atas itu semua tabel
+   itu sudah muat. Isi aturannya sama dengan blok 1400 px di atas. */
+@media (max-width: 900px) {
+  table.data { display: block; }
+  table.data thead { display: none; }
+  table.data tbody, table.data tr { display: block; }
+  table.data tr {
+    border-bottom: 1px solid var(--border);
+    padding: .6rem .75rem;
+  }
+  table.data tr:nth-child(even) { background: #fbfdff; }
+  table.data td {
+    /* flex-wrap: sel yang memuat beberapa hal (tautan + lencana + catatan, atau
+       daftar isian di samping tombol) boleh turun baris. Tanpa ini isinya
+       menembus tepi kartu di layar sempit (ronde 39). */
+    display: flex; flex-wrap: wrap; align-items: baseline;
+    justify-content: space-between; gap: .35rem .75rem;
+    padding: .16rem 0; border: 0; text-align: left; width: auto;
+  }
+  table.data td::before {
+    content: attr(data-label); flex: 0 0 42%; color: var(--muted);
+    font-size: .74rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  }
+  table.data td[data-label="#"] { display: none; }
+  /* Lencana panjang (mis. «1 pendaftar menunggu») boleh turun baris di dalam
+     kartu. Dengan `nowrap` ia menembus tepi kartu di layar sempit (ronde 39). */
+  table.data td .badge { white-space: normal; }
+  /* Keadaan kosong harus tetap terlihat: satu sel selebar kartu. */
+  table.data td.empty-cell { display: block; padding: 0; }
+  table.data td.empty-cell::before { content: none; }
+}
+
+/* --- Kotak tabel yang sempit: tabel jadi daftar kartu walau layarnya lebar ---
+   Contoh nyata: daftar riwayat bot (kolom 318 px) dan tabel temuan di kolom
+   kiri Kualitas Data (543 px) — pada layar 1440–1568 px keduanya masih tabel
+   dan kolomnya terpotong. Yang diukur di sini adalah lebar kotaknya
+   (`.table-wrap` di atas), bukan lebar layar. Hanya tabel ber-kelas `kartu`
+   yang ikut aturan ini supaya tabel kecil di kolom samping (mis. dasbor) tidak
+   ikut berubah bentuk di layar lebar. */
+@container (max-width: 760px) {
+  table.data.kartu { display: block; }
+  table.data.kartu thead { display: none; }
+  table.data.kartu tbody, table.data.kartu tr { display: block; }
+  table.data.kartu tr {
+    border-bottom: 1px solid var(--border);
+    padding: .6rem .75rem;
+  }
+  table.data.kartu tr:nth-child(even) { background: #fbfdff; }
+  table.data.kartu td {
+    /* flex-wrap: sel yang memuat beberapa hal (tautan + lencana + catatan, atau
+       daftar isian di samping tombol) boleh turun baris. Tanpa ini isinya
+       menembus tepi kartu di layar sempit (ronde 39). */
+    display: flex; flex-wrap: wrap; align-items: baseline;
+    justify-content: space-between; gap: .35rem .75rem;
+    padding: .16rem 0; border: 0; text-align: left; width: auto;
+  }
+  table.data.kartu td::before {
+    content: attr(data-label); flex: 0 0 42%; color: var(--muted);
+    font-size: .74rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  }
+  table.data.kartu td[data-label="#"] { display: none; }
+  /* Lencana panjang (mis. «1 pendaftar menunggu») boleh turun baris di dalam
+     kartu. Dengan `nowrap` ia menembus tepi kartu di layar sempit (ronde 39). */
+  table.data.kartu td .badge { white-space: normal; }
+  /* Keadaan kosong harus tetap terlihat: satu sel selebar kartu. */
+  table.data.kartu td.empty-cell { display: block; padding: 0; }
+  table.data.kartu td.empty-cell::before { content: none; }
+}
