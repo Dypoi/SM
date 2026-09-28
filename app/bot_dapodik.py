@@ -435,6 +435,11 @@ class BotDapodik:
         self._penjaga_nilai: dict[str, str] = {}
         #: Berapa kali penjaga nilai menemukan nilai kolom yang berubah & mengembalikannya.
         self.penjaga_dipulihkan = 0
+        #: Keadaan desa/kelurahan yang sudah terverifikasi — diperiksa lagi sebelum «Simpan»,
+        #: karena nilainya bisa berubah lagi sesudah dipilih (mis. tergulir di jendela «Ubah»).
+        self._desa_terverifikasi: dict[str, Any] | None = None
+        #: Berapa kali pilihan desa dipasang ulang tepat sebelum «Simpan».
+        self.desa_dipulihkan_kali = 0
         self.simulasi = opsi.get("bot_simulasi", "0") == "1"
 
     # ---------------------------------------------------------------- jalan ---
@@ -4024,6 +4029,7 @@ class BotDapodik:
             self._catat_kecamatan_berbeda(label, kecamatan, tampil_nilai or model)
             if kode_info:
                 self._catat_kepala(f"{awalan} {label}: {kode_info}.")
+            self._catat_desa_terverifikasi(peramban, unsur, desa, cocok, nilai_awal, kode_awal)
             self._tutup_dropdown(peramban, unsur)
             return (f"terisi (dipilih dari daftar Dapodik): {tampil_nilai or model}"
                     + ("" if catatan == "sama persis (desa + kecamatan)" else f" — {catatan}"))
@@ -4045,6 +4051,7 @@ class BotDapodik:
                 self._catat_kecamatan_berbeda(label, kecamatan, tampil_nilai or model)
                 if kode_info:
                     self._catat_kepala(f"{awalan} {label}: {kode_info}.")
+                self._catat_desa_terverifikasi(peramban, unsur, desa, cocok, nilai_awal, kode_awal)
                 self._tutup_dropdown(peramban, unsur)
                 return (f"terisi lewat model Ext JS (pilihan «{cocok}» dari daftar Dapodik): "
                         f"{tampil_nilai or model}")
@@ -4185,6 +4192,67 @@ class BotDapodik:
             return ""
         return ", ".join(str(satu) for satu in nama if str(satu).strip())
 
+    def _catat_desa_terverifikasi(self, peramban, unsur, desa: str, cocok: str,
+                                  nilai_awal: str, kode_awal: str) -> None:
+        """Simpan keadaan desa yang sudah terverifikasi — untuk diperiksa lagi sebelum «Simpan».
+
+        Pemilihan yang sudah benar masih bisa berubah sesudahnya (mis. nilai kolom berubah
+        karena tergulir di dalam jendela «Ubah» — ronde 45). Yang dicatat: kode wilayahnya
+        (``kode_wilayah_str``) dan, bila kolom itu tidak ada, nilai model combo-nya.
+        """
+        terbaca, kode = self._kode_wilayah(peramban, unsur)
+        ext_terbaca, nilai_id = self._pilihan_tersimpan(peramban, unsur)
+        self._desa_terverifikasi = {
+            "unsur": unsur,
+            "desa": desa,
+            "cocok": cocok,
+            "nilai_awal": nilai_awal,
+            "kode_awal": kode_awal,
+            "kode": kode if terbaca else "",
+            "nilai_model": nilai_id if ext_terbaca else "",
+        }
+
+    def _pastikan_desa_sebelum_simpan(self, peramban) -> str:
+        """Periksa lagi desa/kelurahan tepat sebelum «Simpan»; pasang ulang bila berubah.
+
+        Kembalikan satu kalimat untuk log (kosong = tidak ada yang perlu dikatakan). Bila
+        nilainya berubah sesudah diverifikasi, pilihannya dipasang ulang lewat model Ext JS;
+        bila itu pun gagal, keadaannya dilaporkan apa adanya supaya tidak ada klaim palsu.
+        """
+        info = self._desa_terverifikasi
+        if not info:
+            return ""
+        unsur = info["unsur"]
+        terbaca, kode = self._kode_wilayah(peramban, unsur)
+        if terbaca:
+            satuan, sekarang, diharapkan = "kode wilayah", kode, info.get("kode", "")
+        else:
+            _, nilai_id = self._pilihan_tersimpan(peramban, unsur)
+            satuan, sekarang, diharapkan = "nilai pilihan", nilai_id, info.get("nilai_model", "")
+        if not diharapkan:
+            return ""          # tidak ada yang bisa diperiksa: jangan mengklaim apa pun
+        if sekarang == diharapkan:
+            return f"[bio] Desa/Kelurahan: {satuan} «{sekarang}» masih utuh sebelum «Simpan» ✓."
+        self._catat_kepala(
+            f"[bio] Desa/Kelurahan: {satuan} berubah sesudah dipilih — "
+            f"«{sekarang or '(kosong)'}» padahal sudah terverifikasi «{diharapkan}»; pilihannya "
+            "dipasang ulang lewat model Ext JS supaya Dapodik tidak menyimpan desa yang lama.")
+        if not self._pilih_dropdown_ext(peramban, unsur, info["cocok"]):
+            return ("[bio] Desa/Kelurahan: peringatan — pilihan tidak bisa dipasang ulang; "
+                    "desanya mungkin tetap desa yang lama (kolom lain tetap disimpan, periksa "
+                    "hasilnya di Dapodik).")
+        self._tunggu(peramban, 0.5)
+        tampil_nilai, model = self._nilai_dropdown(peramban, unsur)
+        tersimpan, alasan, kode_info = self._desa_dan_kode_terverifikasi(
+            peramban, unsur, info["desa"], info["cocok"], tampil_nilai or model,
+            info["nilai_awal"], info["kode_awal"])
+        if not tersimpan:
+            return (f"[bio] Desa/Kelurahan: peringatan — {alasan} (periksa hasilnya di Dapodik "
+                    "sesudah disimpan).")
+        self.desa_dipulihkan_kali += 1
+        return (f"[bio] Desa/Kelurahan: pilihan dipasang ulang sebelum «Simpan» — "
+                f"{kode_info or 'nilai pilihannya kembali benar'}.")
+
     def _desa_dan_kode_terverifikasi(self, peramban, unsur, desa: str, cocok: str, teks: str,
                                      nilai_awal: str, kode_awal: str) -> tuple[bool, str, str]:
         """Tersimpan? — teks desa benar, nilai model terisi, **dan kode wilayahnya ikut pindah**.
@@ -4262,6 +4330,7 @@ class BotDapodik:
         self._bio_global_dilaporkan = False
         self._bio_gulir_dilaporkan = False
         self._bukti_dropdown_diambil = False
+        self._desa_terverifikasi = None      # keadaan desa milik siswa sebelumnya dibuang
         kandidat = self._tombol_ubah_semua(peramban, peta)
         if not kandidat:
             self._catat_kepala("[bio] tombol «Ubah» tidak ada di halaman ini — langkah BIO "
@@ -4359,6 +4428,11 @@ class BotDapodik:
                     self._catat_kepala(f"[bio] bukti layar disimpan: {bukti} "
                                        "(beserta berkas .html di folder yang sama).")
             time.sleep(0.5)          # jeda antar kolom supaya Ext JS selesai memproses
+        # Ronde 45: desa/kelurahan diperiksa LAGI tepat sebelum «Simpan» — pemilihan yang sudah
+        # benar bisa berubah lagi sesudahnya (mis. nilainya tergulir di dalam jendela «Ubah»).
+        catatan_desa = self._pastikan_desa_sebelum_simpan(peramban)
+        if catatan_desa:
+            self._catat_kepala(catatan_desa)
         # Simpan: tombol «Simpan» DI DALAM jendela «Ubah» (bukan milik panel Data Rincian).
         simpan = self._simpan_dalam_jendela(peramban, jendela)
         if simpan is None:

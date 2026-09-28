@@ -4551,12 +4551,23 @@ def cek_gulir_aman() -> str:
     assert "dikembalikan seperti semula" in isi and "_pulihkan_desa(" in isi, \
         "kolom desa tidak dikembalikan bila pemilihannya gagal (data lama bisa tertimpa)"
     assert "TIDAK jadi terisi" in isi, "kegagalan pemilihan desa tidak dilaporkan apa adanya"
+    assert "_catat_desa_terverifikasi(" in isi, \
+        "keadaan desa yang sudah terverifikasi tidak dicatat (tidak bisa diperiksa lagi)"
+    isi = badan["_pastikan_desa_sebelum_simpan"]
+    for tanda in ("berubah sesudah dipilih", "dipasang ulang sebelum «Simpan»",
+                  "_pilih_dropdown_ext(", "_desa_dan_kode_terverifikasi(",
+                  "periksa hasilnya di Dapodik"):
+        assert tanda in isi, f"penjaga desa sebelum «Simpan» kehilangan {tanda!r}"
+    assert "_pastikan_desa_sebelum_simpan(" in badan["_isi_bio"], \
+        "_isi_bio tidak memeriksa desa lagi tepat sebelum «Simpan» — nilai bisa berubah "\
+        "sesudah dipilih (mis. tergulir)"
 
     # (e) Buktinya ada & tidak bisa dihapus diam-diam dari uji tiruan.
     fixture = (BASE_DIR / "scripts/peramban_palsu.py").read_text(encoding="utf-8")
     for tanda in ("KOLOM_ANGKA_BIO", "/* kursor-aman */", "/* kode-wilayah */",
                   "/* nilai-kolom-bio */", "/* pulihkan-kolom-bio */", "kode_wilayah_str",
-                  "rusak_karena_gulir", "penjaga_dipulihkan", "picker_ditutup_oleh_blur"):
+                  "rusak_karena_gulir", "penjaga_dipulihkan", "picker_ditutup_oleh_blur",
+                  "desa_kode_rusak_gulir", "desa_dirusak_kali", "tanpa_kode_wilayah"):
         assert tanda in fixture, f"peramban palsu kehilangan {tanda!r} (bukti ronde 45)"
     jumlah_gulir = fixture.count("gulir_berbahaya()")
     assert jumlah_gulir >= 5, \
@@ -4564,12 +4575,14 @@ def cek_gulir_aman() -> str:
     uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
     for tanda in ("gulir_kursor_di_kolom == 0", "rusak_karena_gulir == []", "kursor_dipindah >= 1",
                   "penjaga_dipulihkan >= 1", "picker_ditutup_oleh_blur == 0", "kode_desa_palsu(",
-                  "bio_kode_ditolak"):
+                  "bio_kode_ditolak", "desa_dirusak_kali >= 1", "desa_dipulihkan_kali >= 1",
+                  "dipasang ulang sebelum «Simpan»"):
         assert tanda in uji, f"uji bot kehilangan pemeriksaan {tanda!r} (ronde 45)"
 
     return ("gulir aman: 8 jalur gulir mengeluarkan kursor lebih dulu, penjaga nilai kolom "
-            "mengembalikan nilai yang berubah, dan desa hanya dianggap tersimpan bila "
-            "kode_wilayah_str ikut pindah (uji tiruan skenario 32–35)")
+            "mengembalikan nilai yang berubah, desa hanya dianggap tersimpan bila "
+            "kode_wilayah_str ikut pindah, dan desa diperiksa ulang tepat sebelum «Simpan» "
+            "(uji tiruan skenario 32–37)")
 
 
 @cek("38. Tombol «Online» — Tailscale Funnel sekali klik, tanpa jendela cmd")

@@ -675,6 +675,13 @@ class PerambanPalsu:
         self.desa_kode_basi = False
         #: True = halaman Dapodik yang TIDAK punya kolom tersembunyi ``kode_wilayah_str``.
         self.tanpa_kode_wilayah = False
+        #: True = kode wilayah desa yang sudah dipilih KEMBALI ke desa lama pada gulir
+        #: berikutnya (nilai berubah sesudah dipilih — kelas masalah yang sama dengan «RT»
+        #: menjadi «0»; di sini yang berubah kode desanya).
+        self.desa_kode_rusak_gulir = False
+        #: Berapa kali kode wilayah desa benar-benar dikembalikan ke desa lama oleh gulir.
+        self.desa_dirusak_kali = 0
+        self.desa_dirusak = False
         #: Berapa kali «Simpan» mengembalikan desa karena kode wilayahnya basi/kosong
         self.bio_kode_ditolak = 0
         #: Berapa kali bot memeriksa nilai kolom lewat penjaga nilai (bukti jalurnya dipakai)
@@ -1283,6 +1290,18 @@ class PerambanPalsu:
                 kolom.nilai = "0"
                 if kolom.name not in self.rusak_karena_gulir:
                     self.rusak_karena_gulir.append(kolom.name)
+        if self.desa_kode_rusak_gulir and not self.desa_dirusak:
+            # Desa sudah dipilih (nilai modelnya sudah kode desa baru) lalu halaman digulir:
+            # teksnya tetap, tetapi kode wilayahnya kembali ke desa LAMA — persis keadaan yang
+            # membuat «Simpan» menyimpan desa yang lama.
+            desa = next((u for u in self.unsur if getattr(u, "pencarian_desa", False)), None)
+            if desa is not None and desa.nilai_id \
+                    and desa.nilai_id != getattr(desa, "nilai_id_lama", ""):
+                desa.nilai_id = getattr(desa, "nilai_id_lama", "")
+                if self.kode_wilayah_kolom is not None:
+                    self.kode_wilayah_kolom.nilai = desa.nilai_id
+                self.desa_dirusak = True
+                self.desa_dirusak_kali += 1
         if self.rusak_paksa_kolom:
             # Gulir pengguna (bukan bot) — bot tidak bisa mencegahnya, jadi penjaga nilainya
             # yang harus menangkap & mengembalikan nilai kolom ini.

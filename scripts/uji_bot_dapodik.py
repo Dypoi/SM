@@ -119,12 +119,18 @@ class _WaktuCepat:
         self._asli.sleep(min(float(detik or 0), 0.02))
 
 
+#: Bot yang terakhir dijalankan — dipakai uji untuk memeriksa catatan bot itu sendiri
+#: (mis. berapa kali ia memasang ulang pilihan desa sebelum «Simpan»).
+BOT_TERAKHIR = None
+
+
 def jalankan(judul: str, jarak, atur=None, tampilkan: bool = False, opsi: dict | None = None,
              ubah_siswa: dict | None = None):
     """Jalankan bot untuk satu siswa pada keadaan halaman tertentu.
 
     ``opsi`` menimpa pengaturan bot untuk skenario ini (mis. menyalakan langkah BIO).
     """
+    global BOT_TERAKHIR
     jejak: list[str] = []
     jam = _WaktuCepat(time)
     asli = bot_dapodik.time
@@ -138,6 +144,7 @@ def jalankan(judul: str, jarak, atur=None, tampilkan: bool = False, opsi: dict |
         peramban.nisn_dicari = SISWA["nisn"]
         peramban.tambah_baris_siswa(SISWA["nisn"])
         bot = bot_dapodik.BotDapodik(0, [], [], dict(OPSI, **(opsi or {})), kepala=jejak.append)
+        BOT_TERAKHIR = bot
         bot._login(peramban)
         bot._proses_satu(peramban, {**SISWA, "jarak_rumah": jarak, **(ubah_siswa or {})}, None)
     finally:
@@ -811,7 +818,38 @@ def main() -> int:
     cek(p36.gulir_kursor_di_kolom == 0,
         f"ada {p36.gulir_kursor_di_kolom}x gulir selagi kursor masih di dalam kolom (tanpa kode wilayah)")
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 36 skenario")
+    # 37) Kode wilayah desa berubah LAGI sesudah desanya dipilih (nilai kolom berubah karena
+    #     gulir — kelas masalah yang sama dengan «RT» menjadi «0»). Bot memeriksa desa sekali
+    #     lagi tepat sebelum «Simpan», memasang ulang pilihannya lewat model Ext JS, dan
+    #     melaporkan apa yang dilakukannya.
+    p37, j37 = jalankan("37. kode wilayah berubah sesudah dipilih → dipasang ulang sebelum "
+                        "«Simpan»", 2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "dropdown_band", 5),
+                                        setattr(p, "desa_kode_rusak_gulir", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p37.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji «kode berubah sesudah dipilih»")
+    cek(p37.desa_dirusak_kali >= 1,
+        "uji tidak bermakna: kode wilayah desa tidak pernah dikembalikan gulir ke desa lama")
+    cek(p37.data_bio_tersimpan.get("kelurahan") == DESA_PILIH_PALSU,
+        f"desa yang tersimpan bukan desa yang dipilih: "
+        f"{p37.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p37.kode_wilayah() == kode_desa_palsu(DESA_PILIH_PALSU),
+        f"kode_wilayah_str sesudah «Simpan» masih menunjuk desa lain: {p37.kode_wilayah()!r}")
+    cek(p37.bio_kode_ditolak == 0,
+        f"Dapodik mengembalikan desanya {p37.bio_kode_ditolak}x — pilihan tidak dipasang ulang "
+        "sebelum «Simpan»")
+    cek(BOT_TERAKHIR is not None and BOT_TERAKHIR.desa_dipulihkan_kali >= 1,
+        "bot tidak memasang ulang pilihan desanya sesudah kodenya berubah "
+        f"({getattr(BOT_TERAKHIR, 'desa_dipulihkan_kali', None)}x)")
+    cek(any("berubah sesudah dipilih" in b for b in j37),
+        f"perubahan kode wilayah tidak dilaporkan: {[b for b in j37 if 'Desa/Kelurahan' in b][-4:]}")
+    cek(any("dipasang ulang sebelum «Simpan»" in b for b in j37),
+        f"pemasangan ulang sebelum «Simpan» tidak dicatat: "
+        f"{[b for b in j37 if 'Desa/Kelurahan' in b][-4:]}")
+    cek(p37.gulir_kursor_di_kolom == 0,
+        f"ada {p37.gulir_kursor_di_kolom}x gulir selagi kursor masih di dalam kolom (desa berubah)")
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 37 skenario")
     return 0
 
 
