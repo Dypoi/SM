@@ -4460,6 +4460,118 @@ def cek_chrome_tanpa_cmd():
             "log-server.txt (tanpa cmd), pintasan nyala-otomatis jadi SM-otomatis.vbs")
 
 
+@cek("39. Gulir aman — kursor keluar dari kolom isian & kode wilayah desa ikut pindah")
+def cek_gulir_aman() -> str:
+    """Ronde 45 — bot boleh menggulir, tetapi kursornya tidak boleh berada di dalam kolom isian.
+
+    Laporan sekolah: «masih gagal untuk masalah kode_wilayah_str … boleh scroll tapi cursornya
+    ga boleh berada di dalam text input … contoh ada text input rt, itu kalo cursor lagi di rt
+    ketika di scroll biasanya akan berubah nilainya bisa jadi malah jadi 0». Perilakunya
+    dibuktikan `scripts/uji_bot_dapodik.py` skenario 32–35 di peramban palsu (yang meniru
+    sifat itu: menggulir selagi kursor di kolom angka mengubah nilainya menjadi «0»).
+    Di sini diperiksa bahwa penjaganya benar-benar terpasang di **setiap** jalur gulir dan
+    bahwa pemilihan desa memeriksa `kode_wilayah_str` — supaya penjaga itu tidak hilang lagi
+    tanpa ada yang gagal.
+    """
+    import ast
+
+    sumber = (BASE_DIR / "app/bot_dapodik.py").read_text(encoding="utf-8")
+    badan: dict[str, str] = {}
+    for simpul in ast.walk(ast.parse(sumber)):
+        if isinstance(simpul, ast.FunctionDef):
+            badan.setdefault(simpul.name, ast.get_source_segment(sumber, simpul) or "")
+
+    # (a) Setiap jalur yang menggulir mengeluarkan kursor lebih dulu. `_aman_daftar_dropdown`
+    #     adalah pembungkusnya untuk daftar pilihan (fokusnya dipindah ke daftar, bukan
+    #     dilepas, supaya daftar combo tetap terbuka).
+    jalur = {
+        "_gulir": "_kursor_aman(",
+        "_bawa_ke_layar": "_kursor_aman(",
+        "_atur_gulir_jendela": "_kursor_aman(",
+        "_gulir_dalam_jendela": "_kursor_aman(",
+        "_gulir_daftar_dropdown": "_aman_daftar_dropdown(",
+        "_klik_pilihan_dropdown": "_aman_daftar_dropdown(",
+        "_paksa_terlihat": "_kursor_aman(",
+        "_klik_aman": "_kursor_aman(",
+    }
+    for nama, penjaga in jalur.items():
+        isi = badan.get(nama)
+        assert isi, f"fungsi {nama} hilang dari app/bot_dapodik.py"
+        assert penjaga in isi, (f"{nama} menggulir tanpa mengeluarkan kursor lebih dulu — "
+                                f"«{penjaga}» tidak ada, kolom seperti «RT» bisa jadi «0»")
+    assert "_kursor_aman(" in badan["_aman_daftar_dropdown"], \
+        "_aman_daftar_dropdown tidak memakai _kursor_aman"
+    assert "_tumpuan_dropdown(" in badan["_aman_daftar_dropdown"], \
+        "fokus daftar pilihan tidak diarahkan ke daftarnya — combo bisa menutup saat digulir"
+
+    # (b) Isi skrip «kursor-aman»: hanya melepas kursor dari kolom isian teks (radio/checkbox
+    #     jangan ikut dilepas), lalu melaporkan apa yang dipindah.
+    isi = badan["_kursor_aman"]
+    for tanda in ("/* kursor-aman */", "tag === 'INPUT'", "tag === 'TEXTAREA'",
+                  "tag === 'SELECT'",
+                  "'radio', 'checkbox', 'button', 'submit', 'hidden'",
+                  "aktif.blur()", "tumpuan.focus()", "dipindah"):
+        assert tanda in isi, f"skrip «kursor-aman» kehilangan {tanda!r}"
+    for kalimat in ("dikeluarkan dari kolom", "sebelum menggulir", "«RT» menjadi «0»"):
+        assert kalimat in isi, f"log «kursor-aman» kehilangan kalimat {kalimat!r}"
+    for penghitung in ("kursor_dipindah", "penjaga_dipulihkan", "_penjaga_nilai"):
+        assert penghitung in badan["__init__"], \
+            f"bot tidak mencatat {penghitung} di __init__ (bukti di layar bot)"
+
+    # (c) Penjaga nilai kolom: dibaca sesudah menggulir, dikembalikan bila berubah, dilaporkan.
+    isi = badan["_periksa_nilai_bio"]
+    for tanda in ("/* nilai-kolom-bio */", "/* pulihkan-kolom-bio */", "penjaga_dipulihkan += 1",
+                  "dikembalikan menjadi", "perlu diperiksa di Dapodik"):
+        assert tanda in isi, f"penjaga nilai kolom kehilangan {tanda!r}"
+    assert "_rekam_nilai_bio(" in badan["_rekam_nilai_bio"], \
+        "nilai kolom BIO tidak dicatat saat diisi"
+    for pemanggil in ("_isi_bio", "_periksa_nilai_bio"):
+        assert pemanggil in badan, f"fungsi {pemanggil} hilang"
+    assert "_periksa_nilai_bio(" in badan["_isi_bio"], \
+        "_isi_bio tidak memeriksa lagi nilai kolom sesudah menggulir"
+    assert "_rekam_nilai_bio(" in badan["_isi_bio"], \
+        "_isi_bio tidak mencatat nilai kolom yang ditulisnya"
+
+    # (d) Desa/Kelurahan: teks benar tetapi kode wilayah masih desa lama = BELUM tersimpan.
+    isi = badan["_kode_wilayah"]
+    assert "/* kode-wilayah */" in isi and "kode_wilayah_str" in isi, \
+        "bot tidak membaca kolom kode_wilayah_str"
+    assert "/* nama-kolom-wilayah */" in badan["_nama_kolom_wilayah"], \
+        "diagnostik nama kolom kode wilayah hilang (laporan sekolah jadi tidak bisa dipakai)"
+    assert "_nama_kolom_wilayah(" in badan["_isi_desa_kelurahan"], \
+        "alur pemilihan desa tidak menyebut kolom tersembunyi yang ada bila kodenya tak ketemu"
+    isi = badan["_desa_dan_kode_terverifikasi"]
+    for tanda in ("kode_wilayah_str", "belum ikut pindah", "_kode_wilayah(", "→"):
+        assert tanda in isi, f"pemeriksaan kode wilayah kehilangan {tanda!r}"
+    isi = badan["_isi_desa_kelurahan"]
+    for tanda in ("_kode_wilayah(", "kode_wilayah_str"):
+        assert tanda in isi, f"alur pemilihan desa tidak memeriksa kode wilayah ({tanda!r})"
+    assert isi.count("_desa_dan_kode_terverifikasi(") >= 2, \
+        "hasil pemilihan desa hanya diperiksa di satu jalur (klik & model Ext JS dua-duanya wajib)"
+    assert "dikembalikan seperti semula" in isi and "_pulihkan_desa(" in isi, \
+        "kolom desa tidak dikembalikan bila pemilihannya gagal (data lama bisa tertimpa)"
+    assert "TIDAK jadi terisi" in isi, "kegagalan pemilihan desa tidak dilaporkan apa adanya"
+
+    # (e) Buktinya ada & tidak bisa dihapus diam-diam dari uji tiruan.
+    fixture = (BASE_DIR / "scripts/peramban_palsu.py").read_text(encoding="utf-8")
+    for tanda in ("KOLOM_ANGKA_BIO", "/* kursor-aman */", "/* kode-wilayah */",
+                  "/* nilai-kolom-bio */", "/* pulihkan-kolom-bio */", "kode_wilayah_str",
+                  "rusak_karena_gulir", "penjaga_dipulihkan", "picker_ditutup_oleh_blur"):
+        assert tanda in fixture, f"peramban palsu kehilangan {tanda!r} (bukti ronde 45)"
+    jumlah_gulir = fixture.count("gulir_berbahaya()")
+    assert jumlah_gulir >= 5, \
+        f"peramban palsu hanya memeriksa {jumlah_gulir} jalur gulir (seharusnya semua jalur)"
+    uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
+    for tanda in ("gulir_kursor_di_kolom == 0", "rusak_karena_gulir == []", "kursor_dipindah >= 1",
+                  "penjaga_dipulihkan >= 1", "picker_ditutup_oleh_blur == 0", "kode_desa_palsu(",
+                  "bio_kode_ditolak"):
+        assert tanda in uji, f"uji bot kehilangan pemeriksaan {tanda!r} (ronde 45)"
+
+    return ("gulir aman: 8 jalur gulir mengeluarkan kursor lebih dulu, penjaga nilai kolom "
+            "mengembalikan nilai yang berubah, dan desa hanya dianggap tersimpan bila "
+            "kode_wilayah_str ikut pindah (uji tiruan skenario 32–35)")
+
+
 @cek("38. Tombol «Online» — Tailscale Funnel sekali klik, tanpa jendela cmd")
 def cek_tombol_online():
     """Uji fitur ronde 44 memakai «tailscale palsu» — tanpa menyentuh jaringan sekolah."""
@@ -4672,6 +4784,7 @@ def main() -> int:
     cek_kerapian_susunan()
     cek_lencana_ikon()
     cek_tombol_online()
+    cek_gulir_aman()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()

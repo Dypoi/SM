@@ -121,6 +121,21 @@ def pilihan_desa_palsu(kueri: str) -> tuple[str, ...]:
     return tuple(teks for teks in DESA_KARAWACI_PALSU if cari in teks.lower())
 
 
+#: Kolom jendela «Ubah» yang di Dapodik berupa kolom angka (numberfield): nilainya bisa
+#: berubah — bahkan menjadi «0» — bila halaman/jendela digulir selagi kursornya ada di dalam
+#: kolom itu. Inilah laporan sekolah pada ronde 45 (kolom «RT»).
+KOLOM_ANGKA_BIO = frozenset({"no_kk", "rt", "rw", "kode_pos", "anak_keberapa", "nik_ayah",
+                            "nik_ibu", "tahun_lahir_ayah", "tahun_lahir_ibu"})
+
+
+def kode_desa_palsu(teks: str) -> str:
+    """Kode wilayah (``kode_wilayah_str``) sebuah desa — tetap, seperti di basis data Dapodik."""
+    nama = " ".join(str(teks or "").split())
+    if nama in DESA_KARAWACI_PALSU:
+        return f"32.76.06.{DESA_KARAWACI_PALSU.index(nama) + 1:04d}"
+    return ""
+
+
 #: Kolom jendela «Ubah» (BIO) — nama kolomnya diambil apa adanya dari skrip sekolah.
 #: Elemen ketiga = jenis dropdown ("" = kolom teks biasa). Nama kolomnya diambil dari DOM
 #: asli halaman Dapodik yang dikirim sekolah (mis. ``pekerjaan_id_ayah``).
@@ -224,6 +239,9 @@ class UnsurPalsu:
         self.aria_owns = str(sifat.get("aria_owns", ""))
         #: Elemen daftar milik combo ini (diisi saat jendela «Ubah» dibangun)
         self.daftar_el: "UnsurPalsu | None" = None
+        #: True = kolom angka (numberfield Dapodik): nilainya bisa berubah menjadi «0» bila
+        #: digulir selagi kursornya ada di dalam kolom itu (laporan sekolah ronde 45).
+        self.angka = bool(sifat.get("angka", False))
 
     # ------------------------------------------------------------ atribut --- #
     def get_attribute(self, nama: str) -> str | None:
@@ -377,6 +395,7 @@ class UnsurPalsu:
                 "element click intercepted: lapisan pemuatan menutupi unsur ini")
         self._pilih_baris()          # klik sungguhan memilih baris tabel (mousedown)
         self._klik_paksa()
+        self._pegang_kursor()        # mengklik kolom isian = kursor pindah ke kolom itu
 
     def _pilih_kotak(self, dari_ext: bool = False) -> None:
         """Kotak centang/radio terpilih (klik sungguhan / urutan tetikus asli / Ext JS).
@@ -430,6 +449,11 @@ class UnsurPalsu:
             if "x-grid-row-selected" not in self.kelas:
                 self.kelas = (self.kelas + " x-grid-row-selected").strip()
             self.peramban._periodik_tersimpan = False      # panel Data Periodik terbuka lagi
+
+    def _pegang_kursor(self) -> None:
+        """Kolom isian ini memegang kursor (fokus) — persis ``document.activeElement``."""
+        if self.tag_name == "input" and self.type not in ("radio", "checkbox", "hidden"):
+            self.peramban.kursor_di = self
 
     def send_keys(self, *tombol: Any) -> None:
         """Meniru pengetikan: tombol pengubah (Ctrl+A) ditangani, bukan diketik apa adanya."""
@@ -499,6 +523,8 @@ class UnsurPalsu:
             self.diketik.append(bagian)
             ada_ketikan = True
             kontrol = False
+        if ada_ketikan or (self.tag_name == "input" and self.type == "text"):
+            self._pegang_kursor()
         if getattr(self, "pencarian_desa", False):
             if not ada_ketikan:
                 return       # hanya Ctrl+A/menghapus: bukan kata kunci pencarian
@@ -622,6 +648,39 @@ class PerambanPalsu:
         self.hanya_label_yang_menerima = False
         #: berapa kali kolom isian menerima peristiwa input/change/blur dari bot
         self.peristiwa_dipicu = 0
+        # --- Kursor & gulir (ronde 45) ------------------------------------- #
+        #: Kolom isian yang sedang memegang "kursor" (fokus) — persis document.activeElement.
+        #: Menggulir selagi kursor ada di dalam kolom isian bisa mengubah nilainya
+        #: (sekolah melihat kolom «RT» menjadi «0»).
+        self.kursor_di: "UnsurPalsu | None" = None
+        #: Berapa kali gulir terjadi SAAT kursor masih di dalam kolom isian (harus 0)
+        self.gulir_kursor_di_kolom = 0
+        #: Nama kolom yang nilainya rusak karena digulir (mis. «rt» → «0»)
+        self.rusak_karena_gulir: list[str] = []
+        #: Berapa kali bot melepas kursor dari kolom isian sebelum menggulir
+        self.kursor_dipindah = 0
+        #: Paksa: kolom ini dirusak setiap kali digulir — meniru gulir pengguna di luar
+        #: kendali bot (untuk menguji penjaga nilai milik bot)
+        self.rusak_paksa_kolom = ""
+        self.rusak_paksa_kali = 0
+        #: True = melepas fokus menutup daftar pilihan combo yang sedang terbuka (persis
+        #: Ext JS Dapodik: blur → completeEdit → picker menutup)
+        self.blur_menutup_picker = True
+        #: Berapa kali daftar pilihan tertutup karena fokusnya dilepas padahal masih dibuka
+        self.picker_ditutup_oleh_blur = 0
+        #: Kolom tersembunyi ``kode_wilayah_str`` milik combo «Desa/Kelurahan»
+        self.kode_wilayah_kolom: "UnsurPalsu | None" = None
+        #: True = mengklik pilihan daftar TIDAK memindahkan kode wilayahnya (kode basi) —
+        #: teks desanya berubah, ``kode_wilayah_str`` masih menunjuk desa yang lama
+        self.desa_kode_basi = False
+        #: True = halaman Dapodik yang TIDAK punya kolom tersembunyi ``kode_wilayah_str``.
+        self.tanpa_kode_wilayah = False
+        #: Berapa kali «Simpan» mengembalikan desa karena kode wilayahnya basi/kosong
+        self.bio_kode_ditolak = 0
+        #: Berapa kali bot memeriksa nilai kolom lewat penjaga nilai (bukti jalurnya dipakai)
+        self.penjaga_dibaca = 0
+        #: Berapa kali penjaga nilai mengembalikan nilai kolom yang berubah
+        self.penjaga_dipulihkan = 0
         #: True = SEMUA klik pada kotak centang/radio ditelan; hanya
         #: ``Ext.getCmp(...).setValue(...)`` yang bisa memilihnya (keadaan paling keras)
         self.hanya_ext_yang_menerima = False
@@ -1149,6 +1208,16 @@ class PerambanPalsu:
                 combo.daftar_el = daftar_el
                 self.unsur.append(daftar_el)
                 if wilayah:
+                    # Kolom tersembunyi ``kode_wilayah_str`` — di Dapodik ia yang menentukan
+                    # desa mana yang benar-benar tersimpan; teksnya bisa berubah sementara
+                    # kodenya masih menunjuk desa lama (laporan sekolah ronde 45).
+                    # ``tanpa_kode_wilayah`` = versi Dapodik yang kolom itu tidak ada.
+                    if not self.tanpa_kode_wilayah:
+                        sembunyi = UnsurPalsu(self, "input", type="hidden",
+                                              name="kode_wilayah_str", bio=True,
+                                              nilai=DESA_LAMA_ID)
+                        self.kode_wilayah_kolom = sembunyi
+                        self.unsur.append(sembunyi)
                     continue          # pilihannya baru ada setelah kata kunci diketik
                 for opsi in combo.daftar_pilihan:
                     item = UnsurPalsu(self, "li", kelas="x-boundlist-item", teks=opsi,
@@ -1158,6 +1227,7 @@ class PerambanPalsu:
                 continue
             self.unsur.append(UnsurPalsu(self, "input", type="text", name=nama, label=label,
                                          bio=True, nilai="LAMA",
+                                         angka=nama in KOLOM_ANGKA_BIO,
                                          componentid=f"textfield-{1200 + nomor}"))
         self.unsur.append(UnsurPalsu(self, "span", kelas="x-btn-inner-default-small",
                                      teks="Simpan", bio=True, simpan_bio=True, aksi="simpan"))
@@ -1173,8 +1243,19 @@ class PerambanPalsu:
                     # PILIHAN yang benar-benar diambil dari daftarnya (getValue). Bila tidak
                     # ada yang dipilih, nilainya kembali ke pilihan terakhir — persis
                     # ``completeEdit()`` Ext JS yang mengembalikan rawValue yang tidak cocok.
-                    self.data_bio_tersimpan[unsur.name] = (unsur.nilai_model
-                                                           or unsur.nilai_lama)
+                    # Ronde 45: teksnya bisa sudah benar sementara ``kode_wilayah_str`` masih
+                    # menunjuk desa lama/kosong — Dapodik menyimpan yang LAMA.
+                    kode_benar = (bool(unsur.nilai_id)
+                                  and unsur.nilai_id == kode_desa_palsu(unsur.nilai_model))
+                    if not kode_benar:
+                        self.bio_kode_ditolak += 1
+                        self.data_bio_tersimpan[unsur.name] = unsur.nilai_lama
+                        if self.kode_wilayah_kolom is not None:
+                            self.kode_wilayah_kolom.nilai = getattr(unsur, "nilai_id_lama", "")
+                    else:
+                        self.data_bio_tersimpan[unsur.name] = unsur.nilai_model
+                        if self.kode_wilayah_kolom is not None:
+                            self.kode_wilayah_kolom.nilai = unsur.nilai_id
                 else:
                     self.data_bio_tersimpan[unsur.name] = (unsur.nilai_model
                                                            if unsur.daftar_pilihan
@@ -1183,6 +1264,40 @@ class PerambanPalsu:
         self.dropdown_terbuka = None
 
     # -------------------------------------------------- dropdown (combo) --- #
+    def kolom_rawan_gulir(self, unsur: "UnsurPalsu") -> bool:
+        """Apakah kolom ini bisa berubah nilainya bila digulir selagi kursornya di dalamnya."""
+        return bool(getattr(unsur, "angka", False))
+
+    def gulir_berbahaya(self) -> None:
+        """Satu langkah gulir halaman/panel — dan akibatnya pada kolom yang sedang dipegang.
+
+        Inilah yang dilaporkan sekolah (ronde 45): menggulir selagi **kursor ada di dalam
+        kolom isian** mengubah nilai kolom itu — kolom «RT» menjadi «0». Bot yang benar
+        melepas kursornya lebih dulu (skrip ``/* kursor-aman */``); kalau tidak, di sini
+        nilainya benar-benar rusak seperti di Dapodik.
+        """
+        kolom = self.kursor_di
+        if kolom is not None:
+            self.gulir_kursor_di_kolom += 1
+            if self.kolom_rawan_gulir(kolom):
+                kolom.nilai = "0"
+                if kolom.name not in self.rusak_karena_gulir:
+                    self.rusak_karena_gulir.append(kolom.name)
+        if self.rusak_paksa_kolom:
+            # Gulir pengguna (bukan bot) — bot tidak bisa mencegahnya, jadi penjaga nilainya
+            # yang harus menangkap & mengembalikan nilai kolom ini.
+            paksa = next((u for u in self.unsur if u.bio and u.name == self.rusak_paksa_kolom),
+                         None)
+            if paksa is not None and str(paksa.nilai or "").strip() not in ("", "0"):
+                paksa.nilai = "0"
+                self.rusak_paksa_kali += 1
+                if paksa.name not in self.rusak_karena_gulir:
+                    self.rusak_karena_gulir.append(paksa.name)
+
+    def kode_wilayah(self) -> str:
+        """Isi kolom tersembunyi ``kode_wilayah_str`` (kode desa yang benar-benar tersimpan)."""
+        return str(getattr(self.kode_wilayah_kolom, "nilai", "") or "")
+
     def cari_desa(self, combo: "UnsurPalsu", kueri: str) -> None:
         """Combo «Desa/Kelurahan»: ambil daftar desa sesuai kata kunci yang diketik.
 
@@ -1311,9 +1426,25 @@ class PerambanPalsu:
             return
         combo.nilai = item.teks            # tulisan di layar
         combo.nilai_model = item.teks      # teks pilihan yang dilihat Dapodik
-        combo.nilai_id = combo.daftar_pilihan.index(item.teks) + 1 if item.teks in combo.daftar_pilihan else ""
+        if getattr(combo, "pencarian_desa", False):
+            # Combo desa: yang tersimpan adalah KODE WILAYAH desa itu, bukan nomor urut.
+            kode_baru = kode_desa_palsu(item.teks)
+            if self.desa_kode_basi and getattr(combo, "nilai_id_lama", ""):
+                # Laporan sekolah (ronde 45): teks desanya berubah, tetapi ``kode_wilayah_str``
+                # masih menunjuk desa yang LAMA — «Simpan» pun tidak berpindah desa.
+                combo.nilai_id = combo.nilai_id_lama
+                combo.kode_basi = True
+            else:
+                combo.nilai_id = kode_baru
+                combo.kode_basi = False
+        else:
+            combo.nilai_id = (combo.daftar_pilihan.index(item.teks) + 1
+                              if item.teks in combo.daftar_pilihan else "")
+        if self.kode_wilayah_kolom is not None:
+            self.kode_wilayah_kolom.nilai = combo.nilai_id
         self.dropdown_terbuka = None
         self.dropdown_item_diklik += 1
+        self.kursor_di = combo              # fokus kembali ke kotak combonya (persis Ext JS)
         if lewat_skrip:
             self.dropdown_item_lewat_skrip += 1
 
@@ -1333,9 +1464,17 @@ class PerambanPalsu:
             return False
         combo.nilai = cocok
         combo.nilai_model = cocok
-        combo.nilai_id = combo.daftar_pilihan.index(cocok) + 1
+        if getattr(combo, "pencarian_desa", False):
+            # Jalur model Ext JS: kode wilayah desa yang dipilih ikut tersimpan (kode segar).
+            combo.nilai_id = kode_desa_palsu(cocok) or (combo.daftar_pilihan.index(cocok) + 1)
+            combo.kode_basi = False
+            if self.kode_wilayah_kolom is not None:
+                self.kode_wilayah_kolom.nilai = combo.nilai_id
+        else:
+            combo.nilai_id = combo.daftar_pilihan.index(cocok) + 1
         self.dropdown_terbuka = None
         self.dropdown_ext_pilih += 1
+        self.kursor_di = combo
         return True
 
     def tutup_dropdown(self) -> None:
@@ -1810,6 +1949,59 @@ class PerambanPalsu:
     # ------------------------------------------------------------ skrip ----- #
     def execute_script(self, skrip: str, *argumen: Any) -> Any:
         self.skrip.append(skrip)
+        if "/* kursor-aman */" in skrip:
+            # Bot memindahkan kursor keluar dari kolom isian sebelum menggulir (ronde 45).
+            # Persis DOM: fokus ditaruh pada elemen yang diberikan; melepas fokus menutup
+            # daftar pilihan yang sedang terbuka (Ext JS: blur → completeEdit → collapse).
+            if self.kursor_di is None:
+                return {"aktif": "", "tumpuan": "", "dipindah": False}
+            aktif, tumpuan = self.kursor_di, (argumen[0] if argumen else None)
+            info = {"aktif": getattr(aktif, "name", "") or getattr(aktif, "id", "")
+                    or getattr(aktif, "tag_name", ""), "tumpuan": "", "dipindah": True}
+            if tumpuan is not None:
+                info["tumpuan"] = (getattr(tumpuan, "name", "") or getattr(tumpuan, "id", "")
+                                   or str(getattr(tumpuan, "kelas", "") or "tumpuan")[:40])
+                self.kursor_di = (tumpuan if (tumpuan.tag_name == "input"
+                                              and tumpuan.type not in ("radio", "checkbox",
+                                                                       "hidden"))
+                                  else None)
+            else:
+                self.kursor_di = None
+            if self.blur_menutup_picker and self.dropdown_terbuka is not None:
+                daftar = getattr(self.dropdown_terbuka, "daftar_el", None)
+                if tumpuan is not daftar and tumpuan is not self.dropdown_terbuka:
+                    self.tutup_dropdown()
+                    self.picker_ditutup_oleh_blur += 1
+            self.kursor_dipindah += 1
+            return info
+        if "/* kode-wilayah */" in skrip:
+            # Kolom tersembunyi ``kode_wilayah_str`` — nilai desa yang benar-benar tersimpan.
+            if self.kode_wilayah_kolom is None:
+                return None
+            return self.kode_wilayah()
+        if "/* nama-kolom-wilayah */" in skrip:
+            # Keterangan tambahan bot: nama kolom tersembunyi yang ADA di halaman — dipakai
+            # saat ``kode_wilayah_str`` tidak ditemukan (versi Dapodik yang menamainya lain).
+            return [getattr(u, "name", "") for u in self.unsur
+                    if u.tag_name == "input" and u.type == "hidden"
+                    and ("wilayah" in (u.name or "") or "kode" in (u.name or ""))]
+        if "/* nilai-kolom-bio */" in skrip:
+            # Penjaga nilai: nilai kolom yang sudah ditulis bot, dibaca lagi sesudah menggulir.
+            daftar = argumen[0] if argumen else []
+            self.penjaga_dibaca += 1
+            return {str(nama): str(next((u.nilai for u in self.unsur
+                                         if u.bio and u.name == nama), ""))
+                    for nama in daftar}
+        if "/* pulihkan-kolom-bio */" in skrip:
+            # Bot mengembalikan nilai kolom yang berubah karena gulir (mis. «RT» jadi «0»).
+            nama = str(argumen[0] if argumen else "")
+            nilai = str(argumen[1] if len(argumen) > 1 else "")
+            sasaran = next((u for u in self.unsur if u.bio and u.name == nama), None)
+            if sasaran is None:
+                return False
+            sasaran.nilai = nilai
+            self.penjaga_dipulihkan += 1
+            return True
         if "jendela-edit" in skrip:
             # Bot mencari jendela «Edit Peserta Didik» yang benar-benar terbuka.
             if self.bio_tanpa_wadah:
@@ -1946,6 +2138,7 @@ class PerambanPalsu:
                 return False        # Ext tidak terjangkau
             return self.pilih_dropdown_lewat_ext(sasaran, dicari)
         if "/* gulir-daftar-dropdown */" in skrip:
+            self.gulir_berbahaya()
             # Bot menggeser ISI daftar dropdown (daftarnya punya area gulirnya sendiri):
             # persis ``picker.getEl()`` → ``scrollTop += 150`` di halaman sungguhan.
             if self.dropdown_terbuka is None or self.dropdown_tak_bisa_dibuka:
@@ -2238,6 +2431,7 @@ class PerambanPalsu:
                 self.diklik_skrip_diabaikan += 1
             return None
         if "scrollIntoView" in skrip and argumen:
+            self.gulir_berbahaya()
             sasaran = argumen[0]
             if getattr(sasaran, "bio", False) or getattr(sasaran, "bio_panel", False):
                 # Kolom/jendela BIO dibawa ke layar: yang bergeser adalah isi jendelanya.
@@ -2249,6 +2443,7 @@ class PerambanPalsu:
                                         or getattr(sasaran, "teks", "") or "panel")
             return None
         if "/* gulir-jendela-awal */" in skrip:
+            self.gulir_berbahaya()
             # Bot mengembalikan isi jendela «Ubah» ke atas sebelum mulai mengisi kolomnya.
             if not self.bio_terbuka:
                 return 0
@@ -2257,6 +2452,7 @@ class PerambanPalsu:
             self.gulir_bio = 0
             return 1
         if "/* gulir-jendela */" in skrip:
+            self.gulir_berbahaya()
             # Bot menggulir ISI jendela «Ubah» (bukan halaman): inilah yang benar-benar
             # menjangkau kolom di bagian bawah jendela.
             if not self.bio_terbuka:
@@ -2264,6 +2460,7 @@ class PerambanPalsu:
             self.gulir_bio += 1
             return 250
         if "window.scrollBy" in skrip:
+            self.gulir_berbahaya()
             # Persis skrip sekolah: driver.execute_script("window.scrollBy(0, 250);")
             jarak = argumen[0] if argumen else None
             if jarak is None:

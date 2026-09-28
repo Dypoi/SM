@@ -25,6 +25,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app import bot_dapodik, config, migrations  # noqa: E402
 from scripts import peramban_palsu
 from scripts.peramban_palsu import DESA_LAMA_BIO as DESA_LAMA_PALSU  # noqa: E402
+from scripts.peramban_palsu import DESA_LAMA_ID  # noqa: E402
+from scripts.peramban_palsu import kode_desa_palsu  # noqa: E402
+
+
+#: Kalimat log yang wajib muncul — gulir tidak boleh mengubah nilai kolom isian (ronde 45).
+JEJAK_KURSOR = "kursor dikeluarkan dari kolom"
+JEJAK_KODE_WILAYAH = "kode wilayah (kode_wilayah_str)"
+
+#: Desa yang dipilih pada uji kode wilayah (desa pertama Kec. Karawaci versi peramban palsu).
+DESA_PILIH_PALSU = "Desa/Kel. Karawaci Baru - Kec. Karawaci - Kota Tangerang"
 
 config.ensure_dirs()
 migrations.run_migrations()
@@ -678,7 +688,130 @@ def main() -> int:
     cek(any("dipilih dari daftar Dapodik" in b for b in j31),
         [b for b in j31 if "Desa/Kelurahan" in b][:8] or j31[-8:])
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 31 skenario")
+    # 32) Gulir tidak boleh mengubah nilai kolom isian: bot mengeluarkan kursor dari kolom
+    #     lebih dulu. Peramban palsu kini meniru sifat Dapodik/Chrome yang dilaporkan sekolah:
+    #     menggulir selagi kursor ada di dalam kolom angka mengubah nilainya menjadi «0».
+    p32, j32 = jalankan("32. gulir: kursor keluar dari kolom isian → nilai tidak rusak", 2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "dropdown_band", 5)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p32.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji gulir aman")
+    cek(p32.rusak_karena_gulir == [],
+        f"nilai kolom rusak karena digulir selagi kursor di dalamnya: "
+        f"{p32.rusak_karena_gulir}")
+    cek(p32.gulir_kursor_di_kolom == 0,
+        f"ada {p32.gulir_kursor_di_kolom}x gulir yang masih memegang kursor di dalam kolom")
+    cek(p32.kursor_dipindah >= 1,
+        "bot tidak pernah memindahkan kursor sebelum menggulir (log «kursor dikeluarkan…» "
+        "tidak ada)")
+    salah32 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if str(p32.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah32, f"kolom yang nilainya tidak benar sesudah menggulir: {salah32}")
+    cek(any(JEJAK_KURSOR in b for b in j32), [b for b in j32 if "kursor" in b][:4] or j32[-6:])
+    cek(p32.picker_ditutup_oleh_blur == 0,
+        f"daftar pilihan desa sampai menutup karena fokus dilepas: "
+        f"{p32.picker_ditutup_oleh_blur}x")
+
+    # 33) Laporan sekolah «masih gagal untuk masalah kode_wilayah_str»: teks desanya berubah,
+    #     tetapi kode wilayah (kolom tersembunyi ``kode_wilayah_str``) masih menunjuk desa LAMA
+    #     — kalau dibiarkan, «Simpan» tetap menyimpan desa yang lama. Bot harus mengenali itu
+    #     dan memindahkan kodenya (lewat model Ext JS), bukan menganggapnya selesai.
+    p33, j33 = jalankan("33. kode wilayah basi (kode_wilayah_str) → desa benar-benar pindah", 2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "desa_kode_basi", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p33.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji kode wilayah basi")
+    cek(p33.data_bio_tersimpan.get("kelurahan") == DESA_PILIH_PALSU,
+        f"desa tidak berpindah (kode wilayah basi tidak ditangani): "
+        f"{p33.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p33.bio_kode_ditolak == 0,
+        "Dapodik masih menolak/ mengembalikan desanya saat «Simpan» — kode wilayahnya belum "
+        "ikut pindah")
+    cek(p33.kode_wilayah() == kode_desa_palsu(DESA_PILIH_PALSU),
+        f"kode_wilayah_str masih menunjuk desa lain (basi): {p33.kode_wilayah()!r} "
+        f"(seharusnya {kode_desa_palsu(DESA_PILIH_PALSU)!r})")
+    cek(any("dipilih lewat model Ext JS" in b or "lewat model Ext JS" in b for b in j33),
+        "bot tidak memakai jalur model Ext JS untuk memindahkan kode wilayahnya: "
+        f"{[b for b in j33 if 'kode wilayah' in b][:4]}")
+    cek(any("kode wilayah" in b and "→" in b for b in j33),
+        f"perubahan kode wilayah tidak dicatat apa adanya: "
+        f"{[b for b in j33 if 'kode wilayah' in b][:4]}")
+    cek(any(JEJAK_KODE_WILAYAH in b for b in j33), [b for b in j33 if "kode wilayah" in b][:4]
+        or j33[-6:])
+    cek(p33.gulir_kursor_di_kolom == 0,
+        f"ada {p33.gulir_kursor_di_kolom}x gulir selagi kursor masih di dalam kolom (kode wilayah)")
+
+    # 34) Kode wilayah basi DAN jalur Ext JS tidak tersedia: bot tidak boleh mengklaim
+    #     berhasil — kolomnya dikembalikan seperti semula supaya data lama Dapodik tidak
+    #     berubah, dan alasannya dilaporkan apa adanya.
+    p34, j34 = jalankan("34. kode wilayah basi & Ext mati → dilaporkan jujur, kolom dipulihkan",
+                        2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "desa_kode_basi", True),
+                                        setattr(p, "dropdown_tanpa_ext", True),
+                                        setattr(p, "dropdown_ext_mati", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p34.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji kode wilayah + Ext mati")
+    cek(p34.data_bio_tersimpan.get("kelurahan") == DESA_LAMA_PALSU,
+        "isi kolom desa berubah padahal kode wilayahnya tidak ikut pindah — data lama "
+        f"Dapodik jangan ikut berubah ({p34.data_bio_tersimpan.get('kelurahan')!r})")
+    cek(any(JEJAK_KODE_WILAYAH in b for b in j34), [b for b in j34 if "kode wilayah" in b][:4]
+        or j34[-6:])
+    cek(any("dikembalikan seperti semula" in b for b in j34),
+        [b for b in j34 if "Desa/Kelurahan" in b][:8] or j34[-8:])
+    cek(any("TIDAK jadi terisi" in b for b in j34),
+        [b for b in j34 if "Desa/Kelurahan" in b][:8] or j34[-8:])
+    cek(p34.bio_kode_ditolak >= 1,
+        "uji tidak bermakna: Dapodik palsu tidak pernah menolak desa berkode basi")
+    cek(p34.kode_wilayah() == str(DESA_LAMA_ID),
+        f"kode wilayah desa lama ikut berubah padahal pemilihannya gagal: "
+        f"{p34.kode_wilayah()!r} (seharusnya {DESA_LAMA_ID!r})")
+
+    # 35) Penjaga nilai: gulir yang tidak bisa dicegah bot (mis. pengguna menggulir sendiri
+    #     selagi menonton) mengubah «RT» menjadi «0». Bot memeriksa nilai kolom yang sudah
+    #     ditulis sesudah setiap gulir, mengembalikannya, dan melaporkannya apa adanya.
+    p35, j35 = jalankan("35. penjaga nilai: «RT» berubah jadi «0» sesudah digulir → dipulihkan",
+                        2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "dropdown_band", 5),
+                                        setattr(p, "rusak_paksa_kolom", "rt")),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p35.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji penjaga nilai")
+    cek(p35.rusak_paksa_kali >= 1, "uji tidak bermakna: nilai «RT» tidak pernah dirusak gulir")
+    cek(str(p35.data_bio_tersimpan.get("rt") or "").strip() == "3",
+        f"nilai «RT» tersimpan dalam keadaan rusak: {p35.data_bio_tersimpan.get('rt')!r} "
+        "(seharusnya dikembalikan menjadi «3»)")
+    cek(p35.penjaga_dipulihkan >= 1,
+        "penjaga nilai tidak pernah mengembalikan nilai kolom yang berubah")
+    cek(any("berubah sesudah menggulir" in b for b in j35),
+        [b for b in j35 if "penjaga" in b][:4] or j35[-6:])
+    cek(any("dikembalikan menjadi «3»" in b for b in j35),
+        [b for b in j35 if "penjaga" in b][:4] or j35[-6:])
+    cek(p35.gulir_kursor_di_kolom == 0,
+        f"ada {p35.gulir_kursor_di_kolom}x gulir selagi kursor masih di dalam kolom (penjaga nilai)")
+    salah35 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if str(p35.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah35, f"kolom yang nilainya tidak benar sesudah dirusak gulir: {salah35}")
+
+    # 36) Versi Dapodik yang tidak punya kolom ``kode_wilayah_str``: bot TIDAK boleh berhenti
+    #     atau mengklaim sudah terverifikasi — pemilihan dinilai dari nilai model combo-nya,
+    #     keterbatasan itu ditulis di log, dan desanya tetap tersimpan.
+    p36, j36 = jalankan("36. kode_wilayah_str tidak ada di halaman → keterbatasan dilaporkan", 2,
+                        atur=lambda p: (p.siapkan_bio(),
+                                        setattr(p, "tanpa_kode_wilayah", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p36.bio_tersimpan, "jendela «Ubah» tidak tersimpan saat kode wilayah tak ada di halaman")
+    cek(p36.data_bio_tersimpan.get("kelurahan") == DESA_PILIH_PALSU,
+        f"desa tidak tersimpan padahal hanya kolom kode wilayahnya yang tidak ada: "
+        f"{p36.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p36.bio_kode_ditolak == 0,
+        f"Dapodik menolak desanya {p36.bio_kode_ditolak}x — padahal nilai modelnya benar")
+    cek(any("kode_wilayah_str) tidak ada di halaman" in b for b in j36),
+        f"keterbatasan «kolom kode wilayah tidak ada» tidak dilaporkan: "
+        f"{[b for b in j36 if 'kode wilayah' in b][:4]}")
+    cek(any("dinilai dari nilai model" in b for b in j36),
+        "bot tidak menjelaskan dari apa hasil pemilihannya dinilai: "
+        f"{[b for b in j36 if 'kode wilayah' in b][:4]}")
+    cek(p36.gulir_kursor_di_kolom == 0,
+        f"ada {p36.gulir_kursor_di_kolom}x gulir selagi kursor masih di dalam kolom (tanpa kode wilayah)")
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 36 skenario")
     return 0
 
 

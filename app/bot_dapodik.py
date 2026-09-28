@@ -428,6 +428,13 @@ class BotDapodik:
         #: True bila lapisan pemuatan Dapodik pernah tidak hilang — penantian berikutnya
         #: dipersingkat supaya pekerjaan tidak lambat, langkah tetap memakai cara paksa.
         self._lapisan_lengket = False
+        #: Berapa kali kursor dipindahkan keluar dari kolom isian sebelum menggulir
+        #: (ronde 45: menggulir selagi kursor di dalam kolom bisa mengubah nilainya).
+        self.kursor_dipindah = 0
+        #: Nilai kolom BIO yang sudah ditulis bot → diperiksa lagi setiap kali menggulir.
+        self._penjaga_nilai: dict[str, str] = {}
+        #: Berapa kali penjaga nilai menemukan nilai kolom yang berubah & mengembalikannya.
+        self.penjaga_dipulihkan = 0
         self.simulasi = opsi.get("bot_simulasi", "0") == "1"
 
     # ---------------------------------------------------------------- jalan ---
@@ -993,6 +1000,8 @@ class BotDapodik:
     def _paksa_terlihat(self, peramban, elemen) -> None:
         """Tampilkan elemen & pembungkus yang menyembunyikannya (mis. formulir belum dibuka)."""
         try:
+            # Ronde 45: jangan menggulir selagi kursor masih di dalam kolom isian.
+            self._kursor_aman(peramban, awalan="[unsur]")
             peramban.execute_script(
                 """
                 let el = arguments[0];
@@ -1010,6 +1019,7 @@ class BotDapodik:
                 el.scrollIntoView({block: 'center'});
                 el.focus();
                 """, elemen)
+            self._periksa_nilai_bio(peramban, "[unsur]")
         except Exception:  # noqa: BLE001 — upaya terbaik
             pass
 
@@ -1064,7 +1074,12 @@ class BotDapodik:
                     raise TimeoutError("lapisan pemuatan Dapodik belum hilang")
                 elemen = WebDriverWait(peramban, batas).until(
                     lambda p: self._pertama_terlihat(p, locator, aktif=True))
+                # Ronde 45: kursor dikeluarkan dulu dari kolom isian mana pun. Menggulir
+                # selagi kursor ada di dalam kolom angka (mis. «RT») mengubah nilainya
+                # menjadi «0» di Dapodik — jadi jangan pernah menggulir selagi mengetik.
+                self._kursor_aman(peramban, awalan="[klik]")
                 peramban.execute_script("arguments[0].scrollIntoView({block: 'center'});", elemen)
+                self._periksa_nilai_bio(peramban, "[klik]")
                 elemen.click()
                 return
             except (ElementClickInterceptedException, StaleElementReferenceException,
@@ -1250,12 +1265,155 @@ class BotDapodik:
             return teks
         return str(int(angka)) if angka == int(angka) else str(angka)
 
+    def _kursor_aman(self, peramban, tumpuan=None, awalan: str = "[kursor]") -> dict:
+        """Pindahkan kursor keluar dari kolom isian **sebelum** menggulir.
+
+        Laporan sekolah (ronde 45): menggulir halaman/jendela selagi kursor masih berada di
+        dalam kolom isian bisa mengubah nilai kolom itu — «RT» berubah menjadi «0» setelah
+        digulir. Karena itu setiap kali bot akan menggulir, fokus dipindah lebih dulu ke
+        tempat yang aman: ``tumpuan`` bila ada (mis. isi jendela «Ubah» atau daftar pilihan
+        yang sedang terbuka supaya daftarnya tidak menutup), atau dilepas sama sekali.
+
+        Kembalikan keterangan apa yang dipindahkan (untuk dilaporkan apa adanya).
+        """
+        try:
+            hasil = peramban.execute_script(
+                """
+                /* kursor-aman */
+                const tumpuan = arguments[0] || null;
+                const aktif = document.activeElement;
+                const info = {aktif: '', tumpuan: '', dipindah: false};
+                if (!aktif || aktif === document.body || aktif === document.documentElement) {
+                    return info;
+                }
+                const tag = String(aktif.tagName || '').toUpperCase();
+                const teks = (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT')
+                    && !['radio', 'checkbox', 'button', 'submit', 'hidden']
+                        .includes(String(aktif.type || '').toLowerCase());
+                if (!teks) return info;
+                info.aktif = aktif.getAttribute('name') || aktif.id || tag;
+                if (tumpuan && typeof tumpuan.focus === 'function') {
+                    tumpuan.focus();
+                    info.tumpuan = (tumpuan.getAttribute
+                        && (tumpuan.getAttribute('name') || tumpuan.id))
+                        || (tumpuan.className ? String(tumpuan.className).slice(0, 40)
+                                              : 'tumpuan');
+                } else if (aktif.blur) {
+                    aktif.blur();
+                }
+                info.dipindah = true;
+                return info;
+                """, tumpuan)
+        except Exception:  # noqa: BLE001 — memindahkan kursor hanya upaya terbaik
+            return {}
+        if isinstance(hasil, dict) and hasil.get("dipindah"):
+            self.kursor_dipindah += 1
+            nama = str(hasil.get("aktif") or "?")
+            tempat = str(hasil.get("tumpuan") or "badan halaman")
+            self._catat_kepala(f"{awalan} kursor dikeluarkan dari kolom «{nama}» (dipindah ke "
+                               f"{tempat}) sebelum menggulir — menggulir selagi kursor ada di "
+                               "dalam kolom bisa mengubah nilainya (mis. «RT» menjadi «0»).")
+        return hasil if isinstance(hasil, dict) else {}
+
+    def _tumpuan_dropdown(self, peramban, unsur):
+        """Elemen daftar pilihan milik sebuah combo — tempat kursor yang aman & tetap terbuka.
+
+        Melepas fokus dari kotak combo membuat daftarnya menutup (Ext JS ``completeEdit``),
+        jadi saat menggulir/mengklik pilihannya kursor ditaruh pada **daftar pilihannya**
+        — bukan di kolom isian mana pun — supaya daftarnya tetap terbuka.
+        """
+        try:
+            return peramban.execute_script(
+                """
+                /* dropdown-aria */
+                const el = arguments[0];
+                if (!el) return null;
+                const id = (el.getAttribute && el.getAttribute('id')) || '';
+                const milik = el.getAttribute ? el.getAttribute('aria-owns') : '';
+                if (!milik) return null;
+                const bagian = String(milik).split(/\\s+/).filter((s) => s.indexOf('list') >= 0);
+                for (const nama of bagian) {
+                    const kandidat = document.getElementById(nama);
+                    if (kandidat) return kandidat;
+                }
+                return null;
+                """, unsur)
+        except Exception:  # noqa: BLE001 — tanpa daftar, kursor cukup dilepas
+            return None
+
+    # --- Penjaga nilai: jangan biarkan gulir mengubah kolom yang sudah diisi --- #
+    def _rekam_nilai_bio(self, unsur, nilai: str) -> None:
+        """Catat nilai kolom BIO yang sudah ditulis bot (untuk diperiksa sesudah menggulir)."""
+        nama = str(getattr(unsur, "name", "") or "")
+        if nama:
+            self._penjaga_nilai[nama] = self._nilai_teks(nilai)
+
+    def _periksa_nilai_bio(self, peramban, awalan: str = "[penjaga]") -> list[str]:
+        """Periksa lagi nilai kolom BIO yang sudah ditulis; kembalikan yang berubah.
+
+        Menanggulangi keadaan nyata di sekolah: menggulir selagi kursor berada di kolom
+        isian (atau gulir oleh pengguna yang sedang menonton) mengubah nilai kolom — «RT»
+        menjadi «0». Nilai yang berubah **dikembalikan** dan dilaporkan apa adanya, supaya
+        data Dapodik tidak ikut salah.
+        """
+        if not self._penjaga_nilai:
+            return []
+        try:
+            sekarang = peramban.execute_script(
+                """
+                /* nilai-kolom-bio */
+                const nama = arguments[0] || [];
+                const hasil = {};
+                for (const satu of nama) {
+                    const el = document.querySelector('input[name="' + satu + '"]');
+                    if (el) hasil[satu] = String(el.value === undefined ? '' : el.value);
+                }
+                return hasil;
+                """, list(self._penjaga_nilai))
+        except Exception:  # noqa: BLE001 — tidak terbaca: tidak ada yang diklaim
+            return []
+        if not isinstance(sekarang, dict):
+            return []
+        berubah: list[str] = []
+        for nama, diharapkan in list(self._penjaga_nilai.items()):
+            dapat = self._nilai_teks(sekarang.get(nama))
+            if dapat == "" or dapat == diharapkan:
+                continue                 # tidak terbaca / masih sama
+            berubah.append(nama)
+            self._catat_kepala(f"{awalan} nilai kolom «{nama}» berubah sesudah menggulir "
+                               f"(«{dapat}») — dikembalikan menjadi «{diharapkan}» supaya "
+                               "data Dapodik tidak ikut salah.")
+            try:
+                pulih = peramban.execute_script(
+                    """
+                    /* pulihkan-kolom-bio */
+                    const nama = arguments[0], nilai = arguments[1];
+                    const el = document.querySelector('input[name="' + nama + '"]');
+                    if (!el) return false;
+                    el.removeAttribute('readonly');
+                    el.value = nilai;
+                    for (const jenis of ['input', 'change', 'blur']) {
+                        el.dispatchEvent(new Event(jenis, {bubbles: true}));
+                    }
+                    return true;
+                    """, nama, diharapkan)
+            except Exception:  # noqa: BLE001 — pencatatan pemulihan di bawah
+                pulih = False
+            if pulih:
+                self.penjaga_dipulihkan += 1
+            else:
+                self._penjaga_nilai.pop(nama, None)
+                self._catat_kepala(f"{awalan} kolom «{nama}» tidak bisa dikembalikan lewat "
+                                   "skrip — nilainya perlu diperiksa di Dapodik.")
+        return berubah
+
     def _gulir(self, peramban, jarak: int = GULIR_PERIODIK, catat: bool = True) -> None:
         """Gulir halaman ke bawah — sama seperti ``window.scrollBy(0, 250)`` skrip sekolah.
 
         Dipakai sebelum mengisi Data Periodik supaya kolom yang letaknya di bawah layar
         benar-benar tampil (klik pada elemen di luar layar sering tidak diproses Dapodik).
         """
+        self._kursor_aman(peramban, awalan="[gulir]")
         try:
             peramban.execute_script("window.scrollBy(0, arguments[0]);", int(jarak))
         except Exception:  # noqa: BLE001 — sebagian cara menolak argumen
@@ -1269,7 +1427,7 @@ class BotDapodik:
             self._catat_kepala(f"[gulir] halaman digulir {int(jarak)} px ke bawah "
                                "(seperti skrip sekolah).")
 
-    def _bawa_ke_layar(self, peramban, unsur) -> None:
+    def _bawa_ke_layar(self, peramban, unsur, tumpuan=None) -> None:
         """Bawa satu unsur ke layar dengan menggulir **hanya wadah yang perlu**.
 
         ``window.scrollBy`` menggulir seluruh halaman; panel seperti «Data Periodik
@@ -1277,7 +1435,15 @@ class BotDapodik:
         halaman tidak menolong (dan bisa menggeser bagian lain yang tidak perlu).
         Yang benar: ``scrollIntoView`` pada unsurnya, lalu ``scrollTop`` setiap induk
         yang memiliki gulir dibetulkan — halaman lain tidak ikut bergeser.
+
+        Sebelum menggulir, **kursor dikeluarkan dulu dari kolom isian** (ronde 45):
+        menggulir selagi kursor berada di dalam kolom bisa mengubah nilai kolom itu
+        (mis. «RT» menjadi «0»). ``tumpuan`` dipakai bila fokusnya harus ditaruh pada
+        elemen tertentu (mis. daftar pilihan yang sedang terbuka).
         """
+        hasil_kursor = self._kursor_aman(peramban, tumpuan, awalan="[gulir]")
+        if isinstance(hasil_kursor, dict) and hasil_kursor.get("dipindah"):
+            self._periksa_nilai_bio(peramban)
         try:
             peramban.execute_script(
                 """
@@ -1420,8 +1586,14 @@ class BotDapodik:
                 except Exception:  # noqa: BLE001
                     isi = ""
                 if nilai in isi:
+                    if awalan == "[bio]":
+                        self._rekam_nilai_bio(unsur, isi)
                     return f"terisi lewat Ext JS: {isi}"
         if nilai in isi:
+            if awalan == "[bio]":
+                # Nilai kolom BIO dicatat: sesudah setiap gulir diperiksa lagi, karena gulir
+                # bisa mengubah nilai kolom isian (mis. «RT» menjadi «0» — ronde 45).
+                self._rekam_nilai_bio(unsur, isi)
             return f"terisi: {isi}"
         return "kolom belum berisi nilai yang benar"
 
@@ -2428,6 +2600,7 @@ class BotDapodik:
         tiap kolom dicari sambil isi jendela digeser bertahap. Ini juga menanggulangi
         "gulir kebanyakan/kurang banyak" — posisinya selalu diatur ulang di awal.
         """
+        self._kursor_aman(peramban, jendela, awalan="[bio]")
         try:
             return int(peramban.execute_script(
                 """
@@ -2459,9 +2632,14 @@ class BotDapodik:
         gulir sendiri — persis yang terlihat pada tangkapan layar sekolah. Karena itu bot
         menggeser wadah bergulir di dalam jendelanya, sedikit demi sedikit, dan **setiap kali**
         mencoba mencari kolomnya lagi (tidak menebak-nebak "250 px cukup atau tidak").
+
+        Kursornya ditaruh pada wadah jendelanya lebih dulu (bukan di dalam kolom isian),
+        lalu nilai kolom yang sudah ditulis diperiksa lagi — gulir jangan sampai mengubahnya.
         """
+        self._kursor_aman(peramban, jendela, awalan="[bio]")
+        bergeser = 0
         try:
-            return int(peramban.execute_script(
+            bergeser = int(peramban.execute_script(
                 """
                 /* gulir-jendela */
                 const akar = arguments[0];
@@ -2490,7 +2668,10 @@ class BotDapodik:
                 return bergeser;
                 """, jendela, int(langkah)) or 0)
         except Exception:  # noqa: BLE001 — 0 = tidak bergeser
-            return 0
+            bergeser = 0
+        if bergeser:
+            self._periksa_nilai_bio(peramban)
+        return bergeser
 
     def _cari_kolom_bio(self, peramban, peta: dict[str, str], kunci: str, jendela,
                         teks_label: str = ""):
@@ -3092,6 +3273,7 @@ class BotDapodik:
         pilihan yang letaknya di luar bagian daftar yang terlihat — pilihan yang belum terlihat
         memang tidak bisa diklik (persis Dapodik).
         """
+        self._aman_daftar_dropdown(peramban, unsur)
         try:
             hasil = peramban.execute_script(
                 """
@@ -3140,6 +3322,15 @@ class BotDapodik:
         except (TypeError, ValueError):
             return 0
 
+    def _aman_daftar_dropdown(self, peramban, unsur) -> None:
+        """Kursor keluar dari kotak combo, tetapi daftar pilihannya tetap terbuka (ronde 45).
+
+        Melepas fokus dari kotak combo membuat daftarnya menutup (Ext JS ``completeEdit``);
+        karena itu fokus ditaruh pada **daftar pilihannya** — bukan di kolom isian mana pun —
+        sebelum bot menggulir atau mengklik pilihannya.
+        """
+        self._kursor_aman(peramban, self._tumpuan_dropdown(peramban, unsur), awalan="[desa]")
+
     def _klik_pilihan_dropdown(self, peramban, unsur, teks: str, percobaan: int = 12) -> tuple:
         """Klik pilihan pada daftar dropdown — **digulir dulu** bila pilihannya belum tampil.
 
@@ -3151,6 +3342,9 @@ class BotDapodik:
         from selenium.webdriver.common.by import By
 
         geser = 0
+        # Kursornya ditaruh pada daftarnya lebih dulu: menggulir/mengklik jangan sampai
+        # menyentuh kolom isian mana pun (mis. «RT» yang bisa berubah menjadi «0»).
+        self._aman_daftar_dropdown(peramban, unsur)
         # Selalu mulai dari ATAS: pilihan yang berada di atas posisi gulir saat ini tidak akan
         # pernah ketemu bila daftarnya hanya digulir ke bawah.
         self._gulir_daftar_dropdown(peramban, unsur, jauh=-100000)
@@ -3165,7 +3359,8 @@ class BotDapodik:
                     if posisi >= len(kotak):
                         return False, geser
                     item = kotak[posisi]
-                    self._bawa_ke_layar(peramban, item)
+                    self._bawa_ke_layar(peramban, item,
+                                        tumpuan=self._tumpuan_dropdown(peramban, unsur))
                     try:
                         item.click()
                     except Exception:  # noqa: BLE001 — klik bisa tertelan lapisan pemuatan
@@ -3742,6 +3937,18 @@ class BotDapodik:
         # Dapodik, isi lama ini dikembalikan supaya data Dapodik tidak ikut berubah karena
         # kata kunci pencarian yang tertinggal di kotaknya.
         nilai_awal = self._nilai_teks(self._nilai_dropdown(peramban, unsur)[0])
+        # Kode wilayah desa yang sedang tersimpan (``kode_wilayah_str``). Dipakai untuk
+        # memastikan desa yang dipilih benar-benar PINDAH — bukan sekadar teksnya berubah.
+        kode_terbaca, kode_awal = self._kode_wilayah(peramban, unsur)
+        if kode_terbaca:
+            pesan_kode = f", kode wilayah «{kode_awal or '(kosong)'}»."
+        else:
+            nama_kolom = self._nama_kolom_wilayah(peramban)
+            pesan_kode = ("; kolom kode wilayah (kode_wilayah_str) tidak ada di halaman ini — "
+                          "hasil pemilihan dinilai dari nilai model combo-nya"
+                          + (f" (kolom tersembunyi yang ada: {nama_kolom})" if nama_kolom else ""))
+        self._catat_kepala(f"{awalan} {label}: isi sebelum disentuh — «{nilai_awal or '(kosong)'}»"
+                           + pesan_kode)
         kueri: list[str] = []
         for calon in (kecamatan, desa, self._kata_rapat(desa)):
             if calon and calon.lower() not in {k.lower() for k in kueri}:
@@ -3811,10 +4018,12 @@ class BotDapodik:
                                f"daftarnya digeser {geser}x.")
         self._tunggu(peramban, 0.5)
         tampil_nilai, model = self._nilai_dropdown(peramban, unsur)
-        tersimpan, alasan = self._pilihan_desa_terpilih(peramban, unsur, desa, cocok,
-                                                        tampil_nilai or model)
+        tersimpan, alasan, kode_info = self._desa_dan_kode_terverifikasi(
+            peramban, unsur, desa, cocok, tampil_nilai or model, nilai_awal, kode_awal)
         if tersimpan:
             self._catat_kecamatan_berbeda(label, kecamatan, tampil_nilai or model)
+            if kode_info:
+                self._catat_kepala(f"{awalan} {label}: {kode_info}.")
             self._tutup_dropdown(peramban, unsur)
             return (f"terisi (dipilih dari daftar Dapodik): {tampil_nilai or model}"
                     + ("" if catatan == "sama persis (desa + kecamatan)" else f" — {catatan}"))
@@ -3830,10 +4039,12 @@ class BotDapodik:
         if self._pilih_dropdown_ext(peramban, unsur, cocok):
             self._tunggu(peramban, 0.5)
             tampil_nilai, model = self._nilai_dropdown(peramban, unsur)
-            tersimpan, alasan = self._pilihan_desa_terpilih(peramban, unsur, desa, cocok,
-                                                            tampil_nilai or model)
+            tersimpan, alasan, kode_info = self._desa_dan_kode_terverifikasi(
+                peramban, unsur, desa, cocok, tampil_nilai or model, nilai_awal, kode_awal)
             if tersimpan:
                 self._catat_kecamatan_berbeda(label, kecamatan, tampil_nilai or model)
+                if kode_info:
+                    self._catat_kepala(f"{awalan} {label}: {kode_info}.")
                 self._tutup_dropdown(peramban, unsur)
                 return (f"terisi lewat model Ext JS (pilihan «{cocok}» dari daftar Dapodik): "
                         f"{tampil_nilai or model}")
@@ -3841,10 +4052,14 @@ class BotDapodik:
                                f"Ext JS tetapi belum terverifikasi — {alasan}.")
         self._bukti_dropdown(peramban, label)
         self._tutup_dropdown(peramban, unsur)
+        self._catat_kepala(f"{awalan} {label}: kolom «Desa/Kelurahan» TIDAK jadi terisi — "
+                           f"{alasan}. Ini yang perlu dikirim ke kami bila berulang: baris "
+                           "«kode wilayah (kode_wilayah_str)» di atas, dan bukti layar "
+                           "yang disimpan bot di folder data/bot.")
         if self._pulihkan_desa(peramban, unsur, nilai_awal, awalan, label):
             return (f"gagal terisi — pilihan «{cocok}» tidak masuk ke kolomnya "
                     f"(tampil: «{tampil_nilai}»; {alasan}); isi kolom dikembalikan seperti "
-                    "semula.")
+                    "semula (data lama Dapodik tidak ikut berubah).")
         return (f"gagal terisi — pilihan «{cocok}» tidak masuk ke kolomnya "
                 f"(tampil: «{tampil_nilai}»; {alasan}).")
 
@@ -3914,6 +4129,85 @@ class BotDapodik:
         if not isinstance(hasil, dict):
             return False, ""
         return bool(hasil.get("ext")), str(hasil.get("nilai") or "")
+
+    def _kode_wilayah(self, peramban, unsur) -> tuple[bool, str]:
+        """Baca KODE WILAYAH desa yang benar-benar tersimpan (``kode_wilayah_str``).
+
+        Di Dapodik kolom «Desa/Kelurahan» punya kolom tersembunyi bernama
+        ``kode_wilayah_str``; itulah yang menentukan desa mana yang tersimpan saat «Simpan»
+        ditekan. Teks di kotaknya bisa sudah berubah sementara kodenya masih menunjuk desa
+        yang lama — kejadian yang dilaporkan sekolah (ronde 45). Bot membacanya langsung dari
+        DOM, jadi tidak bergantung pada Ext JS.
+
+        Kembalikan ``(terbaca, kode)``.
+        """
+        try:
+            hasil = peramban.execute_script(
+                """
+                /* kode-wilayah */
+                const el = arguments[0] || null;
+                const akar = (el && el.closest && el.closest('.x-window')) || document;
+                const tepat = (a) => a.querySelector('input[name="kode_wilayah_str"]');
+                const mirip = (a) => a.querySelector('input[name^="kode_wilayah"]');
+                const cari = tepat(akar) || mirip(akar) || tepat(document) || mirip(document);
+                if (!cari) return null;
+                return String(cari.value === undefined ? '' : cari.value);
+                """, unsur)
+        except Exception:  # noqa: BLE001 — tidak terbaca: dinilai dari nilai modelnya
+            return False, ""
+        if hasil is None:
+            return False, ""
+        return True, self._nilai_teks(hasil)
+
+    def _nama_kolom_wilayah(self, peramban) -> str:
+        """Sebutkan kolom tersembunyi yang ada di halaman — untuk laporan bila kolomnya hilang.
+
+        Dipakai hanya ketika ``kode_wilayah_str`` tidak ditemukan: log menyebut nama-nama kolom
+        tersembunyi yang **ada** (mis. versi Dapodik yang menamainya lain), supaya sekolah
+        cukup mengirim satu baris log dan penyebabnya bisa langsung diketahui.
+        """
+        try:
+            nama = peramban.execute_script(
+                """
+                /* nama-kolom-wilayah */
+                const hasil = [];
+                for (const el of document.querySelectorAll('input[type="hidden"]')) {
+                    const nama = String(el.getAttribute('name') || '');
+                    if (nama && (nama.indexOf('wilayah') >= 0 || nama.indexOf('kode') >= 0)) {
+                        hasil.push(nama);
+                    }
+                }
+                return hasil.slice(0, 6);
+                """)
+        except Exception:  # noqa: BLE001 — keterangan tambahan saja
+            return ""
+        if not isinstance(nama, list) or not nama:
+            return ""
+        return ", ".join(str(satu) for satu in nama if str(satu).strip())
+
+    def _desa_dan_kode_terverifikasi(self, peramban, unsur, desa: str, cocok: str, teks: str,
+                                     nilai_awal: str, kode_awal: str) -> tuple[bool, str, str]:
+        """Tersimpan? — teks desa benar, nilai model terisi, **dan kode wilayahnya ikut pindah**.
+
+        Kembalikan ``(tersimpan, alasan, keterangan_kode)``. Pemeriksaan kode wilayah inilah
+        yang menangkap keadaan «teks sudah berubah, kodenya masih desa lama» (``kode_wilayah_str``
+        tidak ikut pindah) — kalau itu dibiarkan, Dapodik menyimpan desa yang lama.
+        """
+        tersimpan, alasan = self._pilihan_desa_terpilih(peramban, unsur, desa, cocok, teks)
+        if not tersimpan:
+            return False, alasan, ""
+        terbaca, kode = self._kode_wilayah(peramban, unsur)
+        if not terbaca:
+            return True, "", ("kode wilayah (kode_wilayah_str) tidak terbaca dari halaman — "
+                              "hasil pemilihan dinilai dari nilai model Ext JS")
+        teks_berubah = self._norm_pilihan(teks) != self._norm_pilihan(nilai_awal)
+        if teks_berubah and kode == self._nilai_teks(kode_awal):
+            return False, ("kode wilayah (kode_wilayah_str) masih «"
+                           f"{kode or '(kosong)'}» — belum ikut pindah ke desa yang baru "
+                           f"dipilih («{cocok}»), jadi Dapodik akan tetap menyimpan desa "
+                           "yang lama"), ""
+        return True, "", (f"kode wilayah {self._nilai_teks(kode_awal) or '(kosong)'} → "
+                          f"{kode or '(kosong)'} ✓")
 
     def _pilihan_desa_terpilih(self, peramban, unsur, desa: str, cocok: str,
                                teks: str) -> tuple[bool, str]:
@@ -4046,6 +4340,15 @@ class BotDapodik:
             self._catat_kepala(f"[bio] {label}: {keterangan}")
             if keterangan.startswith("terisi"):
                 terisi += 1
+                # Kolom yang sudah benar dicatat nilainya; sesudah setiap gulir, nilainya
+                # diperiksa lagi (gulir pernah mengubah «RT» menjadi «0» — ronde 45).
+                try:
+                    nilai_sekarang = str(unsur.get_attribute("value") or "").strip()
+                except Exception:  # noqa: BLE001 — pembacaan nilai hanya upaya terbaik
+                    nilai_sekarang = ""
+                if nilai_sekarang:
+                    self._rekam_nilai_bio(unsur, nilai_sekarang)
+                self._periksa_nilai_bio(peramban, awalan="[bio]")
             else:
                 # Nilai tidak masuk ke kolomnya: inilah saat paling penting untuk merekam
                 # keadaan halaman — screenshot + HTML, supaya sebabnya bisa dilihat langsung.
