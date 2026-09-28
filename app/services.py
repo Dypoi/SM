@@ -1724,7 +1724,10 @@ def bot_pasang_pustaka() -> tuple[bool, str]:
     perintah = [sys.executable, "-m", "pip", "install", "-r", str(berkas),
                 "--disable-pip-version-check", "--no-input"]
     try:
-        hasil = subprocess.run(perintah, capture_output=True, text=True, timeout=900)
+        # creationflags: jangan memunculkan jendela konsol (aplikasi sendiri berjalan
+        # tanpa jendela lewat pythonw.exe — masukan sekolah ronde 42).
+        hasil = subprocess.run(perintah, capture_output=True, text=True, timeout=900,
+                               creationflags=int(getattr(subprocess, "CREATE_NO_WINDOW", 0)))
     except subprocess.TimeoutExpired:
         return False, "Pemasangan melebihi 15 menit dan dihentikan. Periksa koneksi internet."
     except OSError as exc:

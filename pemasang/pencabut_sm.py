@@ -213,6 +213,8 @@ def isi_skrip(tujuan, data, python, pythonw, pencabut) -> dict[str, str]:
         "del /q \"%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\SM.lnk\" >nul 2>nul\r\n"
         "del /q \"%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\SM.cmd\" "
         ">nul 2>nul\r\n"
+        "del /q \"%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"
+        "SM-otomatis.vbs\" >nul 2>nul\r\n"
         "if /i \"%SUNYI%\"==\"sunyi\" goto :pesan_berkas\r\n"
         "echo   Menghapus berkas aplikasi ...\r\n"
         ":pesan_berkas\r\n"

@@ -20,11 +20,31 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 
+def tunggu_port_bebas(port: int, batas: int, host: str = "127.0.0.1") -> bool:
+    """Tunggu sampai tidak ada lagi yang menjawab di ``port`` (maksimal ``batas`` detik)."""
+    import socket
+    import time
+
+    selesai = time.time() + max(0, int(batas))
+    while time.time() < selesai:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as soket:
+            soket.settimeout(0.5)
+            try:
+                soket.connect((host, int(port)))
+            except OSError:
+                return True       # port sudah bebas
+        time.sleep(0.5)
+    return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Jalankan server SM")
     parser.add_argument("--host", default="0.0.0.0", help="Alamat bind (default 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8000, help="Port (default 8000)")
     parser.add_argument("--reload", action="store_true", help="Mode pengembangan")
+    parser.add_argument("--tunggu-port", type=int, default=0, metavar="DETIK",
+                        help="Tunggu sampai port bebas sebelum menyala (dipakai saat "
+                             "server menggantikan dirinya setelah pembaruan)")
     parser.add_argument("--init-db", action="store_true", help="Siapkan database lalu keluar")
     parser.add_argument("--seed-ekskul", action="store_true", help="Isi contoh data ekstrakurikuler")
     parser.add_argument("--isi-ekskul-resmi", action="store_true",
@@ -55,6 +75,11 @@ def main() -> int:
         if jumlah:
             print(f"  {jumlah} ekstrakurikuler")
         return 0
+
+    if args.tunggu_port > 0:
+        # Dipakai "Muat ulang server sekarang": proses baru dinyalakan SEBELUM proses lama
+        # benar-benar berhenti (supaya aplikasi tidak mati), jadi portnya belum bebas.
+        tunggu_port_bebas(args.port, args.tunggu_port)
 
     import uvicorn
 

@@ -50,6 +50,9 @@ pencabut_sm = None
 VERSI_MINIMUM = (3, 10)
 NAMA_MARKER = ".sm-pemasangan.json"
 
+#: Berkas «nyala otomatis» (VBS = tanpa jendela hitam, berbeda dari SM.cmd lama).
+NAMA_OTOMATIS = "SM-otomatis.vbs"
+
 #: Folder payload yang dipaksa (dipakai uji otomatis lewat ``--payload``).
 _PAYLOAD_PAKSA: Path | None = None
 
@@ -78,6 +81,29 @@ def folder_payload(akar: Path | None = None) -> Path:
         if (kandidat / "app.zip").exists():
             return kandidat
     return akar / "payload"
+
+
+def _muat_peramban(tujuan: Path):
+    """Muat ``app/peramban.py`` dari folder aplikasi yang baru dipasang.
+
+    Modul itu yang menentukan **Chrome** mana yang dipakai saat membuka aplikasi. Dibaca
+    dari folder pemasangan (bukan disalin ke dalam EXE) supaya peluncur, pemasang, dan
+    aplikasi memakai aturan yang sama — bila modulnya tidak ada (pemasangan lama),
+    pemanggil memakai peramban bawaan.
+    """
+    jalur = Path(tujuan) / "app" / "peramban.py"
+    if not jalur.is_file():
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location("sm_peramban", jalur)
+        if spec is None or spec.loader is None:
+            return None
+        modul = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modul)
+        return modul
+    except Exception as exc:      # noqa: BLE001 - jangan gagalkan pemasangan
+        print(f"[!] Modul peramban tidak bisa dibaca: {exc}")
+        return None
 
 
 def _muat_pencabut():
@@ -124,6 +150,19 @@ def ada_jendela_gui() -> bool:
     if os.name == "nt":
         return True
     return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def alamat_siap(port: int, host: str = "127.0.0.1", batas: float = 1.0) -> bool:
+    """True bila server di ``port`` sudah menjawab (dipakai sebelum membuka peramban)."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as soket:
+        soket.settimeout(batas)
+        try:
+            soket.connect((host, int(port)))
+        except OSError:
+            return False
+    return True
 
 
 def tanpa_jendela() -> int:
@@ -391,7 +430,15 @@ def buat_pintasan(tujuan: Path, ikon: Path | None = None) -> list[str]:
     if os.name == "nt":
         vbs = tujuan / "SM.vbs"
         wscript = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "wscript.exe"
-        jalankan = f'"{wscript}" "{vbs}"' if vbs.exists() else f'"{peluncur}"'
+        pythonw = python_atau_venv(tujuan).parent / "pythonw.exe"
+        latar = tujuan / "SM-latar.py"
+        if vbs.exists():
+            jalankan = f'"{wscript}" "{vbs}"'
+        elif latar.exists() and pythonw.exists():
+            # Cadangan tanpa jendela hitam (bukan Jalankan-SM.cmd).
+            jalankan = f'"{pythonw}" "{latar}"'
+        else:
+            jalankan = f'"{peluncur}"'
         sasaran_daftar = [("Desktop", _desktop() / "SM.lnk")]
         appdata = os.environ.get("APPDATA")
         if appdata:
@@ -405,6 +452,9 @@ def buat_pintasan(tujuan: Path, ikon: Path | None = None) -> list[str]:
                     # Lewat wscript + SM.vbs: aplikasi jalan di belakang layar —
                     # tidak ada jendela terminal sekejap pun.
                     target, argumen = str(wscript), f'"{vbs}"'
+                elif latar.exists() and pythonw.exists():
+                    # pythonw.exe + SM-latar.py: sama-sama tanpa jendela.
+                    target, argumen = str(pythonw), f'"{latar}"'
                 else:
                     target, argumen = str(peluncur), ""
                 skrip = (
@@ -442,28 +492,83 @@ def buat_pintasan(tujuan: Path, ikon: Path | None = None) -> list[str]:
     return dibuat
 
 
-def pasang_otomatis(tujuan: Path) -> list[str]:
-    """Jalankan SM otomatis saat komputer dinyalakan (Windows)."""
+def berkas_otomatis() -> Path | None:
+    """Berkas «nyala otomatis» yang dipakai sekarang (VBS — tanpa jendela)."""
+    appdata = os.environ.get("APPDATA")
+    if os.name == "nt" and appdata:
+        return Path(appdata) / "Microsoft/Windows/Start Menu/Programs/Startup" / NAMA_OTOMATIS
+    return None
+
+
+def berkas_otomatis_lama() -> list[Path]:
+    """Berkas «nyala otomatis» versi lama (``.cmd``) yang memunculkan jendela hitam."""
+    appdata = os.environ.get("APPDATA")
+    if os.name != "nt" or not appdata:
+        return []
+    startup = Path(appdata) / "Microsoft/Windows/Start Menu/Programs/Startup"
+    return [startup / nama for nama in ("SM.cmd", "SM.bat")]
+
+
+def isi_vbs_otomatis(pythonw: Path | str, tujuan: Path | str, port: int) -> str:
+    """Isi berkas «nyala otomatis» (VBS) — fungsi murni supaya bisa diperiksa uji otomatis.
+
+    VBS dijalankan ``wscript.exe``; jendela disembunyikan lewat argumen kedua ``Run``
+    (``0``) dan tidak ditunggu (``False``). Karena peluncurnya ``pythonw.exe`` +
+    ``SM-latar.py``, tidak ada jendela cmd yang muncul saat Windows masuk.
+    """
+    return (
+        "' Dibuat oleh bodap.exe — SM menyala otomatis saat Windows masuk.\r\n"
+        "' Sengaja VBS, bukan .cmd: tidak ada jendela hitam yang muncul.\r\n"
+        "Option Explicit\r\n"
+        "Dim sh\r\n"
+        "Set sh = CreateObject(\"WScript.Shell\")\r\n"
+        f"sh.CurrentDirectory = \"{tujuan}\"\r\n"
+        f"sh.Run \"\"\"\"{pythonw}\"\" \"\"\"{tujuan}\\SM-latar.py\"\" --tanpa-buka "
+        f"--port {int(port)}\", 0, False\r\n"
+    )
+
+
+def pasang_otomatis(tujuan: Path, python: Path | None = None, port: int = 8000) -> list[str]:
+    """Nyalakan SM otomatis saat komputer dinyalakan — **tanpa jendela hitam**.
+
+    Dulu berkasnya ``Startup/SM.cmd`` yang menjalankan ``Jalankan-SM.cmd``; hasilnya
+    jendela cmd kecil muncul setiap kali Windows masuk (masukan sekolah ronde 42).
+    Sekarang yang dipasang berkas **VBS** yang menjalankan ``SM-latar.py`` lewat
+    ``pythonw.exe`` dengan jendela disembunyikan (``0``) dan tanpa menunggu.
+    """
     if os.name != "nt":
         return []
     appdata = os.environ.get("APPDATA")
     if not appdata:
         return []
-    berkas = Path(appdata) / "Microsoft/Windows/Start Menu/Programs/Startup/SM.cmd"
+    tujuan = Path(tujuan)
+    if python is None:
+        for kandidat in (tujuan / ".venv/Scripts/pythonw.exe", tujuan / "python/pythonw.exe",
+                         tujuan / ".venv/Scripts/python.exe", tujuan / "python/python.exe"):
+            if kandidat.exists():
+                python = kandidat
+                break
+        else:
+            python = Path("pythonw.exe")
+    pythonw = Path(python).parent / "pythonw.exe"
+    if os.name == "nt" and not pythonw.exists() and Path(python).exists():
+        pythonw = Path(python)
+
+    # Buang berkas lama supaya tidak ada jendela cmd yang tersisa dari pemasangan dulu.
+    hasil: list[str] = []
+    for lama in berkas_otomatis_lama():
+        try:
+            if lama.exists():
+                lama.unlink()
+                hasil.append(f"dihapus: {lama}")
+        except OSError:
+            pass
+
+    berkas = Path(appdata) / "Microsoft/Windows/Start Menu/Programs/Startup" / NAMA_OTOMATIS
     berkas.parent.mkdir(parents=True, exist_ok=True)
-    berkas.write_text(
-        "@echo off\r\n"
-        "REM Dibuat oleh bodap.exe — SM menyala otomatis saat Windows masuk.\r\n"
-        f"start \"SM\" /min \"{Path(tujuan) / 'Jalankan-SM.cmd'}\"\r\n",
-        encoding="utf-8", newline="")
-    return [str(berkas)]
-
-
-def berkas_otomatis() -> Path | None:
-    appdata = os.environ.get("APPDATA")
-    if os.name == "nt" and appdata:
-        return Path(appdata) / "Microsoft/Windows/Start Menu/Programs/Startup/SM.cmd"
-    return None
+    berkas.write_text(isi_vbs_otomatis(pythonw, tujuan, port), encoding="utf-8")
+    hasil.append(str(berkas))
+    return hasil
 
 
 # --------------------------------------------------------------------------- #
@@ -853,8 +958,11 @@ class Pemasang:
             "  Klik dua kali ikon «SM» di Desktop (atau «SM.vbs» di folder ini).\n"
             "  Aplikasi berjalan di BELAKANG LAYAR: tidak ada jendela hitam/terminal yang\n"
             "  perlu dibiarkan terbuka, peramban terbuka sendiri di alamat di atas.\n"
+            "  Peramban itu Chrome yang sedang terbuka: halaman SM muncul sebagai TAB BARU\n"
+            "  di jendela Chrome itu (bila Chrome belum jalan, Chrome dinyalakan sekali) —\n"
+            "  bukan jendela/profile Chrome yang baru.\n"
             "  Mematikan aplikasi: menu Start → «Hentikan SM» (atau «Hentikan-SM.vbs»).\n"
-            "  Bila ada masalah: periksa <<folder data>>\\log-server.txt, atau jalankan\n"
+            f"  Bila ada masalah: periksa {self.data}\\log-server.txt, atau jalankan\n"
             "  «Jalankan-SM.cmd» yang menampilkan pesan aplikasi di jendelanya.\n\n"
             "Login\n"
             "-----\n"
@@ -868,6 +976,11 @@ class Pemasang:
             "  sekolah memakai 14 ekskul resmi, tekan tombol «Isi daftar ekskul resmi (14)»\n"
             "  di halaman Ekstrakurikuler.\n"
             "* Cadangkan folder data secara berkala (salin ke flashdisk/Drive).\n"
+            "* Bila nyala-otomatis diaktifkan, SM dinyalakan «SM-otomatis.vbs» saat Windows\n"
+            "  masuk — juga TANPA jendela cmd.\n"
+            "* Muat ulang setelah pembaruan (menu Pembaruan → «Muat ulang server sekarang»)\n"
+            "  berjalan di belakang layar: TIDAK ada jendela cmd; catatannya di\n"
+            f"  {self.data}\\log-server.txt.\n"
             "* Menghapus aplikasi: jalankan «Hapus-SM.cmd» di folder ini.\n"
             "* Bot Dapodik memerlukan Google Chrome dan aplikasi Dapodik yang sedang berjalan.\n",
             encoding="utf-8")
@@ -883,7 +996,7 @@ class Pemasang:
         otomatis: list[str] = []
         if self.otomatis:
             self.catat("Menyiapkan agar SM ikut menyala saat komputer dinyalakan ...")
-            otomatis = pasang_otomatis(self.tujuan)
+            otomatis = pasang_otomatis(self.tujuan, python_atau_venv(self.tujuan), self.port)
         daftar: list[str] = []
         if self.daftar_aplikasi:
             daftar = daftarkan_aplikasi(self.tujuan, ikon_tujuan, versi_aplikasi(self.tujuan))
@@ -1215,6 +1328,42 @@ def jalankan_uji(args) -> dict:
         cek(all(bagian in isi_vbs for bagian in ("SM-latar.py", "--port", ", 0, False"))
             and (os.name != "nt" or "pythonw" in isi_vbs),
             "SM.vbs menjalankan SM-latar.py lewat pythonw (jendela konsol disembunyikan)")
+
+        # r42: ikon membuka Chrome yang sedang terbuka, dan tidak ada jendela cmd —
+        # termasuk pada pintasan «nyala otomatis saat Windows masuk» (dulu SM.cmd).
+        modul_peramban = _muat_peramban(tujuan)
+        cek(modul_peramban is not None,
+            "berkas app/peramban.py ikut terpasang (pembuka Chrome)")
+        if modul_peramban is not None:
+            perintah_buka = modul_peramban.perintah_chrome(Path("Chrome/chrome.exe"),
+                                                           "http://localhost:1")
+            cek(perintah_buka == [str(Path("Chrome/chrome.exe")), "http://localhost:1"],
+                "perintah pembuka hanya berisi alamat — Chrome yang sedang terbuka dipakai")
+        isi_otomatis = isi_vbs_otomatis("C:/SM/pythonw.exe", tujuan, port)
+        cek(all(bagian in isi_otomatis for bagian in (
+            "WScript.Shell", "SM-latar.py", "--tanpa-buka", ", 0, False"))
+            and "cmd" not in isi_otomatis.lower().replace("cmd:", ""),
+            "VBS nyala otomatis menyembunyikan jendela (tanpa cmd)")
+        if os.name == "nt":
+            # Di Windows: benar-benar ditulis ke folder Startup, dan SM.cmd lama dibuang.
+            with tempfile.TemporaryDirectory(prefix="bodap-otomatis-") as tmp_otomatis:
+                appdata = Path(tmp_otomatis) / "AppData/Roaming"
+                startup = appdata / "Microsoft/Windows/Start Menu/Programs/Startup"
+                startup.mkdir(parents=True, exist_ok=True)
+                lama_cmd = startup / "SM.cmd"
+                lama_cmd.write_text("rem berkas nyala-otomatis versi lama", encoding="utf-8")
+                simpan_appdata = os.environ.get("APPDATA")
+                os.environ["APPDATA"] = str(appdata)
+                try:
+                    pasang_otomatis(tujuan, Path(sys.executable), port)
+                finally:
+                    if simpan_appdata is None:
+                        os.environ.pop("APPDATA", None)
+                    else:
+                        os.environ["APPDATA"] = simpan_appdata
+                berkas_vbs = startup / NAMA_OTOMATIS
+                cek(berkas_vbs.exists() and not lama_cmd.exists(),
+                    "pintasan nyala otomatis memakai SM-otomatis.vbs; SM.cmd lama dibuang")
         try:
             isi_hentikan = (tujuan / "Hentikan-SM.vbs").read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -1627,24 +1776,60 @@ class Wizard:
         self.akar.destroy()
 
     def buka_aplikasi(self) -> None:
+        """Nyalakan aplikasi di belakang layar, lalu buka di Chrome yang sedang terbuka.
+
+        Tiga hal yang dijaga di sini (masukan sekolah ronde 42):
+
+        * **tanpa jendela CMD** — aplikasi dinyalakan lewat ``pythonw.exe`` (Python tanpa
+          konsol); berkas ``.cmd`` tidak lagi dipakai sebagai cadangan karena setiap
+          ``.cmd`` memunculkan jendela hitam;
+        * **langsung ke Chrome** — pembukaan peramban diserahkan ke ``app/peramban.py``
+          yang memakai Chrome yang sudah terbuka (tab baru di jendela itu);
+        * peramban dibuka beberapa detik kemudian (server butuh waktu menyala), dan pesan
+          di wizard menyebut apa yang sedang terjadi.
+        """
         tujuan = Path(self.hasil.get("tujuan") or self.var_tujuan.get())
         port = int(self.hasil.get("port") or self.var_port.get())
-        peluncur = tujuan / "Jalankan-SM.cmd"
-        vbs = tujuan / "SM.vbs"
         try:
-            if os.name == "nt" and vbs.exists():
-                # Lewat SM.vbs: aplikasi jalan di belakang layar — tanpa jendela terminal.
+            python = python_atau_venv(tujuan)
+            pythonw = python.parent / "pythonw.exe"
+            latar = tujuan / "SM-latar.py"
+            if os.name == "nt" and latar.exists() and pythonw.exists():
+                # pythonw.exe + SM-latar.py: server latar belakang, tanpa jendela apa pun.
+                subprocess.Popen([str(pythonw), str(latar), "--port", str(port)],
+                                 cwd=str(tujuan), stdin=subprocess.DEVNULL,
+                                 creationflags=tanpa_jendela())
+            elif os.name == "nt" and (tujuan / "SM.vbs").exists():
                 wscript = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "wscript.exe"
-                subprocess.Popen([str(wscript), str(vbs)], creationflags=tanpa_jendela())
-            elif os.name == "nt" and peluncur.exists():
-                os.startfile(str(peluncur))      # noqa: S606 — cadangan (tanpa SM.vbs)
+                subprocess.Popen([str(wscript), str(tujuan / "SM.vbs")],
+                                 creationflags=tanpa_jendela())
+            elif latar.exists():
+                subprocess.Popen([str(python), str(latar), "--tanpa-buka", "--port", str(port)],
+                                 cwd=str(tujuan), stdin=subprocess.DEVNULL,
+                                 creationflags=tanpa_jendela())
             else:
-                subprocess.Popen([str(python_atau_venv(tujuan)), "run.py", "--port", str(port)],
-                                 cwd=str(tujuan), creationflags=tanpa_jendela())
-            import webbrowser
-            threading.Thread(target=lambda: (time.sleep(4),
-                                             webbrowser.open(f"http://localhost:{port}")),
-                             daemon=True).start()
+                # Cadangan terakhir: jalankan server langsung (masih tanpa jendela).
+                subprocess.Popen([str(python), "run.py", "--port", str(port)],
+                                 cwd=str(tujuan), stdin=subprocess.DEVNULL,
+                                 creationflags=tanpa_jendela())
+
+            modul = _muat_peramban(tujuan)
+
+            def buka_peramban() -> None:
+                waktu = time.time() + 60
+                while time.time() < waktu:
+                    if alamat_siap(port):
+                        break
+                    time.sleep(1.0)
+                if modul is not None:
+                    self.catat("Membuka aplikasi di "
+                               + modul.keterangan(modul.buka_port(port)) + ".")
+                else:
+                    import webbrowser
+
+                    webbrowser.open(f"http://localhost:{port}")
+
+            threading.Thread(target=buka_peramban, daemon=True).start()
         except Exception as exc:      # noqa: BLE001
             self.pesan(f"Aplikasi tidak bisa dibuka otomatis ({exc}).\n"
                        "Klik dua kali ikon «SM» di Desktop.")

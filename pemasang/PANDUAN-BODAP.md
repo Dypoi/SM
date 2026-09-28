@@ -53,7 +53,10 @@ Semuanya ada di dalam satu berkas itu (± 60–80 MB):
 5. **Membuat peluncur & pencabut**: `SM.vbs` + `Hentikan-SM.vbs` beserta `SM-latar.py`
    (menjalankan & mematikan aplikasi **di belakang layar tanpa jendela terminal**),
    `Jalankan-SM.cmd`, `Hapus-SM.cmd`/`Hapus-SM.vbs`, ikon **SM** di Desktop & menu Start,
-   serta bacaan singkat `BACA-INI-SM.txt`.
+   berkas nyala-otomatis **`SM-otomatis.vbs`** (dipasang di folder Startup bila pilihan
+   «nyalakan saat Windows masuk» dicentang: `pythonw.exe` + `SM-latar.py --tanpa-buka`,
+   jadi **tidak ada jendela cmd** yang muncul), serta bacaan singkat `BACA-INI-SM.txt`.
+   Berkas `SM.cmd` lama di folder Startup **dihapus** supaya tidak ada jendela hitam tersisa.
 6. **Mendaftarkan di Control Panel** (bila tidak dimatikan): entri **SM — Sistem Informasi
    Manajemen Sekolah** di *Control Panel → Programs and Features* / *Pengaturan → Aplikasi*
    (kunci `HKCU\…\CurrentVersion\Uninstall\SM`, tanpa hak admin), lengkap dengan versi,
@@ -68,12 +71,16 @@ lain — tidak ada berkas yang tertimpa.
 
 Ikon **SM** di Desktop tidak membuka jendela hitam apa pun: ia menjalankan `SM.vbs` yang
 memanggil **`pythonw.exe`** → `SM-latar.py` → aplikasi SM. Aplikasi **berjalan di belakang
-layar**, peramban terbuka sendiri di `http://localhost:8000`, dan tidak ada jendela konsol
-yang perlu dibiarkan terbuka.
+layar**, dan halaman dibuka sebagai **tab baru di Chrome yang sedang terbuka** (bila Chrome
+belum jalan, Chrome dinyalakan sekali) — bukan jendela/profile Chrome baru, dan tidak ada
+jendela konsol yang perlu dibiarkan terbuka. Saat Windows masuk, aplikasi dinyalakan
+`SM-otomatis.vbs` yang juga **tanpa jendela cmd**; muat ulang setelah pembaruan pun berjalan
+di belakang layar (`pythonw.exe run.py --tunggu-port 45`) dengan catatan di
+`data\log-server.txt`.
 
 | Yang ingin dilakukan | Caranya |
 | --- | --- |
-| membuka aplikasi | klik ikon **SM** di Desktop (atau `SM.vbs`) — bila sudah jalan, peramban saja yang dibuka |
+| membuka aplikasi | klik ikon **SM** di Desktop (atau `SM.vbs`) — bila sudah jalan, halaman SM dibuka sebagai **tab baru di Chrome yang sedang terbuka** |
 | mematikan aplikasi | menu Start → **Hentikan SM** (`Hentikan-SM.vbs`), tanpa jendela apa pun |
 | melihat keadaan | `python SM-latar.py --status` (tambahkan `--json` untuk skrip) |
 | mencari masalah | `python SM-latar.py --tampak` menjalankannya di jendela ini; catatan aplikasi ada di `data\log-server.txt` |

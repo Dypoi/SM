@@ -592,7 +592,14 @@ def main() -> int:
             print(f"   - {pesan}")
 
     if args.buka and alamat:
-        webbrowser.open(alamat)
+        # Chrome yang sedang terbuka lebih dulu (masukan sekolah ronde 42); peramban
+        # bawaan hanya cadangan. Logikanya ada di app/peramban.py.
+        try:
+            from app import peramban
+
+            print("      " + peramban.keterangan(peramban.buka(alamat)))
+        except Exception:      # noqa: BLE001 - jangan gagalkan peluncuran online
+            webbrowser.open(alamat)
 
     try:
         if server is not None:

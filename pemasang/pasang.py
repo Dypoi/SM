@@ -60,6 +60,8 @@ except Exception:      # noqa: BLE001 — pemasangan tetap boleh jalan, pendafta
 VERSI_MINIMUM = (3, 10)
 NAMA_PENANDA = ".sm-pemasangan.json"          # catatan pemasangan di folder tujuan
 NAMA_PELUNCUR_WIN = "Jalankan-SM.cmd"
+#: Berkas «nyala otomatis» versi baru (VBS = tanpa jendela hitam).
+NAMA_OTOMATIS = "SM-otomatis.vbs"
 NAMA_PELUNCUR_NIX = "jalankan-sm.sh"
 NAMA_BACAAN = "BACA-INI-SM.txt"
 
@@ -426,6 +428,10 @@ def tulis_peluncur(tujuan: Path, python: Path, data: Path, port: int, diam: bool
         "  Siswa         : cukup NISN\n\n"
         "Catatan penting\n"
         "---------------\n"
+        "* Di Windows, ikon «SM» membuka halaman sebagai TAB BARU di Chrome yang sedang\n"
+        "  terbuka (bila Chrome belum jalan, Chrome dinyalakan sekali) — tidak ada jendela\n"
+        "  cmd dan tidak ada jendela/profile Chrome yang baru. Muat ulang setelah pembaruan\n"
+        f"  juga berjalan di belakang layar; catatannya di {data}\\log-server.txt.\n"
         "* Semua data sekolah (basis data, berkas unggahan, hasil ekspor) ada di folder data\n"
         "  di atas. MENGGANTI aplikasi / memperbarui TIDAK menghapus data itu.\n"
         "* Cadangkan folder data secara berkala (mis. salin ke flashdisk/Drive).\n"
@@ -516,7 +522,8 @@ def berkas_otomatis() -> dict:
     if os.name == "nt":
         startup = Path(os.environ.get("APPDATA", str(rumah / "AppData/Roaming"))) / \
             "Microsoft/Windows/Start Menu/Programs/Startup"
-        return {"berkas": startup / "SM.cmd", "jenis": "windows"}
+        return {"berkas": startup / NAMA_OTOMATIS, "jenis": "windows",
+                "lama": [startup / "SM.cmd", startup / "SM.bat"]}
     if sys.platform == "darwin":
         return {"berkas": rumah / "Library/LaunchAgents/id.sekolah.sm.plist", "jenis": "launchd"}
     dasar = Path(os.environ.get("XDG_CONFIG_HOME") or rumah / ".config")
@@ -532,7 +539,7 @@ def pasang_otomatis(tujuan: Path, python: Path, data: Path, port: int,
     hasil: list[str] = []
 
     if not aktif:
-        for jalur in (berkas, info.get("cadangan")):
+        for jalur in [berkas, info.get("cadangan"), *(info.get("lama") or [])]:
             if jalur and Path(jalur).exists():
                 Path(jalur).unlink()
                 hasil.append(f"dihapus: {jalur}")
@@ -543,10 +550,27 @@ def pasang_otomatis(tujuan: Path, python: Path, data: Path, port: int,
 
     berkas.parent.mkdir(parents=True, exist_ok=True)
     if info["jenis"] == "windows":
+        # VBS, bukan .cmd: menjalankan SM-latar.py lewat pythonw.exe dengan jendela
+        # disembunyikan (0) — supaya tidak ada jendela hitam setiap Windows masuk.
+        for lama_otomatis in (info.get("lama") or []):
+            try:
+                if Path(lama_otomatis).exists():
+                    Path(lama_otomatis).unlink()
+                    hasil.append(f"dihapus: {lama_otomatis}")
+            except OSError:
+                pass
+        pythonw = Path(python).parent / "pythonw.exe"
+        if not pythonw.exists():
+            pythonw = Path(python)
         berkas.write_text(
-            "@echo off\r\n"
-            "REM Dibuat otomatis oleh pemasang SM — SM ikut menyala saat Windows masuk.\r\n"
-            f"start \"SM\" /min \"{tujuan / NAMA_PELUNCUR_WIN}\"\r\n", encoding="utf-8", newline="")
+            "' Dibuat otomatis oleh pemasang SM — SM menyala saat Windows masuk,\r\n"
+            "' tanpa jendela hitam (VBS + pythonw.exe).\r\n"
+            "Option Explicit\r\n"
+            "Dim sh\r\n"
+            "Set sh = CreateObject(\"WScript.Shell\")\r\n"
+            f"sh.CurrentDirectory = \"{tujuan}\"\r\n"
+            f"sh.Run \"\"\"\"{pythonw}\"\" \"\"\"{tujuan}\\SM-latar.py\"\" --tanpa-buka "
+            f"--port {int(port)}\", 0, False\r\n", encoding="utf-8")
     elif info["jenis"] == "systemd":
         berkas.write_text(
             "[Unit]\n"

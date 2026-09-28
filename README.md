@@ -100,9 +100,12 @@ Login sebagai **admin**, lalu buka menu **Pembaruan** di bilah samping (atau
    terputus sesaat lalu bisa dibuka kembali). Data siswa, pengguna, dan pengaturan
    **tidak berubah**.
 
-> Saat dimuat ulang di Windows, sebuah **jendela konsol baru** terbuka untuk menjalankan
-> server — jendela lama (yang berisi `pause` dari `run.bat`) boleh ditutup. Di Linux/macOS
-> prosesnya diganti di tempat, tanpa jendela tambahan.
+> Saat dimuat ulang di Windows, server baru dijalankan **di belakang layar**
+> (`pythonw.exe run.py --tunggu-port 45`) — **tidak ada jendela konsol/cmd** yang muncul,
+> termasuk saat pembaruan otomatis. Proses baru menunggu port benar-benar bebas lebih dulu,
+> dan catatannya ditulis ke `data\log-server.txt`. Bila proses baru tidak berhasil menyala,
+> server lama dibiarkan tetap hidup supaya sekolah tidak mati. Di Linux/macOS prosesnya
+> diganti di tempat, tanpa jendela tambahan.
 
 Agar berjalan sendiri, aktifkan di bagian **Pengaturan Pembaruan**: periksa otomatis
 tiap N jam, tarik otomatis bila ada versi baru, dan muat ulang otomatis. Bila
@@ -150,12 +153,12 @@ kejadiannya tercatat di **Pengaturan → Audit** serta halaman Pembaruan.
 | Bagaimana kalau ada perubahan kode lokal? | Penarikan otomatis dibatalkan agar tidak ada pekerjaan yang hilang. Jalankan `git status` untuk melihat berkasnya. |
 | Cadangan ada di mana? | `data/backup/sm-YYYYmmdd-HHMMSS.sqlite3`, dibuat otomatis sebelum penarikan (10 terbaru disimpan). |
 | Komputer tanpa internet? | Matikan "Periksa pembaruan otomatis" pada halaman Pembaruan; aplikasi tetap berjalan normal. |
-| Di Windows, apa yang terjadi saat "Muat ulang server sekarang"? | Aplikasi menulis berkas `data/jalankan-ulang.bat`, lalu membuka **jendela konsol baru** yang menjalankannya. Jendela lama (server sebelum pembaruan) otomatis berhenti dan boleh ditutup. Tunggu 5–10 detik, lalu muat ulang halaman di browser. |
+| Di Windows, apa yang terjadi saat "Muat ulang server sekarang"? | Aplikasi menjalankan `pythonw.exe run.py --tunggu-port 45` **di belakang layar** dan menulis catatannya ke `data\log-server.txt` — **tidak ada jendela konsol/cmd** yang terbuka, juga pada pembaruan otomatis. Proses baru menunggu port 8000 benar-benar bebas, server lama lalu berhenti sendiri; tunggu 5–10 detik lalu muat ulang halaman. Bila proses baru mati, server lama dibiarkan hidup dan tombolnya melaporkan kegagalan itu. |
 | Ada peluncur lain selain `run.bat`? | Ya, `SM.cmd` — sama seperti `run.bat` tetapi tanpa memasang dependensi (lebih cepat dipakai sehari-hari bila `.venv` sudah ada). |
 | Muncul pesan `[!] Python 3.10 atau lebih baru tidak ditemukan` padahal Python sudah dipasang? | Perbarui `run.bat` (tarik pembaruan), lalu jalankan lagi. Versi baru mencari Python di `.venv` aplikasi, peluncur `py`, PATH, dan folder pemasangan umum — tanpa bergantung pada perintah `where` yang bisa gagal bila `PATH` berubah. Bila masih gagal, jalankan **`SM-diagnosa.bat`** (membuat `laporan-python.txt`) dan kirim isinya. |
 | Bagaimana kalau server belum sempat menyala padahal `run.bat` gagal? | Jalankan langsung dengan Python yang sudah ada, mis. dari jendela `.venv`: `python run.py`. Aplikasi menyala seperti biasa. |
 | Sesaat setelah menekan **Tarik pembaruan** muncul galat `500` / `static_url is undefined`? | Itu keadaan peralihan: berkas tampilan sudah baru, tetapi server masih menjalankan kode lama. Sejak versi ini aplikasi menampilkan halaman **"Pembaruan berhasil dipasang — menunggu server siap"** yang membuka kembali halaman Pembaruan sendiri, dan template tetap dapat dirender oleh kode lama. Bila masih muncul, tunggu 5–10 detik lalu muat ulang halaman; kode & data tidak rusak. |
-| Setelah muat ulang halaman malah "tidak dapat diakses"? | Berarti server sedang tidak berjalan. Buka folder aplikasi dan klik dua kali **`run.bat`**. Data siswa tidak terpengaruh. Bila jendela konsol baru memang tidak muncul, jalankan `run.bat` secara manual sekali, lalu coba lagi. |
+| Setelah muat ulang halaman malah "tidak dapat diakses"? | Berarti server sedang tidak berjalan. Buka folder aplikasi dan klik dua kali **`run.bat`** (atau ikon **SM**). Data siswa tidak terpengaruh; pesan galat proses muat ulang ada di `data\log-server.txt`. |
 
 ### Opsi lain
 
@@ -961,8 +964,10 @@ Bila ingin **cukup membawa satu berkas ke laptop/PC lain**, pakai **`bodap.exe`*
    `http://localhost:8000`. Login petugas `admin` / `admin123`, siswa cukup NISN.
    Aplikasi berjalan **di belakang layar tanpa jendela terminal** (ikon SM menjalankan
    `SM-latar.py` lewat `pythonw.exe`), jadi tidak ada jendela hitam yang perlu dibiarkan
-   terbuka; aplikasi dimatikan kapan saja lewat pintasan **Hentikan SM** di menu Start, dan
-   catatan aplikasi tersimpan di `data\log-server.txt` bila perlu diperiksa.
+   terbuka. Peramban yang dibuka adalah **Chrome yang sedang terbuka** — halaman SM muncul
+   sebagai **tab baru** di jendela Chrome itu, bukan jendela/profile Chrome yang baru;
+   aplikasi dimatikan kapan saja lewat pintasan **Hentikan SM** di menu Start, dan catatan
+   aplikasi tersimpan di `data\log-server.txt` bila perlu diperiksa.
    SM juga terdaftar di **Control Panel → Programs and Features** (dan *Pengaturan →
    Aplikasi*) lengkap dengan versi, ukuran, dan ikonnya — pencabutannya cukup lewat tombol
    **Uninstall** di sana (lihat «Mencabut aplikasi» di bawah).
@@ -981,7 +986,9 @@ bodap.exe --uji              :: uji mandiri: pasang → jalankan → periksa →
 ```
 
 Petunjuk lengkapnya: **`pemasang/PANDUAN-BODAP.md`**. Ujinya: `python scripts/uji_bodap.py`
-(64 pemeriksaan — termasuk: aplikasi dijalankan **di belakang layar tanpa jendela**,
+(66 pemeriksaan — termasuk: aplikasi dijalankan **di belakang layar tanpa jendela**,
+**halaman dibuka sebagai tab di Chrome yang sedang terbuka**, nyala-otomatis Windows memakai
+VBS tanpa cmd, dan muat ulang pembaruan pun berjalan di belakang layar,
 bisa dihentikan lewat `--hentikan`, basis data hasil pemasangan **benar-benar kosong**, serta
 **entri Control Panel & berkas pencabut yang membuat SM bisa dicabut dari «Aplikasi & Fitur»**)
 dan alur GitHub Actions yang menjalankan `bodap.exe --uji` di runner Windows sebelum artifact
@@ -1014,7 +1021,9 @@ Pemasang akan: menyalin program ke folder aplikasi pengguna
 `~/.local/share/SM` di Linux), membuat lingkungan **`.venv`**, memasang pustaka
 (perlu internet **sekali saja**), menyiapkan folder **data**, lalu membuat berkas peluncur
 **`Jalankan-SM.cmd`** (Windows) / **`jalankan-sm.sh`** (Linux/macOS) beserta bacaan singkat
-`BACA-INI-SM.txt`.
+`BACA-INI-SM.txt`; di Windows juga `SM.vbs`/`Hentikan-SM.vbs` (jalan & mati tanpa jendela),
+**`SM-otomatis.vbs`** di folder Startup (nyala sendiri saat Windows masuk, tanpa jendela cmd),
+serta ikon **SM** di Desktop & menu Start.
 
 ### Perintah yang tersedia
 

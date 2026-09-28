@@ -482,23 +482,19 @@ def cek_pembaruan():
         assert info_git["cabang"], "nama cabang git tidak terbaca"
         assert updater.cabang_target() == (updater.services.get_setting("update_cabang") or info_git["cabang"])
 
-    # Perintah buka jendela server baru (Windows) harus aman: judul jendela
-    # ditulis "" supaya cmd tidak mengira judul itu nama program.
-    baris_windows = updater.perintah_windows()
-    assert 'start ""' in baris_windows, f"judul jendela start harus kosong: {baris_windows}"
-    assert baris_windows.index('start ""') < baris_windows.index("/D"), "urutan start /D salah"
-    assert f'/D "{updater.BASE_DIR}"' in baris_windows, "folder aplikasi belum dipakai sebagai /D"
-    berkas_bat = updater.tulis_berkas_jalankan_ulang()
-    assert berkas_bat.exists(), "berkas peluncur ulang tidak dibuat"
-    assert str(berkas_bat) in baris_windows, "perintah tidak menunjuk berkas peluncur ulang"
-    isi_bat = berkas_bat.read_bytes().decode("utf-8")
-    assert isi_bat.startswith("@echo off"), "berkas peluncur ulang tidak diawali @echo off"
-    assert "\r\n" in isi_bat, "berkas .bat harus memakai akhir baris Windows (CRLF)"
-    import subprocess as _subprocess
-    baris_perintah = _subprocess.list2cmdline(updater.perintah_restart())
-    assert baris_perintah in isi_bat, "berkas peluncur ulang tidak memuat perintah server"
-    assert f'cd /d "{updater.BASE_DIR}"' in isi_bat, "berkas peluncur ulang tidak pindah folder"
-    assert "ping -n 3" in isi_bat, "berkas peluncur ulang tidak menunggu server lama berhenti"
+    # Muat ulang server TIDAK boleh lewat jendela konsol (masukan sekolah ronde 42:
+    # «hilangkan untuk menampilkan cmd termasuk pada saat pembaruan»).
+    perintah_latar = updater.perintah_latar()
+    assert perintah_latar[1] == updater.perintah_restart()[1], "perintah latar kehilangan run.py"
+    assert "--tunggu-port" in perintah_latar, \
+        "server baru harus menunggu port bebas (proses lama masih hidup saat digantikan)"
+    assert str(updater.TUNGGU_PORT) in perintah_latar, "batas tunggu port tidak ikut dikirim"
+    kode_updater_sementara = pathlib.Path(updater.__file__).read_text(encoding="utf-8")
+    for harus_tidak_ada in ("perintah_windows", "jalankan-ulang.bat", "tulis_berkas_jalankan_ulang"):
+        assert harus_tidak_ada not in kode_updater_sementara, \
+            f"jalur muat ulang jendela konsol masih ada: {harus_tidak_ada}"
+    assert "CREATE_NO_WINDOW" in kode_updater_sementara and "pythonw" in kode_updater_sementara, \
+        "server baru harus dijalankan tanpa jendela (CREATE_NO_WINDOW + pythonw.exe)"
     # Peluncur cadangan SM.cmd: dipakai saat kode lama masih berjalan (transisi).
     launcher = updater.BASE_DIR / "SM.cmd"
     if launcher.exists():
@@ -4249,6 +4245,191 @@ def cek_layar_sempit():
             "templat, tombol/label/peringatan boleh turun baris, bilah atas menyusut")
 
 
+@cek("37. Ikon membuka Chrome yang sedang terbuka & tidak ada jendela cmd")
+def cek_chrome_tanpa_cmd():
+    """Masukan sekolah ronde 42: «ketika bodap icon dijalankan maka akan langsung membuka
+    chrome yang sedang saat ini dibuka, lalu hilangkan untuk menampilkan cmd termasuk pada
+    saat pembaruan».
+
+    Dua hal yang dijaga di sini — dua-duanya diuji nyata, bukan sekadar dibaca:
+
+    * **Chrome yang sedang terbuka.** Sebelumnya setiap pembukaan aplikasi memakai
+      ``webbrowser.open()`` yang menyerahkan urusan ke peramban bawaan Windows (sering
+      Edge). Sekarang ada satu modul ``app/peramban.py``: ``chrome.exe`` dicari dari
+      registry/folder pemasangan/PATH, dan perintahnya hanya ``chrome.exe <alamat>`` —
+      **tanpa** ``--user-data-dir`` (yang membuat Chrome membuka profil/jendela baru)
+      dan **tanpa** ``--new-window``. Uji di bawah menjalankan Chrome tiruan untuk
+      memastikan yang dikirim memang cuma alamatnya.
+    * **Tanpa jendela cmd.** Tiga sumber jendela hitam ditutup: (a) proses anak berbasis
+      konsol (git, pip, compileall, uji impor) kini diberi ``CREATE_NO_WINDOW`` — tanpa itu
+      Windows membuatkan jendela konsol baru karena aplikasi berjalan lewat ``pythonw.exe``;
+      (b) "Muat ulang server sekarang" tidak lagi membuka ``cmd /c start … cmd /k``
+      melainkan menyalakan ``pythonw.exe run.py --tunggu-port …`` dengan keluaran ke
+      ``data/log-server.txt``; (c) pintasan «nyala otomatis saat Windows masuk» tidak lagi
+      berkas ``SM.cmd`` melainkan ``SM-otomatis.vbs`` (jendela disembunyikan) — dan
+      ``SM.cmd`` sisa pemasangan lama dihapus.
+    """
+    import importlib.util
+    import re as _re
+    import socket
+    import subprocess as _subprocess
+    import tempfile
+    import time as _time
+
+    # --- 1. Modul peramban ada & perintahnya hanya "chrome <alamat>" ---------------
+    berkas_modul = BASE_DIR / "app/peramban.py"
+    assert berkas_modul.exists(), "app/peramban.py hilang — Chrome tidak akan dipakai"
+    spec = importlib.util.spec_from_file_location("sm_peramban_cek", berkas_modul)
+    peramban = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(peramban)
+    perintah = peramban.perintah_chrome(Path("C:/Chrome/chrome.exe"), "http://localhost:8000")
+    assert perintah[1] == "http://localhost:8000", "alamat tidak ikut dikirim ke Chrome"
+    for terlarang in ("--user-data-dir", "--new-window", "--profile-directory"):
+        assert not any(terlarang in argumen for argumen in perintah), (
+            f"{terlarang} membuat Chrome membuka jendela/profil BARU, bukan jendela yang "
+            "sedang terbuka")
+    assert "CREATE_NO_WINDOW" in berkas_modul.read_text(encoding="utf-8"), \
+        "Chrome harus dijalankan tanpa jendela konsol"
+
+    # --- 2. Uji nyata: Chrome tiruan menerima HANYA alamat -------------------------
+    if os.name != "nt":
+        with tempfile.TemporaryDirectory(prefix="sm-chrome-") as sementara:
+            stub = Path(sementara) / "chrome-tiruan"
+            catatan = Path(sementara) / "argumen.txt"
+            stub.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > "{catatan}"\n', encoding="utf-8")
+            stub.chmod(0o755)
+            sebelum = os.environ.get("SM_CHROME")
+            os.environ["SM_CHROME"] = str(stub)
+            try:
+                cara = peramban.buka_port(8000)
+                for _ in range(30):
+                    if catatan.exists():
+                        break
+                    _time.sleep(0.1)
+                argumen = catatan.read_text(encoding="utf-8").split() if catatan.exists() else []
+            finally:
+                if sebelum is None:
+                    os.environ.pop("SM_CHROME", None)
+                else:
+                    os.environ["SM_CHROME"] = sebelum
+            assert cara == "chrome", f"Chrome tiruan tidak dipakai (cara={cara})"
+            assert argumen == ["http://localhost:8000"], f"argumen Chrome salah: {argumen}"
+
+    # --- 3. Peluncur aplikasi memakai modul itu -----------------------------------
+    latar = (BASE_DIR / "SM-latar.py").read_text(encoding="utf-8")
+    assert "peramban.buka_port" in latar, "SM-latar.py tidak memakai modul peramban"
+    assert "def buka_peramban" in latar, "fungsi buka_peramban hilang dari SM-latar.py"
+    online = (BASE_DIR / "SM-online.py").read_text(encoding="utf-8")
+    assert "peramban.buka(" in online, "SM-online.py tidak memakai modul peramban"
+
+    # --- 4. Pemasang: Chrome dipakai & tidak ada jalur .cmd ke konsol -------------
+    bodap = (BASE_DIR / "pemasang/bodap_win.py").read_text(encoding="utf-8")
+    assert "_muat_peramban" in bodap, "bodap.exe tidak memuat app/peramban.py"
+    assert "modul.buka_port" in bodap, "bodap.exe tidak membuka aplikasi lewat Chrome"
+    assert "os.startfile(str(peluncur))" not in bodap, \
+        "bodap.exe masih membuka Jalankan-SM.cmd (jendela hitam)"
+    assert "NAMA_OTOMATIS" in bodap and "SM-otomatis.vbs" in bodap, \
+        "berkas nyala-otomatis baru (VBS) tidak dipakai bodap.exe"
+    assert 'start \"SM\" /min' not in bodap, "pintasan nyala-otomatis masih memakai jendela cmd"
+    awal_pembuat = bodap.index("def isi_vbs_otomatis")
+    sisa_pembuat = bodap[awal_pembuat + 10:]
+    akhir_pembuat = awal_pembuat + 10 + next(
+        posisi for posisi in (sisa_pembuat.find("\ndef "), len(sisa_pembuat)) if posisi >= 0)
+    bagian_pembuat = bodap[awal_pembuat:akhir_pembuat]
+    assert ", 0, False" in bagian_pembuat, \
+        "VBS nyala-otomatis harus menyembunyikan jendela (0) & tidak menunggu"
+    awal_otomatis = bodap.index("def pasang_otomatis")
+    sisa = bodap[awal_otomatis + 10:]
+    akhir_otomatis = awal_otomatis + 10 + next(
+        posisi for posisi in (sisa.find("\ndef "), len(sisa)) if posisi >= 0)
+    bagian_otomatis = bodap[awal_otomatis:akhir_otomatis]
+    assert "isi_vbs_otomatis(" in bagian_otomatis, \
+        "pasang_otomatis harus menulis VBS lewat isi_vbs_otomatis()"
+    assert "WScript.Shell" in bagian_pembuat, "VBS nyala-otomatis bukan skrip wscript"
+    assert "berkas_otomatis_lama" in bodap, "SM.cmd lama tidak dibersihkan dari Startup"
+    pasang = (BASE_DIR / "pemasang/pasang.py").read_text(encoding="utf-8")
+    assert "NAMA_OTOMATIS" in pasang and "pythonw" in pasang, \
+        "pemasang ZIP belum memakai VBS + pythonw.exe untuk nyala otomatis"
+    assert 'start \"SM\" /min' not in pasang, "pemasang ZIP masih menulis jendela cmd ke Startup"
+
+    # --- 5. Semua proses anak yang berbasis konsol diberi CREATE_NO_WINDOW --------
+    dipanggil: list[dict] = []
+
+    class Selesai:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    asli_run = _subprocess.run
+
+    def run_palsu(perintah, *a, **kw):
+        dipanggil.append(kw)
+        return Selesai()
+
+    from app import updater, services
+
+    assert updater.tanpa_jendela() == int(getattr(_subprocess, "CREATE_NO_WINDOW", 0))
+    _subprocess.run = run_palsu
+    try:
+        updater.jalankan_git(["rev-parse", "HEAD"])
+        updater.pasang_dependensi()
+        updater.periksa_kode_baru()
+        services.pasang_pustaka_bot() if hasattr(services, "pasang_pustaka_bot") else None
+    finally:
+        _subprocess.run = asli_run
+    assert dipanggil, "tidak ada proses anak yang terpanggil — pemeriksaan tidak sah"
+    for kw in dipanggil:
+        assert "creationflags" in kw, f"proses anak tanpa creationflags (akan muncul jendela cmd): {kw}"
+
+    # --- 6. Muat ulang server berjalan di belakang layar --------------------------
+    kode_updater = Path(updater.__file__).read_text(encoding="utf-8")
+    # Catatan penjelasan (docstring/komentar) boleh menyebut cara lama; yang diperiksa
+    # adalah KODE-nya, jadi komentar & docstring dibuang lebih dulu.
+    kode_updater_bersih = _re.sub(r'"""..*?"""', " ", kode_updater, flags=_re.S)
+    kode_updater_bersih = _re.sub(r"#.*", " ", kode_updater_bersih)
+    for terlarang in ("perintah_windows", "jalankan-ulang.bat", "tulis_berkas_jalankan_ulang",
+                      "cmd /c start", "os.startfile(str(kandidat))"):
+        assert terlarang not in kode_updater_bersih, \
+            f"jalur muat ulang jendela konsol masih ada: {terlarang}"
+    assert "perintah_latar" in kode_updater and "python_latar" in kode_updater, \
+        "muat ulang harus menyalakan pythonw.exe (tanpa konsol)"
+    assert "log-server.txt" in kode_updater, "keluaran server baru tidak dicatat ke berkas"
+    awal_latar = kode_updater.index("def _mulai_ulang_windows")
+    isi_latar = kode_updater[awal_latar:kode_updater.index("def muat_ulang_sekarang")]
+    assert "perintah_latar()" in isi_latar, "_mulai_ulang_windows tidak memakai perintah_latar()"
+    assert "DETACHED_PROCESS" in isi_latar, "server baru harus benar-benar terlepas dari konsol"
+    assert "proses.poll()" in isi_latar, "proses baru harus diperiksa hidup sebelum proses lama berhenti"
+    perintah_latar = updater.perintah_latar()
+    assert perintah_latar[1] == updater.perintah_restart()[1], "perintah latar kehilangan run.py"
+    assert "--tunggu-port" in perintah_latar, "server baru tidak menunggu port bebas"
+
+    # --- 7. run.py menunggu port bebas ------------------------------------------
+    kode_run = (BASE_DIR / "run.py").read_text(encoding="utf-8")
+    assert "--tunggu-port" in kode_run and "def tunggu_port_bebas" in kode_run, \
+        "run.py tidak punya opsi --tunggu-port"
+    import importlib.util as _il
+
+    spec_run = _il.spec_from_file_location("sm_run_cek", BASE_DIR / "run.py")
+    modul_run = _il.module_from_spec(spec_run)
+    spec_run.loader.exec_module(modul_run)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as soket:
+        soket.bind(("127.0.0.1", 0))
+        soket.listen(1)
+        port_dipakai = soket.getsockname()[1]
+        mulai = _time.time()
+        assert modul_run.tunggu_port_bebas(port_dipakai, 1) is False, \
+            "port yang masih dipakai harus dilaporkan BELUM bebas"
+        assert _time.time() - mulai < 5, "penungguan port terlalu lama"
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as soket:
+        soket.bind(("127.0.0.1", 0))
+        port_bebas = soket.getsockname()[1]
+    assert modul_run.tunggu_port_bebas(port_bebas, 5) is True, "port bebas harus segera lolos"
+
+    return ("Chrome yang sedang terbuka dipakai (uji Chrome tiruan: argumennya hanya alamat), "
+            "git/pip/compileall diberi CREATE_NO_WINDOW, muat ulang lewat pythonw + "
+            "log-server.txt (tanpa cmd), pintasan nyala-otomatis jadi SM-otomatis.vbs")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -4293,6 +4474,7 @@ def main() -> int:
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()
     cek_layar_sempit()
+    cek_chrome_tanpa_cmd()
     if args.http:
         cek_http_pengajuan()
         cek_http()

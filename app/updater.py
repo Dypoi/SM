@@ -36,6 +36,10 @@ from typing import Any
 
 from . import config, db, services
 
+
+#: Berapa detik server baru menunggu port bebas saat memuat ulang dirinya
+#: (proses lama masih hidup ketika proses baru dinyalakan).
+TUNGGU_PORT = 45
 BASE_DIR = config.BASE_DIR
 GIT_TIMEOUT = int(os.getenv("SM_GIT_TIMEOUT", "180"))
 PIP_TIMEOUT = int(os.getenv("SM_PIP_TIMEOUT", "900"))
@@ -102,6 +106,17 @@ def _env_git() -> dict[str, str]:
     return env
 
 
+def tanpa_jendela() -> int:
+    """Bendera agar proses anak tidak memunculkan jendela konsol (0 di luar Windows).
+
+    Aplikasi berjalan lewat **pythonw.exe** (tanpa konsol). Di Windows, proses anak
+    berbasis konsol — ``git.exe``, ``pip``, ``python.exe`` — akan dibuatkan jendela konsol
+    BARU oleh Windows kalau tidak diberi ``CREATE_NO_WINDOW``. Itulah jendela cmd yang
+    muncul saat aplikasi memeriksa/menarik pembaruan (masukan sekolah ronde 42).
+    """
+    return int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
 def jalankan_git(perintah: list[str], timeout: int = GIT_TIMEOUT) -> tuple[int, str]:
     """Jalankan perintah git. Mengembalikan ``(kode_keluar, keluaran)``."""
     git = _git_path()
@@ -119,6 +134,7 @@ def jalankan_git(perintah: list[str], timeout: int = GIT_TIMEOUT) -> tuple[int, 
             errors="replace",
             timeout=timeout,
             check=False,
+            creationflags=tanpa_jendela(),
         )
     except subprocess.TimeoutExpired:
         return 124, f"Perintah 'git {' '.join(perintah)}' melebihi batas {timeout} detik."
@@ -449,6 +465,7 @@ def pasang_dependensi() -> tuple[bool, str]:
             errors="replace",
             timeout=PIP_TIMEOUT,
             check=False,
+            creationflags=tanpa_jendela(),
         )
     except subprocess.TimeoutExpired:
         return False, f"Pemasangan dependensi melebihi {PIP_TIMEOUT} detik."
@@ -474,7 +491,7 @@ def periksa_kode_baru(timeout: int = 120) -> tuple[bool, str]:
         selesai = subprocess.run(
             [sys.executable, "-m", "compileall", "-q", str(BASE_DIR / "app"), str(BASE_DIR / "run.py")],
             cwd=str(BASE_DIR), capture_output=True, text=True, encoding="utf-8",
-            errors="replace", timeout=timeout, check=False,
+            errors="replace", timeout=timeout, check=False, creationflags=tanpa_jendela(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, f"Pemeriksaan sintaks gagal dijalankan: {exc}"
@@ -492,6 +509,7 @@ def periksa_kode_baru(timeout: int = 120) -> tuple[bool, str]:
             [sys.executable, "-c", "import app.main"],
             cwd=str(BASE_DIR), env=lingkungan, capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=timeout, check=False,
+            creationflags=tanpa_jendela(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, f"Uji impor kode baru gagal dijalankan: {exc}"
@@ -720,99 +738,90 @@ def perlu_muat_ulang() -> bool:
     return umur >= JEDA_MUAT_ULANG
 
 
-def berkas_jalankan_ulang() -> Path:
-    """Berkas .bat yang dipakai untuk menyalakan server kembali di Windows."""
-    return config.DATA_DIR / "jalankan-ulang.bat"
+def python_latar() -> str:
+    """Python **tanpa jendela konsol** untuk menjalankan server baru (Windows).
 
-
-def tulis_berkas_jalankan_ulang() -> Path:
-    """Tulis berkas .bat peluncur ulang.
-
-    Perintah dijalankan dari berkas supaya tidak ada masalah tanda kutip saat
-    Windows membuka jendela konsol baru (mis. folder aplikasi yang mengandung
-    spasi).
+    ``pythonw.exe`` ada di folder yang sama dengan ``python.exe``. Perbedaannya penting:
+    ``pythonw.exe`` tidak punya konsol sama sekali, sehingga server pengganti tidak
+    memunculkan jendela hitam — termasuk saat dibuka dari ikon Desktop.
     """
-    config.ensure_dirs()
-    target = berkas_jalankan_ulang()
-    baris_perintah = subprocess.list2cmdline(perintah_restart())
-    isi = [
-        "@echo off",
-        "rem Berkas ini dibuat otomatis oleh aplikasi saat memuat ulang server.",
-        "rem Jendela ini menjalankan server SM; tutup jendela untuk mematikannya.",
-        "chcp 65001 >nul",
-        "title SM - Sistem Informasi Manajemen Sekolah",
-        f'cd /d "{BASE_DIR}"',
-        "set PYTHONIOENCODING=utf-8",
-        "set PYTHONUTF8=1",
-        "rem Tunggu sebentar supaya server lama sempat melepas port.",
-        "ping -n 3 127.0.0.1 >nul 2>&1",
-        baris_perintah,
-        "echo.",
-        "echo Server berhenti. Periksa pesan di atas, lalu jalankan run.bat lagi.",
-    ]
-    target.write_text("\r\n".join(isi) + "\r\n", encoding="utf-8", newline="")
-    return target
+    dasar = perintah_restart()
+    python = Path(dasar[0])
+    if os.name == "nt":
+        for kandidat in (python.with_name("pythonw.exe"),
+                         python.parent / "pythonw.exe"):
+            if kandidat.exists():
+                return str(kandidat)
+    return str(python)
 
 
-def perintah_windows() -> str:
-    """Baris perintah (cmd) untuk membuka jendela server baru di Windows.
+def perintah_latar() -> list[str]:
+    """Perintah menyalakan ulang server di belakang layar (tanpa jendela konsol).
 
-    Judul jendela ditulis sebagai ``""`` — inilah kunci perbaikannya: perintah
-    ``start`` hanya memperlakukan argumen pertama sebagai judul bila diberi tanda
-    kutip. Tanpa tanda kutip, Windows malah mengira itu nama program ("Windows
-    cannot find 'SM'").
+    Ditambah ``--tunggu-port`` supaya server baru menunggu port benar-benar bebas: proses
+    lama sengaja masih hidup saat proses baru dijalankan (aplikasi tidak boleh mati),
+    jadi kalau tidak ditunggu, uvicorn akan gagal mengikat port yang sama.
     """
-    comspec = os.environ.get("COMSPEC") or "cmd.exe"
-    komando = os.environ.get("COMSPEC") or "cmd"
-    return f'{comspec} /c start "" /D "{BASE_DIR}" {komando} /k "{berkas_jalankan_ulang()}"'
+    perintah = [python_latar(), *perintah_restart()[1:]]
+    if "--tunggu-port" not in perintah:
+        perintah += ["--tunggu-port", str(TUNGGU_PORT)]
+    return perintah
+
+
+def berkas_log_latar() -> Path:
+    """Catatan keluaran server yang dinyalakan ulang di belakang layar."""
+    return config.DATA_DIR / "log-server.txt"
 
 
 def _mulai_ulang_windows() -> bool:
-    """Buka jendela konsol baru yang menjalankan server (khusus Windows).
+    """Nyalakan ulang server di **belakang layar** — tanpa jendela konsol (khusus Windows).
 
-    ``os.execv`` di Windows membuat proses ber-PID berbeda sehingga jendela
-    ``run.bat`` yang ber-``pause`` bisa ikut tertutup dan mematikan server.
-    Karena itu server dijalankan di jendela konsol baru yang terpisah.
+    Dulu fungsi ini membuka jendela konsol baru lewat berkas .bat muat-ulang.
+    Masukan sekolah ronde 42: «hilangkan untuk menampilkan cmd termasuk pada saat pembaruan».
+    Sekarang server baru dijalankan lewat ``pythonw.exe`` (tanpa konsol) dengan
+    ``CREATE_NO_WINDOW | DETACHED_PROCESS`` dan keluarannya ditulis ke
+    ``data/log-server.txt``, jadi tidak ada jendela hitam — tetapi catatannya tetap ada.
 
-    Mengembalikan ``False`` bila jendela baru gagal dibuka — pemanggil harus
-    tetap mempertahankan server yang sedang berjalan.
+    Urutannya: nyalakan proses baru (menunggu port bebas lewat ``--tunggu-port``) →
+    pastikan proses itu masih hidup → baru proses lama menutup diri supaya aplikasi tidak
+    pernah "mati" lebih dulu. Mengembalikan ``False`` bila proses baru gagal disiapkan;
+    pemanggil tetap mempertahankan server yang sedang berjalan.
     """
-    try:
-        tulis_berkas_jalankan_ulang()
-    except OSError as exc:  # pragma: no cover - folder data tidak bisa ditulis
-        print(f"Gagal menyiapkan berkas peluncur ulang: {exc}")
-
-    bendera = 0
+    bendera = tanpa_jendela()
     for nama in ("DETACHED_PROCESS", "CREATE_NEW_PROCESS_GROUP"):
         bendera |= int(getattr(subprocess, nama, 0))
 
-    # Cara 1: buka jendela konsol baru lewat cmd + start (baris perintah utuh,
-    # tanpa list2cmdline, supaya tanda kutipnya persis seperti yang dibutuhkan).
+    log = berkas_log_latar()
     try:
-        subprocess.Popen(
-            perintah_windows(),
+        log.parent.mkdir(parents=True, exist_ok=True)
+        keluaran = open(log, "a", encoding="utf-8")      # noqa: SIM115 - ditutup proses baru
+        keluaran.write(f"\n===== {datetime.now():%Y-%m-%d %H:%M:%S} memuat ulang server "
+                       f"(tanpa jendela) =====\n")
+        keluaran.flush()
+        proses = subprocess.Popen(
+            perintah_latar(),
             cwd=str(BASE_DIR),
+            stdout=keluaran,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
             creationflags=bendera,
             close_fds=True,
-            stdin=subprocess.DEVNULL,
+            env={**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"},
         )
-        print("Jendela server baru dibuka. Jendela ini dapat ditutup.")
-        return True
-    except OSError as exc:  # pragma: no cover - Windows tanpa cmd?
-        print(f"Gagal membuka jendela server baru: {exc}")
+    except OSError as exc:  # pragma: no cover - hanya Windows
+        print(f"Gagal menyalakan server baru di belakang layar: {exc}")
+        return False
 
-    # Cara 2 & 3: minta Windows membukanya langsung (berkas .bat selalu dibuka
-    # di jendela konsol baru oleh Windows).
-    if hasattr(os, "startfile"):  # pragma: no cover - hanya Windows
-        for kandidat in (berkas_jalankan_ulang(), BASE_DIR / "run.bat"):
-            try:
-                os.startfile(str(kandidat))  # type: ignore[attr-defined]
-                print(f"Server dijalankan ulang lewat {kandidat.name}.")
-                return True
-            except OSError as exc:
-                print(f"Gagal menjalankan {kandidat.name}: {exc}")
-
-    return False
+    # Beri waktu sekejap: kalau proses baru langsung mati (mis. pythonw.exe tidak ada),
+    # jangan matikan server yang sedang berjalan.
+    time.sleep(2.5)
+    if proses.poll() is not None:
+        print(f"Server baru berhenti saat mulai (kode {proses.returncode}). "
+              f"Catatan: {log}")
+        return False
+    print(f"Server baru berjalan di belakang layar (pid {proses.pid}), tanpa jendela "
+          f"konsol. Catatan: {log}")
+    return True
 
 
 def muat_ulang_sekarang() -> None:
@@ -837,7 +846,9 @@ def muat_ulang_sekarang() -> None:
             aksi="muat_ulang", hasil="gagal_menyalakan_ulang", revisi=_rev("HEAD"),
             perintah=" ".join(perintah_restart()),
         )
-        print("Muat ulang dibatalkan. Tutup jendela ini, lalu jalankan run.bat kembali.")
+        print("Muat ulang dibatalkan; server lama tetap berjalan. Coba klik "
+              "«Muat ulang server sekarang» sekali lagi, atau jalankan SM.vbs di folder "
+              "aplikasi (klik dua kali ikon «SM» di Desktop).")
         return
 
     os.execv(perintah_restart()[0], perintah_restart())

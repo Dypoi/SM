@@ -168,13 +168,37 @@ def pid_dari_port(port: int) -> int:
     return 0
 
 
-def buka_peramban(port: int) -> None:
-    import webbrowser
-
+def peramban_keterangan(cara: str) -> str:
+    """Kalimat singkat: peramban mana yang dipakai (dipakai di catatan/pesan)."""
     try:
-        webbrowser.open(f"http://localhost:{port}")
+        from app import peramban
+
+        return peramban.keterangan(cara)
     except Exception:      # noqa: BLE001
-        pass
+        return {"chrome": "dibuka di Chrome", "peramban-bawaan": "dibuka di peramban bawaan"}.get(
+            cara, "peramban tidak bisa dibuka otomatis")
+
+
+def buka_peramban(port: int) -> str:
+    """Buka aplikasi di **Chrome yang sedang terbuka** (cadangan: peramban bawaan).
+
+    Masukan sekolah (ronde 42): ikon SM/bodap harus langsung membuka Chrome yang sedang
+    dipakai, bukan peramban bawaan Windows. Logika pencarian Chrome ada di
+    ``app/peramban.py`` supaya peluncur, pemasang (bodap.exe) dan aplikasi memakai
+    aturan yang sama — dan diuji satu tempat.
+    """
+    try:
+        from app import peramban
+
+        return peramban.buka_port(port)
+    except Exception:      # noqa: BLE001 - modul hilang/rusak: jangan gagalkan peluncuran
+        import webbrowser
+
+        try:
+            webbrowser.open(f"http://localhost:{port}")
+            return "peramban-bawaan"
+        except Exception:      # noqa: BLE001
+            return "gagal"
 
 
 # --------------------------------------------------------------------------- #
@@ -193,7 +217,7 @@ def jalankan(args) -> int:
     if keadaan.get("pid") and pid_hidup(int(keadaan["pid"])) and alamat_menjawab(port):
         print(f"SM sudah berjalan (pid {keadaan['pid']}, http://localhost:{port}).")
         if not args.tanpa_buka:
-            buka_peramban(port)
+            print("  " + peramban_keterangan(buka_peramban(port)))
         return 0
     if port_terpakai(port) and not alamat_menjawab(port):
         # Port dipakai program lain → pakai port bebas berikutnya supaya tidak gagal diam-diam.
@@ -238,7 +262,7 @@ def jalankan(args) -> int:
             print(f"SM berjalan di http://localhost:{port} (pid {proses.pid}).")
             print(f"Catatan aplikasi: {log}")
             if not args.tanpa_buka:
-                buka_peramban(port)
+                print("  " + peramban_keterangan(buka_peramban(port)))
             return 0
         time.sleep(0.7)
     print(f"[!] Aplikasi belum menjawab setelah 90 detik. Periksa {log}", file=sys.stderr)

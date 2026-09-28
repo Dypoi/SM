@@ -134,6 +134,12 @@ def uji_bodap_uji(cepat: bool) -> dict:
         cek("bodap --uji: peluncur latar (SM.vbs → SM-latar.py) ikut terpasang",
             "berkas peluncur latar: SM-latar.py" in gabung
             and "jendela konsol disembunyikan" in gabung, gabung[:300])
+        cek("bodap --uji: pembuka Chrome ikut terpasang & perintahnya hanya berisi alamat",
+            "app/peramban.py ikut terpasang" in gabung
+            and "Chrome yang sedang terbuka dipakai" in gabung, gabung[:300])
+        cek("bodap --uji: nyala otomatis memakai VBS (tanpa cmd) & SM.cmd lama dibuang",
+            "VBS nyala otomatis menyembunyikan jendela (tanpa cmd)" in gabung,
+            gabung[:300])
         cek("bodap --uji: aplikasi jalan di belakang layar lalu bisa dihentikan",
             "menjalankan aplikasi di belakang layar" in gabung
             and "benar-benar berhenti setelah --hentikan" in gabung, gabung[:300])
@@ -294,7 +300,8 @@ def uji_pencabut_control_panel() -> dict:
             "reg delete" in isi_cmd and "Uninstall" in isi_cmd)
         cek("pencabut membuang pintasan Desktop, menu Start, & jalankan-otomatis",
             "Desktop\\SM.lnk" in isi_cmd and "Programs\\SM.lnk" in isi_cmd
-            and "Startup\\SM.cmd" in isi_cmd)
+            and "Startup\\SM.cmd" in isi_cmd
+            and "SM-otomatis.vbs" in isi_cmd)
         cek("pencabut menghapus folder program & folder pencabutnya sendiri",
             "rmdir /s /q \"%SM_TUJUAN%\"" in isi_cmd
             and "rmdir /s /q \"%SM_PENCABUT%\"" in isi_cmd)
