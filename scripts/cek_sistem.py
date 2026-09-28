@@ -4525,6 +4525,16 @@ def cek_gulir_aman() -> str:
         assert tanda in isi, f"penjaga nilai kolom kehilangan {tanda!r}"
     assert "_rekam_nilai_bio(" in badan["_rekam_nilai_bio"], \
         "nilai kolom BIO tidak dicatat saat diisi"
+    isi = badan["_isi_periodik_satu"]
+    assert "awalan == \"[bio]\"" not in isi, \
+        "hanya kolom BIO yang dijaga — sekolah menyebut SEMUA kolom bisa berubah saat digulir"
+    assert isi.count("_rekam_nilai_bio(") >= 2, \
+        "nilai kolom tidak dicatat di kedua jalur pengisian (ketik & Ext JS)"
+    for fungsi, awalan in (("_isi_bio", "[bio]"),):
+        assert f'_periksa_nilai_bio(peramban, "{awalan}")' in badan[fungsi], \
+            f"{fungsi} tidak memeriksa nilai semua kolom sebelum «Simpan»"
+    assert '_periksa_nilai_bio(peramban, "[periodik]")' in sumber, \
+        "Data Periodik tidak diperiksa sebelum disimpan"
     for pemanggil in ("_isi_bio", "_periksa_nilai_bio"):
         assert pemanggil in badan, f"fungsi {pemanggil} hilang"
     assert "_periksa_nilai_bio(" in badan["_isi_bio"], \
@@ -4567,7 +4577,8 @@ def cek_gulir_aman() -> str:
     for tanda in ("KOLOM_ANGKA_BIO", "/* kursor-aman */", "/* kode-wilayah */",
                   "/* nilai-kolom-bio */", "/* pulihkan-kolom-bio */", "kode_wilayah_str",
                   "rusak_karena_gulir", "penjaga_dipulihkan", "picker_ditutup_oleh_blur",
-                  "desa_kode_rusak_gulir", "desa_dirusak_kali", "tanpa_kode_wilayah"):
+                  "desa_kode_rusak_gulir", "desa_dirusak_kali", "tanpa_kode_wilayah",
+                  "rusak_paksa_semua"):
         assert tanda in fixture, f"peramban palsu kehilangan {tanda!r} (bukti ronde 45)"
     jumlah_gulir = fixture.count("gulir_berbahaya()")
     assert jumlah_gulir >= 5, \
@@ -4576,13 +4587,14 @@ def cek_gulir_aman() -> str:
     for tanda in ("gulir_kursor_di_kolom == 0", "rusak_karena_gulir == []", "kursor_dipindah >= 1",
                   "penjaga_dipulihkan >= 1", "picker_ditutup_oleh_blur == 0", "kode_desa_palsu(",
                   "bio_kode_ditolak", "desa_dirusak_kali >= 1", "desa_dipulihkan_kali >= 1",
-                  "dipasang ulang sebelum «Simpan»"):
+                  "dipasang ulang sebelum «Simpan»", "rusak_paksa_semua", "rusak_paksa_kali >= 5",
+                  "kolom yang tersimpan tidak sesuai sesudah gulir"):
         assert tanda in uji, f"uji bot kehilangan pemeriksaan {tanda!r} (ronde 45)"
 
     return ("gulir aman: 8 jalur gulir mengeluarkan kursor lebih dulu, penjaga nilai kolom "
             "mengembalikan nilai yang berubah, desa hanya dianggap tersimpan bila "
-            "kode_wilayah_str ikut pindah, dan desa diperiksa ulang tepat sebelum «Simpan» "
-            "(uji tiruan skenario 32–37)")
+            "kode_wilayah_str ikut pindah, desa diperiksa ulang tepat sebelum «Simpan», dan "
+            "nilai SEMUA kolom dipulihkan bila berubah karena gulir (uji tiruan 32–38)")
 
 
 @cek("38. Tombol «Online» — Tailscale Funnel sekali klik, tanpa jendela cmd")

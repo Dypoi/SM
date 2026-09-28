@@ -849,7 +849,36 @@ def main() -> int:
     cek(p37.gulir_kursor_di_kolom == 0,
         f"ada {p37.gulir_kursor_di_kolom}x gulir selagi kursor masih di dalam kolom (desa berubah)")
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 37 skenario")
+    # 38) «Semua kolom bisa berubah ketika di-scroll» — bukan hanya kolom angka. Di skenario ini
+    #     setiap gulir mengubah nilai SEMUA kolom yang sudah diisi (keadaan terkeras: gulir oleh
+    #     orang di depan layar). Bot harus mengembalikannya sebelum «Simpan», sehingga data yang
+    #     tersimpan di Dapodik tetap utuh.
+    p38, j38 = jalankan("38. semua kolom berubah sesudah digulir → dikembalikan sebelum «Simpan»",
+                        2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "dropdown_band", 5),
+                                        setattr(p, "rusak_paksa_semua", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p38.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji «semua kolom berubah»")
+    cek(p38.rusak_paksa_kali >= 5,
+        f"uji tidak bermakna: hanya {p38.rusak_paksa_kali} kolom yang dirusak gulir "
+        "(seharusnya banyak kolom)")
+    cek(p38.penjaga_dipulihkan >= 1,
+        "penjaga nilai tidak pernah mengembalikan kolom yang berubah")
+    salah38 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if str(p38.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah38, f"kolom yang tersimpan tidak sesuai sesudah gulir merusak semua kolom: {salah38}")
+    cek(p38.data_bio_tersimpan.get("kelurahan") == DESA_PILIH_PALSU,
+        f"desa tidak tersimpan benar: {p38.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p38.bio_kode_ditolak == 0,
+        f"Dapodik menolak desanya {p38.bio_kode_ditolak}x pada uji «semua kolom berubah»")
+    cek(any("dikembalikan" in b and "nilai" in b for b in j38),
+        f"pengembalian nilai tidak dicatat: {[b for b in j38 if 'penjaga' in b][:3]}")
+    cek(any("berubah sesudah menggulir" in b for b in j38),
+        f"perubahan nilai tidak dilaporkan apa adanya: {[b for b in j38 if 'penjaga' in b][:3]}")
+    cek(p38.gulir_kursor_di_kolom == 0,
+        f"ada {p38.gulir_kursor_di_kolom}x gulir selagi kursor masih di dalam kolom")
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 38 skenario")
     return 0
 
 

@@ -1591,14 +1591,15 @@ class BotDapodik:
                 except Exception:  # noqa: BLE001
                     isi = ""
                 if nilai in isi:
-                    if awalan == "[bio]":
-                        self._rekam_nilai_bio(unsur, isi)
+                    # Ronde 45: nilai SETIAP kolom yang ditulis bot dicatat — kolom mana pun
+                    # (bukan hanya kolom angka) bisa berubah bila digulir selagi kursornya
+                    # ada di dalamnya.
+                    self._rekam_nilai_bio(unsur, isi)
                     return f"terisi lewat Ext JS: {isi}"
         if nilai in isi:
-            if awalan == "[bio]":
-                # Nilai kolom BIO dicatat: sesudah setiap gulir diperiksa lagi, karena gulir
-                # bisa mengubah nilai kolom isian (mis. «RT» menjadi «0» — ronde 45).
-                self._rekam_nilai_bio(unsur, isi)
+            # Nilai kolom dicatat: sesudah setiap gulir diperiksa lagi, karena gulir bisa
+            # mengubah nilai kolom isian mana pun (mis. «RT» menjadi «0» — ronde 45).
+            self._rekam_nilai_bio(unsur, isi)
             return f"terisi: {isi}"
         return "kolom belum berisi nilai yang benar"
 
@@ -4331,6 +4332,7 @@ class BotDapodik:
         self._bio_gulir_dilaporkan = False
         self._bukti_dropdown_diambil = False
         self._desa_terverifikasi = None      # keadaan desa milik siswa sebelumnya dibuang
+        self._penjaga_nilai.clear()          # nilai kolom milik siswa sebelumnya dibuang
         kandidat = self._tombol_ubah_semua(peramban, peta)
         if not kandidat:
             self._catat_kepala("[bio] tombol «Ubah» tidak ada di halaman ini — langkah BIO "
@@ -4428,8 +4430,13 @@ class BotDapodik:
                     self._catat_kepala(f"[bio] bukti layar disimpan: {bukti} "
                                        "(beserta berkas .html di folder yang sama).")
             time.sleep(0.5)          # jeda antar kolom supaya Ext JS selesai memproses
-        # Ronde 45: desa/kelurahan diperiksa LAGI tepat sebelum «Simpan» — pemilihan yang sudah
-        # benar bisa berubah lagi sesudahnya (mis. nilainya tergulir di dalam jendela «Ubah»).
+        # Ronde 45: SEMUA kolom diperiksa lagi tepat sebelum «Simpan» — nilai kolom mana pun
+        # bisa berubah sesudah diisi (mis. tergulir di dalam jendela «Ubah»).
+        kembali = self._periksa_nilai_bio(peramban, "[bio]")
+        if kembali:
+            self._catat_kepala(f"[bio] {len(kembali)} kolom dikembalikan ke nilai yang benar "
+                               "sebelum «Simpan».")
+        # Desa/kelurahan diperiksa tersendiri: kode wilayahnya belum tentu ikut pada nilai teks.
         catatan_desa = self._pastikan_desa_sebelum_simpan(peramban)
         if catatan_desa:
             self._catat_kepala(catatan_desa)
@@ -4515,6 +4522,7 @@ class BotDapodik:
 
         self._catat_kepala("[periodik] mengisi Data Periodik (tinggi, berat, lingkar kepala, "
                            "jarak + kilometer, jumlah saudara kandung) — urutan skrip sekolah.")
+        self._penjaga_nilai.clear()          # penjaga nilai mulai dari keadaan panel ini
         terisi = 0
 
         def isi(kunci: str, label: str, kunci_sel: str, unsur) -> None:
@@ -4590,6 +4598,13 @@ class BotDapodik:
             self._catat_kepala("[periodik] tombol «Simpan dan Tutup» panel Data Periodik "
                                "tidak ada — penyimpanan dilewati.")
             return terisi > 0
+        # Ronde 45: nilai kolom diperiksa lagi TEPAT sebelum disimpan — menggulir (termasuk
+        # gulir oleh orang di depan layar) bisa mengubah nilai kolom mana pun, bukan hanya
+        # kolom angka. Yang berubah dikembalikan ke nilai yang benar.
+        kembali = self._periksa_nilai_bio(peramban, "[periodik]")
+        if kembali:
+            self._catat_kepala(f"[periodik] {len(kembali)} kolom dikembalikan ke nilai yang "
+                               "benar sebelum disimpan.")
         try:
             self._klik_aman(peramban, loc_simpan)
         except Exception as exc:  # noqa: BLE001 — jangan gagalkan siswa karena panel ini

@@ -682,6 +682,9 @@ class PerambanPalsu:
         #: Berapa kali kode wilayah desa benar-benar dikembalikan ke desa lama oleh gulir.
         self.desa_dirusak_kali = 0
         self.desa_dirusak = False
+        #: True = tiap gulir mengubah nilai SEMUA kolom yang sudah diisi (keadaan terkeras:
+        #: gulir oleh orang di depan layar selagi semua kolom terisi).
+        self.rusak_paksa_semua = False
         #: Berapa kali «Simpan» mengembalikan desa karena kode wilayahnya basi/kosong
         self.bio_kode_ditolak = 0
         #: Berapa kali bot memeriksa nilai kolom lewat penjaga nilai (bukti jalurnya dipakai)
@@ -1272,8 +1275,16 @@ class PerambanPalsu:
 
     # -------------------------------------------------- dropdown (combo) --- #
     def kolom_rawan_gulir(self, unsur: "UnsurPalsu") -> bool:
-        """Apakah kolom ini bisa berubah nilainya bila digulir selagi kursornya di dalamnya."""
-        return bool(getattr(unsur, "angka", False))
+        """Apakah kolom ini bisa berubah nilainya bila digulir selagi kursornya di dalamnya.
+
+        Sekolah menyebut «semua kolom bisa berubah ketika di-scroll» (ronde 45), jadi di sini
+        **tiap kolom isian teks** rawan — bukan hanya kolom angka. Bot harus mengeluarkan
+        kursornya lebih dulu untuk kolom mana pun.
+        """
+        if unsur is None:
+            return False
+        jenis = str(getattr(unsur, "type", "") or "").lower()
+        return jenis not in ("radio", "checkbox", "button", "submit", "hidden", "file")
 
     def gulir_berbahaya(self) -> None:
         """Satu langkah gulir halaman/panel — dan akibatnya pada kolom yang sedang dipegang.
@@ -1302,6 +1313,21 @@ class PerambanPalsu:
                     self.kode_wilayah_kolom.nilai = desa.nilai_id
                 self.desa_dirusak = True
                 self.desa_dirusak_kali += 1
+        if self.rusak_paksa_semua:
+            # Keadaan terkeras (seperti gulir orang di depan layar selagi semua kolom terisi):
+            # tiap gulir mengubah nilai SEMUA kolom yang sudah diisi bot menjadi «0».
+            for unsur in self.unsur:
+                if not (getattr(unsur, "bio", False) or getattr(unsur, "periodik", False)):
+                    continue
+                if str(getattr(unsur, "type", "")).lower() in ("radio", "checkbox", "hidden"):
+                    continue
+                isi_kolom = str(getattr(unsur, "nilai", "") or "").strip()
+                if isi_kolom in ("", "0", "LAMA"):
+                    continue
+                unsur.nilai = "0"
+                self.rusak_paksa_kali += 1
+                if unsur.name not in self.rusak_karena_gulir:
+                    self.rusak_karena_gulir.append(unsur.name)
         if self.rusak_paksa_kolom:
             # Gulir pengguna (bukan bot) — bot tidak bisa mencegahnya, jadi penjaga nilainya
             # yang harus menangkap & mengembalikan nilai kolom ini.
@@ -2009,13 +2035,13 @@ class PerambanPalsu:
             daftar = argumen[0] if argumen else []
             self.penjaga_dibaca += 1
             return {str(nama): str(next((u.nilai for u in self.unsur
-                                         if u.bio and u.name == nama), ""))
+                                         if u.name == nama), ""))
                     for nama in daftar}
         if "/* pulihkan-kolom-bio */" in skrip:
             # Bot mengembalikan nilai kolom yang berubah karena gulir (mis. «RT» jadi «0»).
             nama = str(argumen[0] if argumen else "")
             nilai = str(argumen[1] if len(argumen) > 1 else "")
-            sasaran = next((u for u in self.unsur if u.bio and u.name == nama), None)
+            sasaran = next((u for u in self.unsur if u.name == nama), None)
             if sasaran is None:
                 return False
             sasaran.nilai = nilai
