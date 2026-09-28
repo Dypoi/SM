@@ -4642,8 +4642,22 @@ def cek_kolom_lewat_nama_dan_label_div() -> str:
                   "boleh ditulis ke kolom lain"):
         assert tanda in isi, f"penjaga kandidat XPath kehilangan {tanda!r}"
     isi = badan["_layak_combo"]
-    for tanda in ("/* layak-combo */", "aria-owns", "combobox", "x-form-trigger"):
+    # Ronde 49: yang menandai combo hanya panah dropdown / role=combobox / komponen Ext JS
+    # yang benar-benar memuat unsur itu — bukan sembarang ``x-form-trigger`` (tombol putar
+    # numberfield memakai kelas itu juga, dan itu membuat RT/RW dikira dropdown).
+    for tanda in ("/* layak-combo */", "aria-owns", "combobox", "panahKolom",
+                  "komboKolom"):
         assert tanda in isi, f"pemeriksa «apakah kolom ini combo» kehilangan {tanda!r}"
+    # Yang diperiksa hanya LOGIKA-nya (sesudah penanda ``/* layak-combo */``): teks alat
+    # bersama memang menyebut ``.x-form-trigger[class*="arrow"]`` untuk mencari panah, jadi
+    # yang dilarang adalah memakai kelas polos ``x-form-trigger`` sebagai tanda combo.
+    # Komentar JS dibuang lebih dulu (komentar memang menyebut kelas lama sebagai
+    # penjelasan); yang diperiksa adalah KODE-nya — dan tanpa bergantung pada modul ``re``
+    # (berkas ini tidak mengimpornya).
+    logika = "\n".join(b.split("//")[0]
+                        for b in isi.split("/* layak-combo */", 1)[-1].splitlines())
+    assert "x-form-trigger" not in logika and "innerHTML" not in logika, \
+        "_layak_combo masih menerima tombol putar numberfield sebagai tanda combo"
     isi = badan["_cari_combo_desa"]
     for tanda in ("/* cari-combo-desa */", "x-fieldlabel", "desa|kelurahan|wilayah"):
         assert tanda in isi, f"pelacak combo desa kehilangan {tanda!r}"
@@ -4703,10 +4717,10 @@ def cek_kolom_lewat_nama_dan_label_div() -> str:
                   "xpath_desa_salah", "label_div_semua", "BUKAN combo",
                   "isian yang ADA di jendela", "Dapodik menyimpan kolom ini sebagai angka",
                   # Jumlah skenario ikut disebut supaya berkas uji tidak diam-diam menyusut
-                  # (ronde 47: 43 skenario; ronde 48 menambah 44–46 — kolom RT/RW tidak ada,
-                  # XPath desa meleset, dan nilai model Ext JS kolom angka yang diperbaiki
-                  # sebelum «Simpan» — sehingga menjadi 46).
-                  "46 skenario"):
+                  # (ronde 47: 43; ronde 48 menambah 44–46; ronde 49 menambah 47–49 — DOM
+                  # sekolah yang membuat kolom biasa dikira dropdown, panah milik kolom
+                  # sendiri, combo tanpa penanda, dan panah tanpa data — sehingga 50).
+                  "50 skenario"):
         assert tanda in uji, f"uji bot kehilangan pemeriksaan {tanda!r} (ronde 47)"
 
     return ("kolom dicari lewat NAMA lebih dulu (rt, rw, alamat_jalan, no_kk, kode_pos), label "
@@ -4870,7 +4884,7 @@ def cek_catatan_lengkap_bot() -> str:
     assert "_penjaga_unsur" in sumber_bot and "nilai-model-unsur" in sumber_bot, \
         "unsur pemegang nilai tidak diingat / pembacaan model Ext JS tidak ada"
     uji_bot = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
-    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "46 skenario",
+    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "50 skenario",
                   "kolomnya TIDAK ketemu", "kolom isian yang ADA di halaman"):
         assert tanda in uji_bot or tanda in (BASE_DIR / "scripts/peramban_palsu.py").read_text(
             encoding="utf-8"), f"uji/fixture kehilangan {tanda!r}"
@@ -5053,6 +5067,102 @@ def cek_tombol_online():
             "tanpa jendela cmd; menu & rute khusus admin")
 
 
+@cek("42. Kolom Dapodik dikenali dari bukti yang melekat pada kolomnya")
+def cek_kolom_melekat_pada_kolomnya():
+    """Ronde 49 — «daftar dropdown TIDAK terbaca» untuk hampir SEMUA kolom (RT/RW ikut).
+
+    Catatan bot lengkap yang dikirim sekolah memperlihatkan kolom angka & kolom teks biasa
+    dikira dropdown lalu dilewati. Sebabnya: jenis kolom disimpulkan dari **wadah lebar**
+    (memuat kolom tetangga beserta tombol putar numberfield) dan komponen Ext JS diambil dari
+    id apa adanya — sehingga bisa menunjuk kolom lain (daftar «Pendidikan ayah» terbaca untuk
+    «Tahun lahir ayah»), sementara panahnya dicari menyapu seluruh halaman. Blok ini menjaga
+    aturannya: bidang kolom = wadah yang hanya memuat satu kolom isian; dropdown hanya bila ada
+    panah milik kolom itu / ``role=combobox`` / komponen yang benar-benar memuat unsur itu;
+    daftar & pilihan hanya dibaca dari kolom itu; dua arah jaring pengaman (kolom bukan-dropdown
+    diketik, «kotak terisi tetapi model Ext JS kosong» dicoba lewat daftar); dan galat validasi
+    Dapodik dibaca bila «Simpan» tidak menutup jendela.
+    """
+    import ast
+
+    sumber = (BASE_DIR / "app/bot_dapodik.py").read_text(encoding="utf-8")
+    badan: dict[str, str] = {}
+    for simpul in ast.walk(ast.parse(sumber)):
+        if isinstance(simpul, ast.FunctionDef):
+            badan.setdefault(simpul.name, ast.get_source_segment(sumber, simpul) or "")
+
+    # (a) Alat bersama: bidang kolom + komponen Ext JS yang terverifikasi.
+    assert "JS_ALAT" in sumber, "alat bersama pengenal kolom hilang (JS_ALAT)"
+    for nama in ("bidangKolom", "panahKolom", "putarKolom", "komponenKolom", "komboKolom"):
+        assert f"const {nama}" in sumber, f"{nama} hilang dari JS_ALAT"
+    assert "dom.contains(el)" in sumber, \
+        "komponen Ext JS tidak diperiksa benar-benar memuat unsurnya (id meleset bisa lolos)"
+
+    # (b) Jenis kolom: bukan lagi dari wadah lebar / readonly / sembarang x-form-trigger.
+    isi_tipe = badan["_tipe_kolom"]
+    assert "_info_kolom" in isi_tipe, "_tipe_kolom tidak memakai _info_kolom"
+    for terlarang in ("closest('.x-field')", "x-form-trigger|x-form-arrow", "readOnly"):
+        assert terlarang not in isi_tipe, f"_tipe_kolom masih memakai aturan lama {terlarang!r}"
+    isi_info = badan["_info_kolom"]
+    for tanda in ("/* jenis-kolom */", "putarKolom", "panahKolom", "komboKolom", "store"):
+        assert tanda in isi_info, f"_info_kolom tidak melaporkan {tanda!r}"
+
+    # (c) Daftar, pilihan, dan panah hanya dari kolom itu sendiri.
+    for nama, tanda in (("_panah_kolom", "panahKolom"),
+                        ("_data_dropdown", "komponenKolom"),
+                        ("_pilihan_dropdown", "komponenKolom"),
+                        ("_dropdown_terbuka", "komponenKolom")):
+        assert tanda in badan[nama], f"{nama} tidak memakai {tanda} (kolom lain bisa terbaca)"
+    assert "akar = document" not in badan["_pilihan_dropdown"], \
+        "daftar dropdown masih dibaca dari seluruh halaman"
+    assert "following::" not in badan["_buka_dropdown"], \
+        "panah dropdown masih dicari dengan menyapu halaman (following::)"
+    assert "/arrow/" in badan["_panah_kolom"], \
+        "panah kolom tidak memastikan kelasnya panah (tombol putar numberfield bisa terklik)"
+
+    # (d) Dua arah jaring pengaman + pelaporan galat Dapodik.
+    isi_drop = badan["_isi_dropdown_bio"]
+    assert "bukan combo sungguhan" in isi_drop and "_isi_periodik_satu" in isi_drop, \
+        "kolom bukan-dropdown yang dikira dropdown tidak diketik sebagai kolom biasa"
+    assert "kombo_kuat" in isi_info and "kombo_kuat" in isi_drop, \
+        "bukti combo kuat/lemah tidak dibedakan — kolom berunsur mirip panah bisa dilewati"
+    assert "kombo_kuat" in badan["_isi_bio"] and "tidak ada bukti combo" in badan["_isi_bio"], \
+        "kolom berunsur mirip panah tidak dicoba diketik lebih dulu (bisa «dilewati»)"
+    # Jalur «Desa/Kelurahan» harus tetap `elif`: kolomnya sudah diisi jalurnya sendiri, dan
+    # keterangannya (termasuk «dipilih dari daftar Dapodik» + kode wilayah) tidak boleh
+    # ditimpa jalur dropdown biasa — pernah terjadi di ronde ini (kolom desa dikerjakan dua
+    # kali dan bukti kode wilayahnya hilang dari catatan; ketahuan uji skenario 24).
+    assert 'elif self._info_kolom(peramban, unsur).get("kombo_kuat"):' in badan["_isi_bio"], \
+        "jalur dropdown BIO bukan «elif» — keterangan kolom Desa/Kelurahan bisa tertimpa"
+    isi_bio = badan["_isi_bio"]
+    assert "model Ext JS-nya kosong" in isi_bio, \
+        "kotak terisi tetapi model Ext JS kosong tidak dicoba lewat daftar dropdown"
+    assert "_galat_validasi_bio" in isi_bio, \
+        "galat validasi Dapodik tidak dibaca saat «Simpan» tidak menutup jendela"
+    assert "/* galat-validasi */" in badan["_galat_validasi_bio"], \
+        "pembaca galat validasi tidak ada"
+
+    # (e) Peramban palsu bisa menirukan DOM sekolah, dan uji barunya benar-benar ada.
+    palsu = (BASE_DIR / "scripts/peramban_palsu.py").read_text(encoding="utf-8")
+    for nama in ("dom_wadah_lebar", "kombo_tak_terbaca", "panah_sendiri_dipakai",
+                 "komponen_meleset_kali", "panah_tanpa_data", "panah_tak_berdata_kali",
+                 "jenis-kolom", "panah-kolom"):
+        assert nama in palsu, f"peramban palsu tidak punya {nama!r}"
+    uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
+    for judul in ("47. DOM sekolah", "48. panah dropdown", "49. combo tanpa penanda",
+                  "50. unsur mirip panah"):
+        assert judul in uji, f"skenario uji {judul!r} hilang"
+
+    return ("bidang kolom = wadah yang hanya memuat satu kolom isian · dropdown hanya dari "
+            "bukti KUAT (panah milik kolom itu / role=combobox / komponen Ext JS yang "
+            "benar-benar memuat "
+            "unsur itu · daftar & panah tidak pernah dibaca menyapu halaman · kolom "
+            "bukan-dropdown diketik seperti kolom biasa · «kotak terisi tetapi model Ext JS "
+            "kosong» dicoba lewat daftar · galat validasi Dapodik dicatat bila «Simpan» tidak "
+            "menutup jendela; peramban palsu menirukan DOM sekolah (dom_wadah_lebar / "
+            "kombo_tak_terbaca / panah_tanpa_data) dan bot versi lama terbukti melewati 11 "
+            "kolom di DOM itu, sedangkan bot baru mengetik kolom berunsur panah tanpa data")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -5097,6 +5207,7 @@ def main() -> int:
     cek_gulir_aman()
     cek_kolom_lewat_nama_dan_label_div()
     cek_catatan_lengkap_bot()
+    cek_kolom_melekat_pada_kolomnya()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()

@@ -716,6 +716,38 @@ class PerambanPalsu:
         self.model_diperbaiki_kali = 0
         #: Berapa kali bot membaca nilai model Ext JS (``getValue()``) sebuah kolom
         self.model_dibaca_kali = 0
+        #: Berapa kali nilai model diperbaiki lewat ``setValue`` (bukti jalur Ext JS dipakai)
+        self.model_setvalue_kali = 0
+        #: DOM sekolah (laporan 29 Sep 2026): kelas ``.x-field`` TIDAK ada, sehingga skrip
+        #: lama (``closest('.x-field') || parentElement``) membaca wadah yang memuat kolom
+        #: TETANGGA beserta tombol putar numberfield (``x-form-trigger``) — kolom biasa pun
+        #: dikira dropdown. Menyalakan ini membuat peramban palsu menirukan DOM itu.
+        self.dom_wadah_lebar = False
+        #: True = penanda dropdown combo TIDAK terbaca dari DOM versi Dapodik itu (tidak ada
+        #: panah ``x-form-arrow-trigger``, tidak ada ``role=combobox``): bot mengira kolom
+        #: biasa, mengetik teksnya — dan Dapodik menyimpan KOSONG karena yang tersimpan hanya
+        #: pilihan dari daftar. Bot harus menyadarinya dari model Ext JS yang kosong lalu
+        #: mencoba daftarnya (ronde 49).
+        self.kombo_tak_terbaca = False
+        #: Berapa kali kolom BUKAN-dropdown dikira dropdown (penanda bug ronde 49)
+        self.salah_kira_combo_kali = 0
+        #: Berapa kali komponen Ext JS yang terbaca terbukti milik kolom LAIN (id meleset)
+        self.komponen_meleset_kali = 0
+        #: Berapa kali tombol panah MILIK KOLOM ITU SENDIRI yang dipakai membuka dropdown
+        self.panah_sendiri_dipakai = 0
+        #: True = kolom teks memakai unsur bergaya panah di kotaknya (mis. sisa kelas
+        #: ``x-form-trigger``) TANPA bukti combo apa pun: tidak ada role=combobox, tidak ada
+        #: aria-owns, tidak ada xtype combo/store. Bot harus mengetik nilainya lebih dulu,
+        #: bukan melewatinya (ronde 49 — catatan sekolah: «daftar dropdown TIDAK terbaca …
+        #: dilewati» untuk hampir semua kolom).
+        self.panah_tanpa_data = False
+        #: Berapa kali panah kolom yang TIDAK berdata dipakai membuka dropdown (harus 0)
+        self.panah_tak_berdata_kali = 0
+        #: True = «Simpan» di jendela «Ubah» TIDAK menutup jendelanya (Dapodik menolak),
+        #: dan pesan galatnya tersedia lewat ``galat_validasi_bio``
+        self.bio_simpan_tak_menutup = False
+        #: Pesan galat validasi yang ditampilkan Dapodik pada kolom yang ditolak
+        self.galat_validasi_bio: list[str] = []
         #: True = jendela «Ubah» TIDAK memuat kolom angka RT/RW (versi Dapodik yang tidak
         #: punya kolom itu di jendelanya) — dipakai menguji laporan «kolom tidak ketemu».
         self.tanpa_kolom_angka = False
@@ -1185,6 +1217,22 @@ class PerambanPalsu:
         """
         return self.bio_geseran() >= self.bio_perlu_gulir
 
+    def panah_palsu_bio(self, sasaran: "UnsurPalsu") -> "UnsurPalsu":
+        """Unsur bergaya panah MILIK kolom itu, tetapi bukan panah dropdown sungguhan.
+
+        Dipakai uji ``panah_tanpa_data``: bot tidak boleh menyimpulkan «combo» hanya dari
+        unsur seperti ini — nilainya harus tetap diketik; kalau bot nekat membukanya, tidak
+        ada daftar yang terbuka (panah ini tidak punya pilihan apa pun).
+        """
+        for unsur in self.unsur:
+            if getattr(unsur, "panah_palsu_untuk", None) is sasaran:
+                return unsur
+        panah = UnsurPalsu(self, "div", kelas="x-form-trigger x-form-arrow-trigger")
+        panah.panah_palsu_untuk = sasaran
+        panah.induk = sasaran
+        self.unsur.append(panah)
+        return panah
+
     def tambah_tombol_ubah(self) -> None:
         """Tombol «Ubah» (ungu) pada toolbar — membuka jendela BIO siswa."""
         if not self.bio_ada_tombol:
@@ -1395,6 +1443,10 @@ class PerambanPalsu:
                     self.data_bio_tersimpan[kunci] = (unsur.nilai_model
                                                            if unsur.daftar_pilihan
                                                            else unsur.nilai)
+        if self.bio_simpan_tak_menutup:
+            # Dapodik menolak penyimpanan (mis. kolom wajib belum benar): jendela «Ubah»
+            # TETAP terbuka dan pesan galatnya tampil di kolom yang ditolak (ronde 49).
+            return
         self.bio_terbuka = False
         self.dropdown_terbuka = None
 
@@ -1846,6 +1898,7 @@ class PerambanPalsu:
         """Ext.getCmp(id).setValue(...) — jalur pamungkas Ext JS (data-componentid)."""
         if self.ext_mati:
             return False
+        self.model_setvalue_kali += 1
         for unsur in self.unsur:
             if unsur.componentid and unsur.componentid == componentid:
                 if unsur.type in ("radio", "checkbox"):
@@ -2363,7 +2416,11 @@ class PerambanPalsu:
                     "simpan": simpan, "simpan_rincian": simpan_rincian,
                     "dropdown": "".join(dropdown).strip()}
         if "tipe-kolom" in skrip:
-            # Bot memeriksa apakah kolomnya kolom teks atau dropdown (combo Ext JS).
+            # Skrip LAMA memutuskan jenis kolom dari ``closest('.x-field') || parentElement``
+            # + regex ``x-form-trigger|x-form-arrow`` atas innerHTML wadah itu + ``readOnly``.
+            # Di DOM sekolah kelas ``.x-field`` tidak ada dan wadah itu memuat kolom tetangga
+            # (tombol putar numberfield), sehingga kolom biasa pun dikira dropdown — inilah
+            # yang harus bisa ditirukan uji (``dom_wadah_lebar``, ronde 49).
             sasaran = argumen[0] if argumen else None
             if sasaran is None:
                 return ""
@@ -2371,7 +2428,64 @@ class PerambanPalsu:
                 return "combo"
             if "x-form-trigger" in (sasaran.kelas or ""):
                 return "tombol"
+            if self.dom_wadah_lebar and ("innerHTML" in skrip or "readOnly" in skrip):
+                self.salah_kira_combo_kali += 1
+                return "combo"
+            if "arrow" in skrip or "panahKolom" in skrip or "komponenKolom" in skrip:
+                return "teks"        # skrip baru bertanya pada bukti yang melekat kolomnya
             return "teks"
+        if "jenis-kolom" in skrip:
+            # Keadaan kolom apa adanya (ronde 49). Bot baru tidak menyimpulkan «combo» dari
+            # wadah yang lebar: yang dihitung hanya panah dropdown di bidang kolomnya /
+            # role=combobox / komponen combo yang benar-benar memuat unsur itu.
+            sasaran = argumen[0] if argumen else None
+            if sasaran is None:
+                return {}
+            kombo = (bool(getattr(sasaran, "daftar_pilihan", ()))
+                     and not self.kombo_tak_terbaca)
+            komponen = bool(sasaran.componentid) and not self.ext_mati
+            # Ronde 49: kolom teks bisa memakai unsur bergaya panah TANPA bukti combo apa
+            # pun (``panah_tanpa_data``) — bot harus mengetiknya lebih dulu, bukan melewati
+            # kolomnya seperti di sekolah.
+            panah = kombo or (self.panah_tanpa_data and bool(sasaran.componentid))
+            return {"jenis": "text",
+                    "peran": "combobox" if kombo else "",
+                    "aria": str(getattr(sasaran, "aria", "") or ""),
+                    "komponen": komponen,
+                    "xtype": ("combo" if kombo
+                              else "numberfield" if sasaran.angka else "textfield"),
+                    "komponen_dipakai": komponen,
+                    "store": (len(sasaran.daftar_pilihan) if kombo else -1),
+                    "panah": panah,
+                    "kombo_kuat": kombo,
+                    "putar": 2 if sasaran.angka else 0,
+                    "readonly": kombo,
+                    "kombo": kombo,
+                    "nilai": str(sasaran.nilai_model or sasaran.nilai),
+                    "raw": str(sasaran.nilai),
+                    "id": str(sasaran.id or ""),
+                    "componentid": str(sasaran.componentid or ""),
+                    "terlihat": bool(sasaran.terlihat)}
+        if "panah-kolom" in skrip:
+            # Panah dropdown MILIK KOLOM ITU (ronde 49). Kolom angka hanya punya tombol
+            # putar — bukan panah — jadi tidak ada yang boleh diklik.
+            sasaran = argumen[0] if argumen else None
+            if sasaran is None:
+                return None
+            for unsur in self.unsur:
+                if getattr(unsur, "trigger_combo", False) and unsur.induk is sasaran:
+                    self.panah_sendiri_dipakai += 1
+                    return unsur
+            if self.panah_tanpa_data and not getattr(sasaran, "daftar_pilihan", ()):
+                # Kolom teks berunsur bergaya panah: kalau bot tetap mencoba membukanya, itu
+                # dihitung — uji menuntut 0, karena kolomnya harus diketik lebih dulu.
+                self.panah_tak_berdata_kali += 1
+                return self.panah_palsu_bio(sasaran)
+            return None
+        if "galat-validasi" in skrip:
+            # Pesan galat Dapodik di kolom yang ditolak (sebab «Simpan» tidak menutup
+            # jendela) — dibaca dari komponen/DOM, seperti di halaman sungguhan.
+            return list(self.galat_validasi_bio)
         if "dropdown-buka" in skrip:
             # Jalur terakhir bot: Ext.getCmp(id).expand() (bila tombol panahnya ditelan).
             sasaran = argumen[0] if argumen else None
@@ -2458,6 +2572,17 @@ class PerambanPalsu:
                 if not self._desa_siap(sasaran):
                     return []
             if not sasaran.daftar_pilihan:
+                if self.dom_wadah_lebar and "contains(" not in skrip:
+                    # Skrip LAMA mengambil komponen dari id unsur apa adanya — di sekolah
+                    # id itu bisa menunjuk kombo TETANGGA (log: kolom «Tahun lahir ayah»
+                    # memakai daftar «Pendidikan ayah»). Skrip baru memeriksa bahwa
+                    # komponennya benar-benar memuat unsur itu (``contains(``).
+                    tetangga = next((u for u in self.unsur
+                                     if u.bio and u.daftar_pilihan), None)
+                    if tetangga is not None:
+                        self.komponen_meleset_kali += 1
+                        return [{"teks": p, "nilai": i + 1}
+                                for i, p in enumerate(tetangga.daftar_pilihan)]
                 return []
             return [{"teks": p, "nilai": i + 1}
                     for i, p in enumerate(sasaran.daftar_pilihan)]

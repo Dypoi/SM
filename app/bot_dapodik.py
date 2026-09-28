@@ -383,6 +383,99 @@ DESA_HALAMAN_MAKSIMAL = 12
 #: Jaring pengaman: berhenti menyusuri daftar sesudah sekian pilihan desa terkumpul.
 DESA_PILIHAN_MAKSIMAL = 400
 
+# --------------------------------------------------------------------------- #
+# Alat bersama untuk mengenali kolom Dapodik (ronde 49).
+#
+# Pelajaran dari log sekolah («bio-tidak-terisi», 29 Sep 2026): bot mengira **hampir semua**
+# kolom jendela «Ubah» adalah dropdown, lalu melewatinya — termasuk RT & RW. Penyebabnya satu
+# asumsi yang salah: kolom dianggap dropdown bila **wadah lebar** di atasnya memuat unsur
+# ``x-form-trigger``. Wadah itu ternyata memuat kolom TETANGGA (Dapodik menyusun dua kolom per
+# baris), dan ``x-form-trigger`` juga dipakai tombol putar **numberfield** — jadi kolom angka
+# seperti RT/RW/KK/NIK ikut dikira dropdown, dan bot melaporkannya
+# «daftar dropdown TIDAK terbaca … dilewati».
+#
+# Aturannya sekarang:
+#   1. **Bidang kolom** = wadah terdekat yang hanya memuat satu kolom isian (naik dari unsur
+#      itu sendiri) — bukan wadah lebar yang berisi kolom tetangga.
+#   2. Yang menandai dropdown hanyalah **panah** dropdown (``…arrow…``), ``role=combobox``/
+#      ``aria-owns``, atau **komponen Ext JS-nya sendiri** (combo/ber-store) — dan komponen itu
+#      wajib **memuat unsur yang sedang diperiksa** (``dom.contains(el)``); kalau tidak, ia
+#      komponen milik kolom lain (di sekolah: kolom «Tahun lahir ayah» terbaca memakai daftar
+#      «Pendidikan ayah» gara-gara id-nya meleset).
+#   3. Tombol putar (spinner) numberfield **bukan** dropdown, dan ``readonly`` sendirian
+#      **bukan** alasan menyebut sebuah kolom dropdown (combo Dapodik memang readonly).
+# --------------------------------------------------------------------------- #
+JS_ALAT = r"""
+/* ---- alat ronde 49: bidang kolom + komponen Ext JS (dipakai banyak skrip bot) ---- */
+const bidangKolom = (el) => {
+    let p = el ? el.parentElement : null;
+    while (p) {
+        const isian = p.querySelectorAll('input:not([type=hidden]), textarea, select');
+        if (isian.length <= 1) return p;
+        const naik = p.parentElement;
+        if (!naik || naik === document.body || naik === document.documentElement) return p;
+        p = naik;
+    }
+    return el ? el.parentElement : null;
+};
+const panahKolom = (el) => {
+    const b = bidangKolom(el);
+    if (!b || !b.querySelectorAll) return null;
+    const kandidat = b.querySelectorAll(
+        '.x-form-arrow-trigger, .x-form-trigger-arrow, [class*="arrow-trigger"],' +
+        ' .x-form-trigger[class*="arrow"], img.x-form-trigger[src*="arrow"]');
+    return kandidat.length ? kandidat[kandidat.length - 1] : null;
+};
+const putarKolom = (el) => {
+    const b = bidangKolom(el);
+    if (!b || !b.querySelectorAll) return 0;
+    return b.querySelectorAll('[class*="spinner"], .x-form-trigger-up, .x-form-trigger-down')
+        .length;
+};
+const komponenKolom = (el) => {
+    if (!el || typeof Ext === 'undefined' || !Ext.getCmp) return null;
+    const id = String((el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '');
+    const kandidat = [];
+    if (id) {
+        kandidat.push(id);
+        const bersih = id.replace(/-inputEl$/, '');
+        kandidat.push(bersih);
+        kandidat.push(bersih.replace(/-(trigger|picker|bodyEl|listEl|aria).*$/, ''));
+    }
+    for (const k of kandidat) {
+        if (!k) continue;
+        let c = null;
+        try { c = Ext.getCmp(k); } catch (e) { c = null; }
+        if (!c) continue;
+        if (c.inputEl && c.inputEl.dom === el) return c;
+        const dom = (c.el && c.el.dom) || (c.inputEl && c.inputEl.dom) || null;
+        if (dom && (dom === el || dom.contains(el))) return c;
+    }
+    try {
+        const nama = el.getAttribute && el.getAttribute('name');
+        if (nama && Ext.ComponentQuery && Ext.ComponentQuery.query) {
+            for (const c of Ext.ComponentQuery.query('[name="' + nama + '"]')) {
+                const dom = (c.el && c.el.dom) || null;
+                if (dom && dom.contains(el)) return c;
+            }
+        }
+    } catch (e) { /* tanpa ComponentQuery: cukup jalur di atas */ }
+    return null;
+};
+const xtypeKolom = (c) => (c && c.getXType) ? String(c.getXType() || '') : '';
+const jumlahStore = (c) => {
+    if (!c || !c.getStore) return -1;
+    try {
+        const s = c.getStore();
+        if (!s || !s.getCount) return -1;
+        return s.getCount();
+    } catch (e) { return -1; }
+};
+const komboKolom = (c) => /combo|picklist|tag|multiselect/i.test(xtypeKolom(c))
+    || jumlahStore(c) > 0;
+"""
+
+
 def peta_selector() -> dict[str, str]:
     """Gabungkan selector bawaan dengan penimpaan dari pengaturan bot."""
     peta = dict(SELECTOR_BAWAAN)
@@ -1754,7 +1847,10 @@ class BotDapodik:
                 + " · nilai di kolom=" + repr(atr("value"))
                 + " · readonly=" + ("ya" if atr("readonly") else "tidak")
                 + " · nonaktif=" + ("ya" if atr("disabled") else "tidak")
-                + " · terlihat=" + terlihat)
+                + " · terlihat=" + terlihat
+                # Ronde 49: sertakan jenis kolom & nilai MODEL Ext JS-nya — inilah yang
+                # disimpan Dapodik, jadi sebab «kotaknya benar, hasilnya «0»» terbaca.
+                + " · " + self._rincian_jenis_kolom(peramban, unsur))
 
     def _rincian_kandidat_kolom(self, peramban, kunci: str, peta: dict[str, str]) -> str:
         """Berapa unsur yang ditemukan oleh TIAP kandidat selector kolom ini.
@@ -3095,7 +3191,7 @@ class BotDapodik:
             return False
         try:
             return bool(peramban.execute_script(
-                """
+                JS_ALAT + """
                 /* layak-combo */
                 const el = arguments[0];
                 if (!el) return false;
@@ -3104,10 +3200,12 @@ class BotDapodik:
                 const aria = String(el.getAttribute('aria-owns') || '');
                 const peran = String(el.getAttribute('role') || '');
                 const kelas = String(el.getAttribute('class') || '');
-                const panah = el.parentElement
-                    ? el.parentElement.querySelector('.x-form-trigger') : null;
+                // Ronde 49: yang dihitung **panah dropdown** atau komponen combo — bukan
+                // sembarang ``x-form-trigger``. Tombol putar numberfield memakai kelas itu
+                // juga, sehingga kolom angka (RT/RW) dulu dikira combo.
+                const panah = !!panahKolom(el);
                 return /list/i.test(aria) || peran === 'combobox'
-                    || /x-form-trigger/.test(kelas) || !!panah;
+                    || /arrow/.test(kelas) || panah || komboKolom(komponenKolom(el));
                 """, unsur))
         except Exception:  # noqa: BLE001 — tidak terbaca: jangan dipakai
             return False
@@ -3122,7 +3220,7 @@ class BotDapodik:
         """
         try:
             return peramban.execute_script(
-                """
+                JS_ALAT + """
                 /* cari-combo-desa */
                 const root = arguments[0] || document;
                 const tampil = (el) => !!(el && el.getClientRects && el.getClientRects().length);
@@ -3142,10 +3240,9 @@ class BotDapodik:
                     const aria = String(el.getAttribute('aria-owns') || '');
                     const peran = String(el.getAttribute('role') || '');
                     const kelas = String(el.getAttribute('class') || '');
-                    const panah = el.parentElement
-                        ? el.parentElement.querySelector('.x-form-trigger') : null;
+                    const panah = !!panahKolom(el);
                     const combo = /list/i.test(aria) || peran === 'combobox'
-                        || /x-form-trigger/.test(kelas) || !!panah;
+                        || /arrow/.test(kelas) || panah || komboKolom(komponenKolom(el));
                     if (!combo) continue;
                     if (/(desa|kelurahan|wilayah)/.test(labelDari(el))) {
                         hasil.push(el);
@@ -3165,7 +3262,7 @@ class BotDapodik:
         """
         try:
             daftar = peramban.execute_script(
-                """
+                JS_ALAT + """
                 /* rincian-isian-bio */
                 const root = arguments[0] || document;
                 const hasil = [];
@@ -3177,11 +3274,12 @@ class BotDapodik:
                     const aria = String(el.getAttribute('aria-owns') || '');
                     const peran = String(el.getAttribute('role') || '');
                     const kelas = String(el.getAttribute('class') || '');
-                    const panah = el.parentElement
-                        ? el.parentElement.querySelector('.x-form-trigger') : null;
+                    const panah = !!panahKolom(el);
                     const combo = /list/i.test(aria) || peran === 'combobox'
-                        || /x-form-trigger/.test(kelas) || !!panah;
-                    hasil.push(nama + '/' + (combo ? 'combo' : 'teks'));
+                        || /arrow/.test(kelas) || panah || komboKolom(komponenKolom(el));
+                    const xt = xtypeKolom(komponenKolom(el));
+                    hasil.push(nama + '/' + (combo ? 'combo' : 'teks')
+                        + (xt ? '(' + xt + ')' : ''));
                     if (hasil.length >= 20) break;
                 }
                 return hasil;
@@ -3322,7 +3420,7 @@ class BotDapodik:
         nama_kolom = self._nama_kolom_bio_semua(peta)
         try:
             rincian = peramban.execute_script(
-                """
+                JS_ALAT + """
                 /* rincian-bio */
                 const akar = arguments[0];
                 const daftar = (arguments[1] || '').split(',').map((x) => x.trim()).filter(Boolean);
@@ -3366,8 +3464,24 @@ class BotDapodik:
                     if (t !== 'Simpan' || !tampil(el)) continue;
                     if (dalamRincian(el)) simpanRincian += 1; else simpanJendela += 1;
                 }
+                // Ronde 49: daftar kolom yang BENAR-BENAR dropdown — dulu kuncinya tidak
+                // pernah diisi sehingga catatan selalu berbunyi «kolom dropdown: -».
+                const dropdown = [];
+                for (const el of (akar || document).querySelectorAll('input')) {
+                    if (!tampil(el)) continue;
+                    const jenis = String(el.getAttribute('type') || 'text').toLowerCase();
+                    if (jenis !== 'text' && jenis !== 'search' && jenis !== '') continue;
+                    const peran = String(el.getAttribute('role') || '');
+                    const aria = String(el.getAttribute('aria-owns') || '');
+                    const panah = !!panahKolom(el);
+                    if (!(panah || peran === 'combobox' || /list/i.test(aria)
+                            || komboKolom(komponenKolom(el)))) continue;
+                    dropdown.push(String(el.getAttribute('name') || el.id || '?'));
+                    if (dropdown.length >= 12) break;
+                }
                 return {kolom: isi.join(' '), gulir: gulir.slice(0, 3).join(' | '),
-                        simpan: simpanJendela, simpan_rincian: simpanRincian};
+                        simpan: simpanJendela, simpan_rincian: simpanRincian,
+                        dropdown: dropdown.join(', ')};
                 """, jendela, ",".join(nama_kolom))
         except Exception:  # noqa: BLE001 — keterangan tambahan saja
             rincian = {}
@@ -3433,35 +3547,93 @@ class BotDapodik:
             return kandidat[0], f"«{nilai}» dicocokkan dengan «{kandidat[0]}»"
         return "", ""
 
+    def _info_kolom(self, peramban, unsur) -> dict[str, Any]:
+        """Keadaan satu kolom isian Dapodik — apa adanya (bukan tebakan).
+
+        Yang dibaca: jenis DOM (``type``/``role``/``aria-owns``/``readonly``), **bidang**
+        kolom (wadah yang hanya memuat kolom ini — lihat :data:`JS_ALAT`), apakah ada
+        **panah dropdown** di bidang itu, apakah ada **tombol putar** numberfield, dan
+        komponen Ext JS-nya: ``xtype``, jumlah isi ``store``, nilai ``getValue()``/
+        ``getRawValue()``. Komponen yang tidak benar-benar memuat unsur ini **dibuang**
+        (``komponen=False``) — inilah yang mencegah daftar milik kolom tetangga terpakai
+        (di sekolah: «Tahun lahir ayah» membaca daftar «Pendidikan ayah»).
+        """
+        try:
+            hasil = peramban.execute_script(
+                JS_ALAT + """
+                /* jenis-kolom */
+                const el = arguments[0];
+                if (!el) return {};
+                const c = komponenKolom(el);
+                const peran = String((el.getAttribute && el.getAttribute('role')) || '');
+                const aria = String((el.getAttribute && el.getAttribute('aria-owns')) || '');
+                const jenis = String((el.getAttribute && el.getAttribute('type')) || 'text')
+                    .toLowerCase();
+                const panah = !!panahKolom(el);
+                const putar = putarKolom(el);
+                const komponen = !!c;
+                const xt = xtypeKolom(c);
+                const store = jumlahStore(c);
+                const readonly = c ? !!(c.readOnly || c.editable === false)
+                                   : !!el.readOnly;
+                const kuat = komboKolom(c) || peran === 'combobox' || /list/i.test(aria);
+                const kombo = kuat || panah;
+                let nilai = String(el.value == null ? '' : el.value).trim();
+                let raw = '';
+                try {
+                    if (c && c.getValue) {
+                        const v = c.getValue();
+                        nilai = (v === null || v === undefined) ? '' : String(v);
+                    }
+                    if (c && c.getRawValue) raw = String(c.getRawValue() || '');
+                } catch (e) { /* nilai hanya keterangan */ }
+                return {jenis: jenis, peran: peran, aria: aria, komponen: komponen,
+                        xtype: xt, store: store, panah: panah, putar: putar,
+                        readonly: readonly, kombo: kombo, kombo_kuat: kuat,
+                        nilai: nilai, raw: raw,
+                        id: String(el.id || ''),
+                        componentid: String((el.getAttribute
+                                             && el.getAttribute('data-componentid')) || ''),
+                        terlihat: !!(el.getClientRects && el.getClientRects().length)};
+                """, unsur)
+        except Exception:  # noqa: BLE001 — tidak terbaca: diperlakukan sebagai kolom teks
+            hasil = {}
+        return hasil if isinstance(hasil, dict) else {}
+
     def _tipe_kolom(self, peramban, unsur) -> str:
         """Jenis kolom: ``combo`` (dropdown Ext JS) atau ``teks``.
 
-        Penandanya — persis DOM Ext JS: ``role="combobox"``, tombol panah
-        (``.x-form-trigger``) di dalam wadah kolomnya, kolom yang tidak bisa diketik
-        (readonly), atau komponen Ext JS-nya sendiri ber-xtype combobox. Kalau tidak
-        terbaca, kolom diperlakukan sebagai kolom teks — sama seperti perilaku sebelumnya.
+        Aturan ronde 49 (lihat :data:`JS_ALAT`): dropdown hanya bila ada **bukti yang
+        melekat pada kolom itu sendiri** — panah dropdown di bidangnya, ``role=combobox``/
+        ``aria-owns``, atau komponen Ext JS-nya benar-benar combo/ber-store **dan** memuat
+        unsur ini. Tombol putar numberfield (RT/RW/KK/NIK tahun) dan ``readonly``
+        sendirian **tidak** lagi dianggap dropdown: dulu keduanya membuat bot melewati
+        kolom-kolom itu di sekolah.
+
+        Buktinya dibedakan **kuat** dan **lemah**: ``role=combobox``/``aria-owns``/xtype
+        combo/store berisi = kuat (langsung jalur daftar); hanya ada unsur mirip panah =
+        lemah — kolomnya dicoba **diketik lebih dulu**, dan barulah daftarnya dicoba bila
+        ketikannya tidak tersimpan (model Ext JS kosong). Dengan urutan itu, kolom biasa
+        yang kebetulan memakai unsur bergaya panah tidak lagi «dilewati».
         """
-        try:
-            jenis = peramban.execute_script(
-                """
-                /* tipe-kolom */
-                const el = arguments[0];
-                if (!el) return '';
-                if ((el.getAttribute && el.getAttribute('role')) === 'combobox') return 'combo';
-                const wadah = (el.closest && el.closest('.x-field')) || el.parentElement;
-                const isi = (wadah && wadah.innerHTML) ? wadah.innerHTML : '';
-                if (/x-form-trigger|x-form-arrow/i.test(isi)) return 'combo';
-                if (el.readOnly) return 'combo';
-                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
-                const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
-                    ? Ext.getCmp(String(id).replace(/-inputEl$/, '')) : null;
-                const xt = (c && c.getXType) ? String(c.getXType() || '') : '';
-                return /combo|picklist|multiselect/i.test(xt) ? 'combo' : 'teks';
-                """, unsur)
-        except Exception:  # noqa: BLE001 — tidak terbaca: anggap kolom teks
-            jenis = ""
-        jenis = str(jenis or "").strip().lower()
-        return "combo" if jenis == "combo" else "teks"
+        return "combo" if self._info_kolom(peramban, unsur).get("kombo") else "teks"
+
+    def _rincian_jenis_kolom(self, peramban, unsur) -> str:
+        """Satu baris bukti tentang kolom: dipakai saat kolom gagal diisi/dilewati."""
+        info = self._info_kolom(peramban, unsur)
+        if not info:
+            return "(keadaan kolom tidak terbaca)"
+        combo = ("kuat" if info.get("kombo_kuat")
+                 else "panah saja" if info.get("panah") else "tidak")
+        return (f"jenis={info.get('jenis') or '-'} · role={info.get('peran') or '-'} · "
+                f"combo={combo} · "
+                f"komponen={'ada' if info.get('komponen') else 'tidak ada'}"
+                f"{' (' + str(info.get('xtype')) + ')' if info.get('xtype') else ''} · "
+                f"store={info.get('store')} · panah={'ya' if info.get('panah') else 'tidak'} · "
+                f"tombol putar={info.get('putar')} · readonly="
+                f"{'ya' if info.get('readonly') else 'tidak'} · nilai di kolom="
+                f"{(info.get('nilai') or '')!r} · raw={info.get('raw')!r} · "
+                f"id={info.get('id') or '-'}")
 
     def _daftar_aria(self, peramban, unsur):
         """Elemen daftar dropdown milik kolom ini — dibaca dari **DOM**, tanpa ``Ext``.
@@ -3473,7 +3645,7 @@ class BotDapodik:
         """
         try:
             return peramban.execute_script(
-                """
+                JS_ALAT + """
                 /* dropdown-aria */
                 const el = arguments[0];
                 if (!el) return null;
@@ -3487,10 +3659,13 @@ class BotDapodik:
                 if (bersih) {
                     tambah(document.getElementById(bersih + '-picker-listEl'));
                     tambah(document.getElementById(bersih + '-picker'));
-                    const wadah = el.closest ? el.closest('.x-field') : null;
-                    if (wadah && wadah.querySelector) tambah(wadah.querySelector('.x-boundlist'));
-                    const induk = wadah && wadah.parentElement;
-                    if (induk && induk.querySelector) tambah(induk.querySelector('.x-boundlist'));
+                    // Ronde 49: daftar hanya boleh dibaca dari BIDANG kolom ini (wadah yang
+                    // hanya memuat kolom ini). ``closest('.x-field') || parentElement`` dulu
+                    // bisa memuat kolom tetangga, sehingga daftar milik kolom lain ikut
+                    // terbaca — di sekolah: kolom «Tahun lahir ayah» memakai daftar
+                    // «Pendidikan ayah».
+                    const bidang = bidangKolom(el);
+                    if (bidang && bidang.querySelector) tambah(bidang.querySelector('.x-boundlist'));
                 }
                 for (const n of kandidat) {
                     if ((n.textContent || '').trim()) return n;      # yang ada isinya
@@ -3536,13 +3711,11 @@ class BotDapodik:
         """
         try:
             hasil = peramban.execute_script(
-                """
+                JS_ALAT + """
                 /* dropdown-store */
                 const el = arguments[0];
                 if (!el) return [];
-                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
-                const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
-                    ? Ext.getCmp(String(id).replace(/-inputEl$/, '')) : null;
+                const c = komponenKolom(el);
                 if (!c || !c.getStore) return [];
                 const store = c.getStore();
                 if (!store || !store.getRange) return [];
@@ -3576,15 +3749,13 @@ class BotDapodik:
         """
         try:
             berhasil = peramban.execute_script(
-                """
+                JS_ALAT + """
                 /* dropdown-pilih */
                 const el = arguments[0];
                 const cari = String(arguments[1] || '')
                     .replace(/\\s+/g, ' ').trim().toLowerCase();
                 if (!el || !cari) return false;
-                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
-                const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
-                    ? Ext.getCmp(String(id).replace(/-inputEl$/, '')) : null;
+                const c = komponenKolom(el);
                 if (!c || !c.getStore) return false;
                 const store = c.getStore();
                 const kunci = c.displayField || 'nama', nilai = c.valueField || 'id';
@@ -3627,17 +3798,20 @@ class BotDapodik:
             return lewat_dom
         try:
             hasil = peramban.execute_script(
-                """
+                JS_ALAT + """
                 /* dropdown-daftar */
                 const el = arguments[0];
                 if (!el) return [];
-                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
-                const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
-                    ? Ext.getCmp(String(id).replace(/-inputEl$/, '')) : null;
+                const c = komponenKolom(el);
                 if (c && c.isExpanded && !c.isExpanded()) return [];
-                let akar = document;
+                let akar = null;
+                // Tanpa komponen: HANYA daftar di bidang kolom ini yang boleh dibaca —
+                // dulu seluruh halaman disapu, sehingga daftar milik dropdown lain
+                // terbaca sebagai daftar kolom ini (uji ronde 13).
                 const picker = (c && (c.getPicker ? c.getPicker() : c.picker)) || null;
                 if (picker && picker.getEl && picker.getEl()) akar = picker.getEl().dom;
+                if (!akar) akar = bidangKolom(el);
+                if (!akar) return [];
                 const lihat = (el2) => !!(el2 && el2.getClientRects && el2.getClientRects().length);
                 const daftar = [];
                 for (const el2 of akar.querySelectorAll(
@@ -3660,24 +3834,27 @@ class BotDapodik:
         """
         try:
             return bool(peramban.execute_script(
-                """
+                JS_ALAT + r"""
                 /* dropdown-terbuka */
                 const el = arguments[0];
                 if (!el) return false;
-                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
-                const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
-                    ? Ext.getCmp(String(id).replace(/-inputEl$/, '')) : null;
+                const c = komponenKolom(el);
                 if (c && c.isExpanded) return !!c.isExpanded();
+                // Tanpa komponen: keadaan daftarnya dibaca dari DOM **di bidang kolom ini
+                // sendiri** — dulu seluruh halaman disapu, sehingga daftar milik dropdown
+                // lain yang masih terbuka terbaca sebagai daftar kolom ini (uji ronde 13)
+                // dan bot menyangka dropdown kolomnya sudah terbuka.
                 const lihat = (el2) => !!(el2 && el2.getClientRects && el2.getClientRects().length);
-                for (const el2 of document.querySelectorAll(
-                        'li.x-boundlist-item, div.x-boundlist-item, .x-combo-list-item')) {
-                    if (lihat(el2)) return true;
+                const bidang = bidangKolom(el);
+                if (bidang && bidang.querySelectorAll) {
+                    for (const n of bidang.querySelectorAll(
+                            'li.x-boundlist-item, div.x-boundlist-item, .x-combo-list-item')) {
+                        if (lihat(n)) return true;
+                    }
                 }
-                // Tanpa Ext: keadaan daftarnya dibaca dari DOM — aria-expanded & elemen
-                // daftar yang benar-benar terlihat adalah penanda standar combo Ext JS.
                 if (el.getAttribute && el.getAttribute('aria-expanded') === 'true') return true;
                 const owns = String((el.getAttribute && el.getAttribute('aria-owns')) || '')
-                    .split(/\\s+/).filter(Boolean);
+                    .split(/\s+/).filter(Boolean);
                 for (const o of owns) {
                     const n = document.getElementById(o);
                     if (n && lihat(n)) return true;
@@ -3686,6 +3863,31 @@ class BotDapodik:
                 """, unsur))
         except Exception:  # noqa: BLE001 — tidak terbaca: anggap tertutup
             return False
+
+    def _panah_kolom(self, peramban, unsur):
+        """Tombol panah dropdown milik kolom ini — dicari **di bidang kolomnya sendiri**.
+
+        Ronde 49: dulu tombolnya dicari dengan XPath **following** yang menyapu seluruh
+        halaman, sehingga klik mendarat pada panah kolom tetangga dan yang terbuka
+        daftar kolom lain (log sekolah: kolom «Tahun lahir ayah» menampilkan daftar
+        «Pendidikan ayah»). Yang dicari sekarang hanya panah di dalam bidang kolom ini,
+        dan tombol putar numberfield (bukan panah dropdown) tidak pernah dikembalikan.
+        """
+        try:
+            panah = peramban.execute_script(
+                JS_ALAT + """
+                /* panah-kolom */
+                const el = arguments[0];
+                if (!el) return null;
+                const p = panahKolom(el);
+                if (!p) return null;
+                const kelas = String((p.getAttribute && p.getAttribute('class')) || '');
+                if (!/arrow/.test(kelas)) return null;   // jangan pernah klik tombol putar
+                return p;
+                """, unsur)
+        except Exception:  # noqa: BLE001 — tanpa panah: coba cara berikutnya
+            return None
+        return panah
 
     def _buka_dropdown(self, peramban, unsur, cara: str) -> bool:
         """Buka daftar sebuah dropdown: lewat tombol panah, kolomnya, atau Ext ``expand()``."""
@@ -3712,16 +3914,11 @@ class BotDapodik:
                     return True
             return False
         if cara == "panah":
-            # Tombol panah Ext JS di sebelah kolomnya. Dicari lewat ``find_elements`` (bukan
-            # ``find_element``): sebagian versi Selenium menolak pencarian relatif dari sebuah
-            # elemen, dan pencarian yang gagal membuat jalur paling wajar ini tidak pernah
-            # dicoba — di uji tiruan pun begitu.
-            try:
-                panah = next((k for k in unsur.find_elements(
-                    By.XPATH, "following::*[contains(@class, 'x-form-trigger')][1]")
-                    if k.is_displayed()), None)
-            except Exception:  # noqa: BLE001 — tidak terbaca: coba cara berikutnya
-                panah = None
+            # Ronde 49: panahnya dicari **di bidang kolom itu sendiri** (JavaScript), bukan
+            # XPath **following** yang menyapu halaman. Di sekolah, cara itu mengambil
+            # panah milik kolom TETANGGA sehingga yang terbuka daftar kolom lain (log:
+            # kolom «Tahun lahir ayah» menampilkan daftar «Pendidikan ayah»).
+            panah = self._panah_kolom(peramban, unsur)
             if panah is None:
                 return False
             self._bawa_ke_layar(peramban, panah)
@@ -3742,12 +3939,11 @@ class BotDapodik:
                 return False
         try:      # jalur pamungkas: komponen Ext JS-nya sendiri
             berhasil = peramban.execute_script(
-                """
+                JS_ALAT + """
                 /* dropdown-buka */
                 if (typeof Ext === 'undefined' || !Ext.getCmp) return false;
                 const el = arguments[0];
-                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
-                const c = Ext.getCmp(String(id).replace(/-inputEl$/, ''));
+                const c = komponenKolom(el);
                 if (!c) return false;
                 if (c.expand) { c.expand(); return true; }
                 if (c.onTriggerClick) { c.onTriggerClick(); return true; }
@@ -3950,12 +4146,11 @@ class BotDapodik:
             return
         try:
             peramban.execute_script(
-                """
+                JS_ALAT + """
                 /* dropdown-tutup */
                 if (typeof Ext === 'undefined' || !Ext.getCmp) return false;
                 const el = arguments[0];
-                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
-                const c = Ext.getCmp(String(id).replace(/-inputEl$/, ''));
+                const c = komponenKolom(el);
                 if (!c || !c.collapse) return false;
                 c.collapse();
                 return true;
@@ -4035,9 +4230,24 @@ class BotDapodik:
                                "(panah → kolom → Ext sudah dicoba) — pilihan dibaca dari data "
                                f"komponen Ext JS ({len(pilihan)} pilihan).")
         else:
+            # Ronde 49: daftar yang tidak terbaca **bukan** alasan melewati kolom begitu
+            # saja. Kalau kolomnya ternyata bukan dropdown (mis. numberfield RT/RW yang
+            # memakai tombol putar ``x-form-trigger`` — di sekolah dulu SEMUA kolom
+            # seperti ini dilaporkan «daftar dropdown TIDAK terbaca — dilewati»), nilainya
+            # diketik seperti kolom biasa. Dropdown sungguhan tetap tidak ditebak.
+            info = self._info_kolom(peramban, unsur)
+            if not info.get("kombo_kuat"):
+                self._catat_kepala(f"{awalan} {label}: bukan combo sungguhan (tidak ada "
+                                   "role=combobox/aria-owns/xtype combo/data pilihan pada "
+                                   "kolom ini) — nilainya diketik seperti kolom biasa. "
+                                   "Keadaan kolom: "
+                                   + self._rincian_jenis_kolom(peramban, unsur))
+                return self._isi_periodik_satu(peramban, peta, "", label, nilai, unsur,
+                                               awalan=awalan)
             self._catat_kepala(f"{awalan} {label}: daftar dropdown TIDAK terbaca (data "
                                "komponen, tombol panah, kolomnya, dan Ext.getCmp sudah "
-                               "dicoba) — dilewati.")
+                               "dicoba) — dilewati. Keadaan kolom: "
+                               + self._rincian_jenis_kolom(peramban, unsur))
             return ("dilewati — daftar dropdown tidak terbaca (nilainya tidak diketik paksa, "
                     "karena Dapodik hanya menyimpan pilihan yang ada di daftar).")
         cocok, catatan = self._cocokkan_pilihan(nilai, pilihan)
@@ -4926,11 +5136,55 @@ class BotDapodik:
                 keterangan = self._isi_desa_kelurahan(peramban, peta, label, unsur, siswa)
             # Dropdown (combo Ext JS) diisi lain: pilihannya harus benar-benar dipilih dari
             # daftarnya — mengetikkan teksnya saja tidak menyimpan apa pun ke Dapodik.
-            elif self._tipe_kolom(peramban, unsur) == "combo":
+            # Ronde 49: jalur daftar hanya dipakai bila buktinya KUAT (role=combobox,
+            # aria-owns daftar, xtype combo, atau store berisi). Kolom yang hanya punya unsur
+            # mirip panah dicoba **diketik lebih dulu**; bila ketikannya tidak tersimpan
+            # (model Ext JS kosong) barulah daftarnya dicoba — sehingga kolom biasa tidak
+            # pernah lagi «dilewati» hanya karena ada unsur bergaya panah di kotaknya.
+            # ``elif`` — penting: kolom «Desa/Kelurahan» sudah diisi oleh jalurnya sendiri di
+            # atas, dan keterangan desa (termasuk «dipilih dari daftar Dapodik» + kode
+            # wilayah) TIDAK boleh ditimpa jalur dropdown biasa (kalau ditimpa, kolomnya
+            # dikerjakan dua kali dan catatannya kehilangan bukti kode wilayahnya).
+            elif self._info_kolom(peramban, unsur).get("kombo_kuat"):
                 keterangan = self._isi_dropdown_bio(peramban, peta, label, nilai, unsur)
             else:
+                info_kolom = self._info_kolom(peramban, unsur)
+                if info_kolom.get("panah"):
+                    self._catat_kepala(
+                        f"[bio] {label}: ada unsur mirip panah di kotaknya, tetapi tidak ada bukti combo "
+                        "(role=combobox / aria-owns / xtype combo / store) — "
+                        "nilainya dicoba diketik lebih dulu seperti kolom biasa. Keadaan "
+                        "kolom: " + self._rincian_jenis_kolom(peramban, unsur))
                 keterangan = self._isi_periodik_satu(peramban, peta, kunci_sel, label, nilai,
                                                      unsur, awalan="[bio]")
+                if not keterangan.startswith("terisi"):
+                    # Ronde 49: kolom yang tampak kolom biasa tetapi menolak ketikan —
+                    # mis. combo yang panahnya tidak terbaca — dicoba lewat jalur dropdown.
+                    # Nilai combo hanya tersimpan bila pilihannya diambil dari daftar.
+                    info = self._info_kolom(peramban, unsur)
+                    if (info.get("komponen") or info.get("panah")
+                            or int(info.get("store") or -1) > 0):
+                        self._catat_kepala(f"[bio] {label}: ketikan tidak tersimpan — "
+                                           "kolomnya punya komponen Ext JS/data pilihan, "
+                                           "jadi dicoba lewat daftar dropdown. Keadaan "
+                                           "kolom: "
+                                           + self._rincian_jenis_kolom(peramban, unsur))
+                        keterangan = self._isi_dropdown_bio(peramban, peta, label, nilai,
+                                                            unsur)
+                else:
+                    # Kotaknya sudah berisi, tetapi **model Ext JS**-nya kosong: itulah tanda
+                    # combo Dapodik yang menolak ketikan (yang tersimpan hanya pilihan dari
+                    # daftarnya) — kolom seperti ini tampak «sudah diisi» padahal Dapodik
+                    # tidak menyimpan apa pun. Karena itu dicoba lewat daftar dropdown.
+                    model = self._nilai_model(peramban, unsur)
+                    if model == "":
+                        self._catat_kepala(f"[bio] {label}: kotaknya sudah berisi «{nilai}» "
+                                           "tetapi model Ext JS-nya kosong — combo Dapodik "
+                                           "hanya menyimpan pilihan dari daftarnya, jadi "
+                                           "dicoba lewat daftar dropdown. Keadaan kolom: "
+                                           + self._rincian_jenis_kolom(peramban, unsur))
+                        keterangan = self._isi_dropdown_bio(peramban, peta, label, nilai,
+                                                            unsur)
             self._catat_kepala(f"[bio] {label}: {keterangan}")
             if keterangan.startswith("terisi"):
                 terisi += 1
@@ -4989,11 +5243,81 @@ class BotDapodik:
         if self._jendela_edit(peramban, peta) is not None:
             self._catat_kepala("[bio] peringatan: tombol «Simpan» sudah ditekan tetapi jendela "
                                "«Edit Peserta Didik» masih terlihat — periksa hasilnya di Dapodik.")
+            galat = self._galat_validasi_bio(peramban, jendela)
+            if galat:
+                self._catat_kepala("[bio] galat validasi di jendela «Ubah» (dari Dapodik): "
+                                   + galat)
+            bukti_tidak_tutup = self._bukti(peramban, "bio-simpan-tidak-menutup")
+            if bukti_tidak_tutup:
+                self._catat_kepala(f"[bio] bukti layar disimpan: {bukti_tidak_tutup} "
+                                   "(beserta berkas .html di folder yang sama).")
             return False
         rincian = f", {len(kosong)} kolom dilewati (data kosong)" if kosong else ""
         self._catat_kepala(f"[bio] jendela «Ubah» tertutup — data BIO dikirim "
                            f"({terisi} kolom terisi{rincian}).")
         return True
+
+    def _galat_validasi_bio(self, peramban, jendela) -> str:
+        """Pesan galat Dapodik di jendela «Ubah» — sebab «Simpan» tidak menutup jendela.
+
+        Ronde 49: di sekolah, «Simpan» ditekan tetapi jendelanya tetap terbuka dan bot
+        hanya bisa berkata «periksa hasilnya di Dapodik». Padahal Dapodik menuliskan
+        sebabnya di kolom yang ditolak (ikerah merah/``x-form-invalid-under``). Pesan itu
+        sekarang dibaca dari komponen Ext JS (``getErrors()``/``hasActiveError``) maupun
+        dari DOM, lalu dicatat — supaya sebab penolakan terbaca dari catatan bot.
+        """
+        try:
+            galat = peramban.execute_script(
+                JS_ALAT + """
+                /* galat-validasi */
+                const root = arguments[0] || document;
+                const hasil = [];
+                const label = (el) => {
+                    const bidang = bidangKolom(el) || (el.closest ? el.closest('div') : null);
+                    const l = bidang && bidang.querySelector
+                        ? bidang.querySelector('label, .x-fieldlabel, .x-form-item-label') : null;
+                    return l && l.textContent ? l.textContent.replace(/\\s+/g, ' ').trim() : '';
+                };
+                for (const el of root.querySelectorAll('input')) {
+                    const c = komponenKolom(el);
+                    let pesan = '';
+                    try {
+                        if (c && c.getErrors) {
+                            const g = c.getErrors();
+                            pesan = Array.isArray(g) ? g.join('; ') : String(g || '');
+                        }
+                        if (!pesan && c && c.hasActiveError && c.hasActiveError()) {
+                            const g = c.getActiveError ? c.getActiveError() : '';
+                            pesan = String((g && (g.title || g.text)) || '');
+                        }
+                    } catch (e) { pesan = ''; }
+                    const bidang = bidangKolom(el);
+                    if (!pesan && bidang && bidang.querySelector) {
+                        const t = bidang.querySelector('.x-form-invalid-under, .x-form-error-msg, '
+                            + '.x-form-invalid-icon');
+                        if (t) pesan = String((t.textContent || t.getAttribute('data-errorqtip')) || '');
+                    }
+                    pesan = String(pesan || '').replace(/\\s+/g, ' ').trim();
+                    if (!pesan) continue;
+                    const kunci = String(el.getAttribute('name') || el.id || '?');
+                    const baris = kunci + (label(el) ? ' («' + label(el) + '»)' : '') + ': ' + pesan;
+                    if (hasil.indexOf(baris) < 0) hasil.push(baris);
+                    if (hasil.length >= 12) break;
+                }
+                if (hasil.length) return hasil;
+                // Dapodik versi lain menaruh pesannya di daftar galat milik formulirnya.
+                const pesanUmum = [];
+                for (const t of root.querySelectorAll('.x-form-invalid-under, .x-form-error-msg')) {
+                    const teks = String(t.textContent || '').replace(/\\s+/g, ' ').trim();
+                    if (teks && pesanUmum.indexOf(teks) < 0) pesanUmum.push(teks);
+                }
+                return pesanUmum.slice(0, 8);
+                """, jendela)
+        except Exception:  # noqa: BLE001 — keterangan tambahan saja
+            return ""
+        if not isinstance(galat, list) or not galat:
+            return ""
+        return "; ".join(str(satu).strip() for satu in galat if str(satu).strip())
 
     def _pastikan_baris_setelah_bio(self, peramban, xpath_baris: str, nisn: str, loc_cari) -> None:
         """Setelah jendela «Ubah» disimpan, daftar peserta didik kadang tersegar.

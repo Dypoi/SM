@@ -1081,7 +1081,112 @@ def main() -> int:
     cek(p46.gulir_kursor_di_kolom == 0,
         f"ada {p46.gulir_kursor_di_kolom}x gulir selagi kursor masih di dalam kolom (model Ext JS)")
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 46 skenario")
+
+    # 47) LOG SEKOLAH 29 Sep 2026 («bio-tidak-terisi»): bot mengira hampir SEMUA kolom jendela
+    #     «Ubah» adalah dropdown lalu melewatinya — RT, RW, No. KK, NIK, nama ayah, kode pos,
+    #     tahun lahir, alamat … Semuanya berbunyi «daftar dropdown TIDAK terbaca … dilewati».
+    #     Sebabnya: DOM Dapodik itu tidak memakai kelas ``.x-field``, sehingga wadah yang dibaca
+    #     skrip lama memuat kolom TETANGGA beserta tombol putar numberfield (``x-form-trigger``).
+    #     Ronde 49: jenis kolom ditentukan dari bukti yang melekat pada kolom itu sendiri —
+    #     panah dropdown, role=combobox, atau komponen Ext JS yang benar-benar memuat unsur itu.
+    p47, j47 = jalankan("47. DOM sekolah (wadah lebar) → kolom biasa tidak lagi dikira dropdown", 2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "dom_wadah_lebar", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p47.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji DOM sekolah")
+    cek(not any("daftar dropdown TIDAK terbaca" in b for b in j47),
+        f"masih ada kolom yang dilewati karena «daftar dropdown TIDAK terbaca»: "
+        f"{[b for b in j47 if 'TIDAK terbaca' in b][:4]}")
+    cek(not any("bukan dropdown" in b for b in j47),
+        f"kolom yang bukan dropdown tetap masuk jalur dropdown: "
+        f"{[b for b in j47 if 'bukan dropdown' in b][:3]}")
+    cek(any("RT: terisi" in b and "model Ext JS" in b for b in j47),
+        f"RT tidak terisi (beserta pemeriksaan model Ext JS-nya): {[b for b in j47 if 'RT:' in b][:3]}")
+    salah47 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if str(p47.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah47, f"kolom yang tersimpan tidak sesuai pada DOM sekolah: {salah47}")
+    cek(p47.komponen_meleset_kali == 0,
+        f"bot memakai komponen Ext JS milik kolom lain {p47.komponen_meleset_kali}x")
+    cek(p47.gulir_kursor_di_kolom == 0,
+        f"ada {p47.gulir_kursor_di_kolom}x gulir selagi kursor masih di dalam kolom")
+
+    # 48) Panah dropdown harus milik KOLOM ITU SENDIRI. Dulu bot memakai
+    #     ``following::*[contains(@class, 'x-form-trigger')][1]`` yang menyapu halaman: di
+    #     sekolah yang terbuka daftar kolom TETANGGA (log: kolom «Tahun lahir ayah» menampilkan
+    #     daftar «Pendidikan ayah», lalu nilainya dilaporkan «TIDAK ADA di daftar»).
+    p48, j48 = jalankan("48. panah dropdown milik kolomnya sendiri, bukan milik tetangga", 2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "dom_wadah_lebar", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p48.panah_sendiri_dipakai >= 1,
+        "panah dropdown milik kolom itu sendiri tidak pernah dipakai")
+    cek(not any("TIDAK ADA di daftar dropdown" in b for b in j48),
+        f"pilihan dilaporkan tidak ada padahal daftarnya milik kolom lain: "
+        f"{[b for b in j48 if 'TIDAK ADA' in b][:3]}")
+    cek(p48.komponen_meleset_kali == 0,
+        f"komponen kolom lain dipakai {p48.komponen_meleset_kali}x (id meleset)")
+    for kunci, nama_kolom, nilai in BIO_UJI:
+        if nama_kolom not in ("Pendidikan ayah", "Pekerjaan ayah", "Penghasilan ayah",
+                              "Pendidikan ibu", "Pekerjaan ibu", "Penghasilan ibu"):
+            continue
+        cek(str(p48.data_bio_tersimpan.get(nama_kolom) or "").strip() == nilai,
+            f"{nama_kolom} tidak tersimpan benar dari daftarnya: "
+            f"{p48.data_bio_tersimpan.get(nama_kolom)!r}")
+    cek(p48.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji panah milik kolom")
+
+    # 49) Versi Dapodik yang penanda dropdown-nya tidak terbaca (tidak ada panah & role):
+    #     kolom combo pun dikira kolom biasa, teksnya diketik — dan Dapodik menyimpan KOSONG,
+    #     karena yang tersimpan hanya pilihan dari daftarnya. Bot harus menyadarinya dari
+    #     **model Ext JS yang kosong** lalu mencoba daftarnya (ronde 49).
+    p49, j49 = jalankan("49. combo tanpa penanda → ketikan tak tersimpan, dicoba lewat daftar", 2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "kombo_tak_terbaca", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p49.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji combo tanpa penanda")
+    cek(any("model Ext JS-nya kosong" in b for b in j49),
+        f"model Ext JS yang kosong tidak dilaporkan: "
+        f"{[b for b in j49 if 'model Ext JS' in b][:4]}")
+    for kunci, nama_kolom, nilai in BIO_UJI:
+        if nama_kolom not in ("Pendidikan ayah", "Pekerjaan ayah", "Penghasilan ayah",
+                              "Pendidikan ibu", "Pekerjaan ibu", "Penghasilan ibu"):
+            continue
+        cek(str(p49.data_bio_tersimpan.get(nama_kolom) or "").strip() == nilai,
+            f"{nama_kolom} tersimpan kosong/salah pada uji combo tanpa penanda: "
+            f"{p49.data_bio_tersimpan.get(nama_kolom)!r}")
+    salah49 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if " " not in nama_kolom and str(
+                   p49.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah49, f"kolom biasa ikut salah pada uji combo tanpa penanda: {salah49}")
+    cek(p49.gulir_kursor_di_kolom == 0,
+        f"ada {p49.gulir_kursor_di_kolom}x gulir selagi kursor masih di dalam kolom")
+
+    # 50) Kolom teks yang memakai unsur bergaya panah TANPA bukti combo (role/aria/xtype/
+    #     store): di sekolah kolom seperti ini dilaporkan «daftar dropdown TIDAK terbaca —
+    #     dilewati». Bot harus mengetik nilainya lebih dulu; panah itu tidak boleh dipakai
+    #     membuka daftar, dan bila ternyata kolomnya combo sungguhan (ketikan tidak
+    #     tersimpan) barulah daftarnya dicoba.
+    p50, j50 = jalankan("50. unsur mirip panah tanpa bukti combo → kolom tetap diketik", 2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "panah_tanpa_data", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p50.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji panah tanpa data")
+    cek(p50.panah_tak_berdata_kali == 0,
+        f"panah kolom tanpa data dipakai {p50.panah_tak_berdata_kali}x membuka dropdown")
+    cek(any("tidak ada bukti combo" in b for b in j50),
+        f"kolom dengan unsur mirip panah tidak dicatat jujur: "
+        f"{[b for b in j50 if 'panah' in b][:3]}")
+    cek(not any("daftar dropdown TIDAK terbaca" in b or "dilewati — daftar dropdown" in b
+                for b in j50),
+        f"kolom masih dilewati karena daftar dropdown tak terbaca: "
+        f"{[b for b in j50 if 'TIDAK terbaca' in b][:3]}")
+    salah50 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if str(p50.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah50, f"kolom yang tersimpan tidak sesuai pada uji panah tanpa data: {salah50}")
+    for kunci, nama_kolom, nilai in BIO_UJI:
+        if nama_kolom not in ("Pendidikan ayah", "Pekerjaan ayah", "Penghasilan ayah",
+                              "Pendidikan ibu", "Pekerjaan ibu", "Penghasilan ibu"):
+            continue
+        cek(str(p50.data_bio_tersimpan.get(nama_kolom) or "").strip() == nilai,
+            f"{nama_kolom} tidak tersimpan dari daftarnya pada uji panah tanpa data: "
+            f"{p50.data_bio_tersimpan.get(nama_kolom)!r}")
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 50 skenario")
     return 0
 
 
