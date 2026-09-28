@@ -4597,6 +4597,121 @@ def cek_gulir_aman() -> str:
             "nilai SEMUA kolom dipulihkan bila berubah karena gulir (uji tiruan 32–38)")
 
 
+
+@cek("40. Kolom dicari lewat NAMA & label div — RT/RW, Desa/Kelurahan, dan angka Dapodik")
+def cek_kolom_lewat_nama_dan_label_div() -> str:
+    """Ronde 47 — «kenapa masih gagal input rt dan rw?» + «bot tidak menemukan input & dropdown» desa.
+
+    Dua sebab yang ditemukan: (a) kolom RT/RW (juga alamat, No. KK, kode pos, desa) hanya punya
+    jalur **label**, padahal di Dapodik versi sekolah label itu digambar sebagai div Ext JS —
+    skrip sekolah sendiri memakai **nama kolom** (`rt`, `rw`, …) dan berhasil; (b) kolom combo
+    «Desa/Kelurahan» tidak terjangkau name/label sama sekali, sehingga XPath lengkap dari
+    sekolah dipakai sebagai kandidat terakhir — dengan syarat unsur yang didapat memang kolom
+    combo (jangan sampai nilai desa ditulis ke kolom lain). Perilaku itu dibuktikan
+    `scripts/uji_bot_dapodik.py` skenario 39–43.
+    """
+    import ast
+
+    sumber = (BASE_DIR / "app/bot_dapodik.py").read_text(encoding="utf-8")
+    badan: dict[str, str] = {}
+    for simpul in ast.walk(ast.parse(sumber)):
+        if isinstance(simpul, ast.FunctionDef):
+            badan.setdefault(simpul.name, ast.get_source_segment(sumber, simpul) or "")
+
+    # (a) Kolom yang dulu hanya lewat label: nama kolom didahulukan (cara skrip sekolah).
+    from app import bot_dapodik
+    for kunci, nama in (("bio_rt", "rt"), ("bio_rw", "rw"), ("bio_alamat", "alamat_jalan"),
+                        ("bio_no_kk", "no_kk"), ("bio_kode_pos", "kode_pos")):
+        kandidat = bot_dapodik.SELECTOR_CADANGAN[kunci]
+        assert kandidat and kandidat[0] == f"name:{nama}", \
+            f"{kunci} masih bergantung pada label saja (kandidat pertama: {kandidat[:1]})"
+
+    # (b) Kolom combo desa: XPath lengkap dari sekolah jadi kandidat PALING AKHIR.
+    kandidat = bot_dapodik.SELECTOR_CADANGAN["bio_kelurahan"]
+    assert kandidat[-1].startswith("xpath:/html/body/"), \
+        "XPath lengkap dari sekolah tidak terpasang untuk kolom «Desa/Kelurahan»"
+    assert "fieldset[1]" in kandidat[-1] and kandidat[-1].endswith("input"), \
+        f"XPath sekolah berubah bentuk: {kandidat[-1]}"
+    assert "name:kode_wilayah" in kandidat, \
+        "nama kolom combo Dapodik (kode_wilayah) tidak dicoba"
+    for jalur in ("_cari_kolom_kandidat_lain", "_layak_combo", "_cari_combo_desa",
+                  "_rincian_isian_bio"):
+        assert jalur in badan, f"fungsi {jalur} hilang (kolom desa bisa gagal ketemu lagi)"
+    isi = badan["_cari_kolom_kandidat_lain"]
+    for tanda in ("BUKAN combo", "_layak_combo(", "XPath lengkap yang dikirim",
+                  "boleh ditulis ke kolom lain"):
+        assert tanda in isi, f"penjaga kandidat XPath kehilangan {tanda!r}"
+    isi = badan["_layak_combo"]
+    for tanda in ("/* layak-combo */", "aria-owns", "combobox", "x-form-trigger"):
+        assert tanda in isi, f"pemeriksa «apakah kolom ini combo» kehilangan {tanda!r}"
+    isi = badan["_cari_combo_desa"]
+    for tanda in ("/* cari-combo-desa */", "x-fieldlabel", "desa|kelurahan|wilayah"):
+        assert tanda in isi, f"pelacak combo desa kehilangan {tanda!r}"
+    isi = badan["_rincian_isian_bio"]
+    assert "/* rincian-isian-bio */" in isi and "combo" in isi, \
+        "laporan mandiri «isian apa saja yang ada di jendela» hilang"
+
+    # (c) Label div Ext JS (`x-fieldlabel`) ikut dilacak — di halaman & di dalam jendela.
+    for fungsi in ("_cari_lewat_label", "_kolom_dalam_jendela"):
+        isi = badan[fungsi]
+        for tanda in ("x-fieldlabel", "x-form-item-label"):
+            assert tanda in isi, f"{fungsi} tidak melacak label berbentuk div ({tanda!r})"
+    isi = badan["_cari_lewat_label"]
+    assert "/* cari-label-halaman */" in isi, "penanda skrip pencarian label halaman hilang"
+    assert "closest('.x-field, .x-form-item, .form-group')" in isi, \
+        "label & kolom tidak dibatasi pada bidang yang sama (RT bisa mengambil kotak RW)"
+    isi = badan["_kolom_dalam_jendela"]
+    assert "isianDalam" in isi and "'label-div'" in isi and "lewat:" in isi, \
+        "pencarian di dalam jendela tidak mengenali label div / tidak melaporkan jalurnya"
+    assert "berbentuk div Ext JS" in isi and "kolomnya ditemukan lewat labelnya" in isi, \
+        "jalur label div tidak dicatat apa adanya di log"
+    isi = badan["_isi_bio"]
+    assert "isian yang ADA di jendela" in isi and "_rincian_isian_bio(" in isi, \
+        "_isi_bio tidak melaporkan isian yang ada saat kolom desa tidak ketemu"
+
+    # (d) Nilai angka Dapodik («007» → «7», «63.5» → «63,5») dinilai SAMA, bukan gagal.
+    assert "_angka_sama" in badan and "_isi_sesuai" in badan and "_catatan_angka" in badan, \
+        "pembanding angka Dapodik hilang (RT/RW bisa dilaporkan «belum berisi nilai yang benar»)"
+    isi = badan["_isi_sesuai"]
+    assert "_keduanya_angka(" in isi, \
+        "dua angka yang BERBEDA (mis. data «3» vs kolom «13») bisa diterima hanya karena "\
+        "bentuk teksnya mirip — gunakan _keduanya_angka() sebelum menerima «diminta in isi»"
+    assert "diminta in isi" in isi, "penerimaan nilai teks (mis. alamat) hilang dari _isi_sesuai"
+    isi = badan["_angka_sama"]
+    for tanda in ("[0-9]+(?:[.,][0-9]+)?", 'replace(",", ".")'):
+        assert tanda in isi, f"pembanding angka kehilangan {tanda!r}"
+    isi = badan["_isi_periodik_satu"]
+    assert "nilai not in isi" not in isi, \
+        "pengisian kolom masih menilai dengan teks saja («007» ≠ «7» → dilaporkan gagal)"
+    assert isi.count("_isi_sesuai(") >= 2, \
+        "penilaian angka tidak dipakai di semua jalur pengisian kolom"
+    assert "_rekam_nilai_bio(unsur, isi)" in isi, \
+        "nilai yang benar-benar ada di kolom tidak dicatat (penjaga bisa berkelahi dengan Dapodik)"
+    assert "_angka_sama(diharapkan, dapat)" in badan["_periksa_nilai_bio"], \
+        "penjaga nilai masih menganggap bentuk angka Dapodik sebagai perubahan"
+
+    # (e) Buktinya ada di peramban palsu & uji — tidak bisa dihapus diam-diam.
+    fixture = (BASE_DIR / "scripts/peramban_palsu.py").read_text(encoding="utf-8")
+    for tanda in ("XPATH_DESA_SEKOLAH", "angka_menormalkan", "angka_dinormalkan",
+                  "normalkan_angka", "desa_tanpa_nama", "desa_tanpa_label", "desa_label_div",
+                  "desa_jalur_xpath", "xpath_desa_salah", "xpath_desa_dipakai",
+                  "label_div_dipakai", "rincian_isian_diminta", "label_div_semua",
+                  "cari-combo-desa", "layak-combo", "rincian-isian-bio"):
+        assert tanda in fixture, f"peramban palsu kehilangan {tanda!r} (bukti ronde 47)"
+    uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
+    for tanda in ("angka_menormalkan", "desa_jalur_xpath", "label_div_dipakai",
+                  "xpath_desa_salah", "label_div_semua", "BUKAN combo",
+                  "isian yang ADA di jendela", "Dapodik menyimpan kolom ini sebagai angka",
+                  "43 skenario"):
+        assert tanda in uji, f"uji bot kehilangan pemeriksaan {tanda!r} (ronde 47)"
+
+    return ("kolom dicari lewat NAMA lebih dulu (rt, rw, alamat_jalan, no_kk, kode_pos), label "
+            "div Ext JS (`x-fieldlabel`) ikut dilacak di halaman & jendela, kolom combo desa "
+            "punya jalur XPath lengkap dari sekolah dengan pemeriksaan «wajib combo», nilai "
+            "angka Dapodik («007» → «7», «63,5») dinilai sama, dan isian yang ada di jendela "
+            "dilaporkan saat kolomnya tidak ketemu (uji tiruan 39–43)")
+
+
 @cek("38. Tombol «Online» — Tailscale Funnel sekali klik, tanpa jendela cmd")
 def cek_tombol_online():
     """Uji fitur ronde 44 memakai «tailscale palsu» — tanpa menyentuh jaringan sekolah."""
@@ -4810,6 +4925,7 @@ def main() -> int:
     cek_lencana_ikon()
     cek_tombol_online()
     cek_gulir_aman()
+    cek_kolom_lewat_nama_dan_label_div()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()

@@ -878,7 +878,117 @@ def main() -> int:
     cek(p38.gulir_kursor_di_kolom == 0,
         f"ada {p38.gulir_kursor_di_kolom}x gulir selagi kursor masih di dalam kolom")
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 38 skenario")
+    # 39) Dapodik menyimpan kolom angka dengan caranya sendiri: «007» → «7» dan «63.5» →
+    #     «63,5» (numberfield, pemisah desimal gaya Indonesia). Bentuk yang berbeda itu BUKAN
+    #     kegagalan pengisian — dulu bot melaporkannya «kolom belum berisi nilai yang benar»
+    #     (keluhan ronde 47: «masih gagal input rt dan rw»), dan penjaga nilainya berkelahi
+    #     dengan Dapodik dengan menuliskan kembali bentuk lamanya.
+    p39, j39 = jalankan("39. kolom angka Dapodik: «007» → «7», «63.5» → «63,5» (bukan gagal)", 2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "angka_menormalkan", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"},
+                        ubah_siswa={"rt": "007", "rw": "003", "berat_badan": 63.5})
+    cek(p39.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji normalisasi angka")
+    cek(p39.angka_dinormalkan >= 1,
+        f"uji tidak bermakna: {p39.angka_dinormalkan} kolom angka dinormalkan Dapodik")
+    cek(p39.data_bio_tersimpan.get("rt") == "7",
+        f"RT tersimpan {p39.data_bio_tersimpan.get('rt')!r} (data «007» seharusnya jadi «7»)")
+    cek(p39.data_bio_tersimpan.get("rw") == "3",
+        f"RW tersimpan {p39.data_bio_tersimpan.get('rw')!r} (data «003» seharusnya jadi «3»)")
+    berat39 = str(p39.data_periodik_tersimpan.get("berat_badan") or "").strip()
+    cek(berat39.replace(",", ".") == "63.5",
+        f"berat badan tersimpan {berat39!r} — seharusnya 63,5 (gaya Dapodik)")
+    cek(not any("belum berisi nilai yang benar" in b for b in j39),
+        [b for b in j39 if "belum berisi nilai yang benar" in b][:3])
+    cek(any("Dapodik menyimpan kolom ini sebagai angka" in b for b in j39),
+        [b for b in j39 if "sebagai angka" in b][:3])
+    cek(not any(("«rt»" in b or "«rw»" in b) and "berubah sesudah menggulir" in b for b in j39),
+        f"penjaga nilai berkelahi dengan bentuk angka Dapodik: "
+        f"{[b for b in j39 if 'penjaga' in b][:3]}")
+    cek(not any("kolomnya tidak ketemu" in b for b in j39),
+        f"kolom angka ada yang tidak ketemu: {[b for b in j39 if 'tidak ketemu' in b][:3]}")
+
+    # 40) Kolom combo «Desa/Kelurahan» pada versi Dapodik sekolah tidak punya atribut name dan
+    #     labelnya bukan elemen <label> — bot sekarang memakai XPath lengkap yang dikirim
+    #     sekolah sebagai jalur paling akhir, sesudah kandidat nama/label gagal.
+    cek(bot_dapodik.SELECTOR_CADANGAN["bio_kelurahan"][-1]
+        == "xpath:" + peramban_palsu.XPATH_DESA_SEKOLAH,
+        "XPath lengkap dari sekolah tidak terpasang sebagai kandidat terakhir kolom desa")
+    p40, j40 = jalankan("40. kolom desa tanpa name & label → XPath lengkap sekolah dipakai", 2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "desa_tanpa_nama", True),
+                                        setattr(p, "desa_tanpa_label", True),
+                                        setattr(p, "desa_jalur_xpath", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p40.xpath_desa_dipakai >= 1, "XPath lengkap dari sekolah tidak pernah dipakai")
+    cek(p40.bio_tersimpan, "jendela «Ubah» tidak tersimpan saat kolom desa hanya bisa lewat XPath")
+    cek(p40.data_bio_tersimpan.get("kelurahan") == DESA_PILIH_PALSU,
+        f"desa tidak tersimpan: {p40.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p40.kode_wilayah() == kode_desa_palsu(DESA_PILIH_PALSU),
+        f"kode wilayah sesudah «Simpan»: {p40.kode_wilayah()!r}")
+    cek(p40.bio_kode_ditolak == 0, f"Dapodik menolak desanya {p40.bio_kode_ditolak}x")
+    cek(any("XPath lengkap yang dikirim sekolah" in b for b in j40),
+        [b for b in j40 if "Desa/Kelurahan" in b][:4])
+
+    # 41) Versi Dapodik yang menggambar label kolom desa sebagai div Ext JS
+    #     (``.x-fieldlabel``): kolomnya tetap harus ketemu & desanya tersimpan.
+    p41, j41 = jalankan("41. label kolom desa berupa div Ext JS (bukan <label>)", 2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "desa_tanpa_nama", True),
+                                        setattr(p, "desa_tanpa_label", True),
+                                        setattr(p, "desa_label_div", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p41.label_div_dipakai >= 1,
+        "label div (`.x-fieldlabel`) tidak dipakai saat mencari kolom")
+    cek(any("labelnya yang berbentuk div" in b for b in j41),
+        [b for b in j41 if "Desa/Kelurahan" in b][:4])
+    cek(p41.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada versi berlabel div")
+    cek(p41.data_bio_tersimpan.get("kelurahan") == DESA_PILIH_PALSU,
+        f"desa tidak tersimpan: {p41.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p41.kode_wilayah() == kode_desa_palsu(DESA_PILIH_PALSU),
+        f"kode wilayah sesudah «Simpan»: {p41.kode_wilayah()!r}")
+    cek(p41.bio_kode_ditolak == 0, f"Dapodik menolak desanya {p41.bio_kode_ditolak}x")
+
+    # 42) Keamanan jalur XPath: bila XPath yang dikirim menunjuk kolom yang BUKAN combo,
+    #     bot tidak boleh menuliskan nama desa ke kolom itu — ia melewatinya, melaporkan apa
+    #     adanya, dan menyebutkan isian apa saja yang ADA di jendela «Ubah».
+    p42, j42 = jalankan("42. XPath sekolah menunjuk kolom BUKAN combo → tidak disalahgunakan", 2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "desa_tanpa_nama", True),
+                                        setattr(p, "desa_tanpa_label", True),
+                                        setattr(p, "desa_jalur_xpath", True),
+                                        setattr(p, "xpath_desa_salah", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p42.data_bio_tersimpan.get("rt") == "3",
+        f"RT terisi nilai lain oleh XPath desa: {p42.data_bio_tersimpan.get('rt')!r}")
+    cek(p42.data_bio_tersimpan.get("kelurahan") == DESA_LAMA_PALSU,
+        f"desa lama ikut berubah padahal kolomnya tidak ketemu: "
+        f"{p42.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(any("BUKAN combo" in b for b in j42), [b for b in j42 if "Desa/Kelurahan" in b][:4])
+    cek(any("tidak ketemu" in b and "Desa/Kelurahan" in b for b in j42),
+        [b for b in j42 if "Desa/Kelurahan" in b][-3:])
+    cek(any("isian yang ADA di jendela" in b for b in j42),
+        [b for b in j42 if "isian yang ADA" in b][:2])
+    cek(p42.bio_kode_ditolak == 0,
+        f"«Simpan» Dapodik menolak {p42.bio_kode_ditolak}x padahal kolom desa tidak disentuh")
+
+    # 43) Lingkungan yang dilaporkan sekolah: SEMUA label kolom digambar sebagai div Ext JS
+    #     (bukan <label>) — persis keadaan yang membuat RT & RW «gagal diisi» padahal kolom
+    #     lain berhasil. Bot harus menemukan kolomnya lewat nama kolom (cara skrip sekolah)
+    #     dan lewat label div.
+    p43, j43 = jalankan("43. semua label kolom berupa div Ext JS → RT/RW tetap terisi", 2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "label_div_semua", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p43.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada versi berlabel div")
+    salah43 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if str(p43.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah43, f"kolom yang tersimpan tidak sesuai pada versi berlabel div: {salah43}")
+    cek(any("RT: terisi" in b for b in j43), [b for b in j43 if "RT" in b][:3])
+    cek(any("RW: terisi" in b for b in j43), [b for b in j43 if "RW" in b][:3])
+    cek(not any("kolomnya tidak ketemu" in b for b in j43),
+        f"masih ada kolom yang tidak ketemu: {[b for b in j43 if 'tidak ketemu' in b][:3]}")
+    cek(p43.data_bio_tersimpan.get("kelurahan") == DESA_PILIH_PALSU,
+        f"desa tidak tersimpan: {p43.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p43.gulir_kursor_di_kolom == 0,
+        f"ada {p43.gulir_kursor_di_kolom}x gulir selagi kursor masih di dalam kolom")
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 43 skenario")
     return 0
 
 

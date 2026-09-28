@@ -264,15 +264,31 @@ SELECTOR_CADANGAN: dict[str, list[str]] = {
         'xpath://*[self::span or self::a or self::button][normalize-space()="Ubah"]',
         'xpath://span[contains(@class, "x-btn-inner-soft-purple-small")]',
     ],
-    "bio_no_kk": ["label:No. Kartu Keluarga", "css:input[name*=no_kk]"],
-    "bio_reg_akta": ["label:No. Registrasi Akta Lahir", "css:input[name*=akta]"],
-    "bio_alamat": ["label:Alamat (Jalan)", "label:Alamat", "css:input[name*=alamat_jalan]"],
-    "bio_rt": ["label:RT", "css:input[name=rt]"],
-    "bio_rw": ["label:RW", "css:input[name=rw]"],
-    "bio_kode_pos": ["label:Kode Pos", "css:input[name*=kode_pos]"],
+    #: Kolom-kolom di atas dicari lewat **nama kolomnya lebih dulu** (persis
+    #: ``find_element(By.NAME, …)`` skrip sekolah yang terbukti berhasil), baru lewat
+    #: labelnya. Sebabnya dari laporan ronde 47: yang gagal diisi justru kolom-kolom yang
+    #: HANYA punya jalur label (RT, RW, alamat, No. KK, kode pos) — di versi Dapodik sekolah
+    #: labelnya tidak digambar sebagai elemen ``<label>``.
+    "bio_no_kk": ["name:no_kk", "label:No. Kartu Keluarga", "css:input[name*=no_kk]"],
+    "bio_reg_akta": ["name:reg_akta_lahir", "name:no_registrasi_akta_lahir",
+                     "label:No. Registrasi Akta Lahir", "css:input[name*=akta]"],
+    "bio_alamat": ["name:alamat_jalan", "label:Alamat (Jalan)", "label:Alamat",
+                   "css:input[name*=alamat_jalan]", "css:input[name*=alamat]"],
+    "bio_rt": ["name:rt", "label:RT", "css:input[name=rt]"],
+    "bio_rw": ["name:rw", "label:RW", "css:input[name=rw]"],
+    "bio_kode_pos": ["name:kode_pos", "label:Kode Pos", "css:input[name*=kode_pos]"],
+    #: Kolom combo «Desa/Kelurahan». Dapodik menyimpan **kode wilayah**-nya (mis.
+    #: ``kode_wilayah``/``kode_wilayah_str``), sedangkan teks di kotaknya hanya tampilan.
+    #: Di sebagian versi Dapodik (laporan sekolah ronde 47) kolom itu **tidak terjangkau
+    #: lewat name maupun label** — karena itu kandidat terakhirnya adalah **XPath lengkap
+    #: yang dikirim sekolah**, dan unsur yang didapat dari kandidat itu wajib diperiksa
+    #: dulu bahwa ia memang kolom combo (jangan sampai nilai desa ditulis ke kolom lain).
     "bio_kelurahan": ["label:Desa/Kelurahan", "label:Desa", "label:Kelurahan",
+                      "name:kode_wilayah", "css:input[name=kode_wilayah]",
                       "css:input[name*=kelurahan]", "css:input[name*=desa]",
-                      "css:input[name*=wilayah]"],
+                      "css:input[name*=wilayah]",
+                      "xpath:/html/body/div[10]/div[2]/div/div[1]/div/div[1]/div/div"
+                      "/fieldset[1]/div/div/div/div[18]/div/div/div[1]/input"],
     "bio_anak_ke": ["label:Anak ke-berapa", "label:Anak ke", "css:input[name*=anak]"],
     "bio_ayah_nama": ["css:input[name*=nama_ayah]"],
     "bio_ayah_nik": ["css:input[name*=nik_ayah]"],
@@ -1144,42 +1160,61 @@ class BotDapodik:
         """Cari kolom isian lewat **label** yang tertera di formulir Dapodik.
 
         Dapodik menamai kolomnya berbeda-beda antar versi (mis. ``sekolah_asal`` atau
-        ``id_sekolah_asal``), sedangkan labelnya tetap «Sekolah Asal». Skrip ini mencari
-        teks label, lalu mengambil kolom isian di sebelahnya (lewat ``for`` atau wadah
-        formulirnya). Kembalikan elemen, atau ``None`` bila tidak ada.
+        ``id_sekolah_asal``), sedangkan labelnya tetap «Sekolah Asal». Skrip ini mencari teks
+        label, lalu mengambil kolom isian **yang berada di bidang yang sama** dengan label itu
+        (lewat ``for`` atau wadah ``.x-field``/``.x-form-item``-nya) — jadi label «RT» tidak
+        akan mengambil kotak «RW» bila keduanya berada di satu baris.
+
+        Sejak ronde 47 label juga dilacak pada **div Ext JS** (``.x-fieldlabel`` /
+        ``.x-form-item-label``): di sebagian versi Dapodik label kolom (RT, RW, Desa/Kelurahan,
+        No. KK, Kode Pos) tidak digambar sebagai elemen ``<label>``, sehingga pencarian label
+        biasa tidak menemukannya.
         """
         try:
             return peramban.execute_script(
                 """
+                /* cari-label-halaman */
                 const cari = String(arguments[0] || '').replace(/\\s+/g, ' ').trim().toLowerCase();
                 if (!cari) return null;
                 const rapi = (t) => String(t || '').replace(/\\s+/g, ' ').trim().toLowerCase();
-                const bersih = (t) => rapi(t).replace(/[*:\u00a0]+$/g, '').trim();
-                const etiket = [...document.querySelectorAll('label')].find((l) => {
-                    const teks = bersih(l.textContent);
-                    return teks === cari || teks.startsWith(cari);
-                });
-                if (etiket) {
-                    let kotak = null;
-                    const id = etiket.htmlFor || etiket.getAttribute('for');
-                    if (id) kotak = document.getElementById(id);
-                    if (!kotak) {
-                        const wadah = etiket.closest('div.x-form-item, div.x-field, .form-group, div');
-                        if (wadah) {
-                            kotak = wadah.querySelector(
-                                'input:not([type=hidden]):not([type=button]):not([type=submit]), '
-                                + 'textarea, select');
-                        }
+                const bersih = (t) => rapi(t).replace(/[*:\\u00a0]+$/g, '').trim();
+                const tampil = (el) => !!(el && el.getClientRects && el.getClientRects().length);
+                const isianDalam = (bidang) => {
+                    if (!bidang) return null;
+                    for (const k of bidang.querySelectorAll('input, textarea, select')) {
+                        const jenis = String(k.getAttribute('type') || '').toLowerCase();
+                        if (jenis === 'hidden' || jenis === 'button' || jenis === 'submit') continue;
+                        if (tampil(k)) return k;
                     }
+                    return null;
+                };
+                const kotakDariLabel = (etiket) => {
+                    const id = etiket.htmlFor || etiket.getAttribute('for');
+                    if (id) {
+                        const lewatId = document.getElementById(id);
+                        if (lewatId && tampil(lewatId)) return lewatId;
+                    }
+                    const bidang = etiket.closest('.x-field, .x-form-item, .form-group');
+                    return isianDalam(bidang) || isianDalam(etiket.parentElement);
+                };
+                const kandidatLabel = [
+                    ...document.querySelectorAll('label'),
+                    ...document.querySelectorAll(
+                        '.x-fieldlabel, .x-form-item-label, .x-form-item-label-default'),
+                ];
+                for (const etiket of kandidatLabel) {
+                    const teksLabel = bersih(etiket.textContent);
+                    if (!teksLabel || (teksLabel !== cari && !teksLabel.startsWith(cari))) continue;
+                    const kotak = kotakDariLabel(etiket);
                     if (kotak) return kotak;
                 }
                 // Sebagian formulir Ext JS tidak memakai <label>: teks polos di sebelah kolom.
                 const semua = [...document.querySelectorAll('div, span, td')];
                 const pemilik = semua.find((d) => bersih(d.textContent) === cari);
                 if (pemilik) {
-                    return pemilik.parentElement
-                        ? pemilik.parentElement.querySelector('input:not([type=hidden]), textarea, select')
-                        : null;
+                    const bidang = pemilik.closest('.x-field, .x-form-item, .form-group')
+                        || pemilik.parentElement;
+                    return isianDalam(bidang);
                 }
                 return null;
                 """, str(teks))
@@ -1347,6 +1382,62 @@ class BotDapodik:
             return None
 
     # --- Penjaga nilai: jangan biarkan gulir mengubah kolom yang sudah diisi --- #
+    @staticmethod
+    def _angka_sama(kiri: Any, kanan: Any) -> bool:
+        """Apakah dua isian **sama sebagai angka** (mis. «007» ≡ «7»)?
+
+        Dapodik menyimpan RT/RW (dan beberapa kolom lain) sebagai **angka**: nilai data
+        sekolah «007» tampil & tersimpan sebagai «7». Bentuk yang berbeda seperti itu
+        **bukan** kegagalan pengisian, dan **bukan** perubahan nilai yang perlu dikembalikan
+        penjaga — laporan ronde 47: «masih gagal input rt dan rw».
+        """
+        def angka(nilai: Any) -> float | None:
+            teks = str(nilai if nilai is not None else "").strip().replace(" ", "")
+            if not teks or not re.fullmatch(r"[0-9]+(?:[.,][0-9]+)?", teks):
+                return None
+            try:
+                return float(teks.replace(",", "."))
+            except ValueError:
+                return None
+
+        kiri_angka, kanan_angka = angka(kiri), angka(kanan)
+        return kiri_angka is not None and kanan_angka is not None and kiri_angka == kanan_angka
+
+    def _isi_sesuai(self, diminta: str, isi: str) -> tuple[bool, bool]:
+        """Sudah berisikah kolomnya dengan nilai yang diminta? → ``(sesuai, angka_dinormalkan)``.
+
+        ``angka_dinormalkan`` = nilai cocok **sebagai angka** walau tulisannya berbeda
+        («007» → «7»), supaya lognya jujur menjelaskan apa yang dilakukan Dapodik.
+        """
+        if not isi:
+            return False, False
+        if isi == diminta:
+            return True, False
+        if self._angka_sama(diminta, isi):
+            # Tulisan berbeda, nilainya sama sebagai angka («007» ≡ «7», «63.5» ≡ «63,5»).
+            return True, True
+        if self._keduanya_angka(diminta, isi):
+            # Dua-duanya angka tetapi nilainya BEDA: jangan diterima hanya karena bentuk
+            # teksnya mirip (mis. data «3» tidak boleh dianggap cocok dengan kolom «13»).
+            return False, False
+        return (diminta in isi), False
+
+    @staticmethod
+    def _keduanya_angka(kiri: Any, kanan: Any) -> bool:
+        """Apakah dua isian itu sama-sama berbentuk angka (tanpa perlu nilainya sama)?"""
+        pola = r"[0-9]+(?:[.,][0-9]+)?"
+        teks = [str(nilai if nilai is not None else "").strip().replace(" ", "")
+                for nilai in (kiri, kanan)]
+        return all(re.fullmatch(pola, satu) for satu in teks)
+
+    @staticmethod
+    def _catatan_angka(diminta: str, isi: str, dinormalkan: bool) -> str:
+        """Keterangan tambahan bila Dapodik menyimpan nilainya sebagai angka."""
+        if not dinormalkan:
+            return ""
+        return (f" (data «{diminta}» — Dapodik menyimpan kolom ini sebagai angka, "
+                f"jadi «{isi}» sudah benar)")
+
     def _rekam_nilai_bio(self, unsur, nilai: str) -> None:
         """Catat nilai kolom BIO yang sudah ditulis bot (untuk diperiksa sesudah menggulir)."""
         nama = str(getattr(unsur, "name", "") or "")
@@ -1382,7 +1473,10 @@ class BotDapodik:
         berubah: list[str] = []
         for nama, diharapkan in list(self._penjaga_nilai.items()):
             dapat = self._nilai_teks(sekarang.get(nama))
-            if dapat == "" or dapat == diharapkan:
+            # «Sama» juga berarti sama SEBAGAI ANGKA: Dapodik menyimpan kolom angka seperti
+            # RT/RW sebagai numberfield, jadi «007» di data sekolah memang tampil «7» —
+            # itu bukan perubahan yang perlu dikembalikan (ronde 47).
+            if dapat == "" or dapat == diharapkan or self._angka_sama(diharapkan, dapat):
                 continue                 # tidak terbaca / masih sama
             berubah.append(nama)
             self._catat_kepala(f"{awalan} nilai kolom «{nama}» berubah sesudah menggulir "
@@ -1575,13 +1669,19 @@ class BotDapodik:
             isi = str(unsur.get_attribute("value") or "").strip()
         except Exception:  # noqa: BLE001
             isi = ""
-        if nilai not in isi:      # sebagian kolom menolak ketikan langsung: isi lewat skrip
+        # Penilaian memakai pembanding ANGKA juga: Dapodik menyimpan kolom seperti RT/RW
+        # sebagai numberfield, jadi «007» dari data SM sah tersimpan sebagai «7» — dulu
+        # perbandingan teks membuat kolom ini dilaporkan «belum berisi nilai yang benar»
+        # (keluhan ronde 47: «masih gagal input rt dan rw»).
+        sesuai, dinormalkan = self._isi_sesuai(nilai, isi)
+        if not sesuai:      # sebagian kolom menolak ketikan langsung: isi lewat skrip
             try:
                 self._isi_lewat_js(peramban, unsur, nilai)
                 isi = str(unsur.get_attribute("value") or "").strip()
             except Exception:  # noqa: BLE001
                 isi = ""
-        if nilai not in isi:
+            sesuai, dinormalkan = self._isi_sesuai(nilai, isi)
+        if not sesuai:
             # Jalur pamungkas Ext JS: nilainya dimasukkan ke model Ext JS lewat komponennya
             # sendiri (data-componentid → Ext.getCmp(...)), bukan hanya ke DOM.
             if self._set_ext(peramban, unsur, nilai=nilai):
@@ -1590,17 +1690,18 @@ class BotDapodik:
                     isi = str(unsur.get_attribute("value") or "").strip()
                 except Exception:  # noqa: BLE001
                     isi = ""
-                if nilai in isi:
+                sesuai, dinormalkan = self._isi_sesuai(nilai, isi)
+                if sesuai:
                     # Ronde 45: nilai SETIAP kolom yang ditulis bot dicatat — kolom mana pun
                     # (bukan hanya kolom angka) bisa berubah bila digulir selagi kursornya
                     # ada di dalamnya.
                     self._rekam_nilai_bio(unsur, isi)
-                    return f"terisi lewat Ext JS: {isi}"
-        if nilai in isi:
+                    return f"terisi lewat Ext JS: {isi}{self._catatan_angka(nilai, isi, dinormalkan)}"
+        if sesuai:
             # Nilai kolom dicatat: sesudah setiap gulir diperiksa lagi, karena gulir bisa
             # mengubah nilai kolom isian mana pun (mis. «RT» menjadi «0» — ronde 45).
             self._rekam_nilai_bio(unsur, isi)
-            return f"terisi: {isi}"
+            return f"terisi: {isi}{self._catatan_angka(nilai, isi, dinormalkan)}"
         return "kolom belum berisi nilai yang benar"
 
     def _kotak_jarak(self, peramban, kunci: str, peta: dict[str, str]) -> list[Any]:
@@ -2569,7 +2670,7 @@ class BotDapodik:
         if jendela is None:
             return None
         try:
-            return peramban.execute_script(
+            hasil = peramban.execute_script(
                 """
                 /* kolom-jendela */
                 const root = arguments[0];
@@ -2577,27 +2678,61 @@ class BotDapodik:
                 const cari = (arguments[2] || '').replace(/\\s+/g, ' ').trim().toLowerCase();
                 if (!root) return null;
                 const tampil = (el) => !!(el && el.getClientRects && el.getClientRects().length);
+                const rapi = (t) => String(t || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                const bersih = (t) => rapi(t).replace(/[*:\\u00a0]+$/, '').trim();
+                const isianDalam = (bidang) => {
+                    // Kolom di dalam SATU bidang (.x-field) — supaya label RT tidak
+                    // mengambil kotak RW bila keduanya berada di baris yang sama.
+                    if (!bidang) return null;
+                    for (const k of bidang.querySelectorAll('input, textarea, select')) {
+                        const jenis = String(k.getAttribute('type') || '').toLowerCase();
+                        if (jenis === 'hidden' || jenis === 'button' || jenis === 'submit') continue;
+                        if (tampil(k)) return k;
+                    }
+                    return null;
+                };
                 if (nama) {
-                    const k = root.querySelector('input[name="' + nama + '"]');
-                    if (k && tampil(k)) return k;
+                    for (const k of root.querySelectorAll('input[name="' + nama + '"]')) {
+                        if (tampil(k)) return {el: k, lewat: 'nama'};
+                    }
                 }
                 if (cari) {
-                    for (const l of root.querySelectorAll('label')) {
-                        const t = (l.textContent || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+                    // Labelnya bisa berupa <label> ATAU digambar sebagai div Ext JS
+                    // (`.x-fieldlabel` / `.x-form-item-label`) — di sebagian versi Dapodik
+                    // hanya cara kedua yang ada (laporan ronde 47).
+                    const labelnya = root.querySelectorAll(
+                        'label, .x-fieldlabel, .x-form-item-label, .x-form-item-label-default');
+                    for (const l of labelnya) {
+                        const t = bersih(l.textContent);
                         if (!t || (t !== cari && !t.startsWith(cari))) continue;
+                        // Label yang digambar sebagai DIV Ext JS (bukan elemen <label>) —
+                        // keadaan yang dilaporkan sekolah ronde 47 (RT, RW, Desa/Kelurahan).
+                        const labelDiv = !(l.tagName || '').toUpperCase().startsWith('LABEL');
                         const forId = l.getAttribute('for');
-                        let k = forId ? document.getElementById(forId) : null;
-                        if (!k) {
-                            const w = l.closest('.x-field, .x-form-item, div');
-                            k = w ? w.querySelector('input') : null;
+                        const lewatId = forId ? document.getElementById(forId) : null;
+                        if (lewatId && tampil(lewatId)) {
+                            return {el: lewatId, lewat: labelDiv ? 'label-div' : 'label'};
                         }
-                        if (k && tampil(k)) return k;
+                        const bidang = l.closest('.x-field, .x-form-item');
+                        const k = isianDalam(bidang) || isianDalam(l.parentElement);
+                        if (k) return {el: k, lewat: labelDiv ? 'label-div' : 'label'};
                     }
                 }
                 return null;
                 """, jendela, nama_kolom, teks_label)
         except Exception:  # noqa: BLE001 — pemanggil memakai pencarian cadangan
             return None
+        if isinstance(hasil, dict):
+            lewat = str(hasil.get("lewat") or "")
+            if lewat == "label-div":
+                # Jujur soal jalurnya: labelnya bukan elemen <label> melainkan div Ext JS —
+                # inilah yang bikin kolom (RT, RW, Desa/Kelurahan, …) dulu «tidak ketemu».
+                self._catat_kepala(
+                    f"[bio] {teks_label or nama_kolom}: kolomnya ditemukan lewat labelnya yang "
+                    "berbentuk div Ext JS (`.x-fieldlabel`) — bukan elemen <label>; versi "
+                    "Dapodik seperti ini tidak terjangkau pencarian label biasa.")
+            return hasil.get("el")
+        return hasil
 
     def _atur_gulir_jendela(self, peramban, jendela, ke: int = 0) -> int:
         """Kembalikan **isi jendela** ke posisi gulir tertentu (bawaan: paling atas).
@@ -2746,9 +2881,182 @@ class BotDapodik:
                 self._tunggu(peramban, 0.6)
                 continue
             break
+        # Jalur terakhir sebelum menyerah: kandidat selector yang hanya bisa diselesaikan
+        # sendiri (mis. XPath lengkap yang dikirim sekolah untuk kolom combo «Desa/Kelurahan»)
+        # dan pelacakan combo lewat label yang bukan elemen <label> (div ``.x-fieldlabel``).
+        unsur = self._cari_kolom_kandidat_lain(peramban, peta, kunci, teks_label, jendela)
+        if unsur is not None:
+            return unsur
         if jendela is not None:
             return self._kolom_dalam_jendela(peramban, jendela, nama_kolom, teks_label)
         return self._kolom_global(peramban, nama_kolom, teks_label)
+
+    def _layak_combo(self, peramban, unsur) -> bool:
+        """Benarkah unsur ini kolom **combo** (bukan kolom teks biasa)?
+
+        Dipakai untuk kandidat yang bisa meleset (mis. XPath tata letak): bot tidak boleh
+        menuliskan nama desa ke kolom lain yang kebetulan sejalur — itu justru merusak data.
+        """
+        if unsur is None:
+            return False
+        try:
+            return bool(peramban.execute_script(
+                """
+                /* layak-combo */
+                const el = arguments[0];
+                if (!el) return false;
+                const jenis = String(el.getAttribute('type') || 'text').toLowerCase();
+                if (jenis && !['text', 'search'].includes(jenis)) return false;
+                const aria = String(el.getAttribute('aria-owns') || '');
+                const peran = String(el.getAttribute('role') || '');
+                const kelas = String(el.getAttribute('class') || '');
+                const panah = el.parentElement
+                    ? el.parentElement.querySelector('.x-form-trigger') : null;
+                return /list/i.test(aria) || peran === 'combobox'
+                    || /x-form-trigger/.test(kelas) || !!panah;
+                """, unsur))
+        except Exception:  # noqa: BLE001 — tidak terbaca: jangan dipakai
+            return False
+
+    def _cari_combo_desa(self, peramban, jendela):
+        """Cari kolom combo «Desa/Kelurahan» yang labelnya BUKAN elemen ``<label>``.
+
+        Sebagian Dapodik menggambar label kolom sebagai div Ext JS (``.x-fieldlabel``),
+        sehingga pencarian lewat ``<label>`` tidak menemukannya — itulah yang membuat bot
+        melaporkan «kolomnya tidak ketemu» (laporan ronde 47). Yang dicari: kolom yang
+        benar-benar combo dan labelnya (``<label>`` atau div) menyebut desa/kelurahan/wilayah.
+        """
+        try:
+            return peramban.execute_script(
+                """
+                /* cari-combo-desa */
+                const root = arguments[0] || document;
+                const tampil = (el) => !!(el && el.getClientRects && el.getClientRects().length);
+                const labelDari = (el) => {
+                    const wadah = (el.closest && el.closest('.x-field, .x-form-item')) || null;
+                    if (!wadah) return '';
+                    const l = wadah.querySelector(
+                        'label, .x-fieldlabel, .x-form-item-label, .x-form-item-label-default');
+                    return (l && l.textContent ? l.textContent : '')
+                        .replace(/\\s+/g, ' ').trim().toLowerCase();
+                };
+                const hasil = [];
+                for (const el of root.querySelectorAll('input')) {
+                    if (!tampil(el)) continue;
+                    const jenis = String(el.getAttribute('type') || 'text').toLowerCase();
+                    if (!['text', 'search', ''].includes(jenis)) continue;
+                    const aria = String(el.getAttribute('aria-owns') || '');
+                    const peran = String(el.getAttribute('role') || '');
+                    const kelas = String(el.getAttribute('class') || '');
+                    const panah = el.parentElement
+                        ? el.parentElement.querySelector('.x-form-trigger') : null;
+                    const combo = /list/i.test(aria) || peran === 'combobox'
+                        || /x-form-trigger/.test(kelas) || !!panah;
+                    if (!combo) continue;
+                    if (/(desa|kelurahan|wilayah)/.test(labelDari(el))) {
+                        hasil.push(el);
+                    }
+                }
+                return hasil.length ? hasil[0] : null;
+                """, jendela)
+        except Exception:  # noqa: BLE001 — pemanggil memakai kandidat lain
+            return None
+
+    def _rincian_isian_bio(self, peramban, jendela) -> str:
+        """Sebutkan isian apa saja yang ADA di jendela «Ubah» — laporan mandiri saat gagal.
+
+        Dipakai hanya bila kolom combo «Desa/Kelurahan» tidak ketemu: satu baris log ini
+        membuat sebabnya langsung terbaca (nama kolom apa, combo atau bukan) tanpa perlu
+        memotret layar sekolah.
+        """
+        try:
+            daftar = peramban.execute_script(
+                """
+                /* rincian-isian-bio */
+                const root = arguments[0] || document;
+                const hasil = [];
+                for (const el of root.querySelectorAll('input')) {
+                    if (!(el.getClientRects && el.getClientRects().length)) continue;
+                    const jenis = String(el.getAttribute('type') || 'text').toLowerCase();
+                    if (jenis === 'hidden') continue;
+                    const nama = el.getAttribute('name') || '(tanpa nama)';
+                    const aria = String(el.getAttribute('aria-owns') || '');
+                    const peran = String(el.getAttribute('role') || '');
+                    const kelas = String(el.getAttribute('class') || '');
+                    const panah = el.parentElement
+                        ? el.parentElement.querySelector('.x-form-trigger') : null;
+                    const combo = /list/i.test(aria) || peran === 'combobox'
+                        || /x-form-trigger/.test(kelas) || !!panah;
+                    hasil.push(nama + '/' + (combo ? 'combo' : 'teks'));
+                    if (hasil.length >= 20) break;
+                }
+                return hasil;
+                """, jendela)
+        except Exception:  # noqa: BLE001 — keterangan tambahan saja
+            return ""
+        if not isinstance(daftar, list) or not daftar:
+            return ""
+        return ", ".join(str(satu) for satu in daftar if str(satu).strip())
+
+    def _cari_kolom_kandidat_lain(self, peramban, peta: dict[str, str], kunci: str,
+                                  teks_label: str = "", jendela=None):
+        """Coba kandidat selector yang tersisa — termasuk XPath lengkap dari sekolah.
+
+        Khusus kolom combo «Desa/Kelurahan», kandidat XPath **wajib** menghasilkan unsur yang
+        benar-benar kolom combo; kalau tidak, kandidat itu dilewati dan dicatat apa adanya
+        (lebih baik jujur «tidak ketemu» daripada menulis nama desa ke kolom lain).
+        """
+        combo_desa = kunci in ("bio_kelurahan",)
+        dicoba: list[str] = []
+        for nilai in self._kandidat_selector(kunci, peta):
+            if nilai.lower().startswith("label:"):
+                continue              # sudah dicoba lewat pencarian nama/label di atas
+            dicoba.append(nilai)
+        for nilai in dicoba:
+            try:
+                locator = self._locator_nilai(nilai)
+            except Exception:  # noqa: BLE001 — kandidat berikutnya
+                continue
+            try:
+                for unsur in peramban.find_elements(*locator):
+                    if not self._terlihat(peramban, unsur):
+                        continue
+                    jenis = ""
+                    try:
+                        jenis = str(unsur.get_attribute("type") or "").lower()
+                    except Exception:  # noqa: BLE001 — tanpa atribut type
+                        jenis = ""
+                    if jenis not in ("", "text", "search"):
+                        continue      # kolom tersembunyi/tombol bukan sasaran pengisian
+                    if combo_desa and not self._layak_combo(peramban, unsur):
+                        self._catat_kepala(
+                            f"[bio] {teks_label or 'Desa/Kelurahan'}: kandidat «{nilai}» "
+                            "menemukan kolom yang BUKAN combo — dilewati (nilai desa tidak "
+                            "boleh ditulis ke kolom lain).")
+                        continue
+                    if nilai.startswith("xpath:/html/"):
+                        self._catat_kepala(
+                            f"[bio] {teks_label or 'Desa/Kelurahan'}: kolomnya ditemukan lewat "
+                            "XPath lengkap yang dikirim sekolah — kandidat paling akhir, "
+                            "sesudah pencarian nama/label tidak menemukannya; kolomnya sudah "
+                            "diperiksa memang combo.")
+                    return unsur
+            except Exception:  # noqa: BLE001 — kandidat berikutnya
+                continue
+        if combo_desa:
+            # Pelacakan combo lewat label yang digambar div Ext JS (bukan <label>).
+            lewat_div = self._cari_combo_desa(peramban, jendela)
+            if lewat_div is None and jendela is not None:
+                # Cara terakhir: combo itu juga bisa berada di luar batas tampilan jendela
+                # yang sedang terlihat — sekali lagi di seluruh halaman.
+                lewat_div = self._cari_combo_desa(peramban, None)
+            if lewat_div is not None:
+                self._catat_kepala(
+                    f"[bio] {teks_label or 'Desa/Kelurahan'}: kolom combo-nya ditemukan lewat "
+                    "labelnya yang berbentuk div (bukan elemen <label>) — versi Dapodik yang "
+                    "tidak terjangkau oleh pencarian label biasa.")
+                return lewat_div
+        return None
 
     def _kolom_global(self, peramban, nama_kolom: str, teks_label: str = ""):
         """Cari kolom **di seluruh halaman** lewat namanya (persis `By.NAME` skrip sekolah).
@@ -4390,6 +4698,16 @@ class BotDapodik:
             unsur = self._cari_kolom_bio(peramban, peta, kunci_sel, jendela, label)
             if unsur is None:
                 self._catat_kepala(f"[bio] {label}: kolomnya tidak ketemu — dilewati.")
+                if kunci_sel == "bio_kelurahan":
+                    # Kolom combo «Desa/Kelurahan» adalah kolom yang paling sering dilaporkan
+                    # «tidak ditemukan» (ronde 47) — sebutkan isian apa saja yang ADA di
+                    # jendela «Ubah», supaya sebabnya terbaca dari satu baris log ini.
+                    isian = self._rincian_isian_bio(peramban, jendela)
+                    self._catat_kepala(
+                        "[bio] Desa/Kelurahan: isian yang ADA di jendela «Ubah» (nama/jenis): "
+                        + (isian or "(tidak terbaca)") +
+                        " — kandidat yang dicoba: label «Desa/Kelurahan», name «kode_wilayah», "
+                        "input[name*=wilayah], lalu XPath lengkap dari sekolah.")
                 self._catat_kepala(self._rincian_bio(peramban, jendela, peta,
                                                      f"saat kolom «{label}» tidak ketemu"))
                 bukti = self._bukti(peramban, "bio-kolom-tidak-ketemu")

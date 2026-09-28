@@ -104,6 +104,12 @@ DESA_KARAWACI_PALSU: tuple[str, ...] = (
 DESA_LAMA_BIO = "Desa/Kel. Gembor - Kec. Karawaci - Kota Tangerang"
 DESA_LAMA_ID = 7
 
+#: XPath LENGKAP kolom «Desa/Kelurahan» yang dikirim sekolah pada ronde 47 — dipakai bila
+#: kolomnya tidak terjangkau lewat nama maupun label (bot: kandidat paling akhir, dan hanya
+#: dipakai setelah diperiksa bahwa unsur yang didapat memang kolom combo).
+XPATH_DESA_SEKOLAH = ("/html/body/div[10]/div[2]/div/div[1]/div/div[1]/div/div/fieldset[1]"
+                      "/div/div/div/div[18]/div/div/div[1]/input")
+
 #: Banyaknya pilihan desa per halaman picker (persis bilah halaman combo Dapodik).
 DESA_PER_HALAMAN = 8
 
@@ -190,6 +196,12 @@ class UnsurPalsu:
         self.terpilih = bool(sifat.get("terpilih", False))
         #: Teks label di sebelah kolom (mis. "Sekolah Asal") — dipakai bot mencari lewat label
         self.label = str(sifat.get("label", ""))
+        #: Label yang digambar sebagai DIV (``.x-fieldlabel`` Ext JS), bukan elemen <label> —
+        #: ada di Dapodik versi yang membuat bot "tidak menemukan" kolomnya (ronde 47).
+        self.label_div = str(sifat.get("label_div", ""))
+        #: Nama kolom DATA yang diwakili unsur ini (di Dapodik selalu = atribut name; di uji
+        #: ada keadaan «kolom tanpa atribut name», maka kuncinya diambil dari sini).
+        self.kunci_data = str(sifat.get("kunci_data", "") or sifat.get("name", ""))
         #: True = unsur milik panel «Data Periodik» (hanya hidup setelah baris siswa dipilih)
         self.periodik = bool(sifat.get("periodik", False))
         #: True = wadah/panel «Data Periodik Peserta Didik» (area gulir sendiri)
@@ -242,6 +254,9 @@ class UnsurPalsu:
         #: True = kolom angka (numberfield Dapodik): nilainya bisa berubah menjadi «0» bila
         #: digulir selagi kursornya ada di dalam kolom itu (laporan sekolah ronde 45).
         self.angka = bool(sifat.get("angka", False))
+        #: True = kolomnya readonly di DOM (combo Dapodik: hanya kolom pencarian desa yang
+        #: bisa diketik; combo pendidikan/pekerjaan/penghasilan readonly).
+        self.readonly = bool(sifat.get("readonly", False))
 
     # ------------------------------------------------------------ atribut --- #
     def get_attribute(self, nama: str) -> str | None:
@@ -249,6 +264,7 @@ class UnsurPalsu:
                 "placeholder": self.placeholder, "aria-label": self.aria,
                 "value": self.nilai, "class": self.kelas, "label": self.label,
                 "data-componentid": self.componentid, "aria-owns": self.aria_owns,
+                "readonly": ("readonly" if self.readonly else None),
                 "role": getattr(self, "role", ""),
                 "aria-expanded": ("true" if self.peramban.dropdown_terbuka is self
                                   and not self.peramban.dropdown_tak_bisa_dibuka else "false")}
@@ -685,6 +701,39 @@ class PerambanPalsu:
         #: True = tiap gulir mengubah nilai SEMUA kolom yang sudah diisi (keadaan terkeras:
         #: gulir oleh orang di depan layar selagi semua kolom terisi).
         self.rusak_paksa_semua = False
+        #: True = kolom ANGKA Dapodik menormalkan nilainya («007» → «7») begitu kolomnya
+        #: ditinggalkan — persis numberfield Ext JS. Data sekolah memang berisi RT «007»,
+        #: RW «003», … jadi nilai yang tersimpan berbentuk angka (ronde 47).
+        self.angka_menormalkan = False
+        #: Berapa kali nilai kolom angka benar-benar dinormalkan Dapodik («007» → «7»).
+        self.angka_dinormalkan = 0
+        #: True = kolom combo «Desa/Kelurahan» di DOM sekolah **tidak punya atribut name**
+        #: (laporan ronde 47: bot «tidak menemukan form input & dropdownnya»).
+        self.desa_tanpa_nama = False
+        #: True = label kolom desa TIDAK berbentuk elemen ``<label>`` (versi Dapodik sekolah).
+        self.desa_tanpa_label = False
+        #: True = label kolom desa digambar sebagai div Ext JS (``.x-fieldlabel``) — hanya
+        #: pelacakan combo lewat div yang menemukannya.
+        self.desa_label_div = False
+        #: True = kolom combo desa membawa XPath lengkap dari sekolah (jalur terakhir bot).
+        self.desa_jalur_xpath = False
+        #: True = SEMUA label kolom BIO digambar sebagai div Ext JS (``.x-fieldlabel``),
+        #: bukan elemen ``<label>`` — lingkungan Dapodik yang dilaporkan ronde 47 (RT, RW,
+        #: Desa/Kelurahan gagal diisi padahal kolom lain berhasil).
+        self.label_div_semua = False
+        #: True = XPath lengkap dari sekolah menunjuk kolom yang BUKAN combo (uji keamanan:
+        #: bot tidak boleh menyalahgunakan jalur itu untuk mengisi kolom lain).
+        self.xpath_desa_salah = False
+        #: Berapa kali XPath lengkap dari sekolah benar-benar dipakai menemukan kolom desa.
+        self.xpath_desa_dipakai = 0
+        #: Berapa kali bot meminta rincian isian jendela «Ubah» (laporan mandiri saat kolom
+        #: combo desanya tidak ketemu).
+        self.rincian_isian_diminta = 0
+        #: Berapa kali kolom combo desa ditemukan lewat labelnya (termasuk label div Ext JS).
+        self.combo_desa_label_dipakai = 0
+        #: Berapa kali kolom BIO ditemukan lewat label yang digambar sebagai DIV Ext JS
+        #: (``.x-fieldlabel``) — bukan elemen <label> (laporan ronde 47).
+        self.label_div_dipakai = 0
         #: Berapa kali «Simpan» mengembalikan desa karena kode wilayahnya basi/kosong
         self.bio_kode_ditolak = 0
         #: Berapa kali bot memeriksa nilai kolom lewat penjaga nilai (bukti jalurnya dipakai)
@@ -944,11 +993,11 @@ class PerambanPalsu:
                        panel_periodik=True,
                        jalur="/html/body/div[2]/div/div/div[2]/div/div/div/div[4]"),
             UnsurPalsu(self, "input", type="text", name="tinggi_badan", label="Tinggi Badan",
-                       periodik=True),
+                       periodik=True, angka=True),
             UnsurPalsu(self, "input", type="text", name="berat_badan", label="Berat Badan",
-                       periodik=True),
+                       periodik=True, angka=True),
             UnsurPalsu(self, "input", type="text", name="lingkar_kepala",
-                       label="Lingkar Kepala", periodik=True),
+                       label="Lingkar Kepala", periodik=True, angka=True),
             # Baris «Jarak rumah ke sekolah» punya DUA pilihan, seperti Dapodik:
             # «kurang dari 1 km» (td/div[1]) dan «lebih dari 1 km» (td/div[2], persis skrip).
             # Keduanya dibungkus `x-form-cb-wrap-inner` — klik pada pembungkusnya mengubah
@@ -970,9 +1019,9 @@ class PerambanPalsu:
             # persis DOM sekolah: `x-item-disabled` + `disabled=""` + aria-disabled="true".
             UnsurPalsu(self, "input", type="text", name="jarak_rumah_ke_sekolah_km",
                        componentid="numberfield-1113", label="Sebutkan (dalam kilometer)",
-                       periodik=True, enabled=False),
+                       periodik=True, enabled=False, angka=True),
             UnsurPalsu(self, "input", type="text", name="jumlah_saudara_kandung",
-                       label="Jumlah Saudara Kandung", periodik=True),
+                       label="Jumlah Saudara Kandung", periodik=True, angka=True),
             UnsurPalsu(self, "span", kelas="x-btn-inner-default-small", teks="Simpan dan Tutup",
                        periodik=True, simpan_periodik=True),
         ])
@@ -1069,9 +1118,14 @@ class PerambanPalsu:
         return self
 
     def _kolom_bio_semua(self) -> list["UnsurPalsu"]:
-        """Kolom teks BIO menurut urutan tampilannya (dari atas ke bawah)."""
+        """Kolom teks BIO menurut urutan tampilannya (dari atas ke bawah).
+
+        Termasuk kolom combo «Desa/Kelurahan» yang pada versi Dapodik tertentu **tidak punya
+        atribut name** (ronde 47) — kalau tidak, kolom itu tidak ikut dihitung dan bot
+        dianggap tidak pernah menjangkaunya.
+        """
         return [unsur for unsur in self.unsur
-                if unsur.bio and unsur.type == "text" and unsur.name]
+                if unsur.bio and unsur.type == "text" and (unsur.name or unsur.kunci_data)]
 
     def bio_band(self) -> int:
         """Berapa kolom BIO yang **terlihat** pada posisi gulir jendela saat ini.
@@ -1182,7 +1236,31 @@ class PerambanPalsu:
                 # Combo desa pada data nyata SUDAH berisi pilihan lama (inilah data yang
                 # tidak boleh ikut berubah bila bot tidak menemukan desa yang diminta).
                 nilai_lama = DESA_LAMA_BIO if wilayah else ""
-                combo = UnsurPalsu(self, "input", type="text", name=nama, label=label,
+                # Ronde 47: kolom combo desa bisa TIDAK punya atribut ``name`` dan labelnya
+                # digambar sebagai div Ext JS — persis keadaan yang membuat bot melaporkan
+                # «kolomnya tidak ketemu». Yang tersisa untuk menemukannya: XPath lengkap
+                # dari sekolah (``desa_tanpa_nama``) atau label div (``desa_label_div``).
+                nama_unsur = nama
+                label_unsur = label
+                label_div = ""
+                jalur_unsur = ""
+                if wilayah and self.desa_tanpa_nama:
+                    nama_unsur = ""
+                if wilayah and self.label_div_semua and not self.desa_tanpa_label:
+                    # Label combo desa pun digambar sebagai div (bukan <label>).
+                    label_unsur = ""
+                    label_div = label
+                if wilayah and self.desa_tanpa_label:
+                    label_unsur = ""
+                    if self.desa_label_div:
+                        # Persis Dapodik yang menggambar label sebagai div ``.x-fieldlabel``:
+                        # pencarian lewat <label> tidak menemukannya.
+                        label_div = label
+                if wilayah and self.desa_jalur_xpath and not self.xpath_desa_salah:
+                    jalur_unsur = XPATH_DESA_SEKOLAH
+                combo = UnsurPalsu(self, "input", type="text", name=nama_unsur,
+                                   label=label_unsur, label_div=label_div,
+                                   kunci_data=nama, jalur=jalur_unsur,
                                    bio=True, nilai=nilai_lama, nilai_model=nilai_lama,
                                    nilai_id=(DESA_LAMA_ID if wilayah else ""),
                                    aria="combobox", role="combobox",
@@ -1235,10 +1313,16 @@ class PerambanPalsu:
                     item.induk = combo
                     self.unsur.append(item)
                 continue
-            self.unsur.append(UnsurPalsu(self, "input", type="text", name=nama, label=label,
-                                         bio=True, nilai="LAMA",
-                                         angka=nama in KOLOM_ANGKA_BIO,
-                                         componentid=f"textfield-{1200 + nomor}"))
+            self.unsur.append(UnsurPalsu(
+                self, "input", type="text", name=nama,
+                label=("" if self.label_div_semua else label),
+                label_div=(label if self.label_div_semua else ""),
+                # Uji keamanan: XPath lengkap dari sekolah dibuat menunjuk kolom RT (BUKAN
+                # combo) — bot tidak boleh menyalahgunakannya untuk menulis ke kolom itu.
+                jalur=(XPATH_DESA_SEKOLAH if (nama == "rt" and self.xpath_desa_salah) else ""),
+                bio=True, nilai="LAMA",
+                angka=nama in KOLOM_ANGKA_BIO,
+                componentid=f"textfield-{1200 + nomor}"))
         self.unsur.append(UnsurPalsu(self, "span", kelas="x-btn-inner-default-small",
                                      teks="Simpan", bio=True, simpan_bio=True, aksi="simpan"))
 
@@ -1246,7 +1330,10 @@ class PerambanPalsu:
         """Tombol «Simpan» jendela «Ubah» ditekan: nilai tersimpan, jendelanya tertutup."""
         self.bio_tersimpan = True
         for unsur in self.unsur:
-            if unsur.bio and unsur.type == "text" and unsur.name:
+            # Kuncinya = nama kolom DATA (``kunci_data``): pada versi Dapodik yang kolom
+            # desanya tidak punya atribut name, kunci itu tetap ada (ronde 47).
+            if unsur.bio and unsur.type == "text" and (unsur.name or unsur.kunci_data):
+                kunci = unsur.kunci_data
                 # Dropdown mengirim NILAI MODEL Ext JS; kolom teks mengirim tulisannya.
                 if getattr(unsur, "pencarian_desa", False):
                     # Combo Ext JS yang dicari lewat kata kunci: yang tersimpan hanya
@@ -1255,19 +1342,23 @@ class PerambanPalsu:
                     # ``completeEdit()`` Ext JS yang mengembalikan rawValue yang tidak cocok.
                     # Ronde 45: teksnya bisa sudah benar sementara ``kode_wilayah_str`` masih
                     # menunjuk desa lama/kosong — Dapodik menyimpan yang LAMA.
-                    kode_benar = (bool(unsur.nilai_id)
-                                  and unsur.nilai_id == kode_desa_palsu(unsur.nilai_model))
+                    belum_disentuh = (unsur.nilai_id == getattr(unsur, "nilai_id_lama", "")
+                                      and unsur.nilai_model
+                                      == getattr(unsur, "nilai_model_lama", ""))
+                    kode_benar = belum_disentuh or (
+                        bool(unsur.nilai_id)
+                        and unsur.nilai_id == kode_desa_palsu(unsur.nilai_model))
                     if not kode_benar:
                         self.bio_kode_ditolak += 1
-                        self.data_bio_tersimpan[unsur.name] = unsur.nilai_lama
+                        self.data_bio_tersimpan[kunci] = unsur.nilai_lama
                         if self.kode_wilayah_kolom is not None:
                             self.kode_wilayah_kolom.nilai = getattr(unsur, "nilai_id_lama", "")
                     else:
-                        self.data_bio_tersimpan[unsur.name] = unsur.nilai_model
+                        self.data_bio_tersimpan[kunci] = unsur.nilai_model
                         if self.kode_wilayah_kolom is not None:
                             self.kode_wilayah_kolom.nilai = unsur.nilai_id
                 else:
-                    self.data_bio_tersimpan[unsur.name] = (unsur.nilai_model
+                    self.data_bio_tersimpan[kunci] = (unsur.nilai_model
                                                            if unsur.daftar_pilihan
                                                            else unsur.nilai)
         self.bio_terbuka = False
@@ -1338,6 +1429,35 @@ class PerambanPalsu:
                 self.rusak_paksa_kali += 1
                 if paksa.name not in self.rusak_karena_gulir:
                     self.rusak_karena_gulir.append(paksa.name)
+
+    def normalkan_angka(self, unsur: "UnsurPalsu") -> bool:
+        """Kolom angka Dapodik menormalkan nilainya («007» → «7») — persis numberfield.
+
+        Data sekolah berisi RT «007», RW «003», … sedangkan Dapodik menyimpan RT/RW sebagai
+        **angka**. Jadi begitu kolomnya ditinggalkan (``change``/``blur`` = ``completeEdit()``
+        Ext JS), tulisan «007» menjadi «7» — bukan kegagalan pengisian, dan bukan pula
+        «perubahan nilai» yang perlu dikembalikan penjaga (ronde 47).
+        """
+        if not (self.angka_menormalkan and getattr(unsur, "angka", False)):
+            return False
+        isi = str(getattr(unsur, "nilai", "") or "").strip()
+        if not isi:
+            return False
+        rapi = isi
+        if isi.isdigit():
+            # Kolom angka: nol di depan tidak disimpan («007» → «7»).
+            rapi = str(int(isi))
+        elif "," not in isi and isi.replace(".", "", 1).isdigit():
+            # Nilai pecahan ditampilkan dengan pemisah desimal gaya Indonesia
+            # («63.5» → «63,5») — persis numberfield Dapodik di PC sekolah.
+            rapi = isi.replace(".", ",")
+        if rapi == isi:
+            return False
+        unsur.nilai = rapi
+        if getattr(unsur, "daftar_pilihan", ()):
+            unsur.nilai_model = rapi
+        self.angka_dinormalkan += 1
+        return True
 
     def kode_wilayah(self) -> str:
         """Isi kolom tersembunyi ``kode_wilayah_str`` (kode desa yang benar-benar tersimpan)."""
@@ -1905,6 +2025,8 @@ class PerambanPalsu:
                     tujuan = lanjut[0]
                 if tujuan not in hasil:
                     hasil.append(tujuan)
+        if XPATH_DESA_SEKOLAH in str(nilai or "") and hasil:
+            self.xpath_desa_dipakai += 1
         if getattr(self, "jarak_tanpa_xpath", False) and by != "name":
             hasil = [u for u in hasil if not self._unsur_baris_jarak(u)]
         return [u for u in hasil if self._terjangkau(u)]
@@ -2024,6 +2146,79 @@ class PerambanPalsu:
             if self.kode_wilayah_kolom is None:
                 return None
             return self.kode_wilayah()
+        if "/* cari-label-halaman */" in skrip:
+            # Pencarian kolom lewat LABEL di seluruh halaman: dipakai bot untuk kolom yang
+            # namanya berbeda antar versi Dapodik ("Sekolah Asal", "Tinggi Badan", …). Label
+            # boleh berupa elemen <label> ATAU div Ext JS (``.x-fieldlabel``) — dan kolom yang
+            # belum terjangkau (jendela «Ubah» belum digulir) dianggap belum tampil, persis
+            # halaman sungguhan (ronde 47: label RT/RW/desa di Dapodik sekolah berupa div).
+            cari = " ".join(str(argumen[0] if argumen else "").split()).strip().lower()
+            if not cari:
+                return None
+            for unsur in self.unsur:
+                for teks, lewat_div in ((unsur.label, False), (unsur.label_div, True)):
+                    bersih = re.sub(r"[*:\u00a0]+$", "",
+                                    " ".join(str(teks or "").split()).lower()).strip()
+                    if not bersih or not (bersih == cari or bersih.startswith(cari)):
+                        continue
+                    if not self._terjangkau(unsur):
+                        continue
+                    if lewat_div:
+                        self.label_div_dipakai += 1
+                    return unsur
+            return None
+        if "/* cari-combo-desa */" in skrip:
+            # Bot mencari kolom combo «Desa/Kelurahan» TANPA bergantung pada ``name``/label
+            # biasa: yang dicari = kolom yang benar-benar combo dan labelnya (elemen <label>
+            # ATAU div ``.x-fieldlabel`` Ext JS) menyebut desa/kelurahan/wilayah.
+            if self.bio_tanpa_wadah or not (self.bio_terbuka and self.bio_siap()):
+                return None
+            batas = self.bio_band()
+            posisi = {id(u): i for i, u in enumerate(self._kolom_bio_semua())}
+            for unsur in self.unsur:
+                if not (unsur.bio and unsur.type == "text"
+                        and getattr(unsur, "pencarian_desa", False)):
+                    continue
+                if posisi.get(id(unsur), 99) >= batas:
+                    continue          # kolomnya di luar bagian jendela yang terlihat
+                teks = " ".join([unsur.label or "", unsur.label_div or ""]).strip().lower()
+                if any(kata in teks for kata in ("desa", "kelurahan", "wilayah")):
+                    self.combo_desa_label_dipakai += 1
+                    return unsur
+            return None
+        if "/* layak-combo */" in skrip:
+            # Bot memeriksa bahwa unsur yang didapat dari XPath/selector memang KOLOM COMBO
+            # (punya daftar pilihan / tombol panah) — jangan sampai bot menulis nilai desa ke
+            # kolom lain yang kebetulan sejalur (ronde 47).
+            sasaran = argumen[0] if argumen else None
+            if sasaran is None:
+                return False
+            return bool(getattr(sasaran, "pencarian_desa", False)
+                        or getattr(sasaran, "daftar_pilihan", ())
+                        or getattr(sasaran, "trigger_combo", False))
+        if "/* rincian-isian-bio */" in skrip:
+            # Laporan mandiri bot: isian apa saja yang ADA di jendela «Ubah» — dipakai saat
+            # kolom combo desanya tidak ketemu, supaya sebabnya langsung terbaca dari log.
+            self.rincian_isian_diminta += 1
+            if not self.bio_terbuka:
+                return []
+            batas = self.bio_band()
+            posisi = {id(u): i for i, u in enumerate(self._kolom_bio_semua())}
+            hasil = []
+            for unsur in self.unsur:
+                if not (unsur.bio and unsur.type == "text"):
+                    continue
+                if posisi.get(id(unsur), 99) >= batas:
+                    continue
+                jenis = "combo" if (getattr(unsur, "pencarian_desa", False)
+                                    or getattr(unsur, "daftar_pilihan", ())) else "teks"
+                nama = unsur.name or "(tanpa nama)"
+                label = unsur.label or unsur.label_div or "-"
+                hasil.append(f"{nama}/{jenis}/label={label}/readonly="
+                             f"{'ya' if unsur.get_attribute('readonly') is not None else 'tidak'}")
+                if len(hasil) >= 20:
+                    break
+            return hasil
         if "/* nama-kolom-wilayah */" in skrip:
             # Keterangan tambahan bot: nama kolom tersembunyi yang ADA di halaman — dipakai
             # saat ``kode_wilayah_str`` tidak ditemukan (versi Dapodik yang menamainya lain).
@@ -2266,13 +2461,16 @@ class PerambanPalsu:
             posisi = {id(u): i for i, u in enumerate(self._kolom_bio_semua())}
             nama = str(argumen[1] if len(argumen) > 1 else "").strip()
             label = str(argumen[2] if len(argumen) > 2 else "").strip().lower()
+            # Label boleh berupa div Ext JS (``.x-fieldlabel``) — hanya bila skrip bot
+            # memang memeriksanya (persis batas kemampuan JavaScript di halaman sungguhan).
+            cari_div = "x-fieldlabel" in skrip or "x-form-item-label" in skrip
             for unsur in self.unsur:
                 if not (unsur.bio and unsur.type == "text"):
                     continue
                 if posisi.get(id(unsur), 99) >= batas:
                     continue          # kolomnya di luar bagian jendela yang terlihat
                 if nama and unsur.name == nama:
-                    return unsur
+                    return {"el": unsur, "lewat": "nama"}
             if label:
                 for unsur in self.unsur:
                     if not (unsur.bio and unsur.type == "text"):
@@ -2280,8 +2478,15 @@ class PerambanPalsu:
                     if posisi.get(id(unsur), 99) >= batas:
                         continue
                     teks = (unsur.label or "").strip().lower()
+                    if not teks and cari_div:
+                        teks = (unsur.label_div or "").strip().lower()
+                        if teks and (teks == label or teks.startswith(label)):
+                            # Kolom ditemukan lewat label yang digambar sebagai DIV Ext JS.
+                            self.label_div_dipakai += 1
+                            return {"el": unsur, "lewat": "label-div"}
+                        continue
                     if teks and (teks == label or teks.startswith(label)):
-                        return unsur
+                        return {"el": unsur, "lewat": "label"}
             return None
         if "cari-kotak-teks" in skrip:
             # Bot melacak kotak lewat TEKS pilihannya (bukan XPath): label → kotaknya.
@@ -2457,6 +2662,15 @@ class PerambanPalsu:
                         (unsur.kelas or ""):
                     return unsur.teks
             return ""
+        if "dispatchEvent" in skrip and argumen and "'input'" in skrip and \
+                getattr(argumen[0], "angka", False) and self.angka_menormalkan:
+            # Dapodik menyimpan kolom angka dengan caranya sendiri: begitu kolomnya
+            # ditinggalkan (``change``/``blur`` = ``completeEdit()`` Ext JS), «007» menjadi
+            # «7» dan «63.5» menjadi «63,5» — persis numberfield Dapodik di sekolah. Bentuk
+            # yang berbeda itu BUKAN kegagalan pengisian (laporan ronde 47).
+            self.peristiwa_dipicu += 1
+            self.normalkan_angka(argumen[0])
+            return None
         if "dispatchEvent" in skrip and argumen and "new Event" in skrip and \
                 getattr(argumen[0], "periodik", False) and \
                 ("'input'" in skrip or '"input"' in skrip):
