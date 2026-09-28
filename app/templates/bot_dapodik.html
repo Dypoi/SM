@@ -53,6 +53,12 @@
         </form>
         <a class="btn btn-outline btn-sm" href="/bot-dapodik/log.csv">{{ icon('download') }} Log CSV</a>
         <a class="btn btn-outline btn-sm" href="/bot-dapodik/log.xlsx">{{ icon('download') }} Log Excel</a>
+        {#- Catatan lengkap selalu bisa ditemukan dari sini — bukan hanya saat ada pekerjaan
+            yang sedang tampil (pertanyaan ronde 48: «log adanya dimana?»). -#}
+        <a class="btn btn-outline btn-sm" id="tautan-catatan-lengkap"
+           href="/bot-dapodik/catatan{% if catatan_job %}?job={{ catatan_job }}{% endif %}">
+          {{ icon('file') }} Catatan lengkap{% if catatan_jumlah %} ({{ catatan_jumlah }} baris){% endif %}
+        </a>
       </div>
     </div>
 

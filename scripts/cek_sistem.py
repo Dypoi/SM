@@ -4833,7 +4833,8 @@ def cek_catatan_lengkap_bot() -> str:
             ("app/templates/bot_catatan.html",
              ("Unduh catatan (.txt)", "catatan-lengkap", "Berkas di PC")),
             ("app/templates/bot_dapodik.html",
-             ("/bot-dapodik/catatan", "catatan-jumlah", "catatan_berkas"))):
+             ("/bot-dapodik/catatan", "catatan-jumlah", "catatan_berkas",
+              "tautan-catatan-lengkap"))):
         isi_t = (BASE_DIR / berkas_template).read_text(encoding="utf-8")
         for satu in tanda:
             assert satu in isi_t, f"{berkas_template} kehilangan {satu!r}"
