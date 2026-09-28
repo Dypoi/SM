@@ -162,7 +162,9 @@ async def periksa_halaman() -> tuple[list[str], int]:
         await klien.post("/logout")
         await klien.post("/login", data={"mode": "staff", "username": "admin",
                                          "password": "admin123"})
-        for jalur in ("/online",):
+        # Halaman «Catatan Bot Dapodik (lengkap)» (ronde 48) juga ikut diperiksa: catatan
+        # panjangnya harus tetap rapi di dalam kartunya (tidak melimpah ke luar kartu).
+        for jalur in ("/online", "/bot-dapodik/catatan"):
             halaman = await klien.get(jalur)
             assert halaman.status_code == 200, f"{jalur} -> {halaman.status_code}"
             jumlah += 1
@@ -182,7 +184,8 @@ def main() -> int:
 
     masalah_html, jumlah = asyncio.run(periksa_halaman())
     semua = masalah_css + masalah_html
-    print(f"Diperiksa {jumlah} halaman (masuk + ruang siswa + halaman petugas «Online»).")
+    print(f"Diperiksa {jumlah} halaman (masuk + ruang siswa + halaman petugas «Online» & "
+          "«Catatan Bot Dapodik»).")
     if semua:
         for temuan in semua:
             print(f"  MASALAH {temuan}")

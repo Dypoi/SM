@@ -52,8 +52,19 @@ def _konteks(request: Request, **tambahan) -> dict:
     siap, keterangan = services.bot_siap_pakai()
     ringkas = services.ringkas_bot()
     job_terakhir = (ringkas.get("job") or {}).get("id")
+    catatan_job = int(job_terakhir or 0)
+    catatan_jumlah = 0
+    catatan_berkas = ""
+    if catatan_job:
+        catatan_jumlah = len((str((ringkas.get("job") or {}).get("log") or "")
+                              ).splitlines())
+        catatan_berkas = str(services.berkas_catatan_bot(catatan_job))
     data = {
         "page_title": "Bot Dapodik",
+        "catatan_job": catatan_job,
+        "catatan_jumlah": catatan_jumlah,
+        "catatan_berkas": catatan_berkas,
+        "baris_tayang": BARIS_CATATAN_TAYANG,
         "cfg": cfg,
         "siap": siap,
         "keterangan_siap": keterangan,
@@ -263,6 +274,13 @@ def bersihkan_riwayat(user: auth.SessionUser = Depends(auth.require_admin)):
                   "akan dianggap belum pernah didaftarkan.", level="info", anchor="kemajuan")
 
 
+#: Berapa baris catatan yang ditayangkan di panel «Catatan berjalan». Halaman ini hanya
+#: cuplikan; catatan LENGKAP (semua baris) ada di berkas ``data/bot/catatan-bot-<id>.txt`` dan
+#: di halaman ``/bot-dapodik/catatan`` yang bisa diunduh sebagai .txt (ronde 48 — pengguna
+#: melaporkan halaman web hanya menampilkan 12 baris terakhir).
+BARIS_CATATAN_TAYANG = 30
+
+
 @router.get("/bot-dapodik/status.json")
 def status_json(user: auth.SessionUser = Depends(auth.require_admin)):
     """Kemajuan terkini (dipakai halaman untuk memperbarui tampilan otomatis)."""
@@ -291,8 +309,45 @@ def status_json(user: auth.SessionUser = Depends(auth.require_admin)):
              "status": item["status"], "pesan": item["pesan"], "waktu": item["waktu"]}
             for item in (services.items_bot(job_id) if job_id else [])
         ],
-        "log": (job.get("log") or "").splitlines()[-12:],
+        "log": (job.get("log") or "").splitlines()[-BARIS_CATATAN_TAYANG:],
+        # Catatan LENGKAP tersimpan di basis data (salinan) & di berkas
+        # ``data/bot/catatan-bot-<id>.txt`` — jumlah barisnya ditampilkan di halaman.
+        "log_total": len((job.get("log") or "").splitlines()),
     }
+
+
+@router.get("/bot-dapodik/catatan")
+def halaman_catatan(request: Request, job: int = 0,
+                    user: auth.SessionUser = Depends(auth.require_admin)):
+    """Catatan LENGKAP bot (semua baris) — bukan hanya 12 baris terakhir.
+
+    Catatan disimpan utuh di ``data/bot/catatan-bot-<id>.txt`` dan bisa dibuka/diunduh
+    dari sini supaya catatan kegagalan dapat dikirimkan apa adanya (permintaan sekolah:
+    «untuk log adanya dimana? di web kan cuma sampai 12 baris terakhir»).
+    """
+    job_id = int(job or _job_terakhir())
+    teks, dari = services.baca_catatan_bot(job_id)
+    return render(request, "bot_catatan.html", {
+        "page_title": "Catatan Bot Dapodik",
+        "job_id": job_id,
+        "catatan": teks,
+        "jumlah_baris": len(teks.splitlines()),
+        "dari": dari,
+        "berkas": str(services.berkas_catatan_bot(job_id)) if job_id else "",
+        "riwayat": services.list_dapodik_jobs(limit=RIWAYAT_LIMIT),
+        "versi_kode": bot_dapodik.BotDapodik._versi_kode(),
+    })
+
+
+@router.get("/bot-dapodik/catatan.txt")
+def unduh_catatan(job: int = 0,
+                  user: auth.SessionUser = Depends(auth.require_admin)):
+    """Unduh catatan lengkap bot sebagai berkas teks (dibuka apa adanya di Notepad)."""
+    job_id = int(job or _job_terakhir())
+    teks, _ = services.baca_catatan_bot(job_id)
+    nama = f"catatan-bot-{job_id or 0}.txt"
+    return Response("\ufeff" + teks, media_type="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{nama}"'})
 
 
 def _job_terakhir() -> int:

@@ -449,6 +449,16 @@ class BotDapodik:
         self.kursor_dipindah = 0
         #: Nilai kolom BIO yang sudah ditulis bot → diperiksa lagi setiap kali menggulir.
         self._penjaga_nilai: dict[str, str] = {}
+        #: Unsurnya sendiri per kolom — dipakai saat memperbaiki/membaca ulang nilainya
+        #: (jangan bergantung pada unsur pertama yang namanya sama di seluruh halaman).
+        self._penjaga_unsur: dict[str, Any] = {}
+        #: Berapa kali nilai MODEL Ext JS sebuah kolom angka diperiksa (``getValue()``).
+        self.model_diperiksa = 0
+        #: Berapa kali nilai model itu harus ditulis ulang supaya Dapodik menyimpan angka
+        #: yang benar (kotaknya sudah benar, modelnya masih «0» — ronde 48).
+        self.model_diperbaiki = 0
+        #: Berapa kali nilai model tidak terbaca (Ext JS tidak tersedia) — bot tidak mengaku.
+        self.model_tak_terbaca = 0
         #: Berapa kali penjaga nilai menemukan nilai kolom yang berubah & mengembalikannya.
         self.penjaga_dipulihkan = 0
         #: Keadaan desa/kelurahan yang sudah terverifikasi — diperiksa lagi sebelum «Simpan»,
@@ -1423,12 +1433,15 @@ class BotDapodik:
         return (diminta in isi), False
 
     @staticmethod
+    def _angka_lah(nilai: Any) -> bool:
+        """Apakah isian ini berbentuk angka (kolom angka seperti RT/RW)?"""
+        teks = str(nilai if nilai is not None else "").strip().replace(" ", "")
+        return bool(re.fullmatch(r"[0-9]+(?:[.,][0-9]+)?", teks))
+
+    @staticmethod
     def _keduanya_angka(kiri: Any, kanan: Any) -> bool:
         """Apakah dua isian itu sama-sama berbentuk angka (tanpa perlu nilainya sama)?"""
-        pola = r"[0-9]+(?:[.,][0-9]+)?"
-        teks = [str(nilai if nilai is not None else "").strip().replace(" ", "")
-                for nilai in (kiri, kanan)]
-        return all(re.fullmatch(pola, satu) for satu in teks)
+        return BotDapodik._angka_lah(kiri) and BotDapodik._angka_lah(kanan)
 
     @staticmethod
     def _catatan_angka(diminta: str, isi: str, dinormalkan: bool) -> str:
@@ -1438,11 +1451,87 @@ class BotDapodik:
         return (f" (data «{diminta}» — Dapodik menyimpan kolom ini sebagai angka, "
                 f"jadi «{isi}» sudah benar)")
 
+    def _nilai_model(self, peramban, unsur) -> str | None:
+        """Nilai yang tersimpan di **model Ext JS** kolom ini (bukan hanya tulisan di kotaknya).
+
+        Dapodik menyimpan isian dari model Ext JS-nya. Untuk kolom angka seperti RT/RW
+        (``numberfield``), tulisan yang sudah benar di kotaknya belum tentu nilai yang
+        tersimpan: gulir dapat mengubah nilainya menjadi «0», dan bila yang diperbaiki hanya
+        tulisannya, Dapodik tetap menyimpan «0» — sisa sebab keluhan «masih gagal input rt dan
+        rw» (ronde 48). Kembalian ``None`` = tidak terbaca (Ext JS tidak ada): bot tidak
+        mengaku apa-apa, keterbatasan itu dicatat.
+        """
+        komponen = self._komponen_id(peramban, unsur)
+        if not komponen:
+            return None
+        try:
+            nilai = peramban.execute_script(
+                """
+                /* nilai-model-unsur */
+                if (typeof Ext === 'undefined' || !Ext.getCmp) return null;
+                const c = Ext.getCmp(arguments[0]);
+                if (!c) return null;
+                if (typeof c.getValue === 'function') {
+                    const v = c.getValue();
+                    return (v === null || v === undefined) ? '' : String(v);
+                }
+                if (typeof c.getRawValue === 'function') {
+                    const v = c.getRawValue();
+                    return (v === null || v === undefined) ? '' : String(v);
+                }
+                return null;
+                """, komponen)
+        except Exception:  # noqa: BLE001 — pembacaan tambahan saja
+            return None
+        if nilai is None:
+            return None
+        return str(nilai).strip()
+
+    def _pastikan_model_angka(self, peramban, unsur, diharapkan: str) -> str:
+        """Kolom ANGKA: pastikan nilai MODEL Ext JS-nya juga benar, bukan hanya kotaknya.
+
+        Bila modelnya tertinggal (mis. masih «0» sesudah tulisan di kotak dikembalikan
+        penjaga nilai), nilainya ditulis ulang lewat ``Ext.getCmp(...).setValue(...)`` memakai
+        bentuk yang sudah benar di kotaknya — supaya yang diketik tidak berbeda dari yang
+        ditampilkan Dapodik. Keterangan kembalian: ``""`` = tidak ada yang perlu dikatakan
+        (bukan kolom angka / model tak terbaca), ``"cocok («…»)"``, ``"diperbaiki …"``, atau
+        peringatan jujur bila perbaikannya tidak berhasil.
+        """
+        if not self._angka_lah(diharapkan):
+            return ""                       # bukan kolom angka: model tidak perlu diurus
+        nama = str(getattr(unsur, "name", "") or "").strip() or "kolom angka"
+        model = self._nilai_model(peramban, unsur)
+        if model is None:
+            self.model_tak_terbaca += 1
+            return ""                       # tak terbaca: jangan mengaku sudah diperiksa
+        self.model_diperiksa += 1
+        if model != "" and self._isi_sesuai(diharapkan, model)[0]:
+            return f"cocok («{model}»)"
+        try:
+            isi_kotak = str(unsur.get_attribute("value") or "").strip()
+        except Exception:  # noqa: BLE001 — pembacaan tulisan di kotak hanya upaya terbaik
+            isi_kotak = ""
+        nilai_tulis = isi_kotak if self._isi_sesuai(diharapkan, isi_kotak)[0] else diharapkan
+        if not self._set_ext(peramban, unsur, nilai=nilai_tulis):
+            return (f"model Ext JS «{nama}» masih «{model or 'kosong'}» dan tidak bisa ditulis "
+                    "lewat Ext JS — nilainya perlu diperiksa di Dapodik.")
+        time.sleep(0.3)
+        sesudah = self._nilai_model(peramban, unsur)
+        if sesudah is not None and self._isi_sesuai(diharapkan, sesudah)[0]:
+            self.model_diperbaiki += 1
+            return (f"model Ext JS «{nama}» masih «{model or 'kosong'}» walau kotaknya sudah "
+                    f"benar — ditulis ulang lewat Ext JS (setValue) menjadi «{sesudah}» supaya "
+                    "Dapodik menyimpan angka itu.")
+        return (f"model Ext JS «{nama}» belum benar sesudah ditulis ulang "
+                f"(«{sesudah or 'kosong'}», seharusnya «{diharapkan}») — periksa kolom ini "
+                "di Dapodik.")
+
     def _rekam_nilai_bio(self, unsur, nilai: str) -> None:
         """Catat nilai kolom BIO yang sudah ditulis bot (untuk diperiksa sesudah menggulir)."""
         nama = str(getattr(unsur, "name", "") or "")
         if nama:
             self._penjaga_nilai[nama] = self._nilai_teks(nilai)
+            self._penjaga_unsur[nama] = unsur    # dipakai untuk memeriksa model Ext JS-nya
 
     def _periksa_nilai_bio(self, peramban, awalan: str = "[penjaga]") -> list[str]:
         """Periksa lagi nilai kolom BIO yang sudah ditulis; kembalikan yang berubah.
@@ -1504,6 +1593,17 @@ class BotDapodik:
                 self._penjaga_nilai.pop(nama, None)
                 self._catat_kepala(f"{awalan} kolom «{nama}» tidak bisa dikembalikan lewat "
                                    "skrip — nilainya perlu diperiksa di Dapodik.")
+        # Kolom ANGKA diperiksa sampai ke MODEL Ext JS-nya: Dapodik menyimpan dari model itu,
+        # jadi kotak yang sudah benar saja belum menjamin (mis. «RT» tersimpan «0» — ronde 48).
+        for nama, diharapkan in list(self._penjaga_nilai.items()):
+            if not self._angka_lah(diharapkan):
+                continue
+            unsur = self._penjaga_unsur.get(nama)
+            if unsur is None:
+                continue
+            catatan = self._pastikan_model_angka(peramban, unsur, diharapkan)
+            if catatan and not catatan.startswith("cocok"):
+                self._catat_kepala(f"{awalan} kolom «{nama}»: {catatan}")
         return berubah
 
     def _gulir(self, peramban, jarak: int = GULIR_PERIODIK, catat: bool = True) -> None:
@@ -1625,6 +1725,84 @@ class BotDapodik:
             kotak = self._kandidat_kotak_jarak(peramban, peta)
         return kotak
 
+    def _rincian_unsur(self, peramban, unsur) -> str:
+        """Keadaan satu kolom isian apa adanya (dipakai saat kolomnya gagal diisi).
+
+        Inilah bukti yang dulu tidak ada di catatan sekolah: nama kolom, jenisnya, apakah
+        ia read-only/nonaktif, dan nilai yang benar-benar ada di kolom itu. Dengan satu
+        baris ini sebab kegagalan («RT belum berisi nilai yang benar») bisa ditelusuri
+        tanpa menebak dan tanpa memotret layar.
+        """
+        if unsur is None:
+            return "kolomnya tidak ketemu sama sekali di halaman ini"
+
+        def atr(nama: str) -> str:
+            try:
+                return str(unsur.get_attribute(nama) or "")
+            except Exception:  # noqa: BLE001 — keterangan tambahan saja
+                return ""
+
+        terlihat = "ya"
+        try:
+            terlihat = "ya" if self._terlihat(peramban, unsur) else "tidak"
+        except Exception:  # noqa: BLE001
+            terlihat = "?"
+        return ("name=" + (atr("name") or "(tanpa nama)")
+                + " · id=" + (atr("id") or "-")
+                + " · type=" + (atr("type") or "-")
+                + " · komponen=" + (atr("data-componentid") or "-")
+                + " · nilai di kolom=" + repr(atr("value"))
+                + " · readonly=" + ("ya" if atr("readonly") else "tidak")
+                + " · nonaktif=" + ("ya" if atr("disabled") else "tidak")
+                + " · terlihat=" + terlihat)
+
+    def _rincian_kandidat_kolom(self, peramban, kunci: str, peta: dict[str, str]) -> str:
+        """Berapa unsur yang ditemukan oleh TIAP kandidat selector kolom ini.
+
+        Dipakai saat kolomnya tidak ketemu: dari sini terbaca kandidat mana yang meleset
+        dan selector mana yang harus ditambahkan (mis. nama kolom yang berbeda di versi
+        Dapodik sekolah) — bukan dengan menebak dari kode.
+        """
+        bagian: list[str] = []
+        for nilai in self._kandidat_selector(kunci, peta):
+            jumlah = 0
+            try:
+                if nilai.lower().startswith("label:"):
+                    jumlah = 1 if self._cari_lewat_label(peramban, nilai.split(":", 1)[1]) else 0
+                else:
+                    jumlah = len(list(peramban.find_elements(*self._locator_nilai(nilai))))
+            except Exception:  # noqa: BLE001 — kandidat berikutnya
+                jumlah = -1
+            tanda = {0: "0", -1: "galat"}.get(jumlah, str(jumlah))
+            bagian.append(f"{nilai}={tanda}")
+        return ", ".join(bagian)
+
+    def _rincian_kolom_halaman(self, peramban, batas: int = 20) -> str:
+        """Sebutkan kolom isian yang ADA di halaman (nama/keadaan) — bukti saat tak ketemu."""
+        potong: list[str] = []
+        try:
+            from selenium.webdriver.common.by import By
+
+            for elemen in peramban.find_elements(By.CSS_SELECTOR, "input, textarea, select"):
+                jenis = ""
+                nama = ""
+                try:
+                    jenis = str(elemen.get_attribute("type") or "").lower()
+                except Exception:  # noqa: BLE001
+                    jenis = ""
+                if jenis in ("hidden", "button", "submit", "radio", "checkbox", "file", "image"):
+                    continue
+                try:
+                    nama = str(elemen.get_attribute("name") or "").strip() or "(tanpa nama)"
+                except Exception:  # noqa: BLE001
+                    nama = "(tanpa nama)"
+                potong.append(nama)
+                if len(potong) >= batas:
+                    break
+        except Exception:  # noqa: BLE001 — keterangan tambahan saja
+            return ""
+        return ", ".join(potong)
+
     def _isi_periodik_satu(self, peramban, peta: dict[str, str], kunci: str, label: str,
                            nilai: str, unsur=None, awalan: str = "[periodik]") -> str:
         """Isi satu kolom isian (Ctrl+A lalu ketik, seperti potongan skrip sekolah).
@@ -1638,6 +1816,14 @@ class BotDapodik:
         unsur = (unsur if unsur is not None
                  else self._cari_kolom_dengan_gulir(peramban, kunci, peta))
         if unsur is None:
+            # Jujur + memberi bukti: kandidat apa saja yang dicoba, dan kolom apa yang ADA.
+            self._catat_kepala(
+                f"{awalan} {label}: kolomnya TIDAK ketemu di halaman ini — kandidat yang "
+                f"dicoba: {self._rincian_kandidat_kolom(peramban, kunci, peta)}.")
+            daftar = self._rincian_kolom_halaman(peramban)
+            if daftar:
+                self._catat_kepala(
+                    f"{awalan} {label}: kolom isian yang ADA di halaman (nama): {daftar}")
             return "kolomnya tidak ada di halaman ini"
         # Kolom di bawah layar sering tidak menerima ketikan: bawa dulu ke layar
         # (menggulir wadahnya sendiri). Dapodik juga bisa MENONAKTIFKAN kolomnya sampai
@@ -1701,7 +1887,15 @@ class BotDapodik:
             # Nilai kolom dicatat: sesudah setiap gulir diperiksa lagi, karena gulir bisa
             # mengubah nilai kolom isian mana pun (mis. «RT» menjadi «0» — ronde 45).
             self._rekam_nilai_bio(unsur, isi)
-            return f"terisi: {isi}{self._catatan_angka(nilai, isi, dinormalkan)}"
+            # Kolom angka: jangan berhenti di tulisan di kotaknya — Dapodik menyimpan dari
+            # model Ext JS, jadi modelnya diperiksa (dan diperbaiki) sekarang juga (ronde 48).
+            catatan_model = self._pastikan_model_angka(peramban, unsur, isi)
+            imbuh = f" · model Ext JS {catatan_model}" if catatan_model else ""
+            return (f"terisi: {isi}{self._catatan_angka(nilai, isi, dinormalkan)}{imbuh}")
+        # Gagal mengisi: sebutkan keadaan kolomnya apa adanya (bukti, bukan tebakan).
+        self._catat_kepala(
+            f"{awalan} {label}: kolom belum berisi nilai yang benar — nilai diminta "
+            f"{nilai!r}, keadaan kolom: {self._rincian_unsur(peramban, unsur)}")
         return "kolom belum berisi nilai yang benar"
 
     def _kotak_jarak(self, peramban, kunci: str, peta: dict[str, str]) -> list[Any]:
@@ -4697,11 +4891,22 @@ class BotDapodik:
                 continue
             unsur = self._cari_kolom_bio(peramban, peta, kunci_sel, jendela, label)
             if unsur is None:
-                self._catat_kepala(f"[bio] {label}: kolomnya tidak ketemu — dilewati.")
+                # Jujur + memberi bukti (ronde 48: «untuk log adanya dimana?»): sebut kolom apa
+                # yang tidak ketemu, kandidat selector yang dicoba beserta jumlah unsurnya, dan
+                # kolom isian apa yang BENAR-BENAR ADA di halaman. Dulu catatannya hanya
+                # «dilewati» tanpa bukti, sehingga sebabnya harus ditebak.
+                self._catat_kepala(
+                    f"[bio] {label}: kolomnya TIDAK ketemu di jendela «Ubah» — kandidat yang "
+                    f"dicoba beserta jumlah unsur yang ditemukan: "
+                    f"{self._rincian_kandidat_kolom(peramban, kunci_sel, peta)}.")
+                daftar_isian = self._rincian_kolom_halaman(peramban)
+                if daftar_isian:
+                    self._catat_kepala(f"[bio] {label}: kolom isian yang ADA di halaman (nama): "
+                                       f"{daftar_isian}")
                 if kunci_sel == "bio_kelurahan":
                     # Kolom combo «Desa/Kelurahan» adalah kolom yang paling sering dilaporkan
-                    # «tidak ditemukan» (ronde 47) — sebutkan isian apa saja yang ADA di
-                    # jendela «Ubah», supaya sebabnya terbaca dari satu baris log ini.
+                    # «tidak ditemukan» (ronde 47) — sebutkan isian apa saja yang ADA di jendela
+                    # «Ubah», supaya sebabnya terbaca dari catatan itu.
                     isian = self._rincian_isian_bio(peramban, jendela)
                     self._catat_kepala(
                         "[bio] Desa/Kelurahan: isian yang ADA di jendela «Ubah» (nama/jenis): "

@@ -906,7 +906,7 @@ def cek_http():
                      "/kualitas-data", "/ekstrakurikuler", "/ekstrakurikuler/1", "/impor",
                      "/impor/1", "/impor/panduan", "/pengaturan",
                      "/pengaturan/dokumentasi-api", "/profil-akun", "/pembaruan", "/bot-dapodik",
-                     "/online"]
+                     "/bot-dapodik/catatan", "/bot-dapodik/catatan.txt", "/online"]
 
     async def jalankan() -> str:
         transport = httpx.ASGITransport(app=app)
@@ -4702,14 +4702,183 @@ def cek_kolom_lewat_nama_dan_label_div() -> str:
     for tanda in ("angka_menormalkan", "desa_jalur_xpath", "label_div_dipakai",
                   "xpath_desa_salah", "label_div_semua", "BUKAN combo",
                   "isian yang ADA di jendela", "Dapodik menyimpan kolom ini sebagai angka",
-                  "43 skenario"):
+                  # Jumlah skenario ikut disebut supaya berkas uji tidak diam-diam menyusut
+                  # (ronde 47: 43 skenario; ronde 48 menambah 44–46 — kolom RT/RW tidak ada,
+                  # XPath desa meleset, dan nilai model Ext JS kolom angka yang diperbaiki
+                  # sebelum «Simpan» — sehingga menjadi 46).
+                  "46 skenario"):
         assert tanda in uji, f"uji bot kehilangan pemeriksaan {tanda!r} (ronde 47)"
 
     return ("kolom dicari lewat NAMA lebih dulu (rt, rw, alamat_jalan, no_kk, kode_pos), label "
             "div Ext JS (`x-fieldlabel`) ikut dilacak di halaman & jendela, kolom combo desa "
             "punya jalur XPath lengkap dari sekolah dengan pemeriksaan «wajib combo», nilai "
             "angka Dapodik («007» → «7», «63,5») dinilai sama, dan isian yang ada di jendela "
-            "dilaporkan saat kolomnya tidak ketemu (uji tiruan 39–43)")
+            "dilaporkan saat kolomnya tidak ketemu (uji tiruan 39–46)")
+
+
+@cek("41. Catatan bot LENGKAP: berkas utuh, halaman & unduhan, diagnostik kolom")
+def cek_catatan_lengkap_bot() -> str:
+    """Ronde 48 — «untuk log adanya dimana? di web kan cuma sampai 12 baris terakhir».
+
+    Tiga hal yang dijaga blok ini: (a) catatan bot **tidak dipotong lagi** — dulu basis data
+    hanya menyimpan 4000 karakter terakhir sehingga pengguna cuma bisa melihat 12 baris;
+    kini seluruh baris ditulis ke ``data/bot/catatan-bot-<id>.txt`` dan salinan basis datanya
+    jauh lebih panjang; (b) halaman ``/bot-dapodik/catatan`` + unduhan
+    ``/bot-dapodik/catatan.txt`` ada dan tertaut dari halaman Bot Dapodik; (c) bila sebuah
+    kolom gagal diisi/tidak ketemu, catatan menyebut **keadaan kolomnya** & kandidat yang
+    dicoba — bukti yang membuat sebab kegagalan (mis. «RT belum berisi nilai yang benar»)
+    bisa ditelusuri tanpa menebak.
+    """
+    import ast
+
+    from app import services
+
+    # (a) Catatan lengkap: berkas + batas basis data yang jauh lebih besar.
+    sumber = (BASE_DIR / "app/services.py").read_text(encoding="utf-8")
+    badan: dict[str, str] = {}
+    for simpul in ast.walk(ast.parse(sumber)):
+        if isinstance(simpul, ast.FunctionDef):
+            badan.setdefault(simpul.name, ast.get_source_segment(sumber, simpul) or "")
+    assert "BATAS_LOG_DB" in sumber, "batas catatan di basis data hilang"
+    isi_pb = badan["perbarui_job_bot"]
+    # Kode (bukan komentar/docstring) yang menentukan: dulu `gabung[-4000:]`.
+    assert "gabung[-4000:]" not in isi_pb, \
+        "catatan bot masih dipotong 4000 karakter (pengguna hanya bisa melihat 12 baris)"
+    assert "gabung[-BATAS_LOG_DB:]" in isi_pb, \
+        "salinan catatan di basis data tidak memakai batas BATAS_LOG_DB"
+    for nama in ("berkas_catatan_bot", "baca_catatan_bot", "perbarui_job_bot"):
+        assert nama in badan, f"fungsi {nama} hilang dari app/services.py"
+    isi = badan["berkas_catatan_bot"]
+    assert "catatan-bot-" in isi and '"bot"' in isi, \
+        "berkas catatan bot tidak diletakkan di data/bot/catatan-bot-<id>.txt"
+    isi = badan["perbarui_job_bot"]
+    assert "berkas_catatan_bot(" in isi and "buka.write(" in isi, \
+        "catatan lengkap tidak ditulis ke berkas"
+    assert "BATAS_LOG_DB" in isi, "salinan catatan di basis data memakai batas lama"
+
+    # Bukti nyata: 400 baris catatan (jauh di atas batas 4000 karakter) harus utuh.
+    job_id = services.create_dapodik_job("uji-catatan", "uji", {"uji": True}, "cek-sistem")
+    penanda = [f"[uji-catatan] baris ke-{i} — {'x' * 40}" for i in range(1, 401)]
+    for baris in penanda:
+        services.perbarui_job_bot(job_id, baris_log=baris)
+    berkas = services.berkas_catatan_bot(job_id)
+    assert berkas.exists(), f"berkas catatan tidak dibuat: {berkas}"
+    isi_berkas = berkas.read_text(encoding="utf-8")
+    baris_ada = [b for b in isi_berkas.splitlines() if "[uji-catatan]" in b]
+    assert len(baris_ada) == len(penanda), \
+        f"berkas catatan hanya memuat {len(baris_ada)}/{len(penanda)} baris"
+    assert "baris ke-1 —" in isi_berkas and "baris ke-400 —" in isi_berkas, \
+        "baris awal/akhir catatan hilang dari berkas"
+    teks, dari = services.baca_catatan_bot(job_id)
+    assert dari == "berkas" and "baris ke-400 —" in teks, \
+        f"baca_catatan_bot tidak mengembalikan catatan lengkap (dari={dari!r})"
+    from app import db as _db
+
+    salinan_db = str(_db.query_value("SELECT log FROM dapodik_jobs WHERE id = ?", (job_id,)) or "")
+    assert len(salinan_db) > 4000, \
+        f"salinan catatan di basis data masih dipotong ({len(salinan_db)} karakter)"
+    # Halaman & unduhan benar-benar MENYAJIKAN isi catatan lengkapnya (bukan sekadar ada):
+    # periksa lewat HTTP seperti pengguna memakainya — halaman memuat baris pertama sampai
+    # terakhir, unduhannya berkas teks ber-penanda UTF-8 yang bisa dikirim apa adanya.
+    import asyncio
+
+    import httpx
+
+    from app.main import app as _app
+
+    async def periksa_catatan_lewat_http() -> tuple[str, str]:
+        transport = httpx.ASGITransport(app=_app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://cek") as klien:
+            masuk = await klien.post("/login", data={"mode": "staff", "username": "admin",
+                                                     "password": "admin123"})
+            assert masuk.status_code == 303, "login admin gagal saat memeriksa catatan lengkap"
+            halaman = await klien.get(f"/bot-dapodik/catatan?job={job_id}")
+            assert halaman.status_code == 200, f"/bot-dapodik/catatan -> {halaman.status_code}"
+            assert "baris ke-1 —" in halaman.text and "baris ke-400 —" in halaman.text, \
+                "halaman catatan tidak menyajikan seluruh baris catatan"
+            assert "400" in halaman.text, "jumlah baris catatan lengkap tidak ditampilkan"
+            unduh = await klien.get(f"/bot-dapodik/catatan.txt?job={job_id}")
+            assert unduh.status_code == 200, f"/bot-dapodik/catatan.txt -> {unduh.status_code}"
+            assert "text/plain" in unduh.headers.get("content-type", ""), \
+                "unduhan catatan bukan berkas teks"
+            assert "attachment" in unduh.headers.get("content-disposition", ""), \
+                "unduhan catatan tidak dikirim sebagai lampiran"
+            assert unduh.text.startswith("\ufeff"), "unduhan catatan tanpa penanda UTF-8"
+            assert "baris ke-1 —" in unduh.text and "baris ke-400 —" in unduh.text, \
+                "unduhan catatan tidak memuat seluruh baris"
+            return halaman.text, unduh.text
+
+    asyncio.run(periksa_catatan_lewat_http())
+    berkas.unlink(missing_ok=True)
+
+    # (b) Halaman & unduhan catatan lengkap, tertaut dari halaman Bot Dapodik.
+    rute = (BASE_DIR / "app/routers/bot_routes.py").read_text(encoding="utf-8")
+    for tanda in ('@router.get("/bot-dapodik/catatan")', '@router.get("/bot-dapodik/catatan.txt")',
+                  "baca_catatan_bot(", "log_total"):
+        assert tanda in rute, f"rute/halaman catatan lengkap kehilangan {tanda!r}"
+    # Panel «Catatan berjalan» di halaman bot memakai satu tetapan bersama (dulu 12 baris
+    # dipatok dua kali: di template dan di status.json — itulah yang dikeluhkan pengguna).
+    assert "BARIS_CATATAN_TAYANG = 30" in rute, \
+        "jumlah baris «Catatan berjalan» tidak lagi memakai tetapan bersama (30 baris)"
+    assert "splitlines()[-BARIS_CATATAN_TAYANG:]" in rute, \
+        "status.json belum memakai tetapan baris catatan"
+    assert "splitlines()[-12:]" not in rute, "status.json masih memotong catatan di 12 baris"
+    isi_hal = (BASE_DIR / "app/templates/bot_dapodik.html").read_text(encoding="utf-8")
+    assert "splitlines()[-baris_tayang:]" in isi_hal, \
+        "panel «Catatan berjalan» tidak memakai jumlah baris dari halaman"
+    assert "splitlines()[-12:]" not in isi_hal, "panel «Catatan berjalan» masih dipotong 12 baris"
+    assert "baris_tayang" in isi_hal and "splitlines()[-baris_tayang:]" in isi_hal, \
+        "jumlah baris yang ditayangkan tidak diambil dari halaman"
+    for berkas_template, tanda in (
+            ("app/templates/bot_catatan.html",
+             ("Unduh catatan (.txt)", "catatan-lengkap", "Berkas di PC")),
+            ("app/templates/bot_dapodik.html",
+             ("/bot-dapodik/catatan", "catatan-jumlah", "catatan_berkas"))):
+        isi_t = (BASE_DIR / berkas_template).read_text(encoding="utf-8")
+        for satu in tanda:
+            assert satu in isi_t, f"{berkas_template} kehilangan {satu!r}"
+
+    # (c) Diagnostik kolom: keadaan kolom & kandidat yang dicoba saat gagal/tak ketemu.
+    sumber_bot = (BASE_DIR / "app/bot_dapodik.py").read_text(encoding="utf-8")
+    badan_bot: dict[str, str] = {}
+    for simpul in ast.walk(ast.parse(sumber_bot)):
+        if isinstance(simpul, ast.FunctionDef):
+            badan_bot.setdefault(simpul.name, ast.get_source_segment(sumber_bot, simpul) or "")
+    for nama in ("_rincian_unsur", "_rincian_kandidat_kolom", "_rincian_kolom_halaman"):
+        assert nama in badan_bot, f"{nama} hilang — catatan kegagalan kolom jadi tanpa bukti"
+    isi = badan_bot["_rincian_unsur"]
+    for tanda in ("readonly=", "nonaktif=", "terlihat=", "data-componentid"):
+        assert tanda in isi, f"rincian keadaan kolom kehilangan {tanda!r}"
+    isi = badan_bot["_isi_periodik_satu"]
+    assert isi.count("_rincian_unsur(") >= 1 and "_rincian_kandidat_kolom(" in isi, \
+        "kegagalan pengisian kolom tidak menyebut keadaan kolom & kandidatnya"
+    assert "_rincian_kolom_halaman(" in isi, \
+        "saat kolom tidak ketemu, daftar kolom yang ADA di halaman tidak dilaporkan"
+    assert "_rincian_kandidat_kolom(" in badan_bot["_isi_bio"], \
+        "kegagalan kolom «Desa/Kelurahan» tidak menyebut kandidat yang dicoba"
+
+    # (d) RT/RW: nilai MODEL Ext JS diperiksa & diperbaiki — bukan hanya tulisan di kotaknya.
+    #     Dapodik menyimpan dari model itu, jadi kotak yang sudah benar belum menjamin («RT»
+    #     tersimpan «0»). Inilah sisa sebab «masih gagal input rt dan rw».
+    for nama in ("_nilai_model", "_pastikan_model_angka", "_angka_lah"):
+        assert nama in badan_bot, f"{nama} hilang — kolom angka tidak diperiksa sampai modelnya"
+    assert "_pastikan_model_angka(" in badan_bot["_periksa_nilai_bio"], \
+        "penjaga nilai tidak memeriksa model Ext JS kolom angka sebelum «Simpan»"
+    assert "_pastikan_model_angka(" in badan_bot["_isi_periodik_satu"], \
+        "pengisian kolom angka tidak memeriksa model Ext JS-nya"
+    assert "_penjaga_unsur" in sumber_bot and "nilai-model-unsur" in sumber_bot, \
+        "unsur pemegang nilai tidak diingat / pembacaan model Ext JS tidak ada"
+    uji_bot = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
+    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "46 skenario",
+                  "kolomnya TIDAK ketemu", "kolom isian yang ADA di halaman"):
+        assert tanda in uji_bot or tanda in (BASE_DIR / "scripts/peramban_palsu.py").read_text(
+            encoding="utf-8"), f"uji/fixture kehilangan {tanda!r}"
+
+    return ("catatan bot disimpan utuh ke data/bot/catatan-bot-<id>.txt (uji 400 baris / "
+            ">4000 karakter; halaman & unduhan .txt-nya benar-benar menyajikan baris 1–400), "
+            "halaman /bot-dapodik/catatan + unduhan .txt tersedia & tertaut, "
+            "dan kegagalan mengisi kolom menyebut keadaan kolom (name/id/type/readonly/"
+            "nonaktif/nilai) + kandidat selector yang dicoba")
 
 
 @cek("38. Tombol «Online» — Tailscale Funnel sekali klik, tanpa jendela cmd")
@@ -4926,6 +5095,7 @@ def main() -> int:
     cek_tombol_online()
     cek_gulir_aman()
     cek_kolom_lewat_nama_dan_label_div()
+    cek_catatan_lengkap_bot()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()

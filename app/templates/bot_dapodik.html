@@ -432,12 +432,30 @@
     </table>
   </div>
   {% if job and job.log %}
-  <div class="card-body">
+  <div class="card-body" id="kartu-catatan">
     <div class="section-title">Catatan berjalan</div>
     <p class="muted" style="font-size:.8rem; margin:.1rem 0 .4rem">
-      12 baris terakhir — diperbarui otomatis selama bot bekerja.
+      {{ baris_tayang }} baris terakhir di bawah ini hanya cuplikan; catatan
+      <strong>lengkap</strong> (semua baris, tidak dipotong) tersimpan utuh dan bisa
+      dibuka/diunduh:
     </p>
-    <pre class="log-panel" id="log-bot">{{ job.log.splitlines()[-12:] | join('\n') }}</pre>
+    <div class="btn-group" style="margin:.1rem 0 .5rem">
+      <a class="btn btn-outline btn-sm" id="tautan-catatan" href="/bot-dapodik/catatan">
+        Lihat catatan lengkap (<span id="catatan-jumlah">{{ catatan_jumlah }}</span> baris)
+      </a>
+      <a class="btn btn-outline btn-sm" href="/bot-dapodik/catatan.txt">Unduh catatan (.txt)</a>
+    </div>
+    {% if catatan_berkas %}
+    <p class="muted" style="font-size:.75rem; margin:0 0 .4rem">
+      Berkas catatan di PC: <span class="mono">{{ catatan_berkas }}</span>
+    </p>
+    {% endif %}
+    <pre class="log-panel" id="log-bot">{{ job.log.splitlines()[-baris_tayang:] | join('\n') }}</pre>
+    <p class="muted" style="font-size:.78rem; margin:.45rem 0 0">
+      Bila ada baris yang berbunyi «belum berisi nilai yang benar» atau «tidak ketemu»,
+      buka <a href="/bot-dapodik/catatan">catatan lengkap</a> lalu kirimkan berkasnya —
+      di situ tercatat nama &amp; keadaan kolom yang dilihat bot di Dapodik.
+    </p>
   </div>
   {% endif %}
 </div>
@@ -682,6 +700,9 @@
     }
     const log = document.getElementById("log-bot");
     if (log && data.log) log.textContent = data.log.join("\n");
+    // Jumlah baris catatan LENGKAP ikut diperbarui (tautannya ada di tombolnya).
+    const jumlah = document.getElementById("catatan-jumlah");
+    if (jumlah && typeof data.log_total === "number") jumlah.textContent = data.log_total;
   }
   async function ambil() {
     try {

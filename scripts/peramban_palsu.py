@@ -705,6 +705,20 @@ class PerambanPalsu:
         #: ditinggalkan — persis numberfield Ext JS. Data sekolah memang berisi RT «007»,
         #: RW «003», … jadi nilai yang tersimpan berbentuk angka (ronde 47).
         self.angka_menormalkan = False
+        #: Keadaan paling keras untuk kolom ANGKA (RT/RW): Dapodik menyimpan nilainya dari
+        #: MODEL Ext JS (``getValue()``) — bukan dari tulisan di kotaknya. Penjaga nilai yang
+        #: hanya menuliskan kembali tulisan di kotak bisa meninggalkan model itu «0»,
+        #: sehingga Dapodik menyimpan «0» walaupun kotaknya sudah benar (keluhan ronde 48:
+        #: «masih gagal input rt dan rw»). Hanya ``Ext.getCmp(...).setValue(...)`` yang
+        #: memperbaiki modelnya.
+        self.model_angka_terpisah = False
+        #: Berapa kali nilai model Ext JS sebuah kolom diperbaiki lewat ``setValue``
+        self.model_diperbaiki_kali = 0
+        #: Berapa kali bot membaca nilai model Ext JS (``getValue()``) sebuah kolom
+        self.model_dibaca_kali = 0
+        #: True = jendela «Ubah» TIDAK memuat kolom angka RT/RW (versi Dapodik yang tidak
+        #: punya kolom itu di jendelanya) — dipakai menguji laporan «kolom tidak ketemu».
+        self.tanpa_kolom_angka = False
         #: Berapa kali nilai kolom angka benar-benar dinormalkan Dapodik («007» → «7»).
         self.angka_dinormalkan = 0
         #: True = kolom combo «Desa/Kelurahan» di DOM sekolah **tidak punya atribut name**
@@ -715,6 +729,11 @@ class PerambanPalsu:
         #: True = label kolom desa digambar sebagai div Ext JS (``.x-fieldlabel``) — hanya
         #: pelacakan combo lewat div yang menemukannya.
         self.desa_label_div = False
+        #: Berapa kali kolom ditemukan lewat pencarian LABEL di seluruh halaman (bot memakai
+        #: jalan ini untuk kolom yang nama DOM-nya berbeda antar versi Dapodik).
+        self.label_dicari_kali = 0
+        #: Berapa kali labelnya digambar sebagai div Ext JS (``.x-fieldlabel``), bukan <label>.
+        self.label_div_dipakai = 0
         #: True = kolom combo desa membawa XPath lengkap dari sekolah (jalur terakhir bot).
         self.desa_jalur_xpath = False
         #: True = SEMUA label kolom BIO digambar sebagai div Ext JS (``.x-fieldlabel``),
@@ -1313,6 +1332,10 @@ class PerambanPalsu:
                     item.induk = combo
                     self.unsur.append(item)
                 continue
+            if self.tanpa_kolom_angka and nama in ("rt", "rw"):
+                # Versi Dapodik yang jendela «Ubah»-nya tidak memuat kolom RT/RW: bot harus
+                # melaporkan «kolom tidak ketemu» beserta bukti kolom apa yang ADA (ronde 48).
+                continue
             self.unsur.append(UnsurPalsu(
                 self, "input", type="text", name=nama,
                 label=("" if self.label_div_semua else label),
@@ -1321,6 +1344,10 @@ class PerambanPalsu:
                 # combo) — bot tidak boleh menyalahgunakannya untuk menulis ke kolom itu.
                 jalur=(XPATH_DESA_SEKOLAH if (nama == "rt" and self.xpath_desa_salah) else ""),
                 bio=True, nilai="LAMA",
+                # Kolom angka di Dapodik berupa numberfield: nilai MODEL-nya yang dikirim
+                # saat «Simpan» bisa berbeda dari tulisan di kotaknya (ronde 48).
+                nilai_model=("0" if (nama in KOLOM_ANGKA_BIO and self.model_angka_terpisah)
+                             else ""),
                 angka=nama in KOLOM_ANGKA_BIO,
                 componentid=f"textfield-{1200 + nomor}"))
         self.unsur.append(UnsurPalsu(self, "span", kelas="x-btn-inner-default-small",
@@ -1357,6 +1384,13 @@ class PerambanPalsu:
                         self.data_bio_tersimpan[kunci] = unsur.nilai_model
                         if self.kode_wilayah_kolom is not None:
                             self.kode_wilayah_kolom.nilai = unsur.nilai_id
+                elif (self.model_angka_terpisah and getattr(unsur, "angka", False)
+                      and not self.ext_mati):
+                    # Numberfield: Dapodik menyimpan NILAI MODEL Ext JS — bukan tulisan di
+                    # kotaknya. Inilah pintu kegagalan ronde 48: kotak «RT» sudah benar,
+                    # tetapi modelnya masih «0» karena penjaga nilai hanya mengembalikan
+                    # tulisan di kotaknya.
+                    self.data_bio_tersimpan[kunci] = unsur.nilai_model
                 else:
                     self.data_bio_tersimpan[kunci] = (unsur.nilai_model
                                                            if unsur.daftar_pilihan
@@ -1390,6 +1424,9 @@ class PerambanPalsu:
             self.gulir_kursor_di_kolom += 1
             if self.kolom_rawan_gulir(kolom):
                 kolom.nilai = "0"
+                if self.model_angka_terpisah and getattr(kolom, "angka", False):
+                    # Model Ext JS-nya ikut rusak — inilah yang benar-benar disimpan Dapodik.
+                    kolom.nilai_model = "0"
                 if kolom.name not in self.rusak_karena_gulir:
                     self.rusak_karena_gulir.append(kolom.name)
         if self.desa_kode_rusak_gulir and not self.desa_dirusak:
@@ -1416,6 +1453,8 @@ class PerambanPalsu:
                 if isi_kolom in ("", "0", "LAMA"):
                     continue
                 unsur.nilai = "0"
+                if self.model_angka_terpisah and getattr(unsur, "angka", False):
+                    unsur.nilai_model = "0"
                 self.rusak_paksa_kali += 1
                 if unsur.name not in self.rusak_karena_gulir:
                     self.rusak_karena_gulir.append(unsur.name)
@@ -1426,9 +1465,30 @@ class PerambanPalsu:
                          None)
             if paksa is not None and str(paksa.nilai or "").strip() not in ("", "0"):
                 paksa.nilai = "0"
+                if self.model_angka_terpisah and getattr(paksa, "angka", False):
+                    paksa.nilai_model = "0"
                 self.rusak_paksa_kali += 1
                 if paksa.name not in self.rusak_karena_gulir:
                     self.rusak_karena_gulir.append(paksa.name)
+
+    def model_unsur(self, unsur: "UnsurPalsu") -> str | None:
+        """Nilai MODEL Ext JS sebuah kolom (``getValue()``) — ``None`` bila tak terjangkau.
+
+        Inilah nilai yang benar-benar dikirim saat «Simpan» di Dapodik. Untuk kolom angka
+        (numberfield) ia bisa BERBEDA dari tulisan di kotaknya — persis keadaan yang membuat
+        «RT» tampak benar di layar tetapi tersimpan «0» (ronde 48).
+        """
+        if unsur is None or not getattr(unsur, "componentid", ""):
+            return None
+        if self.ext_mati:
+            self.model_dibaca_kali += 1          # dipanggil, tetapi Ext JS-nya tidak ada
+            return None
+        self.model_dibaca_kali += 1
+        if getattr(unsur, "daftar_pilihan", ()) or getattr(unsur, "pencarian_desa", False):
+            return str(unsur.nilai_id or unsur.nilai_model or "")
+        if getattr(unsur, "angka", False) and self.model_angka_terpisah:
+            return str(getattr(unsur, "nilai_model", "") or "")
+        return str(getattr(unsur, "nilai", "") or "")
 
     def normalkan_angka(self, unsur: "UnsurPalsu") -> bool:
         """Kolom angka Dapodik menormalkan nilainya («007» → «7») — persis numberfield.
@@ -1451,6 +1511,10 @@ class PerambanPalsu:
             # Nilai pecahan ditampilkan dengan pemisah desimal gaya Indonesia
             # («63.5» → «63,5») — persis numberfield Dapodik di PC sekolah.
             rapi = isi.replace(".", ",")
+        if self.model_angka_terpisah and getattr(unsur, "angka", False):
+            # Numberfield: nilai yang diketik/dinormalkan masuk ke MODEL Ext JS juga (di
+            # Dapodik yang tersimpan saat «Simpan» memang nilai model itu).
+            unsur.nilai_model = rapi
         if rapi == isi:
             return False
         unsur.nilai = rapi
@@ -1799,6 +1863,13 @@ class PerambanPalsu:
                         "")
                     return True
                 unsur.nilai = "" if nilai is None else str(nilai)
+                if self.model_angka_terpisah and getattr(unsur, "angka", False):
+                    # setValue menulis ke MODEL Ext JS — satu-satunya cara memperbaiki kolom
+                    # angka yang modelnya tertinggal («0») walau tulisan di kotaknya benar.
+                    sebelum = str(getattr(unsur, "nilai_model", "") or "")
+                    unsur.nilai_model = str(unsur.nilai)
+                    if str(unsur.nilai_model) != sebelum:
+                        self.model_diperbaiki_kali += 1
                 return True
         return False
 
@@ -2163,6 +2234,26 @@ class PerambanPalsu:
                         continue
                     if not self._terjangkau(unsur):
                         continue
+                    if lewat_div:
+                        self.label_div_dipakai += 1
+                    return unsur
+            return None
+        if "/* cari-label-halaman */" in skrip:
+            # Pencarian kolom lewat LABEL di seluruh halaman (cara bot untuk kolom yang namanya
+            # berbeda antar versi Dapodik). Labelnya boleh elemen <label> ATAU div Ext JS
+            # (``.x-fieldlabel``) — persis JS bot: keduanya dihitung sebagai label.
+            cari = " ".join(str(argumen[0] if argumen else "").split()).strip().lower()
+            if not cari:
+                return None
+            for unsur in self.unsur:
+                for teks_label, lewat_div in ((unsur.label, False), (unsur.label_div, True)):
+                    bersih = re.sub(r"[*:\u00a0]+$", "",
+                                    " ".join((teks_label or "").split()).lower()).strip()
+                    if not bersih or not (bersih == cari or bersih.startswith(cari)):
+                        continue
+                    if not self._terjangkau(unsur):
+                        continue      # labelnya ada, tetapi kolomnya belum tampil di layar
+                    self.label_dicari_kali += 1
                     if lewat_div:
                         self.label_div_dipakai += 1
                     return unsur
@@ -2629,6 +2720,19 @@ class PerambanPalsu:
         if "penanda-dipakai" in skrip:
             return any("x-form-cb-checked" in ((unsur.induk.kelas if unsur.induk else ""))
                        for unsur in self.unsur)
+        if "/* nilai-model-unsur */" in skrip:
+            # Penilaian bot atas NILAI MODEL Ext JS (``getValue()``) sebuah kolom — dasar
+            # pemeriksaan bahwa Dapodik akan menyimpan nilai yang benar, bukan hanya
+            # tulisannya, dan dasar perbaikan lewat ``setValue`` (ronde 48).
+            kompid = str(argumen[0]) if argumen else ""
+            sasaran = None
+            for unsur in self.unsur:
+                if getattr(unsur, "componentid", "") == kompid:
+                    sasaran = unsur
+                    break
+            if sasaran is None:
+                return None
+            return self.model_unsur(sasaran)
         if "komponen-id" in skrip and argumen:
             # Id komponen Ext JS: data-componentid → id wadah .x-field → `for` label.
             sasaran = argumen[0]
@@ -2668,6 +2772,16 @@ class PerambanPalsu:
             # ditinggalkan (``change``/``blur`` = ``completeEdit()`` Ext JS), «007» menjadi
             # «7» dan «63.5» menjadi «63,5» — persis numberfield Dapodik di sekolah. Bentuk
             # yang berbeda itu BUKAN kegagalan pengisian (laporan ronde 47).
+            self.peristiwa_dipicu += 1
+            self.normalkan_angka(argumen[0])
+            return None
+        if "dispatchEvent" in skrip and argumen and "new Event" in skrip and \
+                getattr(argumen[0], "angka", False) and self.angka_menormalkan:
+            # Kolom angka (numberfield) Dapodik: begitu kolomnya ditinggalkan
+            # (``change``/``blur`` = ``completeEdit()`` Ext JS), «007» menjadi «7» dan
+            # «63.5» menjadi «63,5» — persis numberfield di PC sekolah, dan BUKAN kegagalan
+            # pengisian (laporan ronde 47). Kalau mode ``model_angka_terpisah`` menyala,
+            # nilai MODEL Ext JS ikut berubah seperti di Dapodik.
             self.peristiwa_dipicu += 1
             self.normalkan_angka(argumen[0])
             return None

@@ -988,7 +988,100 @@ def main() -> int:
     cek(p43.gulir_kursor_di_kolom == 0,
         f"ada {p43.gulir_kursor_di_kolom}x gulir selagi kursor masih di dalam kolom")
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 43 skenario")
+    # 44) Jendela «Ubah» versi Dapodik lain bisa TIDAK memuat kolom RT/RW. Dulu catatannya
+    #     hanya «kolomnya tidak ketemu — dilewati» tanpa bukti apa pun, sehingga sekolah tidak
+    #     bisa mengirim keterangan yang berguna (ronde 48: «untuk log adanya dimana?»).
+    #     Sekarang catatannya menyebut kandidat selector yang dicoba + kolom isian yang ADA,
+    #     dan kolom lain tetap terisi seperti biasa.
+    p44, j44 = jalankan("44. kolom RT/RW tidak ada di jendela → dilaporkan beserta buktinya", 2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "tanpa_kolom_angka", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p44.bio_tersimpan, "jendela «Ubah» tidak tersimpan saat kolom RT/RW tidak ada")
+    cek("rt" not in p44.data_bio_tersimpan and "rw" not in p44.data_bio_tersimpan,
+        "kolom RT/RW dilaporkan tersimpan padahal tidak ada di jendela: "
+        f"{ {k: v for k, v in p44.data_bio_tersimpan.items() if k in ('rt', 'rw')} }")
+    cek(any("RT: kolomnya TIDAK ketemu" in b for b in j44),
+        f"«RT tidak ketemu» tidak dilaporkan apa adanya: {[b for b in j44 if 'RT' in b][:4]}")
+    cek(any("RW: kolomnya TIDAK ketemu" in b for b in j44),
+        f"«RW tidak ketemu» tidak dilaporkan: {[b for b in j44 if 'RW' in b][:4]}")
+    cek(any("kandidat yang dicoba" in b and "name:rt=" in b for b in j44),
+        f"kandidat selector untuk RT tidak disebut beserta hasilnya: "
+        f"{[b for b in j44 if 'kandidat' in b][:3]}")
+    cek(any("kolom isian yang ADA di halaman" in b for b in j44),
+        f"daftar kolom isian yang ADA tidak dilaporkan: "
+        f"{[b for b in j44 if 'ADA di halaman' in b][:3]}")
+    salah44 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if nama_kolom not in ("rt", "rw")
+               and str(p44.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah44, f"kolom lain ikut tidak terisi saat RT/RW tidak ada: {salah44}")
+    cek(p44.data_bio_tersimpan.get("kelurahan") == DESA_PILIH_PALSU,
+        "desa tidak tersimpan pada uji kolom RT/RW tidak ada: "
+        f"{p44.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p44.gulir_kursor_di_kolom == 0,
+        f"ada {p44.gulir_kursor_di_kolom}x gulir selagi kursor masih di dalam kolom (RT/RW tidak ada)")
+
+    # 45) Keamanan kandidat XPath lengkap dari sekolah: pada versi Dapodik yang kolom desanya
+    #     tidak punya atribut name/label, XPath itu bisa MELESET (mis. menunjuk kolom «RT»).
+    #     Bot tidak boleh menyalahgunakannya dengan menulis nama desa ke kolom lain — lebih baik
+    #     melaporkan «tidak ketemu» beserta bukti kolom apa yang ADA di jendela «Ubah», dan
+    #     membiarkan desa lama Dapodik apa adanya.
+    p45, j45 = jalankan("45. XPath desa meleset ke kolom lain → tidak disalahgunakan", 2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "desa_tanpa_nama", True),
+                                        setattr(p, "desa_tanpa_label", True),
+                                        setattr(p, "xpath_desa_salah", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p45.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji kandidat XPath meleset")
+    cek(str(p45.data_bio_tersimpan.get("rt") or "").strip() == "3",
+        "kolom «RT» ditimpa kandidat desa yang meleset: "
+        f"{p45.data_bio_tersimpan.get('rt')!r}")
+    cek(p45.data_bio_tersimpan.get("kelurahan") == DESA_LAMA_PALSU,
+        "desa berubah padahal kandidat desanya meleset: "
+        f"{p45.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p45.bio_kode_ditolak == 0,
+        f"Dapodik menolak desanya {p45.bio_kode_ditolak}x pada uji kandidat meleset")
+    cek(any("BUKAN combo" in b for b in j45),
+        f"kandidat yang bukan combo tidak dilaporkan: {[b for b in j45 if 'Desa/Kelurahan' in b][:6]}")
+    cek(any("isian yang ADA di jendela «Ubah»" in b for b in j45),
+        f"isian yang ADA di jendela tidak dilaporkan: "
+        f"{[b for b in j45 if 'Desa/Kelurahan' in b][:6]}")
+    cek(p45.gulir_kursor_di_kolom == 0,
+        f"ada {p45.gulir_kursor_di_kolom}x gulir selagi kursor masih di dalam kolom (XPath meleset)")
+
+    # 46) RT/RW di Dapodik berupa numberfield: yang BENAR-BENAR disimpan saat «Simpan» adalah
+    #     nilai MODEL Ext JS-nya, bukan tulisan di kotaknya. Bila gulir mengubah nilainya
+    #     menjadi «0» dan yang dikembalikan hanya tulisan di kotak, Dapodik tetap menyimpan
+    #     «0» — persis keluhan ronde 48 «masih gagal input rt dan rw». Bot harus memeriksa
+    #     modelnya dan memperbaikinya lewat ``Ext.getCmp(...).setValue(...)`` sebelum «Simpan».
+    p46, j46 = jalankan("46. RT tersimpan dari model Ext JS: kotak benar, model «0» → diperbaiki",
+                        2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "angka_menormalkan", True),
+                                        setattr(p, "model_angka_terpisah", True),
+                                        setattr(p, "dropdown_band", 5),
+                                        setattr(p, "rusak_paksa_kolom", "rt")),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p46.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji model Ext JS kolom angka")
+    cek(p46.rusak_paksa_kali >= 1,
+        "uji tidak bermakna: nilai «RT» tidak pernah dirusak gulir (DOM + model Ext JS)")
+    cek(p46.model_diperbaiki_kali >= 1,
+        f"nilai model Ext JS tidak pernah diperbaiki lewat setValue "
+        f"({p46.model_diperbaiki_kali}x) — Dapodik akan menyimpan «0»")
+    cek(p46.model_dibaca_kali >= 1,
+        "bot tidak pernah membaca nilai model Ext JS (getValue) kolom angka")
+    cek(str(p46.data_bio_tersimpan.get("rt") or "").strip() == "3",
+        f"RT tersimpan {p46.data_bio_tersimpan.get('rt')!r} — model Ext JS-nya tidak ikut "
+        "diperbaiki sebelum «Simpan»")
+    cek(any("model Ext JS" in b and "ditulis ulang lewat Ext JS (setValue)" in b for b in j46),
+        f"perbaikan model Ext JS tidak dilaporkan apa adanya: "
+        f"{[b for b in j46 if 'model Ext JS' in b][:4]}")
+    salah46 = [nama_kolom for kunci, nama_kolom, nilai in BIO_UJI
+               if str(p46.data_bio_tersimpan.get(nama_kolom) or "").strip() != nilai]
+    cek(not salah46, f"kolom yang tersimpan tidak sesuai pada uji model Ext JS: {salah46}")
+    cek(not any("belum berisi nilai yang benar" in b for b in j46),
+        [b for b in j46 if "belum berisi nilai yang benar" in b][:3])
+    cek(p46.gulir_kursor_di_kolom == 0,
+        f"ada {p46.gulir_kursor_di_kolom}x gulir selagi kursor masih di dalam kolom (model Ext JS)")
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 46 skenario")
     return 0
 
 

@@ -1869,9 +1869,51 @@ def catat_item_bot(item_id: int, status: str, pesan: str = "") -> None:
     )
 
 
+#: Berapa banyak catatan (dalam karakter) yang disimpan di basis data. Ini hanya untuk
+#: tampilan cepat di halaman; **catatan LENGKAP** disimpan di berkas (lihat
+#: ``berkas_catatan_bot``) supaya tidak ada baris yang hilang seperti dulu (batas lama:
+#: 4000 karakter sehingga pengguna hanya bisa melihat 12 baris terakhir).
+BATAS_LOG_DB = 400_000
+
+
+def berkas_catatan_bot(job_id: int) -> Path:
+    """Berkas catatan LENGKAP bot untuk satu pekerjaan (``data/bot/catatan-bot-<id>.txt``).
+
+    Ditulis apa adanya sejak baris pertama, supaya sekolah bisa membuka/mengirimkan
+    catatan itu walaupun halamannya sudah ditutup atau botnya dihentikan.
+    """
+    config.ensure_dirs()
+    folder = config.DATA_DIR / "bot"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / f"catatan-bot-{int(job_id)}.txt"
+
+
+def baca_catatan_bot(job_id: int) -> tuple[str, str]:
+    """Isi catatan lengkap bot → ``(teks, dari_mana)``.
+
+    Dibaca dari berkas lengkap; bila berkasnya belum ada (pekerjaan lama sebelum
+    pembaruan ini), dipakai catatan yang tersimpan di basis data apa adanya.
+    """
+    if not job_id:
+        return "", "kosong"
+    berkas = berkas_catatan_bot(job_id)
+    if berkas.exists():
+        teks = berkas.read_text(encoding="utf-8", errors="replace")
+        if teks.strip():
+            return teks, "berkas"
+    teks = str(db.query_value("SELECT log FROM dapodik_jobs WHERE id = ?", (int(job_id),)) or "")
+    return teks, ("basis data" if teks.strip() else "kosong")
+
+
 def perbarui_job_bot(job_id: int, *, tambah_sukses: int = 0, tambah_gagal: int = 0,
                      status: str | None = None, baris_log: str = "") -> None:
-    """Perbarui kepala pekerjaan bot (hitungan & log berjalan)."""
+    """Perbarui kepala pekerjaan bot (hitungan & catatan berjalan).
+
+    Catatan berjalan disimpan **utuh** ke berkas ``data/bot/catatan-bot-<id>.txt``
+    (ditambahkan baris demi baris) dan salinannya di basis data dipakai halaman untuk
+    tampilan cepat — dulu basis datanya dipotong 4000 karakter sehingga pengguna hanya
+    melihat 12 baris terakhir dan tidak bisa mengirim catatan kegagalan ke pengembang.
+    """
     if tambah_sukses or tambah_gagal:
         db.execute(
             "UPDATE dapodik_jobs SET sukses_item = sukses_item + ?, gagal_item = gagal_item + ? "
@@ -1882,9 +1924,15 @@ def perbarui_job_bot(job_id: int, *, tambah_sukses: int = 0, tambah_gagal: int =
         akhiran = ", finished_at = datetime('now','localtime')" if status != "jalan" else ""
         db.execute(f"UPDATE dapodik_jobs SET status = ?{akhiran} WHERE id = ?", (status, job_id))
     if baris_log:
+        try:
+            berkas = berkas_catatan_bot(job_id)
+            with berkas.open("a", encoding="utf-8") as buka:
+                buka.write(str(baris_log).rstrip("\n") + "\n")
+        except OSError as galat:  # noqa: BLE001 — disk penuh/izin: jangan gagalkan botnya
+            log.warning("catatan bot tidak bisa ditulis ke berkas: %s", galat)
         lama = db.query_value("SELECT log FROM dapodik_jobs WHERE id = ?", (job_id,)) or ""
         gabung = (str(lama).rstrip("\n") + "\n" + baris_log).strip()
-        db.execute("UPDATE dapodik_jobs SET log = ? WHERE id = ?", (gabung[-4000:], job_id))
+        db.execute("UPDATE dapodik_jobs SET log = ? WHERE id = ?", (gabung[-BATAS_LOG_DB:], job_id))
 
 
 def tandai_sisa_menunggu_bot(job_id: int,
