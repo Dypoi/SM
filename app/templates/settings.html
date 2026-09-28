@@ -411,9 +411,12 @@
       </dl>
       {% else %}
       <div class="note">
-        Aplikasi belum ditandai dibuka dari internet. Untuk memakai mode online jalankan
-        <code>SM-online.bat</code> (Windows) — petunjuknya ada di README bagian
-        <em>Menjalankan online</em>.
+        Aplikasi belum ditandai dibuka dari internet. Paling mudah: buka
+        <a href="/online">halaman <strong>Online</strong></a> lalu tekan tombol
+        <em>Nyalakan online</em> — Tailscale Funnel dijalankan di belakang layar (tanpa
+        jendela Command Prompt) dan alamat publiknya langsung ditampilkan.
+        Cara lama lewat <code>SM-online.bat</code> tetap bisa dipakai (README bagian
+        <em>Menjalankan online</em>).
       </div>
       {% endif %}
       <div class="table-wrap mt-2">
@@ -449,6 +452,7 @@
         </table>
       </div>
       <div class="form-actions mt-2">
+        <a class="btn btn-primary btn-sm" href="/online">{{ icon('globe') }} Nyalakan online (1 tombol)</a>
         <form method="post" action="/pengaturan/aman-online">
           <input type="hidden" name="aksi" value="bersihkan-penangguhan">
           <button class="btn btn-outline btn-sm" type="submit">{{ icon('refresh') }} Bersihkan penangguhan login</button>

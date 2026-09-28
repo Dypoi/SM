@@ -905,7 +905,8 @@ def cek_http():
     halaman_admin = ["/", "/data-siswa", "/data-siswa/1", "/data-siswa/baru", "/statistik",
                      "/kualitas-data", "/ekstrakurikuler", "/ekstrakurikuler/1", "/impor",
                      "/impor/1", "/impor/panduan", "/pengaturan",
-                     "/pengaturan/dokumentasi-api", "/profil-akun", "/pembaruan", "/bot-dapodik"]
+                     "/pengaturan/dokumentasi-api", "/profil-akun", "/pembaruan", "/bot-dapodik",
+                     "/online"]
 
     async def jalankan() -> str:
         transport = httpx.ASGITransport(app=app)
@@ -1000,6 +1001,33 @@ def cek_http():
             assert isi_status["items"] == [] and isi_status["hitung"] in ({}, None), \
                 "status.json tanpa pekerjaan seharusnya kosong, bukan galat"
 
+            # --- Ronde 44: halaman «Online» menampilkan alamat publik & tombolnya --- #
+            from app import online as modul_online
+
+            online_kosong = await client.get("/online")
+            assert online_kosong.status_code == 200, f"/online -> {online_kosong.status_code}"
+            for tanda_online in ("Nyalakan online (1 tombol)", "Hanya jaringan sekolah",
+                                 "/online/status.json"):
+                assert tanda_online in online_kosong.text, \
+                    f"halaman Online tanpa {tanda_online!r}"
+            modul_online.simpan_status("https://sm-sekolah.tail.ts.net", "uji cek_sistem", 8000)
+            try:
+                online_aktif = await client.get("/online")
+                isi_online = online_aktif.text
+                assert "https://sm-sekolah.tail.ts.net" in isi_online, \
+                    "halaman Online tidak menampilkan alamat publiknya"
+                assert "data-alamat=\"https://sm-sekolah.tail.ts.net\"" in isi_online, \
+                    "alamat publik tidak siap disalin (tanpa data-alamat)"
+                assert "Matikan online" in isi_online and "Buka alamatnya" in isi_online
+                status_online = await client.get("/online/status.json")
+                assert status_online.status_code == 200, "/online/status.json bukan 200"
+                isi_status_online = status_online.json()
+                assert "pekerjaan" in isi_status_online \
+                    and isi_status_online["alamat_tercatat"].startswith("https://sm-sekolah"), \
+                    isi_status_online
+            finally:
+                modul_online.hapus_status()
+
             kunci = services.get_setting("api_key")
             tanpa_kunci = await client.get("/api/statistik")
             assert tanpa_kunci.status_code in (303, 401), "API seharusnya menolak tanpa kunci"
@@ -1035,8 +1063,10 @@ def cek_http():
                 assert "portal-shell" in h.text, f"{jalan} belum memakai kerangka ruang siswa"
                 assert 'href="/pengaturan"' not in h.text, f"{jalan} masih menautkan Pengaturan"
 
-            terlarang = await client.get("/pengaturan")
-            assert terlarang.status_code in (303, 403), "siswa seharusnya tidak bisa membuka Pengaturan"
+            for khusus_admin in ("/pengaturan", "/online", "/pembaruan"):
+                terlarang = await client.get(khusus_admin)
+                assert terlarang.status_code in (303, 403), \
+                    f"siswa seharusnya tidak bisa membuka {khusus_admin}"
 
             await client.post("/logout")
 
@@ -4430,6 +4460,177 @@ def cek_chrome_tanpa_cmd():
             "log-server.txt (tanpa cmd), pintasan nyala-otomatis jadi SM-otomatis.vbs")
 
 
+@cek("38. Tombol «Online» — Tailscale Funnel sekali klik, tanpa jendela cmd")
+def cek_tombol_online():
+    """Uji fitur ronde 44 memakai «tailscale palsu» — tanpa menyentuh jaringan sekolah."""
+    import time
+
+    from app import auth, online, web
+
+    # (a) Semua perintah Tailscale berjalan TANPA jendela Command Prompt.
+    sumber = (BASE_DIR / "app/online.py").read_text(encoding="utf-8")
+    potong = sumber[sumber.index("# Tailscale Funnel — tombol «Online»"):]
+    assert "def tanpa_jendela" in sumber and "CREATE_NO_WINDOW" in sumber, \
+        "bendera CREATE_NO_WINDOW hilang dari app/online.py"
+    jumlah = potong.count("creationflags=tanpa_jendela()")
+    panggilan = potong.count("subprocess.run(") + potong.count("subprocess.Popen(")
+    assert panggilan >= 2, "perintah tailscale seharusnya dijalankan lewat subprocess"
+    assert jumlah == panggilan, \
+        f"{panggilan - jumlah} proses tailscale tanpa bendera tanpa-jendela"
+    assert "shell=True" not in potong, \
+        "perintah tailscale dijalankan lewat shell (bisa memunculkan jendela cmd)"
+    assert "os.system" not in potong and "os.popen" not in potong
+
+    # (b) Pembacaan keluaran `tailscale funnel status` & nama perangkat.
+    aktif, alamat, port = online.baca_alamat_tailscale(
+        "https://sm-sekolah.tail.ts.net (Funnel on)\n|-- / proxy http://127.0.0.1:8000")
+    assert aktif and alamat == "https://sm-sekolah.tail.ts.net" and port == 8000, \
+        (aktif, alamat, port)
+    assert online.baca_alamat_tailscale("No serve config") == (False, "", 0)
+
+    # (c) Galat Tailscale diterjemahkan menjadi langkah perbaikan yang nyata.
+    for galat, harus_ada in (
+        ('Funnel not available; "funnel" node attribute not set', "acls"),
+        ("HTTPS is not enabled on your tailnet", "admin/dns"),
+        ("MagicDNS is not enabled", "MagicDNS"),
+        ("Logged out", "masuk"),
+    ):
+        pesan = online.pesan_perbaikan(galat)
+        assert harus_ada.lower() in pesan.lower(), \
+            f"pesan untuk {galat!r} tidak memuat {harus_ada!r}: {pesan[:140]}"
+
+    # (d) Halaman, menu, dan rutenya ada — tanpa perintah yang perlu diketik guru.
+    halaman = (BASE_DIR / "app/templates/online.html").read_text(encoding="utf-8")
+    for tanda in ("Nyalakan online (1 tombol)", "Matikan online", "Salin alamat",
+                  "tailscale.com/download", "/pengaturan#aman-online", "/online/status.json",
+                  "Tailscale Funnel"):
+        assert tanda in halaman, f"halaman Online tidak memuat {tanda!r}"
+    web_sumber = (BASE_DIR / "app/web.py").read_text(encoding="utf-8")
+    assert '{"href": "/online", "label": "Online", "icon": "globe"}' in web_sumber, \
+        "menu «Online» tidak ada di bilah samping"
+    assert '"/online": "Online"' in web_sumber, "judul halaman Online belum terdaftar"
+    router = (BASE_DIR / "app/routers/online_routes.py").read_text(encoding="utf-8")
+    for tanda in ('@router.get("/online")', '@router.post("/online/nyalakan")',
+                  '@router.post("/online/matikan")', "/online/status.json",
+                  "mulai_nyalakan", "matikan_terowongan"):
+        assert tanda in router, f"rute Online tidak memuat {tanda!r}"
+    assert "online_routes.router" in (BASE_DIR / "app/main.py").read_text(encoding="utf-8"), \
+        "router Online belum didaftarkan di app/main.py"
+    admin_cek = auth.SessionUser(id=1, username="admin", nama="Admin", role=auth.ROLE_ADMIN)
+    petugas_cek = auth.SessionUser(id=None, username="petugas", nama="P", role=auth.ROLE_OPERATOR)
+    assert "/online" in {item["href"] for item in web.nav_items(admin_cek)}, "menu Online hilang"
+    assert "/online" not in {item["href"] for item in web.nav_items(petugas_cek)}, \
+        "petugas seharusnya tidak melihat menu Online (khusus admin)"
+
+    if os.name == "nt":
+        return ("tombol Online: bendera tanpa-jendela dipakai di semua perintah Tailscale, "
+                "galat diterjemahkan ke langkah perbaikan, halaman/menu/rute lengkap — "
+                "uji alur penuh dengan tailscale palsu dilewati di Windows")
+
+    # (e) Alur penuh dengan «tailscale palsu» (tanpa menyentuh jaringan sekolah).
+    shim = _SEMENTARA / "tailscale-palsu.sh"
+    shim.write_text(
+        "#!/bin/sh\n"
+        'case "$1 $2" in\n'
+        '  "status --json") echo \'{"Self":{"DNSName":"sm-sekolah.tail.ts.net."}}\' ;;\n'
+        '  "funnel status") echo "https://sm-sekolah.tail.ts.net (Funnel on)";\n'
+        '    echo "|-- / proxy http://127.0.0.1:${SM_UJI_PORT:-8000}" ;;\n'
+        '  "funnel off") echo "Funnel stopped" ;;\n'
+        '  "funnel --bg") echo "Funnel started (palsu)" ;;\n'
+        "esac\n"
+        "exit 0\n", encoding="utf-8")
+    shim.chmod(0o755)
+    izin_shim = _SEMENTARA / "tailscale-izin.sh"
+    izin_shim.write_text(
+        "#!/bin/sh\n"
+        'echo "Funnel is not enabled on your tailnet."\n'
+        'echo "  https://login.tailscale.com/f/funnel?node=n123456"\n'
+        "sleep 60\n", encoding="utf-8")
+    izin_shim.chmod(0o755)
+    gagal_shim = _SEMENTARA / "tailscale-gagal.sh"
+    gagal_shim.write_text(
+        '#!/bin/sh\necho "Funnel is not enabled on your tailnet" >&2\nexit 1\n',
+        encoding="utf-8")
+    gagal_shim.chmod(0o755)
+
+    asli = os.environ.get("SM_TAILSCALE")
+    os.environ["SM_UJI_PORT"] = "8000"
+    tunggu_asli, ronde_asli = online.TUNGGU_FUNNEL, online.RONDE_TUNGGU
+
+    def tunggu_selesai(batas_detik: float = 30.0) -> dict:
+        batas = time.time() + batas_detik
+        while time.time() < batas and online.status_pekerjaan()["jalan"]:
+            time.sleep(0.15)
+        return online.status_pekerjaan()
+
+    try:
+        online.hapus_status()
+        os.environ["SM_TAILSCALE"] = str(shim)
+        assert online.tailscale_jalur() == str(shim), online.tailscale_jalur()
+        keadaan = online.status_terowongan()
+        assert keadaan["ada"] and keadaan["online"], keadaan
+        assert keadaan["alamat"] == "https://sm-sekolah.tail.ts.net", keadaan
+        assert keadaan["nama"] == "sm-sekolah.tail.ts.net", keadaan
+
+        # Nyalakan: pekerjaan latar selesai, alamat tersimpan sebagai penanda online.
+        assert online.mulai_nyalakan(8000)["jalan"] is True, "pekerjaan latar tidak dimulai"
+        akhir = tunggu_selesai()
+        assert akhir["tahap"] == "online", akhir
+        assert akhir["alamat"] == "https://sm-sekolah.tail.ts.net", akhir
+        penanda = online.baca_status()
+        assert penanda["aktif"] and str(penanda["alamat"]).startswith("https://sm-sekolah"), \
+            penanda
+        assert "tailscale" in str(penanda["alat"]).lower(), penanda
+
+        # Matikan: penanda dibersihkan; aplikasi lokal tidak diapa-apakan.
+        hasil = online.matikan_terowongan()
+        assert hasil["berhasil"], hasil
+        assert not online.baca_status()["aktif"], "penanda online belum dibersihkan"
+
+        # Port publik di luar 443/8443/10000 ditolak dengan penjelasan (batas Tailscale).
+        online.mulai_nyalakan(8000, 8080)
+        tolak = tunggu_selesai(10)
+        assert tolak["tahap"] == "gagal" and "443" in tolak["pesan"], tolak
+
+        # «Menunggu persetujuan» ≠ gagal: tautan izin dilaporkan, prosesnya tidak diklaim sukses.
+        os.environ["SM_TAILSCALE"] = str(izin_shim)
+        online.TUNGGU_FUNNEL, online.RONDE_TUNGGU = 2, 2
+        online.mulai_nyalakan(8000)
+        izin = tunggu_selesai()
+        assert izin["tahap"] == "menunggu-izin", izin
+        assert izin["tautan_izin"].startswith("https://login.tailscale.com/f/funnel"), izin
+        assert "menunggu" in izin["pesan"].lower(), izin
+        assert not online.baca_status()["aktif"], \
+            "funnel yang belum disetujui tidak boleh dianggap online"
+        online.TUNGGU_FUNNEL, online.RONDE_TUNGGU = tunggu_asli, ronde_asli
+
+        # Gagal dijalankan: kode ≠ 0 → pesan perbaikan (bukan klaim sukses).
+        os.environ["SM_TAILSCALE"] = str(gagal_shim)
+        online.mulai_nyalakan(8000)
+        gagal = tunggu_selesai()
+        assert gagal["tahap"] == "gagal" and gagal["kode"] not in (0, None), gagal
+        assert "acls" in gagal["pesan"].lower(), gagal
+
+        # Perintah tailscale yang tidak ada sama sekali → pesan pemasangan, bukan galat mentah.
+        os.environ["SM_TAILSCALE"] = str(_SEMENTARA / "tidak-ada-tailscale")
+        assert online.tailscale_jalur() == "", "perintah yang tidak ada seharusnya dianggap kosong"
+        belum = online.status_terowongan()
+        assert belum["ada"] is False and "Tailscale belum terpasang" in belum["pesan"], belum
+    finally:
+        online.TUNGGU_FUNNEL, online.RONDE_TUNGGU = tunggu_asli, ronde_asli
+        os.environ.pop("SM_UJI_PORT", None)
+        if asli is None:
+            os.environ.pop("SM_TAILSCALE", None)
+        else:
+            os.environ["SM_TAILSCALE"] = asli
+        online.hapus_status()
+
+    return ("tombol Online: alur penuh nyalakan → alamat .ts.net tersimpan & tampil → matikan "
+            "diuji dengan tailscale palsu; jalur «menunggu persetujuan» dilaporkan jujur "
+            "(bukan sukses/gagal), galat → langkah perbaikan; semua perintah di belakang layar "
+            "tanpa jendela cmd; menu & rute khusus admin")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -4470,6 +4671,7 @@ def main() -> int:
     cek_bilah_atas()
     cek_kerapian_susunan()
     cek_lencana_ikon()
+    cek_tombol_online()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()

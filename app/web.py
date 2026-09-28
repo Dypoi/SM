@@ -393,12 +393,13 @@ def nav_items(user: auth.SessionUser | None) -> list[dict[str, str]]:
         {"href": "/kualitas-data", "label": "Kualitas Data", "icon": "check"},
         {"href": "/bot-dapodik", "label": "Bot Dapodik", "icon": "robot",
          "badge": services.bot_menunggu_kira()},
+        {"href": "/online", "label": "Online", "icon": "globe"},
         {"href": "/pengaturan", "label": "Pengaturan", "icon": "cog"},
         {"href": "/pembaruan", "label": "Pembaruan", "icon": "refresh"},
     ]
     if user.role != auth.ROLE_ADMIN:
         items = [item for item in items if item["href"] not in
-                 {"/pengaturan", "/pembaruan", "/pengajuan", "/bot-dapodik"}]
+                 {"/pengaturan", "/pembaruan", "/pengajuan", "/bot-dapodik", "/online"}]
         items.append({"href": "/profil-akun", "label": "Akun Saya", "icon": "user"})
     return items
 
@@ -411,6 +412,7 @@ NAV_GRUP = {
     "/impor": "Data & Laporan",
     "/kualitas-data": "Data & Laporan",
     "/bot-dapodik": "Sistem",
+    "/online": "Sistem",
     "/statistik": "Data & Laporan",
     "/ekstrakurikuler": "Data & Laporan",
     "/pengaturan": "Sistem",
@@ -443,6 +445,7 @@ PAGE_TITLES = {
     "/kualitas-data": "Kualitas Data",
     "/bot-dapodik": "Bot Dapodik",
     "/pengaturan": "Pengaturan",
+    "/online": "Online",
     "/pembaruan": "Pembaruan Aplikasi",
     "/pengajuan": "Persetujuan Perubahan Data",
     "/portal/pengajuan": "Ajukan Perubahan Data",

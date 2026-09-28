@@ -1215,3 +1215,20 @@ input.input-nik {
   table.data.kartu td.empty-cell { display: block; padding: 0; }
   table.data.kartu td.empty-cell::before { content: none; }
 }
+
+/* --- Halaman «Online» (ronde 44): tombol 1-klik Tailscale Funnel -------------
+   Alamat publik ditampilkan besar & mudah disalin; kotak log menampilkan keluaran
+   Tailscale apa adanya supaya guru bisa memantau tanpa jendela Command Prompt. */
+.online-link {
+  font-family: var(--mono); font-size: 1.05rem; line-height: 1.5;
+  background: var(--primary-50, #eff6ff); border: 1px solid var(--primary-100, #dbeafe);
+  border-radius: 10px; padding: .7rem .85rem; word-break: break-all;
+  -webkit-user-select: all; user-select: all;
+}
+.log-kotak {
+  background: #0d1b2a; color: #dbe7f3; border-radius: 10px; padding: .7rem .85rem;
+  font-size: .8rem; line-height: 1.5; max-height: 15rem; overflow: auto;
+  white-space: pre-wrap; word-break: break-word;
+}
+.daftar-ringkas { margin: .2rem 0 0 1.1rem; padding: 0; }
+.daftar-ringkas li { margin: .3rem 0; }

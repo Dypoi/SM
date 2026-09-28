@@ -157,6 +157,20 @@ async def periksa_halaman() -> tuple[list[str], int]:
             for temuan_kecil in (pemeriksa.blok_dalam_sebaris + pemeriksa.baris_berisi_blok
                                  + pemeriksa.kelas_ganda):
                 masalah.append(f"{jalur}: {temuan_kecil}")
+        # Halaman petugas yang baru (ronde 44): halaman «Online» juga harus rapi —
+        # tombol, alamat publik, dan kotak log tidak boleh melimpah ke luar kartu.
+        await klien.post("/logout")
+        await klien.post("/login", data={"mode": "staff", "username": "admin",
+                                         "password": "admin123"})
+        for jalur in ("/online",):
+            halaman = await klien.get(jalur)
+            assert halaman.status_code == 200, f"{jalur} -> {halaman.status_code}"
+            jumlah += 1
+            pemeriksa = PeriksaSusunan()
+            pemeriksa.feed(halaman.text)
+            for temuan_kecil in (pemeriksa.blok_dalam_sebaris + pemeriksa.baris_berisi_blok
+                                 + pemeriksa.kelas_ganda):
+                masalah.append(f"{jalur}: {temuan_kecil}")
         await klien.post("/logout")
     return masalah, jumlah
 
@@ -168,7 +182,7 @@ def main() -> int:
 
     masalah_html, jumlah = asyncio.run(periksa_halaman())
     semua = masalah_css + masalah_html
-    print(f"Diperiksa {jumlah} halaman (halaman masuk + ruang siswa).")
+    print(f"Diperiksa {jumlah} halaman (masuk + ruang siswa + halaman petugas «Online»).")
     if semua:
         for temuan in semua:
             print(f"  MASALAH {temuan}")

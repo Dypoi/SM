@@ -530,6 +530,16 @@ ditambahkan lewat menu **Ekstrakurikuler**.
 - Bila Dapodik berganti versi, tombol/lokasi kolom dapat disesuaikan lewat
   *Peta tombol Dapodik (JSON)* pada halaman bot, tanpa mengubah program.
 
+### Online — satu tombol (khusus admin)
+- Menu **Online**: sekali klik menyalakan **Tailscale Funnel** untuk aplikasi ini, lalu
+  **alamat publiknya ditampilkan di halaman itu** (dengan tombol *Buka alamatnya* dan
+  *Salin alamat*) — tanpa jendela Command Prompt dan tanpa mengetik perintah apa pun.
+- Bila Tailscale baru dipakai pertama kali untuk sekolah ini, halaman menampilkan **tautan
+  persetujuan Funnel** dan prosesnya lanjut sendiri setelah disetujui (bukan jendela hitam).
+- Tombol **Matikan online** menutup akses internet; aplikasi di jaringan sekolah tetap jalan.
+- Semua perintah Tailscale dijalankan di belakang layar (`CREATE_NO_WINDOW`), memakai
+  `tailscale funnel --bg` sehingga alamat publik tetap hidup walau perintahnya sudah selesai.
+
 ### Pengaturan (khusus admin)
 - Identitas sekolah (nama, NPSN, alamat, kepala sekolah, kontak).
 - Preferensi: tahun ajaran, semester, aturan login siswa, pengajuan perubahan data
@@ -828,7 +838,25 @@ Aplikasi ini bisa dibuka dari internet **tanpa biaya, tanpa IP publik, dan tanpa
 router**. Caranya: server tetap berjalan di komputer sekolah seperti biasa, lalu sebuah
 *terowongan* gratis membuatkan alamat publik ber-HTTPS yang menuju komputer itu.
 
-### Cara tercepat (Windows)
+### Cara termudah: satu tombol di dalam aplikasi (sejak ronde 44)
+
+Bila aplikasi sudah jalan di PC sekolah dan **Tailscale sudah dipasang + izin Funnel
+dibereskan sekali** (langkah 1 cara di bawah), tidak ada yang perlu dijalankan dari Command Prompt:
+
+1. Buka aplikasi SM → menu **Sistem → Online**.
+2. Tekan **Nyalakan online (1 tombol)**. Perintah Tailscale dijalankan **di belakang layar**
+   (tanpa jendela Command Prompt); halaman itu lalu menampilkan **alamat publiknya** lengkap
+   dengan tombol **Buka alamatnya** dan **Salin alamat**.
+3. Bila Tailscale masih meminta persetujuan Funnel, halaman menampilkan **tautan
+   persetujuannya** dan prosesnya lanjut sendiri setelah Anda menyetujui — tidak ada jendela
+   hitam yang perlu ditutup.
+4. Tombol **Matikan online** menutup akses publik; aplikasi di jaringan sekolah tetap jalan
+   seperti biasa. Alamatnya juga tercatat di **Pengaturan → Sistem → Aman Online**.
+
+Cara lama lewat `SM-online.bat` (di bawah) tetap tersedia — berguna bila ingin melihat
+seluruh prosesnya di jendela konsol atau ingin menjalankan server + terowongan sekaligus.
+
+### Cara lewat `SM-online.bat` (Windows)
 
 1. Pasang **Tailscale** (gratis) di PC sekolah, masuk, lalu **sekali saja**: nyalakan
    **MagicDNS** & **HTTPS Certificates** di <https://login.tailscale.com/admin/dns> **dan**
@@ -928,7 +956,7 @@ pemecahan masalah: **`PANDUAN-VERCEL.md`**.
 | Bisa dipakai di sekolah dan internet sekaligus? | Bisa. Di sekolah lewat `http://<ip-komputer>:8000`; dari luar lewat alamat `https://…` dari terowongan. |
 | Apakah data siswa dikirim ke pihak ketiga? | Tidak. Terowongan hanya meneruskan koneksi; basis data dan berkas tetap di komputer sekolah. |
 | Ke mana alamat publik dibagikan? | Cukup kepada petugas dan siswa. Pembatasan percobaan login serta audit login tetap berjalan. |
-| Bagaimana mematikan mode online? | Tekan `Ctrl+C` di jendela `SM-online.bat`, atau matikan Funnel di konsol admin Tailscale; penanda di aplikasi dibersihkan lewat tombol **Lupakan penanda online**. |
+| Bagaimana mematikan mode online? | Buka menu **Online** → **Matikan online** (satu tombol, tanpa Command Prompt). Cara lain: `SM-online.bat --hentikan`, `tailscale funnel off`, atau matikan di konsol admin Tailscale; penanda di aplikasi dibersihkan lewat tombol **Lupakan penanda online**. |
 | Parameter lain? | `python SM-online.py --port 9000`, `--lokal` (tanpa terowongan), `--tanpa-server` (server sudah jalan), `--buka` (buka peramban). |
 
 ---

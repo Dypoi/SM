@@ -97,6 +97,29 @@ Vercel, datanya sementara, dan bot tidak bisa jalan. Di sini aplikasi tetap mili
 Ingin memastikan dulu sebelum menjalankan? Pakai **`SM-online.bat --cek`** — ia hanya memeriksa
 (terpasang? sudah login? HTTPS & Funnel aktif?) dan langsung memberi tahu bila ada yang kurang.
 
+### Cara paling mudah: tombol «Online» di aplikasi (tanpa jendela konsol)
+
+Sejak ronde 44 seluruh langkah di atas bisa dilakukan **dari dalam aplikasi**, satu tombol:
+
+1. Buka aplikasi SM di PC sekolah → menu **Sistem → Online**.
+2. Tekan **Nyalakan online (1 tombol)**. Aplikasi menjalankan
+   `tailscale funnel --bg --https=443 <port aplikasi>` **di belakang layar**
+   (bendera `CREATE_NO_WINDOW`; prosesnya sendiri `pythonw.exe`) — jadi **tidak ada jendela
+   Command Prompt** yang muncul, juga tidak ada perintah yang perlu diketik.
+3. Halaman itu **menampilkan alamat publiknya** (`https://<nama-pc>.<tailnet>.ts.net`)
+   beserta tombol **Buka alamatnya** dan **Salin alamat** — siap dikirim ke guru/HP.
+4. Bila tailnet sekolah belum pernah menyetujui Funnel, Tailscale mencetak **tautan
+   persetujuan** (`https://login.tailscale.com/f/funnel?node=…`). Tautan itu ditampilkan di
+   halaman, dan prosesnya **lanjut sendiri** setelah disetujui. Selama menunggu, aplikasi
+   menuliskan «menunggu persetujuan» — **bukan** «gagal» dan **bukan** «sudah online».
+5. Tombol **Matikan online** menjalankan `tailscale funnel off` dan membersihkan penanda
+   online; aplikasi lokal di sekolah tidak diapa-apakan.
+
+Catatan jujur: bila halaman menampilkan «Tailscale belum terpasang», berarti langkah bagian 2
+(belum) selesai di komputer itu — pasang Tailscale dulu, lalu tekan tombolnya lagi. Aplikasi
+tidak pernah berpura-pura sudah online: alamat publik hanya ditampilkan setelah
+`tailscale funnel status` benar-benar melaporkannya.
+
 ---
 
 ## 4. Sebelum benar-benar dibagikan ke siswa (penting)
@@ -132,7 +155,7 @@ lewat HTTPS.
 
 | Ingin | Caranya |
 | --- | --- |
-| Menutup akses dari internet, aplikasi tetap jalan di sekolah | `SM-online.bat --hentikan` (atau `tailscale funnel off`) |
+| Menutup akses dari internet, aplikasi tetap jalan di sekolah | menu **Online → Matikan online** (satu tombol), atau `SM-online.bat --hentikan` (atau `tailscale funnel off`) |
 | Menghentikan semuanya | tutup jendela `SM-online.bat` dengan `Ctrl+C` |
 | Hanya sebentar | buka <https://login.tailscale.com/admin/machines> → perangkat → *Disable* |
 
