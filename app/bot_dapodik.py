@@ -96,6 +96,12 @@ SELECTOR_BAWAAN: dict[str, str] = {
     "bio_rt": "name:rt",
     "bio_rw": "name:rw",
     "bio_kode_pos": "name:kode_pos",
+    # Kolom «Desa/Kelurahan» bukan kolom biasa: satu kolom combo yang isinya
+    # «Desa/Kel. <desa> - Kec. <kecamatan> - Kota <kota>» sekaligus, dan daftarnya diambil
+    # Dapodik dari basis data setelah pengguna mengetik nama kecamatan. Nama kolomnya bisa
+    # berbeda antar versi Dapodik, jadi dicari lewat labelnya lebih dulu (bisa ditimpa di
+    # «Peta tombol Dapodik»).
+    "bio_kelurahan": "label:Desa/Kelurahan",
     "bio_anak_ke": "name:anak_keberapa",
     "bio_ayah_nama": "name:nama_ayah",
     "bio_ayah_nik": "name:nik_ayah",
@@ -264,6 +270,9 @@ SELECTOR_CADANGAN: dict[str, list[str]] = {
     "bio_rt": ["label:RT", "css:input[name=rt]"],
     "bio_rw": ["label:RW", "css:input[name=rw]"],
     "bio_kode_pos": ["label:Kode Pos", "css:input[name*=kode_pos]"],
+    "bio_kelurahan": ["label:Desa/Kelurahan", "label:Desa", "label:Kelurahan",
+                      "css:input[name*=kelurahan]", "css:input[name*=desa]",
+                      "css:input[name*=wilayah]"],
     "bio_anak_ke": ["label:Anak ke-berapa", "label:Anak ke", "css:input[name*=anak]"],
     "bio_ayah_nama": ["css:input[name*=nama_ayah]"],
     "bio_ayah_nik": ["css:input[name*=nik_ayah]"],
@@ -341,6 +350,22 @@ UJI_TUNGGU_LAIN = 2
 
 #: Batas jumlah berkas bukti (screenshot/HTML) yang disimpan agar tidak menumpuk.
 BUKTI_MAKSIMAL = 40
+
+#: Batas waktu menunggu daftar hasil pencarian combo «Desa/Kelurahan» (detik).
+#: Dapodik tidak menyimpan daftar desa di komponen combo-nya: daftarnya baru diambil dari
+#: basis data **sesudah** pengguna mengetik (di Dapodik terbaru: nama KECAMATAN dulu, lalu
+#: pilihan desa di bawah kecamatan itu muncul). Jadi daftarnya harus ditunggu seperti daftar
+#: dropdown lain — bukan dibaca sekali lalu disimpulkan kosong.
+DESA_TUNGGU_DETIK = 6.0
+
+#: Paling banyak berapa halaman daftar desa yang disusuri.
+#: Picker combo Dapodik memakai bilah halaman («Page 1 of 2» pada tangkapan layar sekolah):
+#: pilihan yang berada di halaman berikutnya tidak akan pernah terlihat — dan karena itu
+#: tidak bisa diklik — sebelum tombol halaman berikutnya ditekan.
+DESA_HALAMAN_MAKSIMAL = 12
+
+#: Jaring pengaman: berhenti menyusuri daftar sesudah sekian pilihan desa terkumpul.
+DESA_PILIHAN_MAKSIMAL = 400
 
 def peta_selector() -> dict[str, str]:
     """Gabungkan selector bawaan dengan penimpaan dari pengaturan bot."""
@@ -1189,6 +1214,10 @@ class BotDapodik:
         ("alamat", "Alamat (Jalan)", "bio_alamat"),
         ("rt", "RT", "bio_rt"),
         ("rw", "RW", "bio_rw"),
+        # Kolom combo «Desa/Kelurahan» (satu kolom memuat desa + kecamatan + kota). Diisi
+        # dengan cara tersendiri: mengetik nama kecamatan → menunggu daftar desa dari
+        # Dapodik → menggulir & memindah halaman daftarnya → memilih desa yang cocok.
+        ("kelurahan", "Desa/Kelurahan", "bio_kelurahan"),
         ("kode_pos", "Kode Pos", "bio_kode_pos"),
         ("anak_ke", "Anak ke-berapa", "bio_anak_ke"),
         ("ayah_nama", "Nama ayah", "bio_ayah_nama"),
@@ -3395,6 +3424,533 @@ class BotDapodik:
         return (f"gagal terisi — pilihan «{cocok}» tidak masuk ke nilai kolomnya "
                 f"(tampil: «{nilai_tampil}», model: «{model}»).")
 
+    # ------------------------------------------- Desa/Kelurahan (combo wilayah) --- #
+    @staticmethod
+    def _kata_wilayah(teks: Any) -> str:
+        """Bentuk pembanding nama wilayah: huruf kecil, tanpa tanda, tanpa kata baku.
+
+        «Desa/Kel. Karawaci Baru» → «karawaci baru»; «Kec. Karawaci» → «karawaci»;
+        «Kota Tangerang» → «tangerang». Kata «desa/kel/kecamatan/kota/kabupaten» dibuang
+        supaya teks pilihan Dapodik bisa dibandingkan dengan data SM apa adanya.
+        """
+        hasil = " ".join(str(teks or "").split()).lower()
+        hasil = re.sub(r"[.,;:()/\\-]+", " ", hasil)
+        buang = {"desa", "kel", "kelurahan", "kec", "kecamatan", "kota", "kab",
+                 "kabupaten", "prov", "provinsi"}
+        return " ".join(k for k in hasil.split() if k not in buang)
+
+    @staticmethod
+    def _tampil_desa(teks: Any) -> str:
+        """Nama desa dari teks pilihan Dapodik, ditulis apa adanya (untuk pesan laporan)."""
+        bagian = [b.strip() for b in re.split(r"\s+-\s+", " ".join(str(teks or "").split()))
+                  if b.strip()]
+        if not bagian:
+            return ""
+        return re.sub(r"^(desa\s*/\s*kel\.?|desa|kel\.?|kelurahan)\s*", "", bagian[0],
+                      flags=re.IGNORECASE).strip()
+
+    @staticmethod
+    def _tampil_kecamatan(teks: Any) -> str:
+        """Bagian kecamatan dari teks pilihan Dapodik, ditulis apa adanya."""
+        for bagian in re.split(r"\s+-\s+", " ".join(str(teks or "").split())):
+            if bagian.strip().lower().startswith(("kec", "kecamatan")):
+                return bagian.strip()
+        return ""
+
+    @classmethod
+    def _kata_rapat(cls, teks: Any) -> str:
+        """Nama wilayah tanpa spasi — untuk menangani ejaan yang beda pemisahan kata.
+
+        Sekolah sering menemui nama desa yang di SM ditulis «Karang Sari» tetapi di basis
+        data Dapodik tertulis «Karangsari» (atau sebaliknya). Karena itu, selain bentuk
+        biasa, nama wilayah juga dibandingkan dalam bentuk rapat (tanpa spasi/tanda).
+        """
+        return cls._kata_wilayah(teks).replace(" ", "")
+
+    @classmethod
+    def _bagian_wilayah(cls, teks: Any) -> tuple[str, str, str]:
+        """Pisahkan satu pilihan combo menjadi (desa, kecamatan, kota).
+
+        Bentuk pilihan pada tangkapan layar sekolah:
+
+            «Desa/Kel. Karawaci Baru - Kec. Karawaci - Kota Tangerang»
+
+        Sebagian pemasangan Dapodik menuliskan satu baris polos tanpa pemisah «-»; dalam
+        hal itu seluruh teks dianggap nama desa. Pemisahan ini dipakai **hanya** untuk
+        mencocokkan dengan data SM — bot tidak menebak desa dari awal teks.
+        """
+        rapi = " ".join(str(teks or "").split())
+        if not rapi:
+            return "", "", ""
+        bagian = [b.strip() for b in re.split(r"\s+-\s+", rapi) if b.strip()]
+        if len(bagian) <= 1:
+            return cls._kata_wilayah(rapi), "", ""
+        desa = bagian[0]
+        kecamatan = ""
+        kota = ""
+        for tambahan in bagian[1:]:
+            rendah = tambahan.lower()
+            if not kecamatan and rendah.startswith(("kec", "kecamatan")):
+                kecamatan = tambahan
+            elif not kota and rendah.startswith(("kab", "kota", "kabupaten")):
+                kota = tambahan
+        return cls._kata_wilayah(desa), cls._kata_wilayah(kecamatan), cls._kata_wilayah(kota)
+
+    def _cocokkan_desa(self, desa: str, kecamatan: str, pilihan: list[str]) -> tuple[str, str]:
+        """Pilihan «Desa/Kelurahan» yang paling cocok + keterangan pencocokannya.
+
+        Berjenjang, dan **tidak menebak**:
+
+        1. desa **dan** kecamatan sama persis;
+        2. desa sama persis;
+        3. desa sama dalam bentuk rapat — ejaan yang beda pemisahan kata ditulis apa adanya
+           («Karang Sari» ↔ «Karangsari»), tentu saja tetap dengan kecamatan sebagai
+           penentu bila nama itu ada di beberapa kecamatan;
+        4. hanya satu pilihan yang memuat nama desanya;
+        5. bila ada beberapa pilihan bernama sama, kecamatan SM dipakai untuk memilih yang
+           tepat — kalau tetap ambigu, bot mengembalikan kosong (dilaporkan, bukan ditebak).
+        """
+        desa_kata = self._kata_wilayah(desa)
+        kec_kata = self._kata_wilayah(kecamatan)
+        desa_rapat = self._kata_rapat(desa)
+        if not desa_kata or not pilihan:
+            return "", ""
+        rinci = [(opsi, *self._bagian_wilayah(opsi)) for opsi in pilihan]
+        for opsi, d, k, _ in rinci:
+            if d == desa_kata and kec_kata and k == kec_kata:
+                return opsi, "sama persis (desa + kecamatan)"
+        sama_desa = [(opsi, k) for opsi, d, k, _ in rinci if d == desa_kata]
+        if len(sama_desa) == 1:
+            opsi, k = sama_desa[0]
+            if kec_kata and k and k != kec_kata:
+                # Kecamatan di SM berbeda dari kecamatan pilihan Dapodik. Kecamatan itu TIDAK
+                # punya kolom sendiri di Dapodik (ikut di kolom desa ini), jadi desanya tetap
+                # dipilih sesuai daftar Dapodik — tetapi perbedaannya dilaporkan apa adanya
+                # supaya data SM-nya bisa ikut diperiksa.
+                return opsi, (f"nama desanya sama persis, tetapi kecamatan pada pilihan "
+                              f"Dapodik «{self._tampil_kecamatan(opsi)}» berbeda dari data "
+                              f"SM «{kecamatan}»")
+            return opsi, "nama desanya sama persis"
+        if len(sama_desa) > 1 and kec_kata:
+            tepat = [o for o, k in sama_desa if k == kec_kata]
+            if len(tepat) == 1:
+                return tepat[0], ("desa & kecamatan yang sama dipilih — nama desa itu ada di "
+                                  "lebih dari satu kecamatan")
+        # Ejaan beda pemisahan kata: «Karang Sari» ↔ «Karangsari».
+        if len(desa_rapat) >= 4:
+            rapat_pilihan = [(opsi, self._kata_rapat(d), k) for opsi, d, k, _ in rinci]
+            if kec_kata:
+                tepat_rapat = [o for o, r, k in rapat_pilihan
+                               if r == desa_rapat and k == kec_kata]
+                if len(tepat_rapat) == 1:
+                    return tepat_rapat[0], (f"ejaan berbeda (spasi): «{desa}» ↔ "
+                                            f"«{self._tampil_desa(tepat_rapat[0])}» — "
+                                            "dipilih lewat kecamatan yang sama")
+            sama_rapat = [o for o, r, _ in rapat_pilihan if r == desa_rapat]
+            if len(sama_rapat) == 1:
+                opsi = sama_rapat[0]
+                k = next(k for o, _, k in rapat_pilihan if o == opsi)
+                if kec_kata and k and k != kec_kata:
+                    return "", ""
+                return opsi, (f"ejaan berbeda (spasi): «{desa}» ↔ "
+                              f"«{self._tampil_desa(opsi)}»")
+        if len(sama_desa) > 1:
+            return "", ""            # nama sama di beberapa kecamatan tanpa penentu: jangan tebak
+        memuat = [(opsi, k) for opsi, d, k, _ in rinci
+                  if desa_kata in d or (len(d) >= 4 and d in desa_kata)]
+        if len(memuat) == 1:
+            return memuat[0][0], f"«{desa}» dicocokkan dengan «{memuat[0][0]}»"
+        if len(memuat) > 1 and kec_kata:
+            tepat = [o for o, k in memuat if k == kec_kata]
+            if len(tepat) == 1:
+                return tepat[0], ("dicocokkan lewat kecamatan — nama desanya muncul di "
+                                  "beberapa pilihan")
+        return "", ""
+
+    def _ketik_pencarian_desa(self, peramban, unsur, kueri: str) -> str:
+        """Ketik kueri pencarian ke dalam kolom «Desa/Kelurahan» — persis cara pengguna.
+
+        Skrip sekolah memakai ``Ctrl+A`` lalu mengetik; begitu pula di sini. Mengetik bukan
+        untuk mengisi nilainya (Dapodik hanya menyimpan pilihan yang ada di daftarnya),
+        melainkan untuk memicu Dapodik mengambil daftar desa untuk kecamatan itu.
+        """
+        from selenium.webdriver.common.keys import Keys
+
+        try:
+            self._paksa_terlihat(peramban, unsur)
+            try:
+                unsur.click()
+            except Exception:  # noqa: BLE001 — fokus bisa ditelan lapisan pemuatan
+                pass
+            unsur.send_keys(Keys.CONTROL, "a")
+            unsur.send_keys(str(kueri))
+            return "diketik"
+        except Exception as exc:  # noqa: BLE001 — kolom readonly/kunci: daftar dibaca apa adanya
+            self._catat_kepala(f"[desa] kueri «{kueri}» tidak bisa diketik ke kolomnya "
+                               f"({type(exc).__name__}) — daftar dibaca apa adanya.")
+            return "gagal"
+
+    def _halaman_daftar_dropdown(self, peramban, unsur) -> tuple[int, int]:
+        """(halaman sekarang, jumlah halaman) bilah halaman picker — (0, 0) bila tidak ada."""
+        try:
+            hasil = peramban.execute_script(
+                """
+                /* halaman-dropdown */
+                const el = arguments[0];
+                if (!el) return {};
+                const lihat = (n) => !!(n && n.getClientRects && n.getClientRects().length);
+                let akar = null;
+                for (const n of document.querySelectorAll('.x-boundlist, .x-picker, .x-list-paging')) {
+                    if (lihat(n)) { akar = n; break; }
+                }
+                if (!akar) {
+                    const id = (el.getAttribute && el.getAttribute('aria-owns') || '').split(/\\s+/)[0];
+                    const n = id ? document.getElementById(id) : null;
+                    if (n) akar = n.closest ? (n.closest('.x-boundlist') || n) : n;
+                }
+                if (!akar) return {};
+                const semua = [...akar.querySelectorAll('*')];
+                for (const n of semua) {
+                    const t = (n.textContent || '').replace(/\\s+/g, ' ').trim();
+                    const m = /^Page\\s+(\\d+)\\s+of\\s+(\\d+)$/i.exec(t);
+                    if (m) return {halaman: parseInt(m[1], 10), total: parseInt(m[2], 10)};
+                }
+                return {};
+                """, unsur)
+        except Exception:  # noqa: BLE001 — bilah halaman hanya keterangan tambahan
+            return 0, 0
+        if not isinstance(hasil, dict):
+            return 0, 0
+        try:
+            return int(hasil.get("halaman") or 0), int(hasil.get("total") or 0)
+        except (TypeError, ValueError):
+            return 0, 0
+
+    def _halaman_berikutnya_dropdown(self, peramban, unsur) -> bool:
+        """Tekan tombol «halaman berikutnya» pada bilah halaman picker (bila ada & aktif)."""
+        halaman_awal, total = self._halaman_daftar_dropdown(peramban, unsur)
+        if not (0 < halaman_awal < total):
+            return False
+        try:
+            berhasil = peramban.execute_script(
+                """
+                /* halaman-dropdown-lanjut */
+                const el = arguments[0];
+                if (!el) return false;
+                const lihat = (n) => !!(n && n.getClientRects && n.getClientRects().length);
+                let akar = null;
+                for (const n of document.querySelectorAll('.x-boundlist, .x-picker')) {
+                    if (lihat(n)) { akar = n; break; }
+                }
+                if (!akar) return false;
+                const tombol = [...akar.querySelectorAll(
+                        '.x-tbar-page-next, .x-tbar-page-last, a[title*="Next"], a[title*="Berikut"]')]
+                    .find(lihat);
+                if (!tombol) return false;
+                tombol.click();
+                return true;
+                """, unsur)
+        except Exception:  # noqa: BLE001 — bilah halaman mungkin tidak bisa dipakai
+            return False
+        return bool(berhasil)
+
+    def _kumpulkan_pilihan_desa(self, peramban, unsur, desa: str, kecamatan: str,
+                                awalan: str = "[bio]", label: str = "") -> tuple:
+        """Susuri daftar hasil pencarian «Desa/Kelurahan» sampai desa yang dicari ketemu.
+
+        Tiga hal yang dijaga (semuanya dari tangkapan layar sekolah): daftarnya **punya area
+        gulir sendiri**, **berhalaman** («Page 1 of 2» pada bilah halaman picker), dan
+        **tidak langsung terisi** sesudah kecamatan diketik (Dapodik mengambilnya dari basis
+        data). Jadi pilihannya dikumpulkan berulang: baca → gulir → baca lagi → buka halaman
+        berikutnya → baca lagi, dan berhenti begitu desa yang dicari terlihat.
+
+        Kembalikan ``(pilihan_cocok, catatan, semua_pilihan, info)``.
+        """
+        semua: list[str] = []
+        geser = 0
+        halaman_dilewati = 0
+
+        def serap() -> int:
+            baru = 0
+            sumber = list(self._pilihan_dropdown(peramban, unsur) or [])
+            sumber += [teks for teks, _ in self._data_dropdown(peramban, unsur)]
+            for teks in sumber:
+                if teks and teks not in semua:
+                    semua.append(teks)
+                    baru += 1
+            return baru
+
+        serap()
+        langkah = 0
+        sepi = 0
+        while langkah < 80 and len(semua) < DESA_PILIHAN_MAKSIMAL:
+            langkah += 1
+            cocok, catatan = self._cocokkan_desa(desa, kecamatan, semua)
+            if cocok:
+                return cocok, catatan, semua, {"geser": geser, "halaman": halaman_dilewati}
+            jumlah_awal = len(semua)
+            if self._gulir_daftar_dropdown(peramban, unsur):
+                geser += 1                       # masih ada bagian daftar yang belum terlihat
+            else:
+                halaman, total = self._halaman_daftar_dropdown(peramban, unsur)
+                if (0 < halaman < total) and halaman_dilewati < DESA_HALAMAN_MAKSIMAL - 1 \
+                        and self._halaman_berikutnya_dropdown(peramban, unsur):
+                    halaman_dilewati += 1
+                    self._catat_kepala(
+                        f"{awalan} {label}: pilihan belum ketemu pada halaman itu — membuka "
+                        "halaman berikutnya pada bilah halaman daftarnya («Page x of y»).")
+                    self._tunggu(peramban, 1.0)  # halaman baru masih diambil dari basis data
+                    self._gulir_daftar_dropdown(peramban, unsur, jauh=-100000)
+            self._tunggu(peramban, 0.4)
+            serap()
+            if len(semua) > jumlah_awal:
+                sepi = 0
+            else:
+                # Belum ada tambahan: datanya (halaman baru) memang butuh beberapa bacaan.
+                # Baru sesudah beberapa putaran tanpa tambahan, daftarnya dianggap mentok.
+                sepi += 1
+                if sepi >= 6:
+                    break
+        cocok, catatan = self._cocokkan_desa(desa, kecamatan, semua)
+        return cocok, catatan, semua, {"geser": geser, "halaman": halaman_dilewati}
+
+    def _isi_desa_kelurahan(self, peramban, peta: dict[str, str], label: str, unsur,
+                            siswa: dict[str, Any], awalan: str = "[bio]") -> str:
+        """Isi kolom combo «Desa/Kelurahan» dari data SM (desa + kecamatan).
+
+        Alur Dapodik terbaru (dari sekolah): pengguna **mengetik nama kecamatan** lebih dulu,
+        lalu Dapodik menampilkan daftar desa/kelurahan di bawah kecamatan itu; daftarnya
+        bisa digulir dan berhalaman. Satu kolom itu sekaligus memuat desa + kecamatan + kota,
+        jadi yang dicocokkan adalah **desa**-nya, dan kecamatan dipakai untuk memastikan
+        pilihannya benar (nama desa bisa sama di kecamatan berbeda).
+
+        Bot **tidak pernah** hanya mengetikkan nilainya: yang diketik adalah kata kunci
+        pencarian, dan nilai kolomnya diambil dengan memilih dari daftar Dapodik — lalu
+        diperiksa kembali dari nilai kolomnya.
+        """
+        desa = self._nilai_teks(siswa.get("kelurahan"))
+        kecamatan = self._nilai_teks(siswa.get("kecamatan"))
+        if not desa:
+            return "dilewati — kolom «Desa/Kelurahan» siswa kosong di SM"
+        self._catat_kepala(f"{awalan} {label}: data SM — desa «{desa}»"
+                           + (f", kecamatan «{kecamatan}»." if kecamatan else
+                              " (kecamatan kosong di SM)."))
+        if not self._tunggu_aktif(peramban, unsur):
+            self._catat_kepala(f"{awalan} {label}: kolomnya masih nonaktif saat akan diisi — "
+                               "dicoba apa adanya.")
+        # Isi kolom SEBELUM bot menyentuhnya: kalau desa yang diminta tidak ada di daftar
+        # Dapodik, isi lama ini dikembalikan supaya data Dapodik tidak ikut berubah karena
+        # kata kunci pencarian yang tertinggal di kotaknya.
+        nilai_awal = self._nilai_teks(self._nilai_dropdown(peramban, unsur)[0])
+        kueri: list[str] = []
+        for calon in (kecamatan, desa, self._kata_rapat(desa)):
+            if calon and calon.lower() not in {k.lower() for k in kueri}:
+                kueri.append(calon)
+        cocok = ""
+        catatan = ""
+        semua: list[str] = []
+        info: dict[str, Any] = {}
+        for nomor, cari in enumerate(kueri, start=1):
+            if cari == kecamatan:
+                cara_cari = "kecamatan"
+            elif self._kata_wilayah(cari) == self._kata_wilayah(desa):
+                cara_cari = "nama desa"
+            else:
+                cara_cari = "nama desa yang ditulis rapat (tanpa spasi)"
+            self._catat_kepala(
+                f"{awalan} {label}: mengetik «{cari}» pada kolomnya (Dapodik mencari desa lewat "
+                f"{cara_cari}) — daftarnya diambil Dapodik dari basis datanya, jadi ditunggu "
+                "lebih dulu.")
+            self._ketik_pencarian_desa(peramban, unsur, cari)
+            self._tunggu(peramban, 0.8)
+            if not self._dropdown_terbuka(peramban, unsur):
+                for cara in ("panah", "panah-bawah", "kolom", "Ext JS"):
+                    if self._buka_dropdown(peramban, unsur, cara):
+                        break
+                    self._tunggu(peramban, 0.4)
+            tampil = self._tunggu_daftar_dropdown(
+                peramban, unsur, percobaan=max(2, int(DESA_TUNGGU_DETIK / 0.5)))
+            jumlah_baca = getattr(self, "_baca_daftar_terakhir", 1)
+            if tampil:
+                self._catat_kepala(f"{awalan} {label}: daftar desa muncul — {len(tampil)} "
+                                   f"pilihan terlihat (ditunggu {jumlah_baca}x baca).")
+            else:
+                self._catat_kepala(f"{awalan} {label}: daftar desa belum terlihat sesudah "
+                                   f"{jumlah_baca}x baca — pilihannya dibaca dari data "
+                                   "komponen/DOM apa adanya.")
+            cocok, catatan, semua, info = self._kumpulkan_pilihan_desa(
+                peramban, unsur, desa, kecamatan, awalan, label)
+            if cocok:
+                break
+            self._catat_kepala(
+                f"{awalan} {label}: «{desa}» tidak ada pada hasil pencarian «{cari}» "
+                f"({len(semua)} pilihan dibaca, daftar digeser {info.get('geser', 0)}x, "
+                f"{info.get('halaman', 0)} halaman berikutnya dibuka).")
+            if nomor < len(kueri):
+                self._catat_kepala(f"{awalan} {label}: kueri berikutnya dicoba dengan nama "
+                                   "desanya.")
+        if not cocok:
+            ringkas = ", ".join(semua[:8]) + (" …" if len(semua) > 8 else "")
+            self._catat_kepala(
+                f"{awalan} {label}: desa «{desa}» TIDAK ADA pada daftar Dapodik (kueri "
+                f"{' & '.join(repr(k) for k in kueri)} sudah dicoba, {len(semua)} pilihan "
+                f"dibaca) — yang terlihat: {ringkas or '(daftar kosong)'} (dilewati, tidak "
+                "ditebak).")
+            self._bukti_dropdown(peramban, label)
+            self._tutup_dropdown(peramban, unsur)
+            if self._pulihkan_desa(peramban, unsur, nilai_awal, awalan, label):
+                return (f"dilewati — «{desa}» tidak ada pada daftar Desa/Kelurahan Dapodik "
+                        f"({len(semua)} pilihan terbaca); isi kolom dikembalikan seperti semula.")
+            return (f"dilewati — «{desa}» tidak ada pada daftar Desa/Kelurahan Dapodik "
+                    f"({len(semua)} pilihan terbaca).")
+        if catatan and catatan != "sama persis (desa + kecamatan)":
+            self._catat_kepala(f"{awalan} {label}: {catatan}.")
+        diklik, geser = self._klik_pilihan_dropdown(peramban, unsur, cocok)
+        if geser:
+            self._catat_kepala(f"{awalan} {label}: pilihan «{cocok}» baru terlihat setelah "
+                               f"daftarnya digeser {geser}x.")
+        self._tunggu(peramban, 0.5)
+        tampil_nilai, model = self._nilai_dropdown(peramban, unsur)
+        tersimpan, alasan = self._pilihan_desa_terpilih(peramban, unsur, desa, cocok,
+                                                        tampil_nilai or model)
+        if tersimpan:
+            self._catat_kecamatan_berbeda(label, kecamatan, tampil_nilai or model)
+            self._tutup_dropdown(peramban, unsur)
+            return (f"terisi (dipilih dari daftar Dapodik): {tampil_nilai or model}"
+                    + ("" if catatan == "sama persis (desa + kecamatan)" else f" — {catatan}"))
+        if diklik:
+            self._catat_kepala(f"{awalan} {label}: pilihan «{cocok}» sudah diklik tetapi "
+                               f"nilainya belum tersimpan — {alasan} (tampil: "
+                               f"«{tampil_nilai}») — dipilih lewat model Ext JS "
+                               "(select/setValue).")
+        else:
+            self._catat_kepala(f"{awalan} {label}: pilihan «{cocok}» tidak bisa diklik pada "
+                               "daftarnya (sudah digulir & halaman dibuka) — dipilih lewat "
+                               "model Ext JS (select/setValue).")
+        if self._pilih_dropdown_ext(peramban, unsur, cocok):
+            self._tunggu(peramban, 0.5)
+            tampil_nilai, model = self._nilai_dropdown(peramban, unsur)
+            tersimpan, alasan = self._pilihan_desa_terpilih(peramban, unsur, desa, cocok,
+                                                            tampil_nilai or model)
+            if tersimpan:
+                self._catat_kecamatan_berbeda(label, kecamatan, tampil_nilai or model)
+                self._tutup_dropdown(peramban, unsur)
+                return (f"terisi lewat model Ext JS (pilihan «{cocok}» dari daftar Dapodik): "
+                        f"{tampil_nilai or model}")
+            self._catat_kepala(f"{awalan} {label}: pilihan «{cocok}» dipasang lewat model "
+                               f"Ext JS tetapi belum terverifikasi — {alasan}.")
+        self._bukti_dropdown(peramban, label)
+        self._tutup_dropdown(peramban, unsur)
+        if self._pulihkan_desa(peramban, unsur, nilai_awal, awalan, label):
+            return (f"gagal terisi — pilihan «{cocok}» tidak masuk ke kolomnya "
+                    f"(tampil: «{tampil_nilai}»; {alasan}); isi kolom dikembalikan seperti "
+                    "semula.")
+        return (f"gagal terisi — pilihan «{cocok}» tidak masuk ke kolomnya "
+                f"(tampil: «{tampil_nilai}»; {alasan}).")
+
+    def _pulihkan_desa(self, peramban, unsur, nilai_awal: str,
+                       awalan: str, label: str) -> bool:
+        """Kembalikan isi kolom «Desa/Kelurahan» seperti sebelum bot menyentuhnya.
+
+        Bot mengetik kata kunci pencarian ke kotak itu; kalau desanya tidak ketemu, kata
+        kunci itu tidak boleh tertinggal di kolom data Dapodik. Isinya dikembalikan ke
+        tulisan semula (atau dikosongkan bila memang kosong sejak awal).
+        """
+        sekarang = self._nilai_teks(self._nilai_dropdown(peramban, unsur)[0])
+        if self._norm_pilihan(sekarang) == self._norm_pilihan(nilai_awal):
+            return False                      # sudah sama: tidak ada yang perlu dipulihkan
+        if not self._ketik_pencarian_desa(peramban, unsur, nilai_awal):
+            self._catat_kepala(f"{awalan} {label}: peringatan — kata kunci pencarian masih "
+                               "tertinggal di kolomnya (isi semula tidak bisa dikembalikan).")
+            return False
+        self._tunggu(peramban, 0.6)
+        self._catat_kepala(f"{awalan} {label}: isi kolom dikembalikan seperti semula "
+                           f"(«{nilai_awal}») supaya data lama Dapodik tidak ikut berubah.")
+        return True
+
+    def _desa_tersimpan(self, desa: str, teks: str) -> bool:
+        """Periksa hasil pemilihan: teks kolomnya benar-benar memuat **nama desa** yang diminta.
+
+        Kecamatan di dalam teks Dapodik **tidak** dijadikan syarat: data kecamatan di SM bisa
+        berbeda/keliru, dan yang menentukan pilihan di Dapodik adalah daftar desanya. Bila
+        kecamatannya berbeda, itu dilaporkan terpisah supaya bisa dicek — bukan dijadikan
+        alasan menggagalkan pemilihan yang sudah benar.
+        """
+        d, _, _ = self._bagian_wilayah(teks)
+        desa_kata = self._kata_wilayah(desa)
+        if not desa_kata:
+            return False
+        if d == desa_kata or (len(desa_kata) >= 4 and desa_kata in d):
+            return True
+        rapat_desa = self._kata_rapat(desa)      # «Karang Sari» ↔ «Karangsari»
+        rapat_teks = self._kata_rapat(d)
+        return bool(rapat_desa) and (
+            rapat_desa == rapat_teks
+            or (len(rapat_desa) >= 5 and rapat_desa in rapat_teks))
+
+    def _pilihan_tersimpan(self, peramban, unsur) -> tuple[bool, str]:
+        """Apakah combo menyimpan sebuah PILIHAN — bukan sekadar teks yang diketik.
+
+        Di Dapodik, mengetik hanya mengisi ``getRawValue()`` (tulisan di kotaknya), sedangkan
+        ``getValue()`` — nilai model yang benar-benar dikirim saat «Simpan» — tetap kosong
+        sampai sebuah pilihan diambil dari daftarnya. Karena itu hasil pemilihan diperiksa
+        dari ``getValue()``. Kembalikan ``(Ext_terbaca, nilai_id)``.
+        """
+        try:
+            hasil = peramban.execute_script(
+                """
+                /* dropdown-id */
+                const el = arguments[0];
+                if (!el) return {};
+                const id = (el.getAttribute && (el.getAttribute('data-componentid') || el.id)) || '';
+                const c = (typeof Ext !== 'undefined' && Ext.getCmp && id)
+                    ? Ext.getCmp(String(id).replace(/-inputEl$/, '')) : null;
+                if (!c || !c.getValue) return {ext: false, nilai: ''};
+                const isi = c.getValue();
+                return {ext: true, nilai: (isi === undefined || isi === null) ? '' : String(isi)};
+                """, unsur)
+        except Exception:  # noqa: BLE001 — tidak terbaca: dinilai dari teksnya
+            return False, ""
+        if not isinstance(hasil, dict):
+            return False, ""
+        return bool(hasil.get("ext")), str(hasil.get("nilai") or "")
+
+    def _pilihan_desa_terpilih(self, peramban, unsur, desa: str, cocok: str,
+                               teks: str) -> tuple[bool, str]:
+        """Periksa bahwa kolom «Desa/Kelurahan» benar-benar berisi pilihan dari daftar.
+
+        Bukan sekadar tulisannya mirip: **teks yang diketik untuk mencari** juga memuat nama
+        desa, jadi pemeriksaan itu saja bisa menyimpulkan "berhasil" padahal Dapodik belum
+        menyimpan pilihan apa pun. Karena itu nilai modelnya (``getValue``) diperiksa; bila
+        Ext tidak terjangkau, teksnya harus benar-benar teks pilihan dari daftar — bukan kata
+        kunci pencarian.
+        """
+        if not self._desa_tersimpan(desa, teks):
+            return False, "teks kolomnya belum memuat nama desa yang diminta"
+        ext_terbaca, nilai_id = self._pilihan_tersimpan(peramban, unsur)
+        if ext_terbaca:
+            if not nilai_id:
+                return False, ("model Dapodik masih kosong (getValue kosong) — teks di kotaknya "
+                               "baru ketikan pencarian, belum ada pilihan yang tersimpan")
+            return True, ""
+        if self._norm_pilihan(teks) == self._norm_pilihan(cocok):
+            return True, ""                  # teksnya persis pilihan dari daftar
+        _, kec_teks, kota_teks = self._bagian_wilayah(teks)
+        if kec_teks or kota_teks:
+            return True, ""                  # teks pilihan lengkap (desa + kecamatan/kota)
+        return False, (f"teks kolomnya «{teks[:60]}» masih berupa kata kunci pencarian — "
+                       "pilihan yang tersimpan selalu berupa teks pilihan dari daftar Dapodik")
+
+    def _catat_kecamatan_berbeda(self, label: str, kecamatan: str, teks: str,
+                                 awalan: str = "[bio]") -> None:
+        """Beri tahu bila kecamatan pada pilihan Dapodik berbeda dari data SM (untuk dicek)."""
+        _, k, _ = self._bagian_wilayah(teks)
+        kec_kata = self._kata_wilayah(kecamatan)
+        if kec_kata and k and k != kec_kata:
+            self._catat_kepala(f"{awalan} {label}: peringatan — kecamatan pada pilihan Dapodik "
+                               f"«{k}» berbeda dari data SM «{kec_kata}»; desanya tetap yang "
+                               "dipilih sesuai daftar Dapodik.")
+
     def _isi_bio(self, peramban, peta: dict[str, str], siswa: dict[str, Any]) -> bool:
         """Buka jendela «Ubah» lalu isi BIO siswa — persis potongan skrip sekolah.
 
@@ -3453,9 +4009,10 @@ class BotDapodik:
                            "digeser 250 px bertahap, jadi tidak bergantung pada "
                            "«gulir kebanyakan atau kurang banyak».")
         self._catat_kepala(f"[bio] mengisi BIO ({len(self.BIO_KOLOM)} kolom seperti skrip "
-                           "sekolah): No. KK, akta, alamat/RT/RW/kode pos, anak ke-berapa, "
-                           "data ayah & ibu — tiap kolom dibawa ke layar lebih dulu, dan "
-                           "bila ketikan ditolak Dapodik nilainya dicoba lewat Ext JS.")
+                           "sekolah): No. KK, akta, alamat/RT/RW, desa/kelurahan, kode pos, "
+                           "anak ke-berapa, data ayah & ibu — tiap kolom dibawa ke layar "
+                           "lebih dulu, dan bila ketikan ditolak Dapodik nilainya dicoba "
+                           "lewat Ext JS.")
         terisi = 0
         kosong: list[str] = []
         for kunci_data, label, kunci_sel in self.BIO_KOLOM:
@@ -3475,9 +4032,13 @@ class BotDapodik:
                     self._catat_kepala(f"[bio] bukti layar disimpan: {bukti} "
                                        "(beserta berkas .html di folder yang sama).")
                 continue
+            # Kolom «Desa/Kelurahan» punya cara sendiri: satu combo memuat desa + kecamatan
+            # + kota, dan daftarnya baru diambil Dapodik sesudah nama kecamatan diketik.
+            if kunci_sel == "bio_kelurahan":
+                keterangan = self._isi_desa_kelurahan(peramban, peta, label, unsur, siswa)
             # Dropdown (combo Ext JS) diisi lain: pilihannya harus benar-benar dipilih dari
             # daftarnya — mengetikkan teksnya saja tidak menyimpan apa pun ke Dapodik.
-            if self._tipe_kolom(peramban, unsur) == "combo":
+            elif self._tipe_kolom(peramban, unsur) == "combo":
                 keterangan = self._isi_dropdown_bio(peramban, peta, label, nilai, unsur)
             else:
                 keterangan = self._isi_periodik_satu(peramban, peta, kunci_sel, label, nilai,
@@ -4052,9 +4613,11 @@ class BotDapodik:
         self._siap_melanjutkan(peramban, "daftar peserta didik")
         self._singkirkan_popup(peramban, peta)
         self._catat_kepala(f"[versi] kode SM yang berjalan: {self._versi_kode()} — langkah "
-                           "tiap siswa: 1) cari NISN & pilih barisnya → 2) Data Periodik "
+                           "tiap siswa: 1) cari NISN & pilih barisnya → 2) BIO lewat «Ubah» "
+                           "(No. KK, akta, alamat/RT/RW, desa/kelurahan dari daftar Dapodik, "
+                           "kode pos, ayah & ibu → Simpan) → 3) Data Periodik "
                            "(gulir panel → tinggi/berat/lingkar → pilih radio jarak → km → "
-                           "saudara → Simpan dan Tutup) → 3) Registrasi (NIS → Sekolah Asal → "
+                           "saudara → Simpan dan Tutup) → 4) Registrasi (NIS → Sekolah Asal → "
                            "«Ya» → Hobi → Cita-cita → Simpan dan Tutup).")
         if self._versi_kode() == "tidak diketahui":
             self._catat_kepala("[versi] aplikasi ini bukan salinan git — pastikan berkas "

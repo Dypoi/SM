@@ -23,7 +23,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app import bot_dapodik, config, migrations  # noqa: E402
-from scripts import peramban_palsu  # noqa: E402
+from scripts import peramban_palsu
+from scripts.peramban_palsu import DESA_LAMA_BIO as DESA_LAMA_PALSU  # noqa: E402
 
 config.ensure_dirs()
 migrations.run_migrations()
@@ -44,6 +45,9 @@ SISWA = {
     # mengosongkan kolom Dapodik.
     "no_kk": "3201234567890001", "no_registrasi_akta": "", "alamat": "Jl. Melati No. 7",
     "rt": "3", "rw": "5", "kode_pos": "15157", "anak_ke": 2,
+    # Combo «Desa/Kelurahan» (ronde 43): satu kolom memuat desa + kecamatan + kota, dan
+    # daftarnya diambil Dapodik dari basis datanya setelah nama kecamatan diketik.
+    "kelurahan": "Karawaci Baru", "kecamatan": "Karawaci",
     "ayah_nama": "Bapak Uji", "ayah_nik": "3201234567890002",
     "ayah_tahun_lahir": 1980, "ayah_pendidikan": "SMA / sederajat",
     # Kolom dropdown (combo): nama kolomnya dari DOM asli halaman Dapodik (ronde 17) —
@@ -62,6 +66,9 @@ BIO_UJI: tuple[tuple[str, str, str], ...] = (
     ("alamat", "alamat_jalan", "Jl. Melati No. 7"),
     ("rt", "rt", "3"),
     ("rw", "rw", "5"),
+    # Nilai yang tersimpan adalah TEKS PILIHAN Dapodik lengkap (desa + kecamatan + kota),
+    # bukan nama desa dari data SM — itu bedanya memilih dari daftar dengan mengetiknya.
+    ("kelurahan", "kelurahan", "Desa/Kel. Karawaci Baru - Kec. Karawaci - Kota Tangerang"),
     ("kode_pos", "kode_pos", "15157"),
     ("anak_ke", "anak_keberapa", "2"),
     ("ayah_nama", "nama_ayah", "Bapak Uji"),
@@ -522,7 +529,156 @@ def main() -> int:
     cek(any("disusuri" in b for b in j23),
         [b for b in j23 if "Pendidikan ayah" in b][:4] or j23[-6:])
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 23 skenario")
+    # 24) Combo «Desa/Kelurahan» — mekanisme Dapodik terbaru seperti dikirim sekolah:
+    #     pengguna mengetik nama KECAMATAN lebih dulu, lalu Dapodik menampilkan daftar
+    #     desa/kelurahan di bawah kecamatan itu. Daftarnya punya area gulir & BILAH HALAMAN
+    #     («Page 1 of 2»): desa yang dicari berada di halaman kedua, jadi halamannya harus
+    #     benar-benar dibuka — bukan disimpulkan "tidak ada" dari halaman pertama.
+    p24, j24 = jalankan("24. desa/kelurahan: ketik kecamatan → daftar digulir & halaman dibuka",
+                        2,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "dropdown_band", 5),
+                                        setattr(p, "desa_muat_perlu_default", 4)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p24.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji desa/kelurahan")
+    cek(p24.data_bio_tersimpan.get("kelurahan")
+        == "Desa/Kel. Karawaci Baru - Kec. Karawaci - Kota Tangerang",
+        f"desa/kelurahan salah tersimpan: {p24.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p24.desa_kueri_dipakai and p24.desa_kueri_dipakai[0] == "Karawaci",
+        f"kata kunci pertama bukan nama kecamatan: {p24.desa_kueri_dipakai}")
+    cek(p24.dropdown_halaman_kali >= 1,
+        "bot tidak membuka halaman kedua daftar desa — desanya tidak akan ketemu")
+    cek(p24.dropdown_gulir_kali >= 1, "isi daftar desa tidak pernah digulir")
+    cek(p24.dropdown_item_diklik >= 7,
+        f"pilihan desa tidak diklik dari daftarnya: {p24.dropdown_item_diklik} klik")
+    cek(any("mengetik «Karawaci»" in b for b in j24),
+        [b for b in j24 if "Desa/Kelurahan" in b][:6] or j24[-6:])
+    cek(any("membuka halaman berikutnya" in b for b in j24),
+        [b for b in j24 if "Desa/Kelurahan" in b][:8] or j24[-8:])
+    cek(any("dipilih dari daftar Dapodik" in b for b in j24),
+        [b for b in j24 if "Desa/Kelurahan" in b][:8] or j24[-8:])
+    cek(any("ditunggu" in b and "baca" in b for b in j24),
+        [b for b in j24 if "Desa/Kelurahan" in b][:6] or j24[-6:])
+
+    # 25) Klik pada pilihan desa ditelan Dapodik (daftarnya terlihat, pilihannya diklik,
+    #     tetapi nilainya tidak tersimpan) → bot memilih lewat MODEL Ext JS dan memastikan
+    #     nilainya benar-benar masuk.
+    p25, j25 = jalankan("25. desa: klik pilihan ditelan → dipilih lewat model Ext JS", 2,
+                        atur=lambda p: (p.siapkan_bio(),
+                                        setattr(p, "dropdown_item_ditelan", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"},
+                        ubah_siswa={"kelurahan": "Nusajaya", "kecamatan": "Karawaci"})
+    cek(p25.bio_tersimpan, "jendela «Ubah» tidak tersimpan saat klik pilihan desa ditelan")
+    cek(p25.data_bio_tersimpan.get("kelurahan")
+        == "Desa/Kel. Nusajaya - Kec. Karawaci - Kota Tangerang",
+        f"desa/kelurahan salah tersimpan: {p25.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p25.dropdown_item_ditelan_kali >= 1, "uji tidak bermakna: tidak ada klik yang ditelan")
+    cek(any("dipilih lewat model Ext JS" in b for b in j25),
+        [b for b in j25 if "Desa/Kelurahan" in b][:8] or j25[-8:])
+
+    # 26) Desa yang diminta TIDAK ADA pada daftar Dapodik: bot tidak menebak, tidak mengisi
+    #     kolomnya dengan ketikan, dan nilai lama di Dapodik TIDAK ditimpa.
+    p26, j26 = jalankan("26. desa tidak ada di daftar → dilewati jujur (tidak menebak)", 2,
+                        atur=lambda p: p.siapkan_bio(), tampilkan=True,
+                        opsi={"bot_isi_bio": "1"},
+                        ubah_siswa={"kelurahan": "Desa Karangan", "kecamatan": "Karawaci"})
+    cek(p26.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji desa tidak ada")
+    cek(p26.data_bio_tersimpan.get("kelurahan") == DESA_LAMA_PALSU,
+        "isi kolom desa berubah padahal pilihannya tidak ada di daftar Dapodik "
+        f"({p26.data_bio_tersimpan.get('kelurahan')!r}) — data lama Dapodik jangan ikut "
+        "tertimpa kata kunci pencarian")
+    cek(any("dikembalikan seperti semula" in b for b in j26),
+        [b for b in j26 if "Desa/Kelurahan" in b][:8] or j26[-8:])
+    cek(len(p26.desa_kueri_dipakai) >= 2,
+        f"kueri kedua (nama desa) tidak pernah dicoba: {p26.desa_kueri_dipakai}")
+    cek(any("TIDAK ADA pada daftar Dapodik" in b for b in j26),
+        [b for b in j26 if "Desa/Kelurahan" in b][:8] or j26[-8:])
+    cek(str(p26.data_bio_tersimpan.get("nama_ayah") or "").strip() == "Bapak Uji",
+        "kolom lain ikut gagal padahal hanya desa yang tidak ada di daftar")
+
+    # 27) Kecamatan di SM keliru/tidak sama dengan Dapodik: kueri pertama (kecamatan) tidak
+    #     menemukan desanya, lalu bot mencoba kueri kedua (nama desa) — dan tetap memeriksa
+    #     hasilnya, dengan catatan bila kecamatan pada pilihan Dapodik berbeda dari data SM.
+    p27, j27 = jalankan("27. desa: kecamatan SM keliru → kueri nama desa dipakai", 2,
+                        atur=lambda p: p.siapkan_bio(), tampilkan=True,
+                        opsi={"bot_isi_bio": "1"},
+                        ubah_siswa={"kelurahan": "Cimone Jaya", "kecamatan": "Cibodas"})
+    cek(p27.data_bio_tersimpan.get("kelurahan")
+        == "Desa/Kel. Cimone Jaya - Kec. Karawaci - Kota Tangerang",
+        f"desa/kelurahan salah tersimpan: {p27.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(any("berbeda dari data SM" in b for b in j27),
+        [b for b in j27 if "Desa/Kelurahan" in b][:8] or j27[-8:])
+    cek(p27.desa_kueri_dipakai[:2] == ["Cibodas", "Cimone Jaya"],
+        f"urutan kueri salah: {p27.desa_kueri_dipakai}")
+    cek(any("kecamatan pada pilihan Dapodik" in b for b in j27),
+        [b for b in j27 if "Desa/Kelurahan" in b][:8] or j27[-8:])
+
+    # 28) Kecamatan kosong di SM: bot mengetik nama desanya langsung (tetap menunggu daftar
+    #     dari Dapodik dan tetap memeriksa hasilnya) — bukan menyerah tanpa mencoba.
+    p28, j28 = jalankan("28. desa: kecamatan kosong di SM → kueri nama desa", 2,
+                        atur=lambda p: p.siapkan_bio(), tampilkan=True,
+                        opsi={"bot_isi_bio": "1"},
+                        ubah_siswa={"kelurahan": "Koangjaya", "kecamatan": ""})
+    cek(p28.data_bio_tersimpan.get("kelurahan")
+        == "Desa/Kel. Koangjaya - Kec. Karawaci - Kota Tangerang",
+        f"desa/kelurahan salah tersimpan: {p28.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p28.desa_kueri_dipakai and p28.desa_kueri_dipakai[0] == "Koangjaya",
+        f"kata kunci bukan nama desa: {p28.desa_kueri_dipakai}")
+    cek(any("kecamatan kosong di SM" in b for b in j28),
+        [b for b in j28 if "Desa/Kelurahan" in b][:4] or j28[-6:])
+
+    # 29) Nama desa yang sama di dua kecamatan: kecamatan dari SM menentukan pilihannya —
+    #     dan bila kecamatannya tidak ada (ambigu), bot TIDAK menebak.
+    p29, j29 = jalankan("29. desa: nama desa sama di dua kecamatan → kecamatan menentukan", 2,
+                        atur=lambda p: p.siapkan_bio(), tampilkan=True,
+                        opsi={"bot_isi_bio": "1"},
+                        ubah_siswa={"kelurahan": "Sukajadi", "kecamatan": "Cibodas"})
+    cek(p29.data_bio_tersimpan.get("kelurahan")
+        == "Desa/Kel. Sukajadi - Kec. Cibodas - Kota Tangerang",
+        f"desa/kelurahan salah tersimpan: {p29.data_bio_tersimpan.get('kelurahan')!r}")
+    bot_uji = bot_dapodik.BotDapodik(0, [], [], dict(OPSI), kepala=lambda _b: None)
+    pilihan_dua = ["Desa/Kel. Sukajadi - Kec. Karawaci - Kota Tangerang",
+                   "Desa/Kel. Sukajadi - Kec. Cibodas - Kota Tangerang"]
+    cocok29, catatan29 = bot_uji._cocokkan_desa("Sukajadi", "Cibodas", pilihan_dua)
+    cek(cocok29.endswith("Kec. Cibodas - Kota Tangerang"),
+        f"kecamatan tidak dipakai untuk memilih: {cocok29!r}")
+    cek("kecamatan" in catatan29, f"catatan pencocokan tidak menyebut kecamatan: {catatan29!r}")
+    cek(bot_uji._cocokkan_desa("Sukajadi", "", pilihan_dua) == ("", ""),
+        "nama desa yang sama di dua kecamatan TANPA kecamatan pembanding seharusnya "
+        "TIDAK ditebak")
+    cek(bot_uji._cocokkan_desa("Desa Karangan", "Karawaci", pilihan_dua) == ("", ""),
+        "desa yang tidak ada di daftar seharusnya tidak dicocokkan dengan apa pun")
+
+    # 30) Ejaan desa beda pemisahan kata (kejadian nyata di sekolah): di SM tertulis
+    #     «Karang Sari», di basis data Dapodik tertulis «Karangsari». Bot harus mengenali
+    #     keduanya (kecamatan tetap penentu) dan melaporkannya apa adanya.
+    p30, j30 = jalankan("30. desa «Karang Sari» ↔ Dapodik «Karangsari» (ejaan spasi)", 2,
+                        atur=lambda p: p.siapkan_bio(), tampilkan=True,
+                        opsi={"bot_isi_bio": "1"},
+                        ubah_siswa={"kelurahan": "Karang Sari", "kecamatan": "Cibodas"})
+    cek(p30.data_bio_tersimpan.get("kelurahan")
+        == "Desa/Kel. Karangsari - Kec. Cibodas - Kota Tangerang",
+        f"desa/kelurahan salah tersimpan: {p30.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(any("ejaan berbeda (spasi)" in b for b in j30),
+        [b for b in j30 if "Desa/Kelurahan" in b][:8] or j30[-8:])
+
+    # 31) Kecamatan kosong di SM + ejaan beda spasi: kueri pertama (ejaan SM) tidak ketemu,
+    #     lalu bot mencoba bentuk rapat (tanpa spasi) dan tetap memilih dari daftar Dapodik —
+    #     bukan menyerah atau mengisi kolomnya dengan ketikan.
+    p31, j31 = jalankan("31. desa «Karang Sari» tanpa kecamatan → kueri bentuk rapat", 2,
+                        atur=lambda p: p.siapkan_bio(), tampilkan=True,
+                        opsi={"bot_isi_bio": "1"},
+                        ubah_siswa={"kelurahan": "Karang Sari", "kecamatan": ""})
+    cek(p31.data_bio_tersimpan.get("kelurahan")
+        == "Desa/Kel. Karangsari - Kec. Cibodas - Kota Tangerang",
+        f"desa/kelurahan salah tersimpan: {p31.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p31.desa_kueri_dipakai == ["Karang Sari", "karangsari"],
+        f"urutan kueri salah: {p31.desa_kueri_dipakai}")
+    cek(any("ditulis rapat (tanpa spasi)" in b for b in j31),
+        [b for b in j31 if "Desa/Kelurahan" in b][:8] or j31[-8:])
+    cek(any("dipilih dari daftar Dapodik" in b for b in j31),
+        [b for b in j31 if "Desa/Kelurahan" in b][:8] or j31[-8:])
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 31 skenario")
     return 0
 
 

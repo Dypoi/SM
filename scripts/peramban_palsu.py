@@ -68,6 +68,59 @@ def pilihan_dropdown_dapodik(kunci: str) -> tuple[str, ...]:
             "penghasilan": dapodik.PENGHASILAN_OPTIONS}.get(kunci, ())
 
 
+#: Daftar desa/kelurahan pada combo «Desa/Kelurahan» Dapodik tiruan. Bentuk teksnya persis
+#: tangkapan layar sekolah: «Desa/Kel. <desa> - Kec. <kecamatan> - Kota <kota>». Dua hal
+#: yang sengaja dibuat seperti di Dapodik sungguhan:
+#:
+#: * **lebih banyak daripada satu halaman picker** (bilah halaman «Page 1 of 2»), sehingga
+#:   desa yang berada di halaman kedua hanya ketemu bila halamannya benar-benar dibuka;
+#: * ada **nama desa yang sama di dua kecamatan** («Sukajadi» di Karawaci & Cibodas) supaya
+#:   pemilihan lewat kecamatan diuji — bukan menebak pilihan pertama yang mirip.
+DESA_KARAWACI_PALSU: tuple[str, ...] = (
+    "Desa/Kel. Nusajaya - Kec. Karawaci - Kota Tangerang",
+    "Desa/Kel. Bojongjaya - Kec. Karawaci - Kota Tangerang",
+    "Desa/Kel. Pabuaran Tumpeng - Kec. Karawaci - Kota Tangerang",
+    "Desa/Kel. Nambojaya - Kec. Karawaci - Kota Tangerang",
+    "Desa/Kel. Koangjaya - Kec. Karawaci - Kota Tangerang",
+    "Desa/Kel. Cimone Jaya - Kec. Karawaci - Kota Tangerang",
+    "Desa/Kel. Sukajadi - Kec. Karawaci - Kota Tangerang",
+    "Desa/Kel. Pasarbaru - Kec. Karawaci - Kota Tangerang",
+    "Desa/Kel. Karawaci Baru - Kec. Karawaci - Kota Tangerang",
+    "Desa/Kel. Sumur Pacing - Kec. Karawaci - Kota Tangerang",
+    "Desa/Kel. Marga Sari - Kec. Karawaci - Kota Tangerang",
+    "Desa/Kel. Bugel - Kec. Karawaci - Kota Tangerang",
+    "Desa/Kel. Cimone - Kec. Karawaci - Kota Tangerang",
+    "Desa/Kel. Gembor - Kec. Karawaci - Kota Tangerang",
+    "Desa/Kel. Sukajadi - Kec. Cibodas - Kota Tangerang",
+    "Desa/Kel. Cibodas - Kec. Cibodas - Kota Tangerang",
+    "Desa/Kel. Panunggangan Barat - Kec. Cibodas - Kota Tangerang",
+    "Desa/Kel. Uwung Jaya - Kec. Cibodas - Kota Tangerang",
+    # Ejaan beda pemisahan kata (kejadian nyata di sekolah: SM menulis «Karang Sari»,
+    # basis data Dapodik menulis «Karangsari»).
+    "Desa/Kel. Karangsari - Kec. Cibodas - Kota Tangerang",
+)
+
+#: Pilihan desa yang SUDAH tersimpan di Dapodik (data lama) — dipakai uji "jangan timpa".
+DESA_LAMA_BIO = "Desa/Kel. Gembor - Kec. Karawaci - Kota Tangerang"
+DESA_LAMA_ID = 7
+
+#: Banyaknya pilihan desa per halaman picker (persis bilah halaman combo Dapodik).
+DESA_PER_HALAMAN = 8
+
+
+def pilihan_desa_palsu(kueri: str) -> tuple[str, ...]:
+    """Hasil pencarian combo «Desa/Kelurahan» Dapodik tiruan untuk sebuah kata kunci.
+
+    Dapodik mencocokkan kata kunci dengan isi pilihannya (nama desa, kecamatan, atau kota).
+    Persis seperti di sekolah: **mengetik nama kecamatan** menampilkan seluruh desa di
+    kecamatan itu.
+    """
+    cari = " ".join(str(kueri or "").split()).lower()
+    if not cari:
+        return ()
+    return tuple(teks for teks in DESA_KARAWACI_PALSU if cari in teks.lower())
+
+
 #: Kolom jendela «Ubah» (BIO) — nama kolomnya diambil apa adanya dari skrip sekolah.
 #: Elemen ketiga = jenis dropdown ("" = kolom teks biasa). Nama kolomnya diambil dari DOM
 #: asli halaman Dapodik yang dikirim sekolah (mis. ``pekerjaan_id_ayah``).
@@ -77,6 +130,9 @@ BIO_KOLOM_PALSU: tuple[tuple[str, str, str], ...] = (
     ("alamat_jalan", "Alamat (Jalan)", ""),
     ("rt", "RT", ""),
     ("rw", "RW", ""),
+    # Combo «Desa/Kelurahan»: daftarnya TIDAK disimpan di komponennya — Dapodik mengambil
+    # desa dari basis datanya sesuai kata kunci (mekanisme terbaru: ketik kecamatan dulu).
+    ("kelurahan", "Desa/Kelurahan", "wilayah"),
     ("kode_pos", "Kode Pos", ""),
     ("anak_keberapa", "Anak ke-berapa", ""),
     ("nama_ayah", "Nama ayah", ""),
@@ -392,11 +448,14 @@ class UnsurPalsu:
             # belum digulir: seperti Dapodik, ketikan ini tidak menghasilkan apa-apa.
             self.peramban.ketikan_diabaikan += 1
             return
-        if self.bio and (self.peramban.bio_hanya_ext
-                         or self.peramban.bio_indeks(self) >= self.peramban.bio_band()):
+        if self.bio and (self.peramban.bio_indeks(self) >= self.peramban.bio_band()
+                         or (self.peramban.bio_hanya_ext
+                             and not getattr(self, "pencarian_desa", False))):
             # Dapodik menolak ketikan langsung: versi ini hanya menerima nilai lewat model
             # Ext JS, atau kolomnya TIDAK berada di bagian jendela yang terlihat pada posisi
             # gulir saat ini (nilainya tidak jadi tersimpan) — persis dugaan sekolah.
+            # Kekecualian: kotak PENCARIAN combo desa (bukan kolom nilai) tetap bisa diketik
+            # — di situlah kecamatan diketikkan supaya daftar desanya muncul.
             self.peramban.ketikan_diabaikan += 1
             return
         from selenium.webdriver.common.keys import Keys
@@ -411,6 +470,7 @@ class UnsurPalsu:
 
         pengubah = (Keys.CONTROL, Keys.SHIFT, Keys.ALT, Keys.COMMAND)
         kontrol = False
+        ada_ketikan = False
         for bagian in tombol:
             if not isinstance(bagian, str) or not bagian:
                 continue
@@ -423,6 +483,13 @@ class UnsurPalsu:
                     self.peramban.munculkan_popup()   # pengumuman muncul saat pencarian
                 kontrol = False
                 continue
+            if len(bagian) == 1 and "\ue000" <= bagian <= "\uf8ff":
+                # Tombol khusus Selenium (panah atas/bawah, Escape, …) BUKAN huruf yang
+                # diketik: di Dapodik tombol panah membuka daftar dropdown dan tidak
+                # menambah isi kotaknya. Tanpa ini, percobaan membuka daftar dropdown
+                # ikut mengubah kata kunci pencarian (pernah terjadi di uji tiruan).
+                kontrol = False
+                continue
             if kontrol and bagian.lower() in ("a", "x"):
                 if bagian.lower() == "a":
                     self.clear()          # Ctrl+A = pilih semua
@@ -430,7 +497,16 @@ class UnsurPalsu:
                 continue
             self.nilai += bagian
             self.diketik.append(bagian)
+            ada_ketikan = True
             kontrol = False
+        if getattr(self, "pencarian_desa", False):
+            if not ada_ketikan:
+                return       # hanya Ctrl+A/menghapus: bukan kata kunci pencarian
+            # Combo «Desa/Kelurahan»: mengetik BUKAN mengisi nilainya, melainkan meminta
+            # Dapodik mengambil daftar desa untuk kata kunci itu (persis mekanisme terbaru
+            # yang dikirim sekolah: ketik nama kecamatan → daftar desa muncul di bawahnya).
+            self.peramban.cari_desa(self, self.nilai)
+            return
         if self.daftar_pilihan:
             # Dropdown Ext JS: mengetik hanya mengubah TULISAN di layar. Nilai MODEL-nya
             # (yang dikirim ke Dapodik saat «Simpan») baru terisi bila tulisan itu persis
@@ -649,6 +725,15 @@ class PerambanPalsu:
         self.dropdown_tanpa_ext = False
         #: Berapa kali bot membaca pilihan lewat elemen daftar (aria-owns)
         self.dropdown_aria_dipakai = 0
+        #: Berapa kali bot membuka halaman berikutnya pada bilah halaman picker
+        #: («Page 1 of 2» pada tangkapan layar sekolah)
+        self.dropdown_halaman_kali = 0
+        #: Kata kunci yang benar-benar diketik bot ke combo «Desa/Kelurahan» — bukti bahwa
+        #: yang diketik adalah nama kecamatan/desa, bukan nilainya
+        self.desa_kueri_dipakai: list[str] = []
+        #: Berapa bacaan dulu sebelum daftar desa (hasil pencarian) tampil — persis Dapodik:
+        #: daftarnya baru diambil dari basis data sesudah kata kunci diketik.
+        self.desa_muat_perlu_default = 2
         #: True = combo tidak punya elemen tombol panah (hanya bisa dibuka lewat tombol ↓)
         self.dropdown_tanpa_panah = False
         #: Isi kolom BIO yang benar-benar tersimpan (name → nilai saat «Simpan» ditekan)
@@ -1024,13 +1109,32 @@ class PerambanPalsu:
                 # belum dipilih, berbeda dengan kolom teks yang bisa berisi data lama.
                 # Persis DOM sekolah: role combobox, readonly, punya tombol panah, dan
                 # nilai modelnya berisi ID pilihan (bukan teksnya).
+                wilayah = jenis == "wilayah"
+                # Combo desa pada data nyata SUDAH berisi pilihan lama (inilah data yang
+                # tidak boleh ikut berubah bila bot tidak menemukan desa yang diminta).
+                nilai_lama = DESA_LAMA_BIO if wilayah else ""
                 combo = UnsurPalsu(self, "input", type="text", name=nama, label=label,
-                                   bio=True, nilai="", nilai_model="", nilai_id="",
-                                   aria="combobox", role="combobox", readonly="readonly",
+                                   bio=True, nilai=nilai_lama, nilai_model=nilai_lama,
+                                   nilai_id=(DESA_LAMA_ID if wilayah else ""),
+                                   aria="combobox", role="combobox",
+                                   # Combo desa BISA diketik (di situlah kecamatan
+                                   # diketikkan); combo lain readonly — persis Dapodik.
+                                   readonly="" if wilayah else "readonly",
                                    aria_owns=(f"combobox-{1300 + nomor}-inputEl "
                                               f"combobox-{1300 + nomor}-picker-listEl"),
-                                   daftar_pilihan=pilihan_dropdown_dapodik(jenis),
+                                   daftar_pilihan=(() if wilayah
+                                                   else pilihan_dropdown_dapodik(jenis)),
                                    componentid=f"combobox-{1300 + nomor}")
+                if wilayah:
+                    combo.pencarian_desa = True
+                    combo.nilai_lama = nilai_lama
+                    combo.nilai_model_lama = nilai_lama
+                    combo.nilai_id_lama = DESA_LAMA_ID
+                    combo.desa_hasil = ()
+                    combo.desa_menunggu = 0
+                    combo.halaman = 0
+                    combo.halaman_maks = 0
+                    combo._item_halaman = 0
                 self.unsur.append(combo)
                 if not self.dropdown_tanpa_panah:
                     panah = UnsurPalsu(self, "div",
@@ -1044,6 +1148,8 @@ class PerambanPalsu:
                                        daftar_dropdown=combo)
                 combo.daftar_el = daftar_el
                 self.unsur.append(daftar_el)
+                if wilayah:
+                    continue          # pilihannya baru ada setelah kata kunci diketik
                 for opsi in combo.daftar_pilihan:
                     item = UnsurPalsu(self, "li", kelas="x-boundlist-item", teks=opsi,
                                       item_dropdown=True)
@@ -1062,12 +1168,82 @@ class PerambanPalsu:
         for unsur in self.unsur:
             if unsur.bio and unsur.type == "text" and unsur.name:
                 # Dropdown mengirim NILAI MODEL Ext JS; kolom teks mengirim tulisannya.
-                self.data_bio_tersimpan[unsur.name] = (unsur.nilai_model if unsur.daftar_pilihan
-                                                       else unsur.nilai)
+                if getattr(unsur, "pencarian_desa", False):
+                    # Combo Ext JS yang dicari lewat kata kunci: yang tersimpan hanya
+                    # PILIHAN yang benar-benar diambil dari daftarnya (getValue). Bila tidak
+                    # ada yang dipilih, nilainya kembali ke pilihan terakhir — persis
+                    # ``completeEdit()`` Ext JS yang mengembalikan rawValue yang tidak cocok.
+                    self.data_bio_tersimpan[unsur.name] = (unsur.nilai_model
+                                                           or unsur.nilai_lama)
+                else:
+                    self.data_bio_tersimpan[unsur.name] = (unsur.nilai_model
+                                                           if unsur.daftar_pilihan
+                                                           else unsur.nilai)
         self.bio_terbuka = False
         self.dropdown_terbuka = None
 
     # -------------------------------------------------- dropdown (combo) --- #
+    def cari_desa(self, combo: "UnsurPalsu", kueri: str) -> None:
+        """Combo «Desa/Kelurahan»: ambil daftar desa sesuai kata kunci yang diketik.
+
+        Berbeda dengan combo biasa (yang pilihannya sudah tersimpan di komponennya), daftar
+        desa **dicari ke basis data** — dan pilihannya baru "tampil" beberapa bacaan
+        kemudian, persis Dapodik yang datanya tidak langsung muncul.
+        """
+        rapikan = " ".join(str(kueri or "").split())
+        self.desa_kueri_dipakai.append(rapikan)
+        combo.nilai = rapikan            # tulisan yang diketik pengguna tampak di kotaknya
+        combo.nilai_model = ""           # belum ada pilihan yang tersimpan sebelum dipilih
+        combo.nilai_id = ""
+        combo.desa_hasil = pilihan_desa_palsu(rapikan)
+        combo.halaman = 1 if combo.desa_hasil else 0
+        combo.halaman_maks = (max(1, -(-len(combo.desa_hasil) // DESA_PER_HALAMAN))
+                              if combo.desa_hasil else 0)
+        combo.desa_menunggu = int(self.desa_muat_perlu_default)
+        combo._item_halaman = 0
+        self.unsur = [u for u in self.unsur
+                      if not (getattr(u, "item_dropdown", False) and u.induk is combo)]
+        combo.daftar_pilihan = ()
+        if not self.dropdown_tak_bisa_dibuka:
+            self.buka_dropdown(combo)    # daftar terbuka sendiri saat pengguna mengetik
+        self.dropdown_baca_kali = 0
+        self.gulir_daftar = 0
+        self.gulir_daftar_px = 0
+
+    def _bangun_item_desa(self, combo: "UnsurPalsu") -> None:
+        """Buat ulang pilihan pada daftar sesuai halaman picker yang sedang dibuka.
+
+        Combo desa berhalaman: yang tersimpan di "store" komponen hanyalah **halaman yang
+        sedang tampil** — desa di halaman berikutnya benar-benar harus dibuka halamannya.
+        """
+        awal = (combo.halaman - 1) * DESA_PER_HALAMAN
+        combo.daftar_pilihan = tuple(combo.desa_hasil[awal:awal + DESA_PER_HALAMAN])
+        self.unsur = [u for u in self.unsur
+                      if not (getattr(u, "item_dropdown", False) and u.induk is combo)]
+        for teks in combo.daftar_pilihan:
+            item = UnsurPalsu(self, "li", kelas="x-boundlist-item", teks=teks,
+                              item_dropdown=True)
+            item.induk = combo
+            self.unsur.append(item)
+        self.gulir_daftar = 0
+        self.gulir_daftar_px = 0
+        combo._item_halaman = combo.halaman
+
+    def _desa_siap(self, combo: "UnsurPalsu") -> bool:
+        """Apakah daftar desa sudah selesai diambil dari basis data (beberapa bacaan).
+
+        Dapodik tidak menyimpan daftar desa di komponen combonya: sesudah kata kunci
+        diketik, permintaan ke basis data berjalan — dan pilihannya baru muncul beberapa
+        saat kemudian. Di sini "beberapa saat" itu dihitung dari berapa kali bot membaca
+        daftarnya (``dropdown_baca_kali``), bukan dari berapa pilihan yang dilihat.
+        """
+        if int(getattr(combo, "desa_menunggu", 0) or 0) > self.dropdown_baca_kali:
+            return False                 # hasil pencariannya belum datang
+        if getattr(combo, "_item_halaman", 0) != combo.halaman:
+            self._bangun_item_desa(combo)
+            combo.desa_menunggu = 0
+        return True
+
     def buka_dropdown(self, combo: "UnsurPalsu | None") -> None:
         """Daftar dropdown dibuka (klik tombol panah atau ``Ext.getCmp(...).expand()``)."""
         if combo is None or self.dropdown_tak_bisa_dibuka:
@@ -1091,7 +1267,13 @@ class PerambanPalsu:
         combo = item.induk
         if combo is None or self.dropdown_terbuka is not combo or self.dropdown_tak_bisa_dibuka:
             return False
-        if self.dropdown_muat_perlu and self.dropdown_baca_kali <= self.dropdown_muat_perlu:
+        perlu_muat = int(self.dropdown_muat_perlu or 0)
+        if getattr(combo, "pencarian_desa", False):
+            # Daftar desa diambil dari basis data: pilihannya tidak mungkin langsung ada.
+            perlu_muat = max(perlu_muat, int(getattr(combo, "desa_muat_perlu", 0) or 0))
+            if not self._desa_siap(combo):
+                return False
+        if perlu_muat and self.dropdown_baca_kali <= perlu_muat:
             return False                 # datanya belum tampil — masih dimuat
         if not self.dropdown_band:
             return True
@@ -1670,8 +1852,10 @@ class PerambanPalsu:
         if "dropdown-buka" in skrip:
             # Jalur terakhir bot: Ext.getCmp(id).expand() (bila tombol panahnya ditelan).
             sasaran = argumen[0] if argumen else None
-            if sasaran is None or not sasaran.daftar_pilihan or self.dropdown_ext_mati \
+            if sasaran is None or self.dropdown_ext_mati \
                     or self.dropdown_tak_bisa_dibuka or self.dropdown_tanpa_ext:
+                return False
+            if not sasaran.daftar_pilihan and not getattr(sasaran, "pencarian_desa", False):
                 return False
             self.dropdown_ext_dipakai += 1
             self.buka_dropdown(sasaran)
@@ -1686,6 +1870,8 @@ class PerambanPalsu:
             if combo is None or (sasaran is not None and sasaran is not combo):
                 return []
             self.dropdown_baca_kali += 1
+            if getattr(combo, "pencarian_desa", False) and not self._desa_siap(combo):
+                return []            # hasil pencarian desa belum datang dari basis data
             return [u.teks for u in self.daftar_dropdown_terlihat(combo)]
         if "dropdown-item" in skrip:
             # Indeks pilihan (pada elemen ``li.x-boundlist-item``) yang teksnya cocok.
@@ -1712,6 +1898,16 @@ class PerambanPalsu:
                 return {"tampil": sasaran.nilai, "model": sasaran.nilai, "id": ""}
             return {"tampil": sasaran.nilai, "model": sasaran.nilai_model,
                     "id": sasaran.nilai_id}
+        if "dropdown-id" in skrip:
+            # Nilai model sebuah kolom (``getValue()``): terpisah dari tulisan di kotaknya.
+            # Inilah yang menentukan apakah sebuah PILIHAN sudah tersimpan — mengetik saja
+            # hanya mengisi tulisan di kotaknya, nilai modelnya tetap kosong (persis Dapodik).
+            sasaran = argumen[0] if argumen else None
+            if sasaran is None:
+                return {}
+            if self.dropdown_tanpa_ext:
+                return {"ext": False, "nilai": ""}
+            return {"ext": True, "nilai": str(sasaran.nilai_id or sasaran.nilai_model or "")}
         if "dropdown-terbuka" in skrip:
             # Keadaan daftar yang sebenarnya (daftar tertutup = pilihannya tidak bisa diklik).
             sasaran = argumen[0] if argumen else None
@@ -1729,8 +1925,17 @@ class PerambanPalsu:
             # Pilihan dibaca dari DATA komponen Ext JS (store) — tidak perlu daftarnya
             # terbuka. Inilah cara yang paling andal di Dapodik sungguhan.
             sasaran = argumen[0] if argumen else None
-            if sasaran is None or not sasaran.daftar_pilihan or self.dropdown_tanpa_ext:
+            if sasaran is None or self.dropdown_tanpa_ext:
                 return []           # Ext tidak terjangkau: store-nya pun tidak terbaca
+            if getattr(sasaran, "pencarian_desa", False):
+                # Combo desa mencari datanya ke basis data: tiap kali dibaca, permintaannya
+                # maju selangkah — jadi hasilnya muncul sesudah beberapa bacaan (persis
+                # Dapodik, termasuk ketika daftar dropdownnya sendiri tidak mau terbuka).
+                self.dropdown_baca_kali += 1
+                if not self._desa_siap(sasaran):
+                    return []
+            if not sasaran.daftar_pilihan:
+                return []
             return [{"teks": p, "nilai": i + 1}
                     for i, p in enumerate(sasaran.daftar_pilihan)]
         if "dropdown-pilih" in skrip:
@@ -1746,12 +1951,52 @@ class PerambanPalsu:
             if self.dropdown_terbuka is None or self.dropdown_tak_bisa_dibuka:
                 return 0
             jauh = int(argumen[1]) if len(argumen) > 1 else 150
-            self.gulir_daftar += 1
+            combo = self.dropdown_terbuka
             # Jarak negatif = kembali ke atas (persis ``scrollTop`` yang mentok di 0).
-            self.gulir_daftar_px = max(0, self.gulir_daftar_px + jauh)
+            if jauh < 0:
+                baru = max(0, self.gulir_daftar_px + jauh)
+            else:
+                # Daftarnya punya ujung: ``scrollTop`` berhenti saat semua pilihan sudah
+                # tersingkap — itulah saat bot harus pindah halaman daftar.
+                jumlah = sum(1 for u in self.unsur
+                             if getattr(u, "item_dropdown", False) and u.induk is combo)
+                batas = max(0, (jumlah - self.dropdown_band) * 30) if self.dropdown_band else 0
+                baru = min(batas, self.gulir_daftar_px + jauh)
+            if jauh > 0 and baru == self.gulir_daftar_px:
+                return 0                 # sudah mentok: tidak ada lagi yang bisa disingkap
+            self.gulir_daftar += 1
+            self.gulir_daftar_px = baru
             if jauh > 0:
                 self.dropdown_gulir_kali += 1
             return self.gulir_daftar_px
+        if "/* halaman-dropdown */" in skrip:
+            # Bilah halaman picker («Page 1 of 2» pada tangkapan layar sekolah): combо desa
+            # menampilkan sebagian pilihan per halaman.
+            sasaran = argumen[0] if argumen else None
+            combo = self.dropdown_terbuka
+            if combo is None or sasaran is not combo or not combo.halaman_maks:
+                return {}
+            return {"halaman": combo.halaman, "total": combo.halaman_maks}
+        if "/* halaman-dropdown-lanjut */" in skrip:
+            sasaran = argumen[0] if argumen else None
+            combo = self.dropdown_terbuka
+            if combo is None or sasaran is not combo or not combo.halaman_maks:
+                return False
+            if combo.halaman >= combo.halaman_maks:
+                return False             # sudah halaman terakhir (tombolnya tidak aktif)
+            combo.halaman += 1
+            # Pilihan halaman lama hilang; pilihan halaman baru baru tampil setelah datanya
+            # "dimuat" lagi — persis picker Ext JS yang berpindah halaman.
+            self.unsur = [u for u in self.unsur
+                          if not (getattr(u, "item_dropdown", False) and u.induk is combo)]
+            combo.daftar_pilihan = ()
+            combo._item_halaman = 0
+            combo.desa_menunggu = int(self.desa_muat_perlu_default)
+            self.dropdown_baca_kali = 0
+            self.gulir_daftar = 0
+            self.gulir_daftar_px = 0
+            self.dropdown_halaman_kali += 1
+            return True
         if "dropdown-tutup" in skrip:
             self.tutup_dropdown()
             return True
