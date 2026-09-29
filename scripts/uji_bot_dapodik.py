@@ -1334,7 +1334,56 @@ def main() -> int:
     cek(any(b.startswith("[OK]") for b in j55),
         f"Registrasi tidak jalan sesudah baris dipilih ulang: {j55[-4:]}")
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 55 skenario")
+    # 56) Catatan sekolah 29 Sep 2026: «untuk value tersebut memang harus menunggu agak lama
+    #     biar valuenya muncul». Daftar desa di Dapodik baru diambil dari basis data sesudah
+    #     kata kunci diketik — di PC sekolah lama. Uji ini menirukan daftar yang baru muncul
+    #     sesudah 24 bacaan: bot harus MENUNGGU (bukan menyerah pada bacaan pertama) dan
+    #     desanya tetap terisi.
+    p56, j56 = jalankan("56. daftar desa baru muncul sesudah ditunggu → tetap terisi", 2,
+                        atur=lambda p: (p.siapkan_bio(),
+                                        setattr(p, "desa_muat_perlu_default", 24)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(any("daftar desa muncul" in b and "ditunggu" in b for b in j56),
+        f"bot tidak melaporkan penantian daftar desa: {[b for b in j56 if 'desa' in b][:4]}")
+    angka56 = 0
+    for baris in [b for b in j56 if "daftar desa muncul" in b]:
+        if "ditunggu " in baris and "x baca" in baris:
+            potong = baris.split("ditunggu ", 1)[1].split("x baca", 1)[0].strip()
+            angka56 = max(angka56, int(potong) if potong.isdigit() else 0)
+    cek(angka56 >= 20,
+        f"daftar desa muncul tanpa penantian yang berarti ({angka56}x baca) — uji tidak bermakna: "
+        f"{[b for b in j56 if 'daftar desa muncul' in b]}")
+    cek(str(p56.data_bio_tersimpan.get("kelurahan") or "").strip() != ""
+        and SISWA["kelurahan"].lower() in str(p56.data_bio_tersimpan.get("kelurahan")).lower(),
+        f"desa tidak terisi pada uji daftar desa yang lambat: "
+        f"{p56.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(any(b.startswith("[OK]") for b in j56), f"Registrasi tidak jalan: {j56[-4:]}")
+
+    # 57) Nilai pilihannya pun tidak selalu muncul seketika: sesudah diklik, Dapodik masih
+    #     menuliskan nilai desa + ``kode_wilayah_str`` dari basis datanya. Bot harus memeriksa
+    #     berulang sampai nilainya muncul — bukan menyimpulkan gagal dari bacaan pertama.
+    p57, j57 = jalankan("57. nilai desa baru muncul sesudah ditunggu → tetap terverifikasi", 2,
+                        atur=lambda p: (p.siapkan_bio(),
+                                        setattr(p, "desa_nilai_muat_perlu_default", 10)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p57.desa_lambat_kali >= 5,
+        f"uji tidak bermakna: nilai desa muncul terlalu cepat ({p57.desa_lambat_kali} bacaan)")
+    cek(any("tidak muncul seketika" in b and "ditunggu" in b for b in j57),
+        f"bot tidak melaporkan bahwa nilainya ditunggu: "
+        f"{[b for b in j57 if 'Desa/Kelurahan' in b][:4]}")
+    cek(str(p57.data_bio_tersimpan.get("kelurahan") or "").strip() != ""
+        and SISWA["kelurahan"].lower() in str(p57.data_bio_tersimpan.get("kelurahan")).lower(),
+        f"desa tidak terisi pada uji nilai desa yang lambat: "
+        f"{p57.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(any("kode wilayah" in b and "✓" in b for b in j57),
+        f"kode wilayah tidak diverifikasi sesudah penantian: "
+        f"{[b for b in j57 if 'kode wilayah' in b][:3]}")
+    cek(not any("TIDAK jadi terisi" in b for b in j57),
+        f"bot menyerah pada bacaan pertama, padahal nilainya baru muncul sesudah ditunggu: "
+        f"{[b for b in j57 if 'Desa/Kelurahan' in b][-3:]}")
+    cek(any(b.startswith("[OK]") for b in j57), f"Registrasi tidak jalan: {j57[-4:]}")
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 57 skenario")
     return 0
 
 

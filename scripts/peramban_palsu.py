@@ -947,6 +947,12 @@ class PerambanPalsu:
         #: Berapa bacaan dulu sebelum daftar desa (hasil pencarian) tampil — persis Dapodik:
         #: daftarnya baru diambil dari basis data sesudah kata kunci diketik.
         self.desa_muat_perlu_default = 2
+        #: Ronde 51 — berapa bacaan dulu sebelum NILAI pilihan desa muncul di kolomnya
+        #: (termasuk ``kode_wilayah_str``): di sekolah «harus menunggu agak lama biar valuenya
+        #: muncul». 0 = langsung seperti sebelumnya.
+        self.desa_nilai_muat_perlu_default = 0
+        #: Berapa kali daftar desa harus dibaca sebelum isinya muncul (bukti bot menunggu).
+        self.desa_lambat_kali = 0
         #: True = combo tidak punya elemen tombol panah (hanya bisa dibuka lewat tombol ↓)
         self.dropdown_tanpa_panah = False
         #: Isi kolom BIO yang benar-benar tersimpan (name → nilai saat «Simpan» ditekan)
@@ -1852,6 +1858,27 @@ class PerambanPalsu:
         # Setiap 30 px gulir menyingkap satu baris lagi (tinggi baris ±30 px).
         return posisi < self.dropdown_band + (self.gulir_daftar_px // 30)
 
+    def _terapkan_nilai_desa_tertunda(self, combo: "UnsurPalsu") -> None:
+        """Nilai pilihan desa baru tampil sesudah beberapa bacaan (persis Dapodik).
+
+        Bot membaca nilai kolom berulang kali sambil menunggu; di sini penantian itu
+        dimodelkan: sesudah ``desa_nilai_muat_perlu_default`` bacaan, barulah nilai pilihan
+        (teks + kode wilayah) benar-benar tertulis di kolomnya.
+        """
+        tertunda = getattr(combo, "_nilai_tertunda", None)
+        if not tertunda:
+            return
+        combo._nilai_baca = int(getattr(combo, "_nilai_baca", 0)) + 1
+        if combo._nilai_baca <= int(self.desa_nilai_muat_perlu_default):
+            self.desa_lambat_kali = max(self.desa_lambat_kali, combo._nilai_baca)
+            return
+        nilai, nilai_model, nilai_id, kode_basi = tertunda
+        combo.nilai, combo.nilai_model, combo.nilai_id = nilai, nilai_model, nilai_id
+        combo.kode_basi = kode_basi
+        combo._nilai_tertunda = None
+        if self.kode_wilayah_kolom is not None:
+            self.kode_wilayah_kolom.nilai = nilai_id
+
     def daftar_dropdown_terlihat(self, combo: "UnsurPalsu | None") -> list["UnsurPalsu"]:
         """Pilihan yang terlihat pada daftar dropdown sebuah kolom (urutan tampilannya)."""
         if combo is None:
@@ -1875,6 +1902,7 @@ class PerambanPalsu:
             # nilai model TIDAK berubah — bot harus naik ke jalur model Ext JS.
             self.dropdown_item_ditelan_kali += 1
             return
+        lama = (combo.nilai, combo.nilai_model, combo.nilai_id)
         combo.nilai = item.teks            # tulisan di layar
         combo.nilai_model = item.teks      # teks pilihan yang dilihat Dapodik
         if getattr(combo, "pencarian_desa", False):
@@ -1883,15 +1911,26 @@ class PerambanPalsu:
             if self.desa_kode_basi and getattr(combo, "nilai_id_lama", ""):
                 # Laporan sekolah (ronde 45): teks desanya berubah, tetapi ``kode_wilayah_str``
                 # masih menunjuk desa yang LAMA — «Simpan» pun tidak berpindah desa.
-                combo.nilai_id = combo.nilai_id_lama
-                combo.kode_basi = True
+                nilai_id_baru = combo.nilai_id_lama
+                kode_basi = True
             else:
-                combo.nilai_id = kode_baru
-                combo.kode_basi = False
+                nilai_id_baru = kode_baru
+                kode_basi = False
+            if self.desa_nilai_muat_perlu_default > 0:
+                # Ronde 51: di sekolah nilainya (termasuk kode wilayah) tidak muncul seketika —
+                # Dapodik masih menuliskan hasilnya dari basis data. Pilihan yang diklik
+                # disimpan dulu sebagai nilai TERTUNDA; kolomnya belum berubah.
+                combo._nilai_tertunda = (item.teks, item.teks, nilai_id_baru, kode_basi)
+                combo._nilai_baca = 0
+                combo.nilai, combo.nilai_model, combo.nilai_id = lama
+            else:
+                combo.nilai_id = nilai_id_baru
+                combo.kode_basi = kode_basi
         else:
             combo.nilai_id = (combo.daftar_pilihan.index(item.teks) + 1
                               if item.teks in combo.daftar_pilihan else "")
-        if self.kode_wilayah_kolom is not None:
+        if getattr(combo, "_nilai_tertunda", None) is None \
+                and self.kode_wilayah_kolom is not None:
             self.kode_wilayah_kolom.nilai = combo.nilai_id
         self.dropdown_terbuka = None
         self.dropdown_item_diklik += 1
@@ -1913,13 +1952,22 @@ class PerambanPalsu:
                       if " ".join(p.split()).lower() == dicari), "")
         if not cocok:
             return False
+        lama_nilai = (combo.nilai, combo.nilai_model, combo.nilai_id)
         combo.nilai = cocok
         combo.nilai_model = cocok
         if getattr(combo, "pencarian_desa", False):
             # Jalur model Ext JS: kode wilayah desa yang dipilih ikut tersimpan (kode segar).
-            combo.nilai_id = kode_desa_palsu(cocok) or (combo.daftar_pilihan.index(cocok) + 1)
+            nilai_id_baru = kode_desa_palsu(cocok) or (combo.daftar_pilihan.index(cocok) + 1)
+            combo.nilai_id = nilai_id_baru
             combo.kode_basi = False
-            if self.kode_wilayah_kolom is not None:
+            if self.desa_nilai_muat_perlu_default > 0:
+                # Ronde 51: nilainya tetap tidak muncul seketika, juga bila dipilih lewat model
+                # Ext JS — Dapodik menuliskan hasilnya dari basis datanya (pilihan disimpan
+                # sebagai nilai tertunda, sama seperti lewat daftar).
+                combo._nilai_tertunda = (cocok, cocok, nilai_id_baru, False)
+                combo._nilai_baca = 0
+                combo.nilai, combo.nilai_model, combo.nilai_id = lama_nilai
+            elif self.kode_wilayah_kolom is not None:
                 self.kode_wilayah_kolom.nilai = combo.nilai_id
         else:
             combo.nilai_id = combo.daftar_pilihan.index(cocok) + 1
@@ -2769,6 +2817,9 @@ class PerambanPalsu:
             sasaran = argumen[0] if argumen else None
             if sasaran is None:
                 return {}
+            if getattr(sasaran, "pencarian_desa", False):
+                # Tiap bacaan memajukan penulisan nilai desa yang tertunda (ronde 51).
+                self._terapkan_nilai_desa_tertunda(sasaran)
             if self.dropdown_tanpa_ext:
                 # Tanpa Ext: yang terbaca hanya tulisan di kotaknya (seperti membaca
                 # ``input.value`` biasa) — nilai modelnya tidak terjangkau.

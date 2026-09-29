@@ -4556,8 +4556,20 @@ def cek_gulir_aman() -> str:
     isi = badan["_isi_desa_kelurahan"]
     for tanda in ("_kode_wilayah(", "kode_wilayah_str"):
         assert tanda in isi, f"alur pemilihan desa tidak memeriksa kode wilayah ({tanda!r})"
-    assert isi.count("_desa_dan_kode_terverifikasi(") >= 2, \
+    assert isi.count("_periksa_desa_sampai_siap(") >= 2, \
         "hasil pemilihan desa hanya diperiksa di satu jalur (klik & model Ext JS dua-duanya wajib)"
+    # Ronde 51: pemeriksaan desa dipusatkan di `_periksa_desa_sampai_siap` yang MENUNGGU nilai
+    # (daftar & nilai desa tidak muncul seketika di Dapodik), jadi yang wajib ada di:
+    # (a) `_isi_desa_kelurahan` — dua pemanggilan (jalur klik & jalur model Ext JS),
+    # (b) `_periksa_desa_sampai_siap` — pemanggilan `_desa_dan_kode_terverifikasi` + batas tunggu.
+    isi_tunggu = badan["_periksa_desa_sampai_siap"]
+    assert "_desa_dan_kode_terverifikasi(" in isi_tunggu, \
+        "penantian nilai desa tidak memeriksa kode wilayah"
+    for tanda in ("_batas_tunggu_desa(", "ditunggu", "DESA_TUNGGU_DETIK"):
+        assert tanda in isi_tunggu or tanda in badan["_batas_tunggu_desa"], \
+            f"penantian nilai desa kehilangan {tanda!r}"
+    assert isi.count("_kode_wilayah(") >= 1 or "_periksa_desa_sampai_siap(" in isi, \
+        "alur pemilihan desa tidak memeriksa kode wilayah sama sekali"
     assert "dikembalikan seperti semula" in isi and "_pulihkan_desa(" in isi, \
         "kolom desa tidak dikembalikan bila pemilihannya gagal (data lama bisa tertimpa)"
     assert "TIDAK jadi terisi" in isi, "kegagalan pemilihan desa tidak dilaporkan apa adanya"
@@ -4724,8 +4736,10 @@ def cek_kolom_lewat_nama_dan_label_div() -> str:
                   # pengaturan wali dimatikan, «0» yang keras, dan identitas wali yang tidak
                   # boleh dikarang — dan ronde 50 susulan menambah 55 — jendela «Ubah» yang
                   # tertinggal terbuka menghalangi klik baris & daftar peserta didik yang
-                  # tersegar sesudah Data Periodik disimpan, sehingga 55).
-                  "55 skenario"):
+                  # tersegar sesudah Data Periodik disimpan; ronde 51 menambah 56–57 — antrean
+                  # bot yang tidak membawa kolom desa, daftar desa & nilai desa yang baru muncul
+                  # sesudah ditunggu — sehingga 57).
+                  "57 skenario"):
         assert tanda in uji, f"uji bot kehilangan pemeriksaan {tanda!r} (ronde 47)"
 
     return ("kolom dicari lewat NAMA lebih dulu (rt, rw, alamat_jalan, no_kk, kode_pos), label "
@@ -4889,7 +4903,7 @@ def cek_catatan_lengkap_bot() -> str:
     assert "_penjaga_unsur" in sumber_bot and "nilai-model-unsur" in sumber_bot, \
         "unsur pemegang nilai tidak diingat / pembacaan model Ext JS tidak ada"
     uji_bot = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
-    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "55 skenario",
+    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "57 skenario",
                   "kolomnya TIDAK ketemu", "kolom isian yang ADA di halaman"):
         assert tanda in uji_bot or tanda in (BASE_DIR / "scripts/peramban_palsu.py").read_text(
             encoding="utf-8"), f"uji/fixture kehilangan {tanda!r}"
@@ -5246,7 +5260,9 @@ def cek_perbaikan_simpan_bio():
         assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 50)"
     uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
     for judul in ("51. «Simpan» ditolak Dapodik", "52. pengaturan «Wali mengikuti ayah» mati",
-                  "53. «0» keras", "54. identitas wali tidak dikarang", "55 skenario",
+                  "53. «0» keras", "54. identitas wali tidak dikarang", "57 skenario",
+                  "56. daftar desa baru muncul", "57. nilai desa baru muncul",
+                  "desa_nilai_muat_perlu_default", "desa_lambat_kali",
                   "55. jendela «Ubah» menghalangi baris", "jendela_bio_menghalangi",
                   "daftar_tersegar_sesudah_periodik", "baris_klik_terhalang", "daftar_tersegar",
                   "baris_dipilih_ulang_kali", "baris_terpilih_saat_registrasi",
@@ -5263,6 +5279,69 @@ def cek_perbaikan_simpan_bio():
             "ditirukan (jendela «Ubah» menutupi tabel & daftar tersegar) dan tombol «Simpan dan "
             "Tutup» yang dipakai adalah milik jendela Registrasi, bukan tombol kembar panel "
             "Data Periodik — pemilihan ulang barisnya dibuktikan hitungan uji")
+
+
+@cek("44. Antrean bot membawa kolom Desa/Kelurahan & Kecamatan")
+def cek_antrean_desa():
+    """Antrean bot pernah TIDAK menyertakan kelurahan/kecamatan (ronde 51).
+
+    Bot mengisi kolom «Desa/Kelurahan» dari ``siswa["kelurahan"]`` — tetapi SQL
+    ``services.bot_antrean`` tidak mengambil dua kolom itu, sehingga di PC sekolah bot selalu
+    melaporkan «Desa/Kelurahan: data siswa kosong — dilewati» walaupun data SM lengkap. Uji
+    lama tidak menangkapnya sebab peramban palsu diberi data siswa langsung, bukan lewat
+    antrean. Pemeriksaan ini memakai antrean SUNGGUHAN: kunci dan nilainya dibandingkan
+    dengan data siswa di basis data.
+    """
+    import inspect
+
+    from app import db, services
+
+    sumber = inspect.getsource(services.bot_antrean)
+    for kolom in ("s.kelurahan", "s.kecamatan"):
+        assert kolom in sumber, f"antrean bot tidak mengambil kolom {kolom} dari basis data"
+
+    # Siswa uji dengan desa yang PASTI terisi (dihapus lagi sesudah diperiksa) — supaya
+    # pemeriksaan tetap bermakna walau basis data uji pemeriksaan ini berisi data lain.
+    nisn_uji = "1234567890"
+    dibuat = None
+    if not db.query_value("SELECT COUNT(*) FROM students WHERE nisn = ?", (nisn_uji,)):
+        dibuat = db.insert_returning_id(
+            "INSERT INTO students(nama, nisn, nik, jk, alamat, kelurahan, kecamatan, rombel) "
+            "VALUES(?,?,?,?,?,?,?,?)",
+            ("SISWA ANTREAN DESA", nisn_uji, "3201000000000001", "L", "Jl. Antrean 1",
+             "Karawaci Baru", "Karawaci", "7A"))
+    try:
+        baris = services.bot_antrean(limit=10, lewati_sukses=False)
+        assert baris, "antrean bot kosong — siswa uji tidak terbaca"
+        for item in baris:
+            for kunci in ("kelurahan", "kecamatan"):
+                assert kunci in item, (f"antrean bot tidak menyertakan kunci {kunci!r}: "
+                                       f"{sorted(item)}")
+        # Dicari lewat NISN-nya sendiri: antrean dengan batas jumlah bisa memotong siswa uji
+        # (urutannya menurut rombel & nama).
+        uji_baris = services.bot_antrean(nisn_manual=nisn_uji, lewati_sukses=False)
+        assert len(uji_baris) == 1, ("siswa uji tidak muncul di antrean bot saat dicari lewat "
+                                     "NISN-nya — antreannya sendiri bermasalah")
+        uji = uji_baris[0]
+        assert str(uji.get("kelurahan") or "").strip() == "Karawaci Baru", \
+            (f"nilai kelurahan tidak sampai ke antrean: {uji.get('kelurahan')!r} (inilah keluhan "
+             "sekolah 29 Sep 2026 — bot melewati kolom Desa/Kelurahan)")
+        assert str(uji.get("kecamatan") or "").strip() == "Karawaci", \
+            f"nilai kecamatan tidak sampai ke antrean: {uji.get('kecamatan')!r}"
+        siswa = services.get_student_by_nisn(nisn_uji)
+        assert siswa is not None and str(siswa["kelurahan"]) == "Karawaci Baru", \
+            f"data siswa uji di basis data tidak lengkap: {siswa and siswa.get('kelurahan')!r}"
+    finally:
+        if dibuat is not None:
+            db.execute("DELETE FROM students WHERE id = ?", (dibuat,))
+
+    bot = (BASE_DIR / "app/bot_dapodik.py").read_text(encoding="utf-8")
+    assert 'siswa.get("kelurahan")' in bot and 'siswa.get("kecamatan")' in bot, \
+        "bot tidak membaca kelurahan/kecamatan dari data antrean"
+
+    return ("antrean bot membawa kolom kelurahan & kecamatan beserta nilainya (dibandingkan "
+            "dengan data siswa) — kolom «Desa/Kelurahan» tidak lagi dilewati karena datanya "
+            "tidak pernah sampai ke bot")
 
 
 def main() -> int:
@@ -5311,6 +5390,7 @@ def main() -> int:
     cek_catatan_lengkap_bot()
     cek_kolom_melekat_pada_kolomnya()
     cek_perbaikan_simpan_bio()
+    cek_antrean_desa()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()

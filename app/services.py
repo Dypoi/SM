@@ -1800,8 +1800,14 @@ def bot_antrean(rombel: str = "", limit: int = 0, nisn_manual: str = "",
         "SELECT s.id, s.nama, s.nisn, s.nipd, s.rombel, s.tingkat, s.status, "
         "s.sekolah_asal, s.tinggi_badan, s.berat_badan, s.lingkar_kepala, s.jml_saudara, "
         "s.jarak_rumah, "
-        # Kolom untuk jendela «Ubah» (BIO) — diambil apa adanya dari data siswa:
-        "s.no_kk, s.no_registrasi_akta, s.alamat, s.rt, s.rw, s.kode_pos, s.anak_ke, "
+        # Kolom untuk jendela «Ubah» (BIO) — diambil apa adanya dari data siswa.
+        # Ronde 51: ``kelurahan`` & ``kecamatan`` WAJIB ikut. Dulu dua kolom ini tidak
+        # diambil, sehingga bot selalu melaporkan «Desa/Kelurahan: data siswa kosong —
+        # dilewati» di PC sekolah walaupun data SM-nya lengkap (bot hanya menerima kunci
+        # yang ada di sini; peramban palsu pada uji lama diberi data siswa langsung,
+        # jadi kekurangan ini tidak pernah terlihat).
+        "s.no_kk, s.no_registrasi_akta, s.alamat, s.rt, s.rw, s.kelurahan, s.kecamatan, "
+        "s.kode_pos, s.anak_ke, "
         "s.ayah_nama, s.ayah_nik, s.ayah_tahun_lahir, s.ayah_pendidikan, "
         "s.ibu_nik, s.ibu_tahun_lahir, s.ibu_pendidikan, "
         # Kolom dropdown (combo) pada jendela «Ubah»: pekerjaan & penghasilan ayah dan ibu.

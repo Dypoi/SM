@@ -147,7 +147,7 @@ APP_NAME = "SM"
 APP_LONG_NAME = "Sistem Informasi Manajemen Sekolah"
 #: Penanda versi — dinaikkan tiap ronde perbaikan supaya pengguna bisa memastikan
 #: versi mana yang sedang dibuka (di footer halaman tertulis «SM v<versi>»).
-APP_VERSION = "0.1.10"
+APP_VERSION = "0.1.11"
 
 # --------------------------------------------------------------------------- #
 # Mode online (aplikasi dibuka dari luar jaringan sekolah)

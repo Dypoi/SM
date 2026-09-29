@@ -372,7 +372,13 @@ BUKTI_MAKSIMAL = 40
 #: basis data **sesudah** pengguna mengetik (di Dapodik terbaru: nama KECAMATAN dulu, lalu
 #: pilihan desa di bawah kecamatan itu muncul). Jadi daftarnya harus ditunggu seperti daftar
 #: dropdown lain — bukan dibaca sekali lalu disimpulkan kosong.
-DESA_TUNGGU_DETIK = 6.0
+#:
+#: Ronde 51 (catatan sekolah 29 Sep 2026): «untuk value tersebut memang harus menunggu agak
+#: lama biar valuenya muncul» — di PC sekolah daftar/nilai desa kadang baru muncul sesudah
+#: lebih dari 6 detik, dan nilainya (termasuk ``kode_wilayah_str``) tidak selalu terisi tepat
+#: sesudah pilihan diklik. Batasnya dinaikkan dan dipakai untuk DUA penantian: daftarnya
+#: maupun nilai pilihannya (lihat ``_batas_tunggu_desa``).
+DESA_TUNGGU_DETIK = 12.0
 
 #: Paling banyak berapa halaman daftar desa yang disusuri.
 #: Picker combo Dapodik memakai bilah halaman («Page 1 of 2» pada tangkapan layar sekolah):
@@ -4674,6 +4680,14 @@ class BotDapodik:
         desa = self._nilai_teks(siswa.get("kelurahan"))
         kecamatan = self._nilai_teks(siswa.get("kecamatan"))
         if not desa:
+            # Jangan sekadar «dilewati»: sebut APA yang kosong, di mana memperbaikinya, dan
+            # bahwa kolom Dapodik dibiarkan apa adanya (ronde 51 — dari catatan sekolah, baris
+            # ini muncul padahal data siswa di aplikasi SM ada; sebabnya ada di ANTREAN bot).
+            self._catat_kepala(
+                f"{awalan} {label}: data «{label}» siswa KOSONG pada data yang dikirim ke bot "
+                "(aplikasi SM) — kolom Dapodik dibiarkan apa adanya, tidak dikosongkan. Isi "
+                "kolomnya di menu Data Siswa (atau impor ulang Excel dari Dapodik) lalu "
+                "jalankan bot lagi supaya desa ini ikut terisi.")
             return "dilewati — kolom «Desa/Kelurahan» siswa kosong di SM"
         self._catat_kepala(f"{awalan} {label}: data SM — desa «{desa}»"
                            + (f", kecamatan «{kecamatan}»." if kecamatan else
@@ -4724,7 +4738,7 @@ class BotDapodik:
                         break
                     self._tunggu(peramban, 0.4)
             tampil = self._tunggu_daftar_dropdown(
-                peramban, unsur, percobaan=max(2, int(DESA_TUNGGU_DETIK / 0.5)))
+                peramban, unsur, percobaan=max(4, int(self._batas_tunggu_desa() / 0.5)))
             jumlah_baca = getattr(self, "_baca_daftar_terakhir", 1)
             if tampil:
                 self._catat_kepala(f"{awalan} {label}: daftar desa muncul — {len(tampil)} "
@@ -4764,10 +4778,12 @@ class BotDapodik:
         if geser:
             self._catat_kepala(f"{awalan} {label}: pilihan «{cocok}» baru terlihat setelah "
                                f"daftarnya digeser {geser}x.")
-        self._tunggu(peramban, 0.5)
-        tampil_nilai, model = self._nilai_dropdown(peramban, unsur)
-        tersimpan, alasan, kode_info = self._desa_dan_kode_terverifikasi(
-            peramban, unsur, desa, cocok, tampil_nilai or model, nilai_awal, kode_awal)
+        tersimpan, alasan, tampil_nilai, kode_info, tunggu_info = self._periksa_desa_sampai_siap(
+            peramban, unsur, desa, cocok, nilai_awal, kode_awal)
+        if "ditunggu 1x" not in tunggu_info:
+            self._catat_kepala(f"{awalan} {label}: nilainya tidak muncul seketika — {tunggu_info} "
+                               "(Dapodik menuliskan nilainya dari basis datanya; bot menunggu, "
+                               "tidak menilai gagal dari bacaan pertama).")
         if tersimpan:
             self._catat_kecamatan_berbeda(label, kecamatan, tampil_nilai or model)
             if kode_info:
@@ -4786,10 +4802,11 @@ class BotDapodik:
                                "daftarnya (sudah digulir & halaman dibuka) — dipilih lewat "
                                "model Ext JS (select/setValue).")
         if self._pilih_dropdown_ext(peramban, unsur, cocok):
-            self._tunggu(peramban, 0.5)
-            tampil_nilai, model = self._nilai_dropdown(peramban, unsur)
-            tersimpan, alasan, kode_info = self._desa_dan_kode_terverifikasi(
-                peramban, unsur, desa, cocok, tampil_nilai or model, nilai_awal, kode_awal)
+            tersimpan, alasan, tampil_nilai, kode_info, tunggu_info = \
+                self._periksa_desa_sampai_siap(peramban, unsur, desa, cocok, nilai_awal, kode_awal)
+            if "ditunggu 1x" not in tunggu_info:
+                self._catat_kepala(f"{awalan} {label}: nilai lewat model Ext JS juga tidak muncul "
+                                   f"seketika — {tunggu_info}.")
             if tersimpan:
                 self._catat_kecamatan_berbeda(label, kecamatan, tampil_nilai or model)
                 if kode_info:
@@ -4812,6 +4829,51 @@ class BotDapodik:
                     "semula (data lama Dapodik tidak ikut berubah).")
         return (f"gagal terisi — pilihan «{cocok}» tidak masuk ke kolomnya "
                 f"(tampil: «{tampil_nilai}»; {alasan}).")
+
+    def _batas_tunggu_desa(self) -> float:
+        """Berapa detik bot menunggu daftar & nilai desa sebelum menyimpulkan gagal.
+
+        Dapodik mengambil daftar desa (data Kemendagri) dari basis datanya, dan nilainya
+        (termasuk ``kode_wilayah_str``) baru dituliskan sesudahnya — di PC sekolah proses itu
+        bisa lama (ronde 51: «harus menunggu agak lama biar valuenya muncul»). Batasnya
+        dinaikkan, dan pengaturan «bot_timeout» (bawaan 15 detik) boleh memperpanjangnya
+        sampai paling lama 30 detik supaya pekerjaan tidak menggantung.
+        """
+        try:
+            batas_opsi = float(self.opsi.get("bot_timeout", "15") or 15)
+        except (TypeError, ValueError):
+            batas_opsi = 15.0
+        return max(DESA_TUNGGU_DETIK, min(30.0, batas_opsi))
+
+    def _periksa_desa_sampai_siap(self, peramban, unsur, desa: str, cocok: str,
+                                  nilai_awal: str, kode_awal: str) -> tuple[bool, str, str, str, str]:
+        """Tunggu sampai pilihan desa benar-benar masuk ke kolomnya.
+
+        Sesudah pilihan diklik (atau dipasang lewat model Ext JS), Dapodik masih menuliskan
+        nilai desa beserta ``kode_wilayah_str`` dari basis datanya — kadang tidak seketika.
+        Bot memeriksa berulang sampai batas waktu, bukan menilai gagal dari bacaan pertama,
+        dan mencatat berapa kali ia memeriksa (bukti jujur bahwa bot memang menunggu).
+
+        Kembalikan ``(tersimpan, alasan, tampil, keterangan_kode, keterangan_tunggu)``.
+        """
+        batas = self._batas_tunggu_desa()
+        akhir = time.time() + batas
+        periksa = 0
+        tampil = ""
+        alasan = "pilihan belum diklik"
+        keterangan_kode = ""
+        tersimpan = False
+        while True:
+            periksa += 1
+            tampil_nilai, model = self._nilai_dropdown(peramban, unsur)
+            tampil = tampil_nilai or model
+            tersimpan, alasan, keterangan_kode = self._desa_dan_kode_terverifikasi(
+                peramban, unsur, desa, cocok, tampil, nilai_awal, kode_awal)
+            if tersimpan or time.time() >= akhir:
+                break
+            self._tunggu(peramban, 0.5)
+        return (tersimpan, alasan, tampil, keterangan_kode,
+                f"ditunggu {periksa}x periksa (batas {batas:.0f} detik)")
 
     def _pulihkan_desa(self, peramban, unsur, nilai_awal: str,
                        awalan: str, label: str) -> bool:
