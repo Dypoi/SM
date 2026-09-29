@@ -577,7 +577,15 @@ class UnsurPalsu:
                 continue
             if kontrol and bagian.lower() in ("a", "x"):
                 if bagian.lower() == "a":
-                    self.clear()          # Ctrl+A = pilih semua
+                    if (getattr(self, "pencarian_desa", False)
+                            and self.peramban.desa_ketik_menempel_pencarian
+                            and self.peramban.desa_ketik_berhasil >= 1):
+                        # Ronde 53: Ctrl+A-nya tidak berhasil membersihkan kotak pencarian,
+                        # jadi kata kunci berikutnya menempel pada yang sudah ada — persis
+                        # «neglasari selapajangjaya» dari pengguna (SALAH).
+                        self.peramban.desa_ketik_menempel += 1
+                    else:
+                        self.clear()      # Ctrl+A = pilih semua
                 kontrol = False
                 continue
             self.nilai += bagian
@@ -589,6 +597,7 @@ class UnsurPalsu:
         if getattr(self, "pencarian_desa", False):
             if not ada_ketikan:
                 return       # hanya Ctrl+A/menghapus: bukan kata kunci pencarian
+            self.peramban.desa_ketik_berhasil += 1
             # Combo «Desa/Kelurahan»: mengetik BUKAN mengisi nilainya, melainkan meminta
             # Dapodik mengambil daftar desa untuk kata kunci itu (persis mekanisme terbaru
             # yang dikirim sekolah: ketik nama kecamatan → daftar desa muncul di bawahnya).
@@ -1001,6 +1010,18 @@ class PerambanPalsu:
         self.desa_ketik_terlalu_awal = 0
         #: Berapa bacaan sampai isian sebelumnya muncul (bukti bot benar-benar menunggu).
         self.desa_isi_awal_tunggu_kali = 0
+        #: Ronde 53 — di sekolah, Ctrl+A tidak selalu membersihkan kotak pencarian desa
+        #: sesudah pencarian pertama: kata kunci berikutnya MENEMPEL pada yang sudah ada
+        #: («neglasari» + «selapajangjaya» → «neglasari selapajangjaya», yang ditegaskan
+        #: pengguna sebagai SALAH). True = pengetikan sesudah pencarian pertama menempel.
+        self.desa_ketik_menempel_pencarian = False
+        #: Berapa kali ketikan menempel pada isi kotak pencarian desa yang sudah ada.
+        self.desa_ketik_menempel = 0
+        #: Berapa kali ketikan ke kotak pencarian desa benar-benar diterima.
+        self.desa_ketik_berhasil = 0
+        #: Berapa kali store combo desa diperiksa lewat Ext JS (``store-desa``) — bukti bahwa
+        #: bot menunggu daftarnya siap, bukan membaca layar saja.
+        self.desa_store_dibaca = 0
         #: True = combo tidak punya elemen tombol panah (hanya bisa dibuka lewat tombol ↓)
         self.dropdown_tanpa_panah = False
         #: Isi kolom BIO yang benar-benar tersimpan (name → nilai saat «Simpan» ditekan)
@@ -2966,6 +2987,38 @@ class PerambanPalsu:
                 return []
             return [{"teks": p, "nilai": i + 1}
                     for i, p in enumerate(sasaran.daftar_pilihan)]
+        if "/* store-desa */" in skrip:
+            # Ronde 53 (persis ``tunggu_store_desa()`` skrip pengguna): keadaan STORE Ext JS
+            # combo desa — ada/sedang memuat/berapa record. Yang ditunggu bot adalah storenya
+            # siap, bukan daftar yang terlihat di layar.
+            sasaran = argumen[0] if argumen else None
+            if sasaran is None:
+                return {"ada": False, "loading": False, "jumlah": 0, "sebab": "unsur kosong"}
+            if self.dropdown_tanpa_ext:
+                return {"ada": False, "loading": False, "jumlah": 0,
+                        "sebab": "Ext JS tidak terjangkau"}
+            if not getattr(sasaran, "pencarian_desa", False):
+                return {"ada": False, "loading": False, "jumlah": 0,
+                        "sebab": "komponen itu bukan combo desa"}
+            self.desa_store_dibaca += 1
+            # Permintaan daftarnya maju satu langkah tiap kali storenya dibaca (persis
+            # Dapodik: datanya diambil dari basis data sesudah kata kunci diketik).
+            self.dropdown_baca_kali += 1
+            siap = self._desa_siap(sasaran)
+            return {"ada": True, "loading": not siap,
+                    "jumlah": len(sasaran.daftar_pilihan) if siap else 0, "sebab": ""}
+        if "/* store-desa-data */" in skrip:
+            # Record daftar desa dari store combo: teks pilihan, nilainya, dan kode wilayahnya
+            # (``kode_wilayah_str``) — persis ``baca_store_desa()`` skrip pengguna (ronde 53).
+            sasaran = argumen[0] if argumen else None
+            if (sasaran is None or self.dropdown_tanpa_ext
+                    or not getattr(sasaran, "pencarian_desa", False)):
+                return []
+            if not self._desa_siap(sasaran):
+                return []
+            return [{"teks": teks, "nilai": kode_desa_palsu(teks) or str(posisi + 1),
+                     "kode": kode_desa_palsu(teks)}
+                    for posisi, teks in enumerate(sasaran.daftar_pilihan)]
         if "dropdown-pilih" in skrip:
             # Pilih lewat model Ext JS: select(record) / setValue(id).
             sasaran = argumen[0] if argumen else None

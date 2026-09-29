@@ -174,6 +174,17 @@ def jalankan(judul: str, jarak, atur=None, tampilkan: bool = False, opsi: dict |
     return peramban, jejak
 
 
+def kueri_pencarian_desa(peramban) -> list[str]:
+    """Kata kunci PENCARIAN desa yang benar-benar diketik bot (tanpa pengetikan pemulihan).
+
+    ``desa_kueri_dipakai`` mencatat semua yang sampai ke kotak pencarian — termasuk teks lama
+    yang diketik ulang saat bot mengembalikan isi kolomnya. Pemeriksaan ronde 53
+    («yang diketik hanya nama kecamatan, bukan kecamatan lalu kelurahan») memakai daftar ini
+    supaya tidak terpengaruh pengetikan pemulihan itu.
+    """
+    return [k for k in peramban.desa_kueri_dipakai if k != DESA_LAMA_PALSU]
+
+
 def main() -> int:
     """Jalankan semua skenario; kembalikan 0 bila semuanya lolos."""
     pemeriksaan = 0
@@ -608,29 +619,39 @@ def main() -> int:
         "tertimpa kata kunci pencarian")
     cek(any("dikembalikan seperti semula" in b for b in j26),
         [b for b in j26 if "Desa/Kelurahan" in b][:8] or j26[-8:])
-    cek(len(p26.desa_kueri_dipakai) >= 2,
-        f"kueri kedua (nama desa) tidak pernah dicoba: {p26.desa_kueri_dipakai}")
+    # Ronde 53: yang diketik HANYA nama kecamatan. Kalau desanya tidak ada di daftar kecamatan
+    # itu, bot TIDAK mengetik kata kunci kedua (nama desanya) — persis cara pengguna: «ketik
+    # kecamatan, lalu pilih», bukan «ketik kecamatan lalu ketik kelurahan».
+    cek(kueri_pencarian_desa(p26) == ["Karawaci"],
+        f"kata kunci pencarian desa bukan hanya nama kecamatan: {p26.desa_kueri_dipakai}")
+    cek(any("bot TIDAK mengetik ulang nama desanya" in b for b in j26),
+        [b for b in j26 if "tidak mengetik" in b][:3] or j26[-8:])
     cek(any("TIDAK ADA pada daftar Dapodik" in b for b in j26),
         [b for b in j26 if "Desa/Kelurahan" in b][:8] or j26[-8:])
     cek(str(p26.data_bio_tersimpan.get("nama_ayah") or "").strip() == "Bapak Uji",
         "kolom lain ikut gagal padahal hanya desa yang tidak ada di daftar")
+    cek(not any("«Simpan» DITAHAN" in b for b in j26),
+        "«Simpan» ditahan padahal isi kolom desanya sudah kembali seperti semula")
 
-    # 27) Kecamatan di SM keliru/tidak sama dengan Dapodik: kueri pertama (kecamatan) tidak
-    #     menemukan desanya, lalu bot mencoba kueri kedua (nama desa) — dan tetap memeriksa
-    #     hasilnya, dengan catatan bila kecamatan pada pilihan Dapodik berbeda dari data SM.
-    p27, j27 = jalankan("27. desa: kecamatan SM keliru → kueri nama desa dipakai", 2,
+    # 27) Kecamatan di SM keliru/tidak sama dengan Dapodik: daftar desa untuk kecamatan ITU
+    #     tidak memuat desa yang diminta. Ronde 53 — bot TIDAK mengetik nama desanya sebagai
+    #     kata kunci kedua (itu yang dilarang pengguna); kolomnya dikembalikan & dilaporkan
+    #     jujur supaya data Dapodik tidak ditimpa desa yang salah.
+    p27, j27 = jalankan("27. desa: kecamatan SM keliru → tidak mengetik nama desa kedua", 2,
                         atur=lambda p: p.siapkan_bio(), tampilkan=True,
                         opsi={"bot_isi_bio": "1"},
                         ubah_siswa={"kelurahan": "Cimone Jaya", "kecamatan": "Cibodas"})
-    cek(p27.data_bio_tersimpan.get("kelurahan")
-        == "Desa/Kel. Cimone Jaya - Kec. Karawaci - Kota Tangerang",
-        f"desa/kelurahan salah tersimpan: {p27.data_bio_tersimpan.get('kelurahan')!r}")
-    cek(any("berbeda dari data SM" in b for b in j27),
+    cek(p27.data_bio_tersimpan.get("kelurahan") == DESA_LAMA_PALSU,
+        f"desa lama tertimpa padahal kecamatan di SM keliru: "
+        f"{p27.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(kueri_pencarian_desa(p27) == ["Cibodas"],
+        f"kata kunci kedua (nama desa) masih diketik: {p27.desa_kueri_dipakai}")
+    cek(any("TIDAK ADA pada daftar Dapodik" in b and "Cibodas" in b for b in j27),
         [b for b in j27 if "Desa/Kelurahan" in b][:8] or j27[-8:])
-    cek(p27.desa_kueri_dipakai[:2] == ["Cibodas", "Cimone Jaya"],
-        f"urutan kueri salah: {p27.desa_kueri_dipakai}")
-    cek(any("kecamatan pada pilihan Dapodik" in b for b in j27),
-        [b for b in j27 if "Desa/Kelurahan" in b][:8] or j27[-8:])
+    cek(p27.bio_tersimpan and not any("«Simpan» DITAHAN" in b for b in j27),
+        "«Simpan» ditahan padahal isi kolom desanya sudah kembali seperti semula")
+    cek(str(p27.data_bio_tersimpan.get("nama_ayah") or "").strip() == "Bapak Uji",
+        "kolom lain ikut gagal padahal hanya desa yang tidak ketemu")
 
     # 28) Kecamatan kosong di SM: bot mengetik nama desanya langsung (tetap menunggu daftar
     #     dari Dapodik dan tetap memeriksa hasilnya) — bukan menyerah tanpa mencoba.
@@ -1445,7 +1466,81 @@ def main() -> int:
         f"kode wilayah bukan milik desa yang dipilih: {p59.kode_wilayah()!r}")
     cek(any(b.startswith("[OK]") for b in j59), f"Registrasi tidak jalan: {j59[-4:]}")
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 59 skenario")
+    # 60) Ronde 53 — «pokoknya yang dilakukan itu ketik kecamatan, lalu pilih, bukan ngetik
+    #     kecamatan lalu ngetik kelurahan. contoh tidak boleh "neglasari selapajangjaya" itu
+    #     salah, yang benar adalah "neglasari" tunggu daftar pilihan muncul semua lalu cari
+    #     yang sesuai dengan data bodap». Uji ini memastikan: SATU kata kunci saja (nama
+    #     kecamatan; kata kunci gabungan «kecamatan + kelurahan» tidak pernah dibentuk), daftar
+    #     pilihannya ditunggu sampai siap (dibaca juga dari store combo-nya), lalu desanya
+    #     DIPILIH dari daftar itu — dan pilihannya diverifikasi (tulisan + nilai model + kode
+    #     wilayah) sebelum «Simpan».
+    p60, j60 = jalankan(
+        "60. satu kata kunci: ketik kecamatan, lalu pilih dari daftar (ronde 53)", 2,
+        atur=lambda p: (p.siapkan_bio(), setattr(p, "desa_cocok_ke_kolom_terpisah", True)),
+        ubah_siswa={"kecamatan": "Kec. Karawaci", "kelurahan": "Desa/Kel. Karawaci Baru"},
+        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(kueri_pencarian_desa(p60) == ["Karawaci"],
+        f"bukan satu kata kunci nama kecamatan: {p60.desa_kueri_dipakai}")
+    cek(not any((" " in k.strip() or "karawaci baru" in k.lower()
+                 or "desa/kel." in k.lower() or k.lower().startswith("kec."))
+                for k in kueri_pencarian_desa(p60)),
+        f"ada kata kunci gabungan/berawalan yang diketik: {p60.desa_kueri_dipakai}")
+    cek(any("cara pengguna diikuti" in b and "HANYA nama kecamatan" in b for b in j60),
+        f"bot tidak melaporkan aturan satu kata kunci: "
+        f"{[b for b in j60 if 'Desa/Kelurahan' in b][:4]}")
+    cek(getattr(p60, "desa_store_dibaca", 0) >= 1
+        and any("daftar desa siap pada store combo-nya" in b for b in j60),
+        f"daftar desa tidak ditunggu lewat store combo-nya: {p60.desa_store_dibaca} bacaan")
+    cek(any("dibaca dari store combo-nya" in b for b in j60),
+        f"pilihan desa tidak dibaca dari store combo-nya: "
+        f"{[b for b in j60 if 'Desa/Kelurahan' in b][:6]}")
+    cek(any("TERVERIFIKASI" in b and "kode wilayah" in b for b in j60),
+        f"pilihan desa tidak diverifikasi sesudah dipilih: "
+        f"{[b for b in j60 if 'TERVERIFIKASI' in b][:2]}")
+    cek(str(p60.data_bio_tersimpan.get("kelurahan") or "")
+        == "Desa/Kel. Karawaci Baru - Kec. Karawaci - Kota Tangerang",
+        f"desa/kelurahan salah tersimpan: {p60.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p60.kode_wilayah() == kode_desa_palsu(DESA_PILIH_PALSU),
+        f"kode wilayah bukan milik desa yang dipilih: {p60.kode_wilayah()!r}")
+    cek(any(b.startswith("[OK]") for b in j60), f"Registrasi tidak jalan: {j60[-4:]}")
+
+    # 61) Ronde 53 — gerbang keselamatan (persis skrip pengguna: «kalau belum terverifikasi,
+    #     jangan klik Simpan») + bukti kata kunci yang MENEMPEL. Di sekolah Ctrl+A tidak
+    #     membersihkan kotak pencariannya, sehingga kata kunci berikutnya menempel pada yang
+    #     sudah ada («neglasari» + «selapajangjaya» → «neglasari selapajangjaya», yang
+    #     ditegaskan pengguna: SALAH). Kolomnya lalu tertinggal berisi kata kunci itu dan tidak
+    #     bisa dikembalikan: bot harus MENAHAN «Simpan» — bukan menyimpan dengan desa yang
+    #     belum pasti (bot ronde 52 tetap menekannya dan mengaku isinya sudah dikembalikan).
+    p61, j61 = jalankan(
+        "61. kata kunci menempel & tertinggal → «Simpan» ditahan (gerbang keselamatan)", 2,
+        atur=lambda p: (p.siapkan_bio(), setattr(p, "desa_cocok_ke_kolom_terpisah", True),
+                        setattr(p, "desa_ketik_menempel_pencarian", True)),
+        ubah_siswa={"kecamatan": "Kec. Cibodas", "kelurahan": "Cimone Jaya"},
+        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(getattr(p61, "desa_ketik_berhasil", 0) == 1
+        and getattr(p61, "desa_ketik_menempel", 0) >= 1,
+        f"uji tidak bermakna: ketikan diterima {getattr(p61, 'desa_ketik_berhasil', 0)}x, "
+        f"menempel {getattr(p61, 'desa_ketik_menempel', 0)}x")
+    cek(all(not k.startswith("CibodasCibodas") for k in p61.desa_kueri_dipakai)
+        and "Cimone Jaya" not in p61.desa_kueri_dipakai,
+        f"ada kata kunci kedua (nama desa) yang diketik: {p61.desa_kueri_dipakai}")
+    cek(any("«Simpan» DITAHAN" in b and "masih tertinggal" in b for b in j61),
+        f"gerbang keselamatan desa tidak menahan «Simpan»: "
+        f"{[b for b in j61 if 'DITAHAN' in b][:2] or j61[-6:]}")
+    cek(not p61.bio_tersimpan,
+        "jendela «Ubah» tetap disimpan padahal kata kunci pencarian masih tertinggal di kolom "
+        "desa (desa yang belum pasti jangan ditulis ke Dapodik)")
+    cek(p61.bio_terbuka, "jendela «Ubah» ikut tertutup padahal «Simpan» tidak ditekan")
+    cek(not any("dikembalikan seperti semula" in b and "isi kolom dikembalikan" in b
+                for b in j61),
+        "bot mengaku isi kolomnya sudah dikembalikan padahal pengetikannya ditolak Dapodik")
+    cek(any("PERINGATAN — isi semula tidak bisa dikembalikan" in b for b in j61),
+        f"bot tidak melaporkan isi kolom yang tidak bisa dikembalikan: "
+        f"{[b for b in j61 if 'PERINGATAN' in b][:3]}")
+    cek(any("Desa/Kelurahan" in b and "TIDAK ADA pada daftar Dapodik" in b for b in j61),
+        [b for b in j61 if "Desa/Kelurahan" in b][:8] or j61[-8:])
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 61 skenario")
     return 0
 
 

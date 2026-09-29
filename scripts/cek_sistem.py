@@ -4741,7 +4741,7 @@ def cek_kolom_lewat_nama_dan_label_div() -> str:
                   # sesudah ditunggu; ronde 52 menambah 58–59 — kolom desa diisi persis cara
                   # pengguna (tunggu isian sebelumnya, Ctrl+A, ketik nama wilayahnya tanpa
                   # awalan, baca ulang kotak pencariannya) — sehingga 59).
-                  "59 skenario"):
+                  "61 skenario"):
         assert tanda in uji, f"uji bot kehilangan pemeriksaan {tanda!r} (ronde 47)"
 
     return ("kolom dicari lewat NAMA lebih dulu (rt, rw, alamat_jalan, no_kk, kode_pos), label "
@@ -4905,7 +4905,7 @@ def cek_catatan_lengkap_bot() -> str:
     assert "_penjaga_unsur" in sumber_bot and "nilai-model-unsur" in sumber_bot, \
         "unsur pemegang nilai tidak diingat / pembacaan model Ext JS tidak ada"
     uji_bot = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
-    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "59 skenario",
+    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "61 skenario",
                   "kolomnya TIDAK ketemu", "kolom isian yang ADA di halaman"):
         assert tanda in uji_bot or tanda in (BASE_DIR / "scripts/peramban_palsu.py").read_text(
             encoding="utf-8"), f"uji/fixture kehilangan {tanda!r}"
@@ -5262,7 +5262,7 @@ def cek_perbaikan_simpan_bio():
         assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 50)"
     uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
     for judul in ("51. «Simpan» ditolak Dapodik", "52. pengaturan «Wali mengikuti ayah» mati",
-                  "53. «0» keras", "54. identitas wali tidak dikarang", "59 skenario",
+                  "53. «0» keras", "54. identitas wali tidak dikarang", "61 skenario",
                   "56. daftar desa baru muncul", "57. nilai desa baru muncul",
                   "58. kecamatan/desa berawalan", "59. isian desa sebelumnya muncul sesudah",
                   "desa_nilai_muat_perlu_default", "desa_lambat_kali",
@@ -5409,7 +5409,7 @@ def cek_ketik_desa_cara_pengguna():
         assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 52)"
     uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
     for judul in ("58. kecamatan/desa berawalan", "59. isian desa sebelumnya muncul sesudah "
-                  "ditunggu", "59 skenario"):
+                  "ditunggu", "61 skenario"):
         assert judul in uji, f"uji bot kehilangan {judul!r} (ronde 52)"
 
     return ("kolom «Desa/Kelurahan» diisi persis cara pengguna: isian sebelumnya ditunggu "
@@ -5419,6 +5419,85 @@ def cek_ketik_desa_cara_pengguna():
             "pencariannya dibaca ulang sebagai bukti; kata kunci yang sudah diketik dicocokkan "
             "ke kolom desa/kecamatan/kota Dapodik — bukan ke label tampilannya (uji tiruan "
             "58–59, merah pada bot ronde 51)")
+
+
+@cek("46. Desa/Kelurahan dipilih dari daftar: satu kata kunci (kecamatan), diverifikasi, "
+      "dan «Simpan» ditahan bila belum terverifikasi")
+def cek_desa_dipilih_dari_daftar():
+    """Ronde 53 — dari pesan pengguna: «pokoknya yang dilakukan itu ketik kecamatan, lalu
+    pilih, bukan ngetik kecamatan lalu ngetik kelurahan … tunggu daftar pilihan muncul semua
+    lalu cari yang sesuai dengan data bodap» + skrip Selenium acuan yang dikirimnya.
+
+    Pemeriksaan ini menjaga empat hal yang membedakan cara pengguna itu dari bot ronde 52:
+
+    * kata kuncinya **satu** — nama kecamatan; kata kunci kedua (nama desa) tidak boleh
+      dibentuk lagi, dan kata kunci gabungan «kecamatan + kelurahan» tidak pernah diketik;
+    * daftar pilihannya **ditunggu siap** — dibaca dari store combo Ext JS-nya
+      (``desa_kode_wilayah_str``/``displayField``/``valueField``), bukan hanya dari layar;
+    * pemilihan disinkronkan ke model Ext JS (``select`` + ``setValue`` + ``fireEvent``)
+      dengan percobaan berulang, persis ``DESA_SYNC_RETRY``/``DESA_SYNC_WAIT`` skrip pengguna;
+    * **gerbang keselamatan**: «Simpan» tidak ditekan bila pilihan desanya belum terverifikasi
+      dan isi kolomnya tidak bisa dikembalikan seperti semula.
+    """
+    import inspect
+
+    from app.bot_dapodik import BotDapodik
+
+    bot = (BASE_DIR / "app/bot_dapodik.py").read_text(encoding="utf-8")
+    for tanda in ("DESA_STORE_TUNGGU_DETIK", "DESA_SINKRON_KALI", "DESA_SINKRON_JEDA_DETIK",
+                  "store-desa", "store-desa-data", "_tunggu_store_desa",
+                  "_data_desa_dropdown", "_gerbang_desa_alasan", "simpan_ditahan_desa",
+                  "«Simpan» DITAHAN", "cara pengguna diikuti",
+                  "bot TIDAK mengetik ulang nama desanya"):
+        assert tanda in bot, f"bot kehilangan {tanda!r} (ronde 53)"
+    badan = {nama: inspect.getsource(fungsi) for nama, fungsi in
+             inspect.getmembers(BotDapodik, predicate=inspect.isfunction)}
+    isi = badan["_isi_desa_kelurahan"]
+    assert "calon_kueri = ((kecamatan_ketik,) if kecamatan_ketik" in isi, \
+        "kata kunci pencarian desa tidak lagi dibatasi satu (nama kecamatan) saja — " \
+        "«ketik kecamatan lalu ketik kelurahan» dilarang pengguna"
+    assert "desa_ketik" in isi and isi.index("calon_kueri") < isi.index("_tunggu_store_desa"), \
+        "daftar pilihannya tidak ditunggu sesudah kata kunci diketik"
+    tunggu_store = badan["_tunggu_store_desa"]
+    assert "isLoading" in tunggu_store or "loading" in tunggu_store, \
+        "penantian store combo desa tidak memeriksa pemuatan datanya"
+    assert "DESA_STORE_TUNGGU_DETIK" in tunggu_store, \
+        "batas waktu penantian store combo desa tidak dipakai"
+    ext = badan["_pilih_dropdown_ext"]
+    for tanda in ("select(", "setValue", "fireEvent", "collapse"):
+        assert tanda in ext, f"pemilihan lewat model Ext JS kehilangan {tanda!r} (skrip pengguna)"
+    siap = badan["_periksa_desa_sampai_siap"]
+    assert "paksa_ext" in siap and "DESA_SINKRON_KALI" in siap and "DESA_SINKRON_JEDA_DETIK" in siap, \
+        "pilihan desa tidak disinkronkan berulang ke model Ext JS sebelum menyerah"
+    assert "TERVERIFIKASI" in siap, "keberhasilan pemilihan desa tidak dicatat sebagai bukti"
+    gerbang = badan["_gerbang_desa_alasan"]
+    assert "tertinggal" in gerbang, \
+        "gerbang keselamatan desa tidak memeriksa tulisan yang tertinggal di kolomnya"
+    simpan_bio = badan["_isi_bio"]
+    assert "«Simpan» DITAHAN" in simpan_bio and "return False" in simpan_bio, \
+        "«Simpan» tidak ditahan saat pilihan desanya belum terverifikasi (skrip pengguna: " \
+        "jangan klik Simpan bila belum terverifikasi)"
+    assert "self._desa_belum_aman" in badan["_pastikan_desa_sebelum_simpan"], \
+        "pemasangan ulang desa yang gagal sebelum «Simpan» tidak menyalakan gerbangnya"
+
+    # Peramban palsu bisa menirukan keadaan itu, dan ujinya ada (skenario 60–61).
+    palsu = (BASE_DIR / "scripts/peramban_palsu.py").read_text(encoding="utf-8")
+    for tanda in ("desa_ketik_menempel_pencarian", "desa_ketik_menempel", "desa_store_dibaca",
+                  "/* store-desa */", "/* store-desa-data */"):
+        assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 53)"
+    uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
+    for judul in ("60. satu kata kunci: ketik kecamatan, lalu pilih dari daftar",
+                  "61. kata kunci masih tertinggal", "kueri_pencarian_desa", "61 skenario"):
+        assert judul in uji, f"uji bot kehilangan {judul!r} (ronde 53)"
+
+    return ("kolom «Desa/Kelurahan» diisi persis cara pengguna ronde 53: yang diketik HANYA "
+            "nama kecamatan (satu kata kunci — «kecamatan lalu kelurahan» tidak lagi diketik), "
+            "daftar pilihannya ditunggu siap lewat store combo Ext JS dan dibaca lengkap "
+            "beserta kode wilayahnya, pilihan yang cocok diklik lalu disinkronkan lewat "
+            "select/setValue (5x, jeda 0,8 detik), hasilnya diverifikasi (tulisan + nilai model "
+            "+ kode wilayah) sebelum «Simpan» — dan «Simpan» DITAHAN bila pilihan desanya "
+            "belum terverifikasi sementara isi kolomnya tidak bisa dikembalikan (uji tiruan "
+            "60–61, merah pada bot ronde 52)")
 
 
 def main() -> int:
@@ -5469,6 +5548,7 @@ def main() -> int:
     cek_perbaikan_simpan_bio()
     cek_antrean_desa()
     cek_ketik_desa_cara_pengguna()
+    cek_desa_dipilih_dari_daftar()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()

@@ -395,6 +395,17 @@ AWALAN_KETIK_WILAYAH = ("desa/kel.", "desa/kel", "kelurahan", "kel.", "desa",
 #: itulah yang membuat daftar desanya terlihat «tidak pernah muncul».
 ISI_AWAL_DESA_TUNGGU_DETIK = 5.0
 
+#: Batas waktu menunggu STORE Ext JS combo desa berisi sesudah kata kunci diketik — persis
+#: skrip pengguna ronde 53 (``DESA_TIMEOUT = 15.0``, ``DESA_POLL = 0.5``): yang ditunggu adalah
+#: ``store.isLoading()`` selesai **dan** ``store.getCount() > 0``.
+DESA_STORE_TUNGGU_DETIK = 15.0
+DESA_STORE_POLL_DETIK = 0.5
+
+#: Berapa kali pemilihan desa disinkronkan ke model Ext JS sesudah diklik (skrip pengguna
+#: ronde 53: ``DESA_SYNC_RETRY = 5``, jeda ``DESA_SYNC_WAIT = 0.8`` detik).
+DESA_SINKRON_KALI = 5
+DESA_SINKRON_JEDA_DETIK = 0.8
+
 #: Paling banyak berapa halaman daftar desa yang disusuri.
 #: Picker combo Dapodik memakai bilah halaman («Page 1 of 2» pada tangkapan layar sekolah):
 #: pilihan yang berada di halaman berikutnya tidak akan pernah terlihat — dan karena itu
@@ -584,6 +595,16 @@ class BotDapodik:
         self._desa_terverifikasi: dict[str, Any] | None = None
         #: Berapa kali pilihan desa dipasang ulang tepat sebelum «Simpan».
         self.desa_dipulihkan_kali = 0
+        #: Ronde 53 — gerbang keselamatan «Desa/Kelurahan»: bila pilihan desanya belum
+        #: terverifikasi DAN isi kolomnya tidak bisa dikembalikan seperti semula, kolomnya
+        #: bisa berisi kata kunci pencarian/pilihan setengah jalan. «Simpan» ditahan dan
+        #: sebabnya dicatat (bukan diklaim berhasil).
+        self._desa_belum_aman = ""
+        #: Keadaan kolom «Desa/Kelurahan» sebelum disentuh (``{"unsur", "teks"}``) — dipakai
+        #: gerbang keselamatan untuk memastikan kolomnya kembali seperti semula.
+        self._desa_awal: dict[str, Any] | None = None
+        #: Berapa kali «Simpan» ditahan oleh gerbang keselamatan desa (bukti jujur).
+        self.simpan_ditahan_desa = 0
         self.simulasi = opsi.get("bot_simulasi", "0") == "1"
 
     # ---------------------------------------------------------------- jalan ---
@@ -4510,6 +4531,16 @@ class BotDapodik:
         for opsi, d, k, _ in rinci:
             if d == desa_kata and kec_kata and k == kec_kata:
                 return opsi, "sama persis (desa + kecamatan)"
+        # Prioritas kedua persis skrip pengguna (ronde 53): sama **tanpa spasi** + kecamatan
+        # yang sama didahulukan atas nama desa yang sama persis tetapi kecamatannya berbeda
+        # («Karang Sari» + Kec. Cibodas lebih tepat daripada «Karang Sari» di kecamatan lain).
+        if kec_kata and desa_rapat and desa_rapat != desa_kata:
+            rapat_kec = [opsi for opsi, d, k, _ in rinci
+                         if self._kata_rapat(d) == desa_rapat and k == kec_kata]
+            if len(rapat_kec) == 1:
+                return rapat_kec[0], (f"ejaan berbeda (spasi): «{desa}» ↔ "
+                                      f"«{self._tampil_desa(rapat_kec[0])}» — dipilih lewat "
+                                      "kecamatan yang sama")
         sama_desa = [(opsi, k) for opsi, d, k, _ in rinci if d == desa_kata]
         if len(sama_desa) == 1:
             opsi, k = sama_desa[0]
@@ -4587,6 +4618,117 @@ class BotDapodik:
                 "ini memang belum punya desa di Dapodik; kolomnya tetap dicoba (jangan dikira "
                 "gagal hanya karena isinya kosong).")
         return nilai
+
+    def _store_desa_keadaan(self, peramban, unsur) -> dict[str, Any]:
+        """Keadaan STORE Ext JS combo desa: ada? sedang memuat? berapa record? (ronde 53).
+
+        Persis ``tunggu_store_desa()`` pada skrip pengguna: yang dipakai bukan daftar yang
+        terlihat di layar, melainkan ``store`` milik komponen combo-nya (``isLoading()`` dan
+        ``getCount()``) — daftar yang terlihat bisa belum tergambar walau datanya sudah ada.
+        """
+        try:
+            hasil = peramban.execute_script(
+                JS_ALAT + """
+                /* store-desa */
+                const el = arguments[0];
+                if (!el) return {ada: false, loading: false, jumlah: 0, sebab: 'unsur kosong'};
+                const c = komponenKolom(el);
+                if (!c) return {ada: false, loading: false, jumlah: 0, sebab: 'komponen combo tidak ketemu'};
+                if (!c.getStore) return {ada: false, loading: false, jumlah: 0, sebab: 'komponen tanpa store'};
+                const s = c.getStore();
+                if (!s) return {ada: false, loading: false, jumlah: 0, sebab: 'store kosong'};
+                const jumlah = s.getCount ? Number(s.getCount() || 0)
+                    : ((s.getRange ? s.getRange().length : 0));
+                const loading = s.isLoading ? !!s.isLoading() : false;
+                return {ada: true, loading: loading, jumlah: jumlah, sebab: ''};
+                """, unsur)
+        except Exception:  # noqa: BLE001 — pembacaan tambahan saja
+            return {"ada": False, "loading": False, "jumlah": 0, "sebab": "Ext JS tak terjangkau"}
+        if not isinstance(hasil, dict):
+            return {"ada": False, "loading": False, "jumlah": 0, "sebab": "jawaban tak terbaca"}
+        return hasil
+
+    def _tunggu_store_desa(self, peramban, unsur, awalan: str = "", label: str = "") -> int:
+        """Tunggu store combo desa benar-benar berisi — persis skrip pengguna (ronde 53).
+
+        Kembalikan jumlah record yang terbaca (0 = storenya tidak terbaca/tidak siap) supaya
+        pemanggilnya bisa memutuskan berdasarkan bukti, bukan dugaan.
+        """
+        batas = time.time() + DESA_STORE_TUNGGU_DETIK
+        periksa = 0
+        keadaan: dict[str, Any] = {}
+        siap = False
+        while True:
+            periksa += 1
+            keadaan = self._store_desa_keadaan(peramban, unsur)
+            jumlah = int(keadaan.get("jumlah") or 0)
+            siap = bool(keadaan.get("ada")) and not keadaan.get("loading") and jumlah > 0
+            if siap or time.time() >= batas:
+                break
+            self._tunggu(peramban, DESA_STORE_POLL_DETIK)
+        jumlah = int(keadaan.get("jumlah") or 0)
+        if not awalan:
+            return jumlah if siap else 0
+        if siap:
+            self._catat_kepala(
+                f"{awalan} {label}: daftar desa siap pada store combo-nya — {jumlah} pilihan "
+                f"(ditunggu {periksa}x periksa, tiap {DESA_STORE_POLL_DETIK:g} detik).")
+        elif keadaan.get("ada"):
+            self._catat_kepala(
+                f"{awalan} {label}: store combo-nya ada tetapi belum berisi sesudah {periksa}x "
+                f"periksa — daftarnya dibaca apa adanya dari DOM")
+        else:
+            self._catat_kepala(
+                f"{awalan} {label}: store Ext JS combo-nya tidak terbaca "
+                f"({keadaan.get('sebab') or '-'}) — daftarnya dibaca dari DOM seperti sebelumnya")
+        return jumlah if siap else 0
+
+    def _data_desa_dropdown(self, peramban, unsur) -> list[dict[str, str]]:
+        """Seluruh record daftar desa dari store combo: teks, nilai, dan KODE WILAYAH-nya.
+
+        Persis ``baca_store_desa()`` pada skrip pengguna (ronde 53): ``displayField`` (teks
+        pilihan), ``valueField`` (nilainya di model), dan ``kode_wilayah_str``/``kode_wilayah``
+        bila record-nya membawa kolom itu — kode inilah bukti terkuat bahwa pilihan yang
+        dipilih memang desa yang diminta.
+        """
+        try:
+            hasil = peramban.execute_script(
+                JS_ALAT + """
+                /* store-desa-data */
+                const el = arguments[0];
+                if (!el) return [];
+                const c = komponenKolom(el);
+                if (!c || !c.getStore) return [];
+                const s = c.getStore();
+                if (!s || !s.getRange) return [];
+                const kunci = c.displayField || 'nama', nilai = c.valueField || 'id';
+                const keluar = [];
+                for (const r of s.getRange()) {
+                    const t = r.get(kunci);
+                    if (t === undefined || t === null) continue;
+                    const k1 = r.get('kode_wilayah_str');
+                    const k2 = r.get('kode_wilayah');
+                    const v = r.get(nilai);
+                    keluar.push({
+                        teks: String(t),
+                        nilai: (v === undefined || v === null) ? '' : String(v),
+                        kode: (k1 !== undefined && k1 !== null) ? String(k1)
+                              : ((k2 !== undefined && k2 !== null) ? String(k2) : ''),
+                    });
+                }
+                return keluar;
+                """, unsur)
+        except Exception:  # noqa: BLE001 — pembacaan tambahan saja
+            return []
+        keluar: list[dict[str, str]] = []
+        for baris in (hasil or []):
+            if not isinstance(baris, dict):
+                continue
+            teks = str(baris.get("teks") or "").strip()
+            if teks:
+                keluar.append({"teks": teks, "nilai": str(baris.get("nilai") or ""),
+                               "kode": str(baris.get("kode") or "")})
+        return keluar
 
     def _ketik_pencarian_desa(self, peramban, unsur, kueri: str, awalan: str = "",
                               label: str = "") -> str:
@@ -4812,6 +4954,10 @@ class BotDapodik:
         # pengguna: isian sebelumnya ditunggu dulu; mengetik sebelum isiannya muncul membuat
         # kata kunci itu tidak jadi dicari Dapodik.
         nilai_awal = self._tunggu_isi_sebelumnya_desa(peramban, unsur, awalan, label)
+        # Ronde 53 — keadaan kolom SEBELUM disentuh disimpan: gerbang keselamatan di depan
+        # «Simpan» memakainya untuk memastikan kolomnya sudah kembali seperti semula (atau
+        # memang terisi), bukan tertinggal kata kunci pencarian.
+        self._desa_awal = {"unsur": unsur, "teks": nilai_awal}
         # Kode wilayah desa yang sedang tersimpan (``kode_wilayah_str``). Dipakai untuk
         # memastikan desa yang dipilih benar-benar PINDAH — bukan sekadar teksnya berubah.
         kode_terbaca, kode_awal = self._kode_wilayah(peramban, unsur)
@@ -4837,32 +4983,45 @@ class BotDapodik:
                 f"«{kecamatan}», yang diketik «{kecamatan_ketik}» (persis cara pengguna: "
                 "ketik nama kecamatan/desanya, bukan label «Kec. …»; Dapodik mencari nama "
                 "yang tersimpan di basis datanya).")
-        for calon in (kecamatan_ketik, desa_ketik, self._kata_rapat(desa_ketik),
-                      kecamatan, desa):
+        calon_kueri = ((kecamatan_ketik,) if kecamatan_ketik
+                       else (desa_ketik, self._kata_rapat(desa_ketik)))
+        for calon in calon_kueri:
             if calon and calon.lower() not in {k.lower() for k in kueri}:
                 kueri.append(calon)
-        # Keterangan tambahan untuk kata kunci cadangan (apa adanya dari data SM).
-        catatan_kueri: dict[str, str] = {}
-        if kecamatan and kecamatan not in (kecamatan_ketik, desa_ketik):
-            catatan_kueri[kecamatan] = (" (kata kunci cadangan — apa adanya dari data SM, "
-                                        "sesudah yang tanpa awalan tidak menemukan apa-apa)")
-        if desa and desa not in (kecamatan_ketik, desa_ketik):
-            catatan_kueri[desa] = (" (kata kunci cadangan — apa adanya dari data SM)")
+        if kecamatan_ketik:
+            # Ronde 53 — cara pengguna di sekolah: «ketik kecamatan, lalu pilih», BUKAN
+            # «ketik kecamatan» lalu «ketik kelurahan» (apalagi menggabungkannya menjadi
+            # «neglasari selapajangjaya»). Jadi kata kuncinya hanya SATU: nama kecamatan.
+            self._catat_kepala(
+                f"{awalan} {label}: cara pengguna diikuti — yang diketik HANYA nama kecamatan "
+                f"«{kecamatan_ketik}»; desanya DIPILIH dari daftar yang muncul (bot tidak "
+                "mengetik ulang nama desanya).")
+        else:
+            # Kecamatan kosong di data SM: satu-satunya kata kunci yang mungkin adalah nama
+            # desanya — tetap SATU kata kunci, dan dilaporkan jujur (bukan cara pengguna yang
+            # biasa, tetapi kolomnya tidak ditinggalkan tanpa dicoba).
+            self._catat_kepala(
+                f"{awalan} {label}: kecamatan kosong di data SM — yang diketik hanya nama "
+                f"desanya «{desa_ketik}» (tetap satu kata kunci; desanya lalu dipilih dari "
+                "daftar yang muncul).")
         cocok = ""
         catatan = ""
         semua: list[str] = []
         info: dict[str, Any] = {}
+        kode_pilihan: dict[str, str] = {}
         for nomor, cari in enumerate(kueri, start=1):
-            if cari in (kecamatan_ketik, kecamatan):
+            if kecamatan_ketik and cari == kecamatan_ketik:
                 cara_cari = "kecamatan"
-            elif self._kata_wilayah(cari) == self._kata_wilayah(desa):
-                cara_cari = "nama desa"
-            else:
+            elif cari != desa_ketik:
+                # Bentuk rapat (tanpa spasi) dipakai bila kecamatan di SM kosong: «Karang Sari»
+                # → «karangsari» (ejaan berbeda pemisahan kata).
                 cara_cari = "nama desa yang ditulis rapat (tanpa spasi)"
+            else:
+                cara_cari = "nama desa"
             self._catat_kepala(
                 f"{awalan} {label}: mengetik «{cari}» pada kolomnya (Dapodik mencari desa lewat "
-                f"{cara_cari}){catatan_kueri.get(cari, '')} — daftarnya diambil Dapodik dari "
-                "basis datanya, jadi ditunggu lebih dulu.")
+                f"{cara_cari}) — daftarnya diambil Dapodik dari basis datanya, jadi ditunggu "
+                "lebih dulu.")
             self._ketik_pencarian_desa(peramban, unsur, cari, awalan, label)
             self._tunggu(peramban, 0.8)
             if not self._dropdown_terbuka(peramban, unsur):
@@ -4870,6 +5029,18 @@ class BotDapodik:
                     if self._buka_dropdown(peramban, unsur, cara):
                         break
                     self._tunggu(peramban, 0.4)
+            # Store-nya ditunggu lebih dulu (persis skrip pengguna): daftar yang terlihat di
+            # layar bisa belum tergambar walaupun datanya sudah siap.
+            jumlah_store = self._tunggu_store_desa(peramban, unsur, awalan, label)
+            for rek in (self._data_desa_dropdown(peramban, unsur) if jumlah_store else []):
+                if rek["teks"] not in semua:
+                    semua.append(rek["teks"])
+                if rek["kode"]:
+                    kode_pilihan[rek["teks"]] = rek["kode"]
+            if jumlah_store:
+                self._catat_kepala(
+                    f"{awalan} {label}: {len(semua)} pilihan dibaca dari store combo-nya "
+                    "(termasuk kode wilayah tiap pilihan bila record-nya membawanya).")
             tampil = self._tunggu_daftar_dropdown(
                 peramban, unsur, percobaan=max(4, int(self._batas_tunggu_desa() / 0.5)))
             jumlah_baca = getattr(self, "_baca_daftar_terakhir", 1)
@@ -4880,8 +5051,14 @@ class BotDapodik:
                 self._catat_kepala(f"{awalan} {label}: daftar desa belum terlihat sesudah "
                                    f"{jumlah_baca}x baca — pilihannya dibaca dari data "
                                    "komponen/DOM apa adanya.")
-            cocok, catatan, semua, info = self._kumpulkan_pilihan_desa(
+            cocok, catatan, dari_daftar, info = self._kumpulkan_pilihan_desa(
                 peramban, unsur, desa, kecamatan, awalan, label)
+            # Gabungkan pilihan dari store (biasanya lebih lengkap daripada yang terlihat).
+            for teks in dari_daftar:
+                if teks not in semua:
+                    semua.append(teks)
+            if not cocok:
+                cocok, catatan = self._cocokkan_desa(desa, kecamatan, semua)
             if cocok:
                 break
             self._catat_kepala(
@@ -4900,9 +5077,6 @@ class BotDapodik:
                         f"«{isi_kotak or '(kosong)'}», bukan «{cari}»; kemungkinan kata kunci "
                         "ini tidak sampai ke kolom Dapodik (mis. kolomnya belum selesai memuat "
                         "isian sebelumnya), jadi Dapodik tidak mencari apa pun.")
-            if nomor < len(kueri):
-                self._catat_kepala(f"{awalan} {label}: kueri berikutnya dicoba dengan nama "
-                                   "desanya.")
         if not cocok:
             ringkas = ", ".join(semua[:8]) + (" …" if len(semua) > 8 else "")
             self._catat_kepala(
@@ -4910,6 +5084,10 @@ class BotDapodik:
                 f"{' & '.join(repr(k) for k in kueri)} sudah dicoba, {len(semua)} pilihan "
                 f"dibaca) — yang terlihat: {ringkas or '(daftar kosong)'} (dilewati, tidak "
                 "ditebak).")
+            self._catat_kepala(
+                f"{awalan} {label}: bot TIDAK mengetik ulang nama desanya (cara pengguna: cukup "
+                "nama kecamatan, lalu pilih dari daftar) — isi kolom dikembalikan seperti semula "
+                "kalau bisa; kalau tidak, «Simpan» ditahan oleh gerbang keselamatan desa.")
             self._bukti_dropdown(peramban, label)
             self._tutup_dropdown(peramban, unsur)
             if self._pulihkan_desa(peramban, unsur, nilai_awal, awalan, label):
@@ -4917,6 +5095,9 @@ class BotDapodik:
                         f"({len(semua)} pilihan terbaca); isi kolom dikembalikan seperti semula.")
             return (f"dilewati — «{desa}» tidak ada pada daftar Desa/Kelurahan Dapodik "
                     f"({len(semua)} pilihan terbaca).")
+        if kode_pilihan.get(cocok):
+            self._catat_kepala(f"{awalan} {label}: kode wilayah pada daftar Dapodik untuk "
+                               f"pilihan itu «{kode_pilihan[cocok]}».")
         if catatan and catatan != "sama persis (desa + kecamatan)":
             self._catat_kepala(f"{awalan} {label}: {catatan}.")
         diklik, geser = self._klik_pilihan_dropdown(peramban, unsur, cocok)
@@ -4924,7 +5105,7 @@ class BotDapodik:
             self._catat_kepala(f"{awalan} {label}: pilihan «{cocok}» baru terlihat setelah "
                                f"daftarnya digeser {geser}x.")
         tersimpan, alasan, tampil_nilai, kode_info, tunggu_info = self._periksa_desa_sampai_siap(
-            peramban, unsur, desa, cocok, nilai_awal, kode_awal)
+            peramban, unsur, desa, cocok, nilai_awal, kode_awal, paksa_ext=cocok)
         if "ditunggu 1x" not in tunggu_info:
             self._catat_kepala(f"{awalan} {label}: nilainya tidak muncul seketika — {tunggu_info} "
                                "(Dapodik menuliskan nilainya dari basis datanya; bot menunggu, "
@@ -4991,7 +5172,8 @@ class BotDapodik:
         return max(DESA_TUNGGU_DETIK, min(30.0, batas_opsi))
 
     def _periksa_desa_sampai_siap(self, peramban, unsur, desa: str, cocok: str,
-                                  nilai_awal: str, kode_awal: str) -> tuple[bool, str, str, str, str]:
+                                  nilai_awal: str, kode_awal: str,
+                                  paksa_ext: str = "") -> tuple[bool, str, str, str, str]:
         """Tunggu sampai pilihan desa benar-benar masuk ke kolomnya.
 
         Sesudah pilihan diklik (atau dipasang lewat model Ext JS), Dapodik masih menuliskan
@@ -4999,11 +5181,17 @@ class BotDapodik:
         Bot memeriksa berulang sampai batas waktu, bukan menilai gagal dari bacaan pertama,
         dan mencatat berapa kali ia memeriksa (bukti jujur bahwa bot memang menunggu).
 
+        ``paksa_ext`` (ronde 53, persis skrip pengguna di sekolah): bila ketikan/kliknya belum
+        mengubah nilai model Ext JS-nya, pilihannya disinkronkan ulang lewat ``select`` +
+        ``setValue`` sampai ``DESA_SINKRON_KALI`` kali dengan jeda ``DESA_SINKRON_JEDA_DETIK``
+        detik — cara pengguna melakukannya sebelum menyerah.
+
         Kembalikan ``(tersimpan, alasan, tampil, keterangan_kode, keterangan_tunggu)``.
         """
         batas = self._batas_tunggu_desa()
         akhir = time.time() + batas
         periksa = 0
+        sinkron = 0
         tampil = ""
         alasan = "pilihan belum diklik"
         keterangan_kode = ""
@@ -5016,7 +5204,23 @@ class BotDapodik:
                 peramban, unsur, desa, cocok, tampil, nilai_awal, kode_awal)
             if tersimpan or time.time() >= akhir:
                 break
+            if paksa_ext and sinkron < DESA_SINKRON_KALI:
+                sinkron += 1
+                if sinkron == 1:
+                    self._catat_kepala(
+                        f"[desa] nilai pilihan «{paksa_ext}» belum masuk ke model Ext JS-nya — "
+                        f"disinkronkan lewat select/setValue sampai {DESA_SINKRON_KALI}x "
+                        f"(jeda {DESA_SINKRON_JEDA_DETIK:g} detik), persis skrip pengguna.")
+                self._pilih_dropdown_ext(peramban, unsur, paksa_ext)
+                self._tunggu(peramban, DESA_SINKRON_JEDA_DETIK)
+                continue
             self._tunggu(peramban, 0.5)
+        if tersimpan:
+            self._catat_kepala(
+                f"[desa] TERVERIFIKASI: tulisan kolom, nilai model Ext JS, dan kode wilayah "
+                f"pilihan «{cocok}» sudah benar"
+                + (f" — disinkronkan lewat select/setValue {sinkron}x" if sinkron else "")
+                + f" (ditunggu {periksa}x periksa).")
         return (tersimpan, alasan, tampil, keterangan_kode,
                 f"ditunggu {periksa}x periksa (batas {batas:.0f} detik)")
 
@@ -5031,11 +5235,21 @@ class BotDapodik:
         sekarang = self._nilai_teks(self._nilai_dropdown(peramban, unsur)[0])
         if self._norm_pilihan(sekarang) == self._norm_pilihan(nilai_awal):
             return False                      # sudah sama: tidak ada yang perlu dipulihkan
-        if not self._ketik_pencarian_desa(peramban, unsur, nilai_awal):
-            self._catat_kepala(f"{awalan} {label}: peringatan — kata kunci pencarian masih "
-                               "tertinggal di kolomnya (isi semula tidak bisa dikembalikan).")
-            return False
+        # Ronde 53: keberhasilannya diperiksa dari ISI KOTAKNYA sesudah diketik — bukan dari
+        # pekerjaan mengetiknya. Pengetikan yang ditolak Dapodik tetap mengembalikan «gagal»,
+        # dan itulah yang dulu tidak terbaca (bot mengaku kolomnya sudah dikembalikan padahal
+        # kata kunci pencariannya masih tertinggal).
+        hasil = self._ketik_pencarian_desa(peramban, unsur, nilai_awal)
         self._tunggu(peramban, 0.6)
+        sesudah = self._nilai_teks(self._nilai_dropdown(peramban, unsur)[0])
+        if hasil != "diketik" or self._norm_pilihan(sesudah) != self._norm_pilihan(nilai_awal):
+            self._catat_kepala(
+                f"{awalan} {label}: PERINGATAN — isi semula tidak bisa dikembalikan: kotaknya "
+                f"berbunyi «{sesudah or '(kosong)'}», seharusnya «{nilai_awal or '(kosong)'}». "
+                "Kata kunci pencarian itu masih tertinggal di kolom data Dapodik — «Simpan» "
+                "ditahan oleh gerbang keselamatan desa supaya desa yang belum pasti tidak "
+                "tertulis.")
+            return False
         self._catat_kepala(f"{awalan} {label}: isi kolom dikembalikan seperti semula "
                            f"(«{nilai_awal}») supaya data lama Dapodik tidak ikut berubah.")
         return True
@@ -5162,6 +5376,44 @@ class BotDapodik:
             "nilai_model": nilai_id if ext_terbaca else "",
         }
 
+    def _alasan_desa_belum_aman(self, keterangan: str) -> str:
+        """Alasan kolom «Desa/Kelurahan» belum pasti (kosong = aman).
+
+        Aman bila kolomnya benar-benar terisi dari daftar Dapodik (``terisi …``), **atau**
+        pilihan lamanya sudah dikembalikan seperti semula (``… dikembalikan seperti semula``),
+        atau kolomnya memang tidak dikerjakan karena data desanya kosong di SM. Selain itu
+        kolomnya belum pasti — gerbang keselamatan di depan «Simpan» yang memutuskan.
+        """
+        teks = self._nilai_teks(keterangan)
+        if (teks.startswith("terisi") or "dikembalikan seperti semula" in teks
+                or teks.startswith("dilewati — kolom")):
+            return ""
+        return teks or "kolom «Desa/Kelurahan» belum terverifikasi"
+
+    def _gerbang_desa_alasan(self, peramban) -> str:
+        """Alasan «Simpan» DITAHAN (kosong = desa aman / tidak dikerjakan) — ronde 53.
+
+        Persis skrip pengguna di sekolah: «kalau belum terverifikasi, jangan klik Simpan».
+        Yang ditahan hanyalah keadaan yang benar-benar berisiko: pilihan desanya tidak
+        terverifikasi **dan** tulisan yang tertinggal di kolomnya bukan tulisan sebelum bot
+        menyentuhnya (mis. kata kunci pencarian «Karawaci» yang tidak bisa dikembalikan).
+        Kalau kolomnya sudah kembali seperti semula, data Dapodik tidak akan berubah, jadi
+        «Simpan» aman dijalankan dan bot cukup melaporkannya.
+        """
+        if self._desa_terverifikasi:
+            # Sudah diverifikasi; bila pemasangan ulangnya tepat sebelum «Simpan» gagal,
+            # sebabnya sudah dicatat di ``_desa_belum_aman``.
+            return self._desa_belum_aman
+        awal = self._desa_awal
+        if not awal or not self._desa_belum_aman:
+            return ""
+        sekarang = self._nilai_teks(self._nilai_dropdown(peramban, awal["unsur"])[0])
+        if self._norm_pilihan(sekarang) == self._norm_pilihan(awal["teks"]):
+            return ""            # sudah kembali seperti semula: tidak ada yang berisiko
+        return (f"tulisan «{sekarang or '(kosong)'}» masih tertinggal di kolom "
+                f"«Desa/Kelurahan» (sebelum disentuh bot: «{awal['teks'] or '(kosong)'}»), "
+                "jadi kolom itu belum pasti berisi desa yang benar")
+
     def _pastikan_desa_sebelum_simpan(self, peramban) -> str:
         """Periksa lagi desa/kelurahan tepat sebelum «Simpan»; pasang ulang bila berubah.
 
@@ -5188,15 +5440,20 @@ class BotDapodik:
             f"«{sekarang or '(kosong)'}» padahal sudah terverifikasi «{diharapkan}»; pilihannya "
             "dipasang ulang lewat model Ext JS supaya Dapodik tidak menyimpan desa yang lama.")
         if not self._pilih_dropdown_ext(peramban, unsur, info["cocok"]):
+            self._desa_belum_aman = (
+                f"pilihan desa «{info['cocok']}» berubah sesudah diverifikasi dan tidak bisa "
+                "dipasang ulang")
             return ("[bio] Desa/Kelurahan: peringatan — pilihan tidak bisa dipasang ulang; "
-                    "desanya mungkin tetap desa yang lama (kolom lain tetap disimpan, periksa "
-                    "hasilnya di Dapodik).")
+                    "desanya mungkin tetap desa yang lama (periksa hasilnya di Dapodik).")
         self._tunggu(peramban, 0.5)
         tampil_nilai, model = self._nilai_dropdown(peramban, unsur)
         tersimpan, alasan, kode_info = self._desa_dan_kode_terverifikasi(
             peramban, unsur, info["desa"], info["cocok"], tampil_nilai or model,
             info["nilai_awal"], info["kode_awal"])
         if not tersimpan:
+            self._desa_belum_aman = (
+                f"pilihan desa «{info['cocok']}» dipasang ulang tepat sebelum «Simpan» tetapi "
+                f"tetap belum terverifikasi ({alasan})")
             return (f"[bio] Desa/Kelurahan: peringatan — {alasan} (periksa hasilnya di Dapodik "
                     "sesudah disimpan).")
         self.desa_dipulihkan_kali += 1
@@ -5281,6 +5538,8 @@ class BotDapodik:
         self._bio_gulir_dilaporkan = False
         self._bukti_dropdown_diambil = False
         self._desa_terverifikasi = None      # keadaan desa milik siswa sebelumnya dibuang
+        self._desa_belum_aman = ""           # gerbang keselamatan desa dimulai dari «aman»
+        self._desa_awal = None
         self._penjaga_nilai.clear()          # nilai kolom milik siswa sebelumnya dibuang
         # Cara perbaikan yang sudah dicoba untuk tiap kolom yang ditolak Dapodik (ronde 50):
         # supaya bot tidak mengosongkan kolom yang sama berulang-ulang, lalu tahu kapan harus
@@ -5375,6 +5634,7 @@ class BotDapodik:
             # + kota, dan daftarnya baru diambil Dapodik sesudah nama kecamatan diketik.
             if kunci_sel == "bio_kelurahan":
                 keterangan = self._isi_desa_kelurahan(peramban, peta, label, unsur, siswa)
+                self._desa_belum_aman = self._alasan_desa_belum_aman(keterangan)
             # Dropdown (combo Ext JS) diisi lain: pilihannya harus benar-benar dipilih dari
             # daftarnya — mengetikkan teksnya saja tidak menyimpan apa pun ke Dapodik.
             # Ronde 49: jalur daftar hanya dipakai bila buktinya KUAT (role=combobox,
@@ -5458,6 +5718,22 @@ class BotDapodik:
         catatan_desa = self._pastikan_desa_sebelum_simpan(peramban)
         if catatan_desa:
             self._catat_kepala(catatan_desa)
+        # Ronde 53 — GERBANG KESELAMATAN desa: persis skrip pengguna di sekolah («kalau belum
+        # terverifikasi, jangan klik Simpan»). Bila pilihan desanya belum terverifikasi dan
+        # tulisan yang tertinggal di kolomnya bukan tulisan sebelum bot menyentuhnya, kolom itu
+        # bisa berisi kata kunci pencarian — menekan «Simpan» berisiko menuliskan desa yang
+        # salah ke Dapodik, jadi simpan ditahan & sebabnya dilaporkan apa adanya.
+        alasan_tahan = self._gerbang_desa_alasan(peramban)
+        if alasan_tahan:
+            self.simpan_ditahan_desa += 1
+            self._catat_kepala(
+                "[bio] «Simpan» DITAHAN (gerbang keselamatan «Desa/Kelurahan»): "
+                + alasan_tahan
+                + " — pilihan desanya belum terverifikasi, jadi kolom lain pada jendela ini "
+                "belum ikut disimpan pada percobaan ini (data Dapodik tidak ditulis dengan "
+                "desa yang belum pasti). Isi «Desa/Kelurahan»-nya lebih dulu di Dapodik, atau "
+                "perbaiki data desa/kecamatan siswanya di aplikasi SM, lalu jalankan bot lagi.")
+            return False
         # Simpan: tombol «Simpan» DI DALAM jendela «Ubah» (bukan milik panel Data Rincian).
         simpan = self._simpan_dalam_jendela(peramban, jendela)
         if simpan is None:
