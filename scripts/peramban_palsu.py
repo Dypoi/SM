@@ -461,6 +461,16 @@ class UnsurPalsu:
                 self._pilih_kotak()
             return
         if self.tag_name == "tr" and "x-grid-row" in (self.kelas or ""):
+            if self.peramban.jendela_bio_menghalangi and self.peramban.bio_terbuka:
+                # Jendela «Ubah» yang masih terbuka menutupi tabel: klik pada barisnya tidak
+                # sampai — inilah sebab «baris siswa belum terpilih setelah menyimpan Data
+                # Periodik» di sekolah. Tombol di luar jendela tetap bisa ditekan.
+                self.peramban.baris_klik_terhalang += 1
+                return
+            if not self.terpilih and self.peramban.daftar_tersegar:
+                # Daftar peserta didik sudah tersegar sesudah Data Periodik disimpan: klik ini
+                # = bot memilih ulang barisnya (bukan pemilihan pertama kali).
+                self.peramban.baris_dipilih_ulang_kali += 1
             self.terpilih = True
             if "x-grid-row-selected" not in self.kelas:
                 self.kelas = (self.kelas + " x-grid-row-selected").strip()
@@ -764,6 +774,24 @@ class PerambanPalsu:
         self.bio_tolak_simpan_kali = 0
         #: Berapa kali jendela «Ubah» ditutup bot sesudah «Simpan» ditolak
         self.tutup_jendela_ubah_kali = 0
+        #: True = selama jendela «Ubah» terbuka, klik pada BARIS tabel tidak sampai
+        #: (jendela modal menutupinya) — di sekolah akibatnya «baris siswa belum terpilih
+        #: setelah menyimpan Data Periodik» (ronde 50). Tombol di luar jendela (Registrasi,
+        #: Data Periodik) tetap bisa ditekan: di sekolah registrasinya memang tetap berhasil.
+        self.jendela_bio_menghalangi = False
+        #: Berapa kali klik baris tabel terhalang jendela «Ubah» yang masih terbuka
+        self.baris_klik_terhalang = 0
+        #: True = daftar peserta didik tersegar sesudah Data Periodik disimpan (baris kehilangan
+        #: pilihannya) — persis keluhan sekolah, bot harus memilih barisnya kembali
+        self.daftar_tersegar_sesudah_periodik = False
+        #: Berapa kali daftar peserta didik tersegar (baris kehilangan pilihan)
+        self.daftar_tersegar = 0
+        #: Berapa kali baris siswa DIPILIH ULANG bot sesudah daftarnya tersegar — bukti bahwa
+        #: bot tidak menyerah pada keadaan sekolah «baris siswa belum terpilih» (ronde 50).
+        self.baris_dipilih_ulang_kali = 0
+        #: Apakah baris siswa terpilih TEPAT saat tombol «Registrasi» ditekan (None = belum
+        #: sampai langkah itu).
+        self.baris_terpilih_saat_registrasi: bool | None = None
         #: True = jendela «Ubah» TIDAK memuat kolom angka RT/RW (versi Dapodik yang tidak
         #: punya kolom itu di jendelanya) — dipakai menguji laporan «kolom tidak ketemu».
         self.tanpa_kolom_angka = False
@@ -1968,6 +1996,9 @@ class PerambanPalsu:
             return
         if not self.baris_siswa_terpilih():
             return
+        # Tanpa baris terpilih tombol Registrasi tidak membuka apa pun (di atas), jadi di sini
+        # barisnya PASTI terpilih — dicatat sebagai bukti untuk uji ronde 50 (susulan).
+        self.baris_terpilih_saat_registrasi = True
         if self.registrasi_otomatis and not any(u.name == "nipd" for u in self.unsur):
             self.tambah_formulir_registrasi(self.nisn_dicari)
 
@@ -1976,12 +2007,29 @@ class PerambanPalsu:
         return self.baris_siswa_terpilih() and not self._periodik_tersimpan
 
     def simpan_data_periodik(self) -> None:
-        """Tombol «Simpan dan Tutup» panel Data Periodik ditekan."""
+        """Tombol «Simpan dan Tutup» panel Data Periodik ditekan.
+
+        Sesudahnya Dapodik kadang menyegarkan daftar peserta didik (sifat
+        ``daftar_tersegar_sesudah_periodik``): baris yang tadinya terpilih kehilangan
+        pilihannya, dan bot harus memilihnya kembali — kalau tidak, muncul peringatan
+        «baris siswa belum terpilih setelah menyimpan Data Periodik» (catatan sekolah).
+        """
         self._periodik_tersimpan = True
         for unsur in self.unsur:
             if unsur.periodik and unsur.type != "checkbox" and unsur.name:
                 self.data_periodik_tersimpan[unsur.name] = unsur.nilai
         self.data_periodik_tersimpan["jarak"] = "1" if self.jarak_dicentang else "0"
+        if self.daftar_tersegar_sesudah_periodik:
+            self.segarkan_daftar_siswa()
+
+    def segarkan_daftar_siswa(self) -> None:
+        """Daftar peserta didik tersegar: tidak ada lagi baris yang terpilih."""
+        for unsur in self.unsur:
+            if unsur.tag_name == "tr" and "x-grid-row" in (unsur.kelas or ""):
+                unsur.terpilih = False
+                unsur.kelas = " ".join(suku for suku in (unsur.kelas or "").split()
+                                       if suku != "x-grid-row-selected")
+        self.daftar_tersegar += 1
 
     def baris_siswa_terpilih(self) -> bool:
         """Apakah ada baris siswa (x-grid-row) yang sudah terpilih."""

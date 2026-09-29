@@ -1182,8 +1182,15 @@ class BotDapodik:
             }
             """, elemen, str(nilai))
 
-    def _klik_aman(self, peramban, locator, ulang: int | None = None) -> None:
-        """Klik dengan percobaan ulang: overlay, elemen berubah, atau belum terlihat."""
+    def _klik_aman(self, peramban, locator, ulang: int | None = None, elemen=None) -> None:
+        """Klik dengan percobaan ulang: overlay, elemen berubah, atau belum terlihat.
+
+        ``elemen`` (opsional) = unsur yang sudah dipilih pemanggil — mis. tombol «Simpan dan
+        Tutup» milik JENDELA REGISTRASI, bukan tombol kembarnya di panel Data Periodik (nama,
+        kelas, dan tulisan tombol itu sama). Kalau diisi, pencarian lewat locator dilewati;
+        pengaman sebelum klik (lapisan pemuatan, kursor keluar dari kolom, gulir ke tengah)
+        tetap dijalankan.
+        """
         from selenium.common.exceptions import (ElementClickInterceptedException,
                                                 ElementNotInteractableException,
                                                 StaleElementReferenceException, TimeoutException)
@@ -1200,8 +1207,9 @@ class BotDapodik:
                 # supaya tidak menggantung — penyebab "element click intercepted" di PC sekolah.
                 if not self._lapisan_hilang(peramban, min(LAPISAN_TUNGGU_DETIK, batas)):
                     raise TimeoutError("lapisan pemuatan Dapodik belum hilang")
-                elemen = WebDriverWait(peramban, batas).until(
-                    lambda p: self._pertama_terlihat(p, locator, aktif=True))
+                if elemen is None or not self._terlihat(peramban, elemen):
+                    elemen = WebDriverWait(peramban, batas).until(
+                        lambda p: self._pertama_terlihat(p, locator, aktif=True))
                 # Ronde 45: kursor dikeluarkan dulu dari kolom isian mana pun. Menggulir
                 # selagi kursor ada di dalam kolom angka (mis. «RT») mengubah nilainya
                 # menjadi «0» di Dapodik — jadi jangan pernah menggulir selagi mengetik.
@@ -5893,6 +5901,35 @@ class BotDapodik:
         self._catat_kepala(f"[periodik] Data Periodik disimpan ({terisi} kolom terisi).")
         return terisi > 0
 
+    def _tombol_simpan_registrasi(self, peramban, peta: dict[str, str], loc_simpan):
+        """Tombol «Simpan dan Tutup» milik jendela Registrasi (bukan panel Data Periodik).
+
+        Tulisan & kelas tombolnya sama di dua tempat: panel «Data Periodik Peserta Didik» dan
+        formulir Registrasi. Menekan tombol panel Data Periodik setelah formulir Registrasi
+        terbuka membuat Data Periodik **disimpan ulang** — Dapodik lalu menyegarkan daftar
+        peserta didik dan baris siswa kehilangan pilihannya (gejala «[periodik] baris siswa
+        belum terpilih» di sekolah, 29 Sep 2026).
+
+        Selagi jendela Registrasi terbuka, tombol yang benar adalah yang **terakhir terlihat**:
+        jendela modal Ext JS selalu ditambahkan paling akhir di halaman. Bila hanya ada satu
+        tombol yang terlihat, atau jendela Registrasi belum terbuka, ``None`` dikembalikan —
+        bot memakai jalur biasa (tidak ada yang berubah).
+        """
+        try:
+            if not self._formulir_registrasi_terbuka(peramban, peta):
+                return None
+            terlihat = [unsur for unsur in peramban.find_elements(*loc_simpan)
+                        if self._terlihat(peramban, unsur)]
+        except Exception:  # noqa: BLE001 — kembali ke jalur biasa
+            return None
+        if len(terlihat) < 2:
+            return None
+        self._catat_kepala(f"[registrasi] ada {len(terlihat)} tombol «Simpan dan Tutup» — dipakai "
+                           "tombol MILIK JENDELA REGISTRASI (yang terakhir), bukan tombol panel "
+                           "Data Periodik: menekan tombol panel itu menyimpan ulang Data Periodik "
+                           "dan daftar peserta didik tersegar (baris siswa kehilangan pilihannya).")
+        return terlihat[-1]
+
     def _ada_baris(self, peramban, xpath_baris: str) -> bool:
         """Apakah baris siswa masih tampil pada tabel Dapodik."""
         from selenium.webdriver.common.by import By
@@ -6651,8 +6688,14 @@ class BotDapodik:
             self._pilih_kolom_pilihan(peramban, loc_cita, self.opsi.get("bot_cita", ""))
 
             # 8) simpan dan tutup
+            #    Ronde 50 (susulan): tombol «Simpan dan Tutup» ada LEBIH DARI SATU di halaman
+            #    (panel Data Periodik + formulir Registrasi). Kalau kliknya jatuh ke tombol
+            #    panel Data Periodik, Data Periodik disimpan ULANG dan daftar peserta didik
+            #    tersegar — baris siswa kehilangan pilihannya. Jadi selagi jendela Registrasi
+            #    terbuka, tombolnya dipilih dari unsur terakhir (milik jendela itu).
             loc_simpan, _, _ = self._cari_dengan_cadangan(peramban, "simpan", peta)
-            self._klik_aman(peramban, loc_simpan)
+            tombol_simpan = self._tombol_simpan_registrasi(peramban, peta, loc_simpan)
+            self._klik_aman(peramban, loc_simpan, elemen=tombol_simpan)
             self._siap_melanjutkan(peramban, "penyimpanan Dapodik")
             time.sleep(2)
 

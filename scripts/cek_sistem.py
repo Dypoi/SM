@@ -4722,8 +4722,10 @@ def cek_kolom_lewat_nama_dan_label_div() -> str:
                   # sendiri, combo tanpa penanda, dan panah tanpa data; ronde 50 menambah
                   # 51–54 — «Simpan» yang ditolak Dapodik karena kolom wajib bagian Wali,
                   # pengaturan wali dimatikan, «0» yang keras, dan identitas wali yang tidak
-                  # boleh dikarang — sehingga 54).
-                  "54 skenario"):
+                  # boleh dikarang — dan ronde 50 susulan menambah 55 — jendela «Ubah» yang
+                  # tertinggal terbuka menghalangi klik baris & daftar peserta didik yang
+                  # tersegar sesudah Data Periodik disimpan, sehingga 55).
+                  "55 skenario"):
         assert tanda in uji, f"uji bot kehilangan pemeriksaan {tanda!r} (ronde 47)"
 
     return ("kolom dicari lewat NAMA lebih dulu (rt, rw, alamat_jalan, no_kk, kode_pos), label "
@@ -4887,7 +4889,7 @@ def cek_catatan_lengkap_bot() -> str:
     assert "_penjaga_unsur" in sumber_bot and "nilai-model-unsur" in sumber_bot, \
         "unsur pemegang nilai tidak diingat / pembacaan model Ext JS tidak ada"
     uji_bot = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
-    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "54 skenario",
+    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "55 skenario",
                   "kolomnya TIDAK ketemu", "kolom isian yang ADA di halaman"):
         assert tanda in uji_bot or tanda in (BASE_DIR / "scripts/peramban_palsu.py").read_text(
             encoding="utf-8"), f"uji/fixture kehilangan {tanda!r}"
@@ -5237,11 +5239,18 @@ def cek_perbaikan_simpan_bio():
     for tanda in ("bio_wali_kolom", "bio_gagal_wali", "bio_min_keras", "bio_wali_nama_wajib",
                   "bio_tolak_simpan_kali", "tutup_jendela_ubah_kali", "tambah_kolom_wali",
                   "galat_wajib_bio", "nilai-kolom-bernama", "unsur-kolom-bernama",
-                  "kolom-wajib-kosong", "tutup-jendela-ubah"):
+                  "kolom-wajib-kosong", "tutup-jendela-ubah",
+                  # Ronde 50 (susulan): keadaan sekolah «baris siswa belum terpilih».
+                  "jendela_bio_menghalangi", "daftar_tersegar_sesudah_periodik", "segarkan_daftar_siswa",
+                  "baris_klik_terhalang", "baris_dipilih_ulang_kali", "baris_terpilih_saat_registrasi"):
         assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 50)"
     uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
     for judul in ("51. «Simpan» ditolak Dapodik", "52. pengaturan «Wali mengikuti ayah» mati",
-                  "53. «0» keras", "54. identitas wali tidak dikarang", "54 skenario"):
+                  "53. «0» keras", "54. identitas wali tidak dikarang", "55 skenario",
+                  "55. jendela «Ubah» menghalangi baris", "jendela_bio_menghalangi",
+                  "daftar_tersegar_sesudah_periodik", "baris_klik_terhalang", "daftar_tersegar",
+                  "baris_dipilih_ulang_kali", "baris_terpilih_saat_registrasi",
+                  "MILIK JENDELA REGISTRASI"):
         assert judul in uji, f"uji bot kehilangan {judul!r} (ronde 50)"
 
     return ("galat validasi dibaca bersama label & bagian kolomnya · kolom yang ditolak diisi "
@@ -5249,8 +5258,11 @@ def cek_perbaikan_simpan_bio():
             "ayah; nama/NIK wali tidak pernah dikarang) · «0» bawaan Dapodik dikosongkan lebih "
             "dulu lalu diisi nilai bila masih ditolak · paling banyak 3 putaran · «Simpan» "
             "ditekan ulang dan jendela «Ubah» ditutup supaya Data Periodik & Registrasi jalan "
-            "· pengaturan «Wali mengikuti ayah» ada di halaman Bot Dapodik · 4 skenario uji "
-            "baru (51–54) di peramban palsu")
+            "· pengaturan «Wali mengikuti ayah» ada di halaman Bot Dapodik · 5 skenario uji "
+            "baru (51–55) di peramban palsu · keadaan sekolah «baris siswa belum terpilih» "
+            "ditirukan (jendela «Ubah» menutupi tabel & daftar tersegar) dan tombol «Simpan dan "
+            "Tutup» yang dipakai adalah milik jendela Registrasi, bukan tombol kembar panel "
+            "Data Periodik — pemilihan ulang barisnya dibuktikan hitungan uji")
 
 
 def main() -> int:

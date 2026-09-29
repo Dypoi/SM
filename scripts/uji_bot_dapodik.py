@@ -1296,7 +1296,45 @@ def main() -> int:
         "langkah Data Periodik terganggu pada uji identitas wali")
     cek(any(b.startswith("[OK]") for b in j54), f"Registrasi tidak jalan: {j54[-4:]}")
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 54 skenario")
+    # 55) Peringatan «baris siswa belum terpilih setelah menyimpan Data Periodik» — ada di
+    #     catatan sekolah. Modelnya: jendela «Ubah» yang tertinggal terbuka (karena «Simpan»
+    #     ditolak) menutupi tabel sehingga klik pada baris tidak sampai, sementara Dapodik
+    #     menyegarkan daftarnya sesudah Data Periodik disimpan. Bot ronde 50 harus MENUTUP
+    #     jendela «Ubah» lebih dulu — barisnya bisa dipilih kembali, peringatan itu tidak
+    #     muncul, dan Registrasi tetap jalan (di sekolah registrasinya memang tetap berhasil).
+    p55, j55 = jalankan("55. jendela «Ubah» menghalangi baris → baris dipilih lagi sesudah periodik",
+                        2, bio_wali=True,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "bio_gagal_wali", True),
+                                        setattr(p, "bio_wali_nama_wajib", True),
+                                        setattr(p, "jendela_bio_menghalangi", True),
+                                        setattr(p, "daftar_tersegar_sesudah_periodik", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p55.daftar_tersegar >= 1,
+        "uji tidak bermakna: daftar peserta didik tidak pernah tersegar")
+    cek(p55.baris_dipilih_ulang_kali >= 1,
+        "bot tidak memilih ulang barisnya sesudah daftar peserta didik tersegar "
+        f"({p55.baris_dipilih_ulang_kali}x)")
+    cek(p55.baris_klik_terhalang == 0,
+        f"{p55.baris_klik_terhalang}x klik baris terhalang jendela «Ubah» yang masih terbuka — "
+        "jendelanya seharusnya sudah ditutup bot sebelum Data Periodik")
+    cek(p55.tutup_jendela_ubah_kali == 1,
+        f"jendela «Ubah» ditutup {p55.tutup_jendela_ubah_kali}x (harus tepat 1x)")
+    cek(not any("[periodik] peringatan" in b for b in j55),
+        f"peringatan «baris siswa belum terpilih» masih muncul: "
+        f"{[b for b in j55 if 'peringatan' in b][:3]}")
+    cek(p55.baris_terpilih_saat_registrasi is True,
+        f"saat «Registrasi» ditekan baris siswa belum terpilih "
+        f"({p55.baris_terpilih_saat_registrasi!r})")
+    cek(p55.baris_siswa_terpilih(), "baris siswa tidak terpilih lagi sesudah Data Periodik")
+    cek(any("MILIK JENDELA REGISTRASI" in b for b in j55),
+        "bot tidak melaporkan tombol «Simpan dan Tutup» mana yang dipakai "
+        f"(tombol kembar panel Data Periodik): {[b for b in j55 if 'Simpan dan Tutup' in b][:3]}")
+    cek(p55.data_periodik_tersimpan.get("jarak_rumah_ke_sekolah_km") == "2",
+        f"Data Periodik tidak tersimpan: {p55.data_periodik_tersimpan}")
+    cek(any(b.startswith("[OK]") for b in j55),
+        f"Registrasi tidak jalan sesudah baris dipilih ulang: {j55[-4:]}")
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 55 skenario")
     return 0
 
 
