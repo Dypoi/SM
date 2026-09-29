@@ -4719,8 +4719,11 @@ def cek_kolom_lewat_nama_dan_label_div() -> str:
                   # Jumlah skenario ikut disebut supaya berkas uji tidak diam-diam menyusut
                   # (ronde 47: 43; ronde 48 menambah 44–46; ronde 49 menambah 47–49 — DOM
                   # sekolah yang membuat kolom biasa dikira dropdown, panah milik kolom
-                  # sendiri, combo tanpa penanda, dan panah tanpa data — sehingga 50).
-                  "50 skenario"):
+                  # sendiri, combo tanpa penanda, dan panah tanpa data; ronde 50 menambah
+                  # 51–54 — «Simpan» yang ditolak Dapodik karena kolom wajib bagian Wali,
+                  # pengaturan wali dimatikan, «0» yang keras, dan identitas wali yang tidak
+                  # boleh dikarang — sehingga 54).
+                  "54 skenario"):
         assert tanda in uji, f"uji bot kehilangan pemeriksaan {tanda!r} (ronde 47)"
 
     return ("kolom dicari lewat NAMA lebih dulu (rt, rw, alamat_jalan, no_kk, kode_pos), label "
@@ -4884,7 +4887,7 @@ def cek_catatan_lengkap_bot() -> str:
     assert "_penjaga_unsur" in sumber_bot and "nilai-model-unsur" in sumber_bot, \
         "unsur pemegang nilai tidak diingat / pembacaan model Ext JS tidak ada"
     uji_bot = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
-    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "50 skenario",
+    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "54 skenario",
                   "kolomnya TIDAK ketemu", "kolom isian yang ADA di halaman"):
         assert tanda in uji_bot or tanda in (BASE_DIR / "scripts/peramban_palsu.py").read_text(
             encoding="utf-8"), f"uji/fixture kehilangan {tanda!r}"
@@ -5163,6 +5166,93 @@ def cek_kolom_melekat_pada_kolomnya():
             "kolom di DOM itu, sedangkan bot baru mengetik kolom berunsur panah tanpa data")
 
 
+@cek("43. «Simpan» BIO ditolak Dapodik: kolom Wali dibetulkan dari data SM, jendela ditutup")
+def cek_perbaikan_simpan_bio():
+    """Ronde 50 — catatan sekolah 29 September 2026 (bot 4728e77): «[bio] galat validasi di
+    jendela «Ubah» (dari Dapodik): pekerjaan_id_wali: This field is required; inputItem: The
+    minimum value for this field is 1» — jendela «Ubah» TETAP terbuka, data BIO tidak
+    tersimpan, dan sesudahnya muncul «[periodik] peringatan: baris siswa belum terpilih».
+
+    Blok ini menjaga perbaikannya: galat dibaca bersama label & bagian kolomnya (nama kolom
+    «inputItem» tidak muncul di layar), kolom yang ditolak diisi ulang dari data SM — kolom
+    wali khusus pendidikan/pekerjaan/penghasilan boleh MENGIKUTI AYAH, sedangkan identitas
+    wali (nama/NIK) TIDAK PERNAH dikarang — «0» bawaan Dapodik dikosongkan lebih dulu lalu
+    diisi nilai bila Dapodik masih menolak, jumlah putaran dibatasi, dan jendela «Ubah»
+    DITUTUP supaya Data Periodik & Registrasi tidak terganggu.
+    """
+    import ast
+
+    sumber = (BASE_DIR / "app/bot_dapodik.py").read_text(encoding="utf-8")
+    badan: dict[str, str] = {}
+    for simpul in ast.walk(ast.parse(sumber)):
+        if isinstance(simpul, ast.FunctionDef):
+            badan.setdefault(simpul.name, ast.get_source_segment(sumber, simpul) or "")
+
+    for nama in ("_galat_validasi_bio", "_galat_validasi_teks", "_nilai_kolom_bernama",
+                 "_unsur_kolom_bernama", "_keluarga_dari_nama", "_perbaiki_galat_validasi_bio",
+                 "_kolom_wajib_kosong_bio", "_tutup_jendela_ubah", "_tekan_simpan_bio"):
+        assert nama in badan, f"{nama} hilang — perbaikan «Simpan» yang ditolak tidak lengkap"
+
+    # (a) Galat validasi dibaca lengkap: label & bagian kolomnya, bukan hanya namanya.
+    isi_galat = badan["_galat_validasi_bio"]
+    for tanda in ("/* galat-validasi */", "fieldLabel", "x-fieldset-header-text", "xtype",
+                  "getErrors", "getActiveError", "nilai", "bagian"):
+        assert tanda in isi_galat, f"pembaca galat validasi kehilangan {tanda!r}"
+    assert "label" in badan["_galat_validasi_teks"], \
+        "label kolom yang ditolak tidak ikut dilaporkan ke catatan bot"
+
+    # (b) Kolom yang ditolak DIBETULKAN — dua cara berurutan, jumlahnya dibatasi.
+    isi_perbaikan = badan["_perbaiki_galat_validasi_bio"]
+    assert "kosongkan" in isi_perbaikan and "_bio_perbaikan_cara" in isi_perbaikan, \
+        "kolom bernilai «0» yang ditolak tidak dicoba dikosongkan lebih dulu"
+    assert 'atribut in ("pendidikan", "pekerjaan", "penghasilan")' in isi_perbaikan, \
+        "kolom wali boleh mengikuti ayah TANPA batas atribut — identitas wali bisa dikarang"
+    assert "mengarang wali" in isi_perbaikan, \
+        "alasan identitas wali tidak diisi dari data ayah tidak dilaporkan"
+    assert "tidak diisi asal-asalan" in isi_perbaikan, \
+        "kolom yang tidak ada datanya tidak dilaporkan apa adanya"
+    assert "_set_ext(" in isi_perbaikan, "pengosongan «0» tidak lewat model Ext JS"
+    assert "BATAS_PERBAIKAN_BIO" in sumber and \
+        "while galat_kini and putaran < self.BATAS_PERBAIKAN_BIO" in badan["_isi_bio"], \
+        "putaran perbaikan tidak dibatasi — bot bisa mengulang tanpa akhir"
+    assert "_tekan_simpan_bio(" in badan["_isi_bio"] and "tertutup SESUDAH perbaikan" \
+        in badan["_isi_bio"], \
+        "«Simpan» tidak ditekan ulang sesudah perbaikan / keberhasilannya tidak diperiksa"
+    assert "_tutup_jendela_ubah(" in badan["_isi_bio"] and "BELUM tersimpan" in badan["_isi_bio"], \
+        "jendela «Ubah» yang ditolak tidak ditutup / tidak dikatakan jujur belum tersimpan"
+    assert "_kolom_wajib_kosong_bio(" in badan["_isi_bio"], \
+        "kolom WAJIB yang masih kosong tidak dilaporkan saat «Simpan» ditolak"
+    assert "/* tutup-jendela-ubah */" in badan["_tutup_jendela_ubah"], \
+        "penutup jendela «Ubah» tidak ada"
+
+    # (c) Pengaturan «Wali mengikuti ayah» bisa dimatikan dari halaman Bot Dapodik.
+    for berkas, tanda in ((BASE_DIR / "app/services.py", "bot_wali_ikuti_ayah"),
+                          (BASE_DIR / "app/routers/bot_routes.py", "wali_ikuti_ayah"),
+                          (BASE_DIR / "app/templates/bot_dapodik.html", "wali_ikuti_ayah")):
+        assert tanda in berkas.read_text(encoding="utf-8"), \
+            f"pengaturan {tanda!r} tidak ada di {berkas.name}"
+
+    # (d) Peramban palsu dapat menirukan penolakan Dapodik & ujinya benar-benar ada.
+    palsu = (BASE_DIR / "scripts/peramban_palsu.py").read_text(encoding="utf-8")
+    for tanda in ("bio_wali_kolom", "bio_gagal_wali", "bio_min_keras", "bio_wali_nama_wajib",
+                  "bio_tolak_simpan_kali", "tutup_jendela_ubah_kali", "tambah_kolom_wali",
+                  "galat_wajib_bio", "nilai-kolom-bernama", "unsur-kolom-bernama",
+                  "kolom-wajib-kosong", "tutup-jendela-ubah"):
+        assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 50)"
+    uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
+    for judul in ("51. «Simpan» ditolak Dapodik", "52. pengaturan «Wali mengikuti ayah» mati",
+                  "53. «0» keras", "54. identitas wali tidak dikarang", "54 skenario"):
+        assert judul in uji, f"uji bot kehilangan {judul!r} (ronde 50)"
+
+    return ("galat validasi dibaca bersama label & bagian kolomnya · kolom yang ditolak diisi "
+            "ulang dari data SM (wali khusus pendidikan/pekerjaan/penghasilan boleh mengikuti "
+            "ayah; nama/NIK wali tidak pernah dikarang) · «0» bawaan Dapodik dikosongkan lebih "
+            "dulu lalu diisi nilai bila masih ditolak · paling banyak 3 putaran · «Simpan» "
+            "ditekan ulang dan jendela «Ubah» ditutup supaya Data Periodik & Registrasi jalan "
+            "· pengaturan «Wali mengikuti ayah» ada di halaman Bot Dapodik · 4 skenario uji "
+            "baru (51–54) di peramban palsu")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -5208,6 +5298,7 @@ def main() -> int:
     cek_kolom_lewat_nama_dan_label_div()
     cek_catatan_lengkap_bot()
     cek_kolom_melekat_pada_kolomnya()
+    cek_perbaikan_simpan_bio()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()

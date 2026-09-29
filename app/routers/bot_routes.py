@@ -123,6 +123,7 @@ def simpan_pengaturan(
     data_periodik: str = Form(""),
     periodik_jarak: str = Form(""),
     isi_bio: str = Form(""),
+    wali_ikuti_ayah: str = Form(""),
     selector_json: str = Form(""),
     user: auth.SessionUser = Depends(auth.require_admin),
 ):
@@ -142,6 +143,7 @@ def simpan_pengaturan(
         "bot_data_periodik": "1" if data_periodik else "0",
         "bot_periodik_jarak": "1" if periodik_jarak else "0",
         "bot_isi_bio": "1" if isi_bio else "0",
+        "bot_wali_ikuti_ayah": "1" if wali_ikuti_ayah else "0",
         "bot_selector_json": selector_json,
     }
     # Kata sandi Dapodik hanya diganti bila diisi (tidak ditampilkan lagi di halaman).

@@ -746,8 +746,24 @@ class PerambanPalsu:
         #: True = «Simpan» di jendela «Ubah» TIDAK menutup jendelanya (Dapodik menolak),
         #: dan pesan galatnya tersedia lewat ``galat_validasi_bio``
         self.bio_simpan_tak_menutup = False
-        #: Pesan galat validasi yang ditampilkan Dapodik pada kolom yang ditolak
-        self.galat_validasi_bio: list[str] = []
+        #: Pesan galat validasi yang ditampilkan Dapodik pada kolom yang ditolak (bentuknya
+        #: sama dengan yang dibaca bot: nama, pesan, label, bagian, jenis, nilai, id)
+        self.galat_validasi_bio: list[dict[str, str]] = []
+        #: True = jendela «Ubah» memuat bagian «Data Wali» — persis keluhan sekolah
+        #: 29 September 2026: «Simpan» ditolak karena «pekerjaan_id_wali: This field is
+        #: required» dan «inputItem: The minimum value for this field is 1».
+        self.bio_wali_kolom = False
+        #: True = Dapodik MENOLAK «Simpan» selama kolom wajib bagian «Wali» belum benar
+        self.bio_gagal_wali = False
+        #: True = «0» pada kolom bernama ``inputItem`` TIDAK cukup dikosongkan: Dapodik
+        #: menuntut pilihan nyata (nilai model ≥ 1) — bacaan kedua atas galat yang sama
+        self.bio_min_keras = False
+        #: True = «Nama wali» ikut wajib (menguji bahwa identitas wali TIDAK dikarang)
+        self.bio_wali_nama_wajib = False
+        #: Berapa kali Dapodik MENOLAK «Simpan» karena kolom wajib bagian «Wali»
+        self.bio_tolak_simpan_kali = 0
+        #: Berapa kali jendela «Ubah» ditutup bot sesudah «Simpan» ditolak
+        self.tutup_jendela_ubah_kali = 0
         #: True = jendela «Ubah» TIDAK memuat kolom angka RT/RW (versi Dapodik yang tidak
         #: punya kolom itu di jendelanya) — dipakai menguji laporan «kolom tidak ketemu».
         self.tanpa_kolom_angka = False
@@ -1398,11 +1414,137 @@ class PerambanPalsu:
                              else ""),
                 angka=nama in KOLOM_ANGKA_BIO,
                 componentid=f"textfield-{1200 + nomor}"))
+        if self.bio_wali_kolom:
+            # Bagian «Data Wali» — sebab «Simpan» ditolak di sekolah (29 September 2026).
+            self.tambah_kolom_wali()
         self.unsur.append(UnsurPalsu(self, "span", kelas="x-btn-inner-default-small",
                                      teks="Simpan", bio=True, simpan_bio=True, aksi="simpan"))
 
+    def tambah_kolom_wali(self) -> None:
+        """Bagian «Data Wali» jendela «Ubah» — persis galat yang dilaporkan sekolah.
+
+        Data SM tidak menyimpan wali (aturan aplikasi: wali hanya bila nama ayah kosong), jadi
+        nama wali di sini dibuat KOSONG dan yang wajib adalah atribut wali — persis keadaan
+        yang membuat «Simpan» ditolak Dapodik pada 29 September 2026:
+
+            pekerjaan_id_wali: This field is required
+            inputItem: The minimum value for this field is 1
+
+        Nama kolom pada galat itu diambil apa adanya dari catatan bot. Kolom ``inputItem``
+        dibuat dalam DUA bacaan (knob ``bio_min_keras``): (a) kolom angka bernilai «0» bawaan
+        Dapodik — mengosongkannya menyelesaikan penolakan; (b) kolom PILIHAN yang nilai
+        modelnya «0» dan Dapodik menuntut nilainya ≥ 1 — jadi harus dipilih pilihan nyata.
+        """
+        wali_nama = UnsurPalsu(self, "input", type="text", name="nama_wali",
+                               label="Nama wali", bio=True, nilai="", kunci_data="nama_wali",
+                               componentid="textfield-wali-1")
+        wali_nama.bagian_bio = "Data Wali"
+        wali_nama.wajib_bio = bool(self.bio_wali_nama_wajib)
+        self.unsur.append(wali_nama)
+
+        pekerjaan = UnsurPalsu(self, "input", type="text", name="pekerjaan_id_wali",
+                               label="Pekerjaan Wali", bio=True, nilai="", nilai_model="",
+                               kunci_data="pekerjaan_id_wali", readonly="readonly",
+                               aria="combobox", role="combobox",
+                               daftar_pilihan=pilihan_dropdown_dapodik("pekerjaan"),
+                               componentid="combobox-wali-1")
+        pekerjaan.bagian_bio = "Data Wali"
+        pekerjaan.wajib_bio = True
+        self._lengkapi_combo(pekerjaan)
+
+        if self.bio_min_keras:
+            bawaan = UnsurPalsu(self, "input", type="text", name="inputItem",
+                                label="Penghasilan Wali", bio=True, nilai="", nilai_model="",
+                                kunci_data="inputItem", nilai_id="0", readonly="readonly",
+                                aria="combobox", role="combobox",
+                                daftar_pilihan=pilihan_dropdown_dapodik("penghasilan"),
+                                componentid="combobox-wali-2")
+            bawaan.bagian_bio = "Data Wali"
+            bawaan.wajib_bio = True
+            # Dapodik menolak nilai model «0» dengan «The minimum value for this field is 1»;
+            # mengosongkannya TIDAK menolong (kolom ini harus berisi pilihan nyata) — inilah
+            # bacaan kedua atas galat yang sama seperti di catatan sekolah.
+            bawaan.min_bio = 1
+            self._lengkapi_combo(bawaan)
+        else:
+            bawaan = UnsurPalsu(self, "input", type="text", name="inputItem", label="",
+                                bio=True, nilai="0", nilai_model="0", angka=True,
+                                kunci_data="inputItem", componentid="numberfield-wali-1")
+            bawaan.bagian_bio = "Data Wali"
+            bawaan.min_bio = 1
+            self.unsur.append(bawaan)
+
+    def _lengkapi_combo(self, combo: "UnsurPalsu") -> None:
+        """Tombol panah + elemen daftar + pilihan-pilihan sebuah combo (persis DOM Ext JS)."""
+        self.unsur.append(combo)
+        panah = UnsurPalsu(self, "div", kelas="x-form-trigger x-form-arrow-trigger",
+                           trigger_combo=True)
+        panah.induk = combo
+        self.unsur.append(panah)
+        daftar_el = UnsurPalsu(self, "div", kelas="x-boundlist", daftar_dropdown=combo)
+        combo.daftar_el = daftar_el
+        self.unsur.append(daftar_el)
+        for opsi in combo.daftar_pilihan:
+            item = UnsurPalsu(self, "li", kelas="x-boundlist-item", teks=opsi,
+                              item_dropdown=True)
+            item.induk = combo
+            self.unsur.append(item)
+
+    def _nilai_kolom_wali(self, unsur: "UnsurPalsu") -> str:
+        """Nilai model sebuah kolom wali (``getValue()`` Dapodik), bukan tulisannya."""
+        if unsur.componentid and not self.ext_mati:
+            nilai = self.model_unsur(unsur)
+        else:
+            nilai = (getattr(unsur, "nilai_id", "") or unsur.nilai_model or unsur.nilai)
+        return str(nilai if nilai is not None else "").strip()
+
+    def galat_wajib_bio(self) -> list[dict[str, str]]:
+        """Galat validasi bagian «Wali» yang membuat Dapodik MENOLAK «Simpan».
+
+        Bentuknya persis catatan sekolah: kolom wajib yang belum diisi
+        («pekerjaan_id_wali: This field is required») dan kolom yang nilai modelnya masih «0»
+        padahal Dapodik menuntut nilai ≥ 1
+        («inputItem: The minimum value for this field is 1»).
+        """
+        if not self.bio_gagal_wali:
+            return []
+        galat: list[dict[str, str]] = []
+        for unsur in self.unsur:
+            if not unsur.bio:
+                continue
+            nilai = self._nilai_kolom_wali(unsur)
+            if getattr(unsur, "min_bio", 0) and nilai in ("0", "0.0"):
+                pesan = "The minimum value for this field is 1"
+            elif getattr(unsur, "wajib_bio", False) and not nilai:
+                pesan = "This field is required"
+            else:
+                continue
+            galat.append({
+                "nama": str(unsur.name or unsur.id or "?"),
+                "pesan": pesan,
+                "label": str(unsur.label or ""),
+                "bagian": str(getattr(unsur, "bagian_bio", "") or ""),
+                "xtype": ("numberfield" if getattr(unsur, "angka", False)
+                          else "combo" if unsur.daftar_pilihan else "textfield"),
+                "nilai": nilai,
+                "id": str(unsur.id or ""),
+                "terlihat": True,
+            })
+        return galat
+
     def simpan_bio(self) -> None:
-        """Tombol «Simpan» jendela «Ubah» ditekan: nilai tersimpan, jendelanya tertutup."""
+        """Tombol «Simpan» jendela «Ubah» ditekan: nilai tersimpan, jendelanya tertutup.
+
+        Ronde 50: bila kolom wajib bagian «Wali» belum benar, Dapodik MENOLAK — jendela
+        «Ubah» TETAP terbuka, pesan galatnya tampil di kolom yang ditolak, dan **tidak ada**
+        satu pun nilai yang tersimpan (persis catatan sekolah 29 September 2026).
+        """
+        galat_wali = self.galat_wajib_bio()
+        if galat_wali:
+            self.galat_validasi_bio = galat_wali
+            self.bio_tolak_simpan_kali += 1
+            return
+        self.galat_validasi_bio = []
         self.bio_tersimpan = True
         for unsur in self.unsur:
             # Kuncinya = nama kolom DATA (``kunci_data``): pada versi Dapodik yang kolom
@@ -2484,8 +2626,58 @@ class PerambanPalsu:
             return None
         if "galat-validasi" in skrip:
             # Pesan galat Dapodik di kolom yang ditolak (sebab «Simpan» tidak menutup
-            # jendela) — dibaca dari komponen/DOM, seperti di halaman sungguhan.
-            return list(self.galat_validasi_bio)
+            # jendela) — dibaca dari komponen/DOM, seperti di halaman sungguhan. Sejak ronde
+            # 50 isinya lengkap: nama, pesan, label kolom, bagian formulirnya, jenis, nilai.
+            return [dict(satu) for satu in self.galat_validasi_bio]
+        if "nilai-kolom-bernama" in skrip:
+            # Nilai sebuah kolom Dapodik yang dicari lewat NAMAnya (mis. «nama_wali») —
+            # dipakai bot untuk tahu apakah siswa ini sudah punya wali di Dapodik (ronde 50).
+            daftar = [str(nama) for nama in (argumen[1] if len(argumen) > 1 else [])]
+            for unsur in self.unsur:
+                if str(unsur.name or "") in daftar:
+                    return self._nilai_kolom_wali(unsur)
+            return ""
+        if "unsur-kolom-bernama" in skrip:
+            # Kotak isian milik sebuah NAMA kolom Dapodik (mis. input tersembunyi milik combo
+            # Ext JS). Yang dikembalikan = kotak yang benar-benar perlu diisi: unsur terlihat
+            # lebih dulu, lalu unsur tersembunyi (persis ``inputEl`` komponennya).
+            cari = str(argumen[1] if len(argumen) > 1 else "")
+            if not cari:
+                return None
+            cadangan = None
+            for unsur in self.unsur:
+                nama = str(unsur.name or "")
+                if nama != cari and str(unsur.id or "") != cari \
+                        and not str(unsur.id or "").startswith(cari + "-"):
+                    continue
+                if self._terlihat_otomatis(unsur):
+                    return unsur
+                if cadangan is None:
+                    cadangan = unsur
+            return cadangan
+        if "kolom-wajib-kosong" in skrip:
+            # Kolom WAJIB (``allowBlank: false``) yang masih kosong — keterangan yang membuat
+            # sebab penolakan «Simpan» terbaca langsung dari catatan bot (ronde 50).
+            hasil: list[str] = []
+            for unsur in self.unsur:
+                if not unsur.bio or not getattr(unsur, "wajib_bio", False):
+                    continue
+                if self._nilai_kolom_wali(unsur):
+                    continue
+                baris = f"{unsur.label or unsur.name} ({unsur.name or unsur.id})"
+                if baris not in hasil:
+                    hasil.append(baris)
+            return hasil
+        if "tutup-jendela-ubah" in skrip:
+            # Tombol silang jendela «Ubah» (atau Esc): jendelanya tertutup. Inilah yang harus
+            # dilakukan bot sesudah Dapodik menolak «Simpan», supaya Data Periodik &
+            # Registrasi tidak terganggu jendela modal (ronde 50).
+            if not self.bio_terbuka:
+                return False
+            self.bio_terbuka = False
+            self.dropdown_terbuka = None
+            self.tutup_jendela_ubah_kali += 1
+            return True
         if "dropdown-buka" in skrip:
             # Jalur terakhir bot: Ext.getCmp(id).expand() (bila tombol panahnya ditelan).
             sasaran = argumen[0] if argumen else None

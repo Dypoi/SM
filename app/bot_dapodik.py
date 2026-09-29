@@ -542,6 +542,10 @@ class BotDapodik:
         self.kursor_dipindah = 0
         #: Nilai kolom BIO yang sudah ditulis bot → diperiksa lagi setiap kali menggulir.
         self._penjaga_nilai: dict[str, str] = {}
+        #: Ronde 50 — cara perbaikan yang sudah dicoba untuk kolom yang ditolak Dapodik
+        #: (``{"inputItem": {"kosongkan"}}``): kolom yang sama tidak dikosongkan berulang kali,
+        #: dan bot tahu kapan harus mencoba mengisinya dari data siswa.
+        self._bio_perbaikan_cara: dict[str, set[str]] = {}
         #: Unsurnya sendiri per kolom — dipakai saat memperbaiki/membaca ulang nilainya
         #: (jangan bergantung pada unsur pertama yang namanya sama di seluruh halaman).
         self._penjaga_unsur: dict[str, Any] = {}
@@ -1390,6 +1394,24 @@ class BotDapodik:
         ("ibu_pekerjaan", "Pekerjaan ibu", "bio_ibu_pekerjaan"),
         ("ibu_penghasilan", "Penghasilan ibu", "bio_ibu_penghasilan"),
     )
+
+    #: Berapa kali bot boleh MENGISI ULANG kolom yang ditolak Dapodik sebelum menyerah
+    #: (ronde 50). Tiap putaran dicatat, dan nilai yang tidak ada datanya tidak dikarang.
+    BATAS_PERBAIKAN_BIO = 3
+
+    #: Atribut data keluarga (ayah/ibu/wali) → kunci data siswa di SM (``wali_pekerjaan``, …).
+    #: Dipakai saat memperbaiki kolom yang ditolak Dapodik (ronde 50): potongan nama/label
+    #: kolom dirapikan lebih dulu (spasi → garis bawah) sebelum dicocokkan.
+    ATRIBUT_KELUARGA: dict[str, str] = {
+        "jenjang_pendidikan": "pendidikan",
+        "pendidikan": "pendidikan",
+        "pekerjaan": "pekerjaan",
+        "penghasilan": "penghasilan",
+        "tahun_lahir": "tahun_lahir",
+        "tanggal_lahir": "tahun_lahir",
+        "nik": "nik",
+        "nama": "nama",
+    }
 
     @property
     def PERIODIK(self) -> tuple[tuple[str, str, str], ...]:
@@ -5045,6 +5067,10 @@ class BotDapodik:
         self._bukti_dropdown_diambil = False
         self._desa_terverifikasi = None      # keadaan desa milik siswa sebelumnya dibuang
         self._penjaga_nilai.clear()          # nilai kolom milik siswa sebelumnya dibuang
+        # Cara perbaikan yang sudah dicoba untuk tiap kolom yang ditolak Dapodik (ronde 50):
+        # supaya bot tidak mengosongkan kolom yang sama berulang-ulang, lalu tahu kapan harus
+        # beralih mengisi nilainya dari data siswa.
+        self._bio_perbaikan_cara.clear()
         kandidat = self._tombol_ubah_semua(peramban, peta)
         if not kandidat:
             self._catat_kepala("[bio] tombol «Ubah» tidak ada di halaman ini — langkah BIO "
@@ -5242,43 +5268,124 @@ class BotDapodik:
         self._tunggu(peramban, 2)
         if self._jendela_edit(peramban, peta) is not None:
             self._catat_kepala("[bio] peringatan: tombol «Simpan» sudah ditekan tetapi jendela "
-                               "«Edit Peserta Didik» masih terlihat — periksa hasilnya di Dapodik.")
-            galat = self._galat_validasi_bio(peramban, jendela)
-            if galat:
+                               "«Edit Peserta Didik» masih terlihat — Dapodik MENOLAK simpan "
+                               "(datanya belum masuk).")
+            daftar_galat = self._galat_validasi_bio(peramban, jendela)
+            if daftar_galat:
                 self._catat_kepala("[bio] galat validasi di jendela «Ubah» (dari Dapodik): "
-                                   + galat)
+                                   + self._galat_validasi_teks(daftar_galat))
+            wajib = self._kolom_wajib_kosong_bio(peramban, jendela)
+            if wajib:
+                self._catat_kepala("[bio] kolom WAJIB yang masih kosong di jendela «Ubah» "
+                                   "(dari Dapodik): " + wajib)
             bukti_tidak_tutup = self._bukti(peramban, "bio-simpan-tidak-menutup")
             if bukti_tidak_tutup:
                 self._catat_kepala(f"[bio] bukti layar disimpan: {bukti_tidak_tutup} "
                                    "(beserta berkas .html di folder yang sama).")
+            # Ronde 50: kolom yang ditolak Dapodik diisi ulang dari data SM (kolom wali
+            # mengikuti ayah bila siswa memang tidak punya wali), lalu «Simpan» ditekan lagi.
+            # Dua cara dipakai BERURUTAN karena bacaan atas galatnya ada dua: kolom angka «0»
+            # yang ditolak «minimum value … is 1» dikosongkan lebih dulu (Dapodik memakai «0»
+            # sebagai penanda kosong), dan bila Dapodik masih menolak kolom yang sama, kolom
+            # itu memang harus berisi nilai — diambil dari data siswa bila ada. Tiap putaran
+            # dicatat; yang tidak ada datanya tidak dikarang dan tidak diaku berhasil.
+            putaran = 0
+            galat_kini = daftar_galat
+            while galat_kini and putaran < self.BATAS_PERBAIKAN_BIO:
+                diperbaiki = self._perbaiki_galat_validasi_bio(peramban, peta, siswa, jendela,
+                                                               galat_kini)
+                if not diperbaiki:
+                    break
+                putaran += 1
+                self._catat_kepala(f"[bio] perbaikan ke-{putaran}: {diperbaiki} kolom yang "
+                                   "ditolak Dapodik dicoba dibetulkan dari data SM — «Simpan» "
+                                   "ditekan lagi.")
+                self._tekan_simpan_bio(peramban, jendela, peta)
+                if self._jendela_edit(peramban, peta) is None:
+                    rincian_ulang = (f", {len(kosong)} kolom dilewati (data kosong)"
+                                     if kosong else "")
+                    self._catat_kepala("[bio] jendela «Ubah» tertutup SESUDAH perbaikan — data "
+                                       f"BIO dikirim ({terisi} kolom terisi{rincian_ulang}).")
+                    return True
+                galat_kini = self._galat_validasi_bio(peramban, jendela)
+                if galat_kini:
+                    self._catat_kepala("[bio] galat yang MASIH tersisa sesudah perbaikan: "
+                                       + self._galat_validasi_teks(galat_kini))
+                else:
+                    self._catat_kepala("[bio] jendela «Ubah» masih terbuka sesudah perbaikan, "
+                                       "tetapi Dapodik tidak menampilkan pesan galat apa pun.")
+            if galat_kini and putaran >= self.BATAS_PERBAIKAN_BIO:
+                self._catat_kepala(f"[bio] batas {self.BATAS_PERBAIKAN_BIO} putaran perbaikan "
+                                   "tercapai tetapi Dapodik masih menolak — kolom yang tersisa "
+                                   "perlu dibetulkan manual sekali di Dapodik (bot tidak "
+                                   "mengarang nilainya).")
+
+            if self._tutup_jendela_ubah(peramban, jendela, peta):
+                self._catat_kepala("[bio] jendela «Ubah» ditutup bot supaya langkah Data "
+                                   "Periodik & Registrasi tidak terganggu (baris siswa "
+                                   "diperiksa & dicari ulang sesudahnya) — data BIO siswa ini "
+                                   "BELUM tersimpan.")
+            else:
+                self._catat_kepala("[bio] peringatan: jendela «Ubah» tidak bisa ditutup bot — "
+                                   "langkah Data Periodik & Registrasi bisa terganggu "
+                                   "(Dapodik masih menampilkan jendela itu).")
             return False
         rincian = f", {len(kosong)} kolom dilewati (data kosong)" if kosong else ""
         self._catat_kepala(f"[bio] jendela «Ubah» tertutup — data BIO dikirim "
                            f"({terisi} kolom terisi{rincian}).")
         return True
 
-    def _galat_validasi_bio(self, peramban, jendela) -> str:
-        """Pesan galat Dapodik di jendela «Ubah» — sebab «Simpan» tidak menutup jendela.
+    def _galat_validasi_bio(self, peramban, jendela) -> list[dict[str, Any]]:
+        """Galat validasi Dapodik di jendela «Ubah» — lengkap dengan label & bagiannya.
 
-        Ronde 49: di sekolah, «Simpan» ditekan tetapi jendelanya tetap terbuka dan bot
-        hanya bisa berkata «periksa hasilnya di Dapodik». Padahal Dapodik menuliskan
-        sebabnya di kolom yang ditolak (ikerah merah/``x-form-invalid-under``). Pesan itu
-        sekarang dibaca dari komponen Ext JS (``getErrors()``/``hasActiveError``) maupun
-        dari DOM, lalu dicatat — supaya sebab penolakan terbaca dari catatan bot.
+        Ronde 49 hanya mencatat «nama: pesan», dan di sekolah dua kolom yang ditolak berbunyi
+        «pekerjaan_id_wali: This field is required» serta «inputItem: The minimum value for
+        this field is 1» — nama kolomnya saja tidak cukup untuk tahu kolom MANA yang harus
+        dibetulkan. Sejak ronde 50 setiap galat dibaca bersama **label kolomnya** (dari DOM
+        maupun ``fieldLabel`` komponennya), **bagian** formulirnya (fieldset «Data Ayah/Ibu/
+        Wali»), jenis komponen, nilai yang ada sekarang, dan id komponennya — dan daftar itu
+        dipakai :meth:`_perbaiki_galat_validasi_bio` untuk membetulkan kolomnya.
         """
         try:
             galat = peramban.execute_script(
-                JS_ALAT + """
+                JS_ALAT + r"""
                 /* galat-validasi */
                 const root = arguments[0] || document;
                 const hasil = [];
-                const label = (el) => {
-                    const bidang = bidangKolom(el) || (el.closest ? el.closest('div') : null);
-                    const l = bidang && bidang.querySelector
-                        ? bidang.querySelector('label, .x-fieldlabel, .x-form-item-label') : null;
-                    return l && l.textContent ? l.textContent.replace(/\\s+/g, ' ').trim() : '';
+                const rapi = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+                const wadahLabel = (el) => {
+                    let p = el, naik = 0;
+                    while (p && p !== document.body && naik < 8) {
+                        const banyak = p.querySelectorAll
+                            ? p.querySelectorAll('input, textarea, select').length : 99;
+                        const l = p.querySelector
+                            ? p.querySelector('label, .x-fieldlabel, .x-form-item-label') : null;
+                        if (l && banyak <= 3) return l;
+                        p = p.parentElement; naik += 1;
+                    }
+                    return null;
                 };
-                for (const el of root.querySelectorAll('input')) {
+                const label = (el) => {
+                    const l = wadahLabel(el);
+                    const dariDom = l && l.textContent ? rapi(l.textContent) : '';
+                    if (dariDom) return dariDom;
+                    const c = komponenKolom(el);
+                    return rapi(c && c.fieldLabel ? c.fieldLabel : '');
+                };
+                const bagian = (el) => {
+                    let p = el, naik = 0;
+                    while (p && naik < 14) {
+                        const h = p.querySelector
+                            ? p.querySelector('.x-fieldset-header-text, legend, '
+                                              + '.x-panel-header-text')
+                            : null;
+                        const t = h && h.textContent ? rapi(h.textContent) : '';
+                        if (t) return t;
+                        p = p.parentElement; naik += 1;
+                    }
+                    return '';
+                };
+                for (const el of root.querySelectorAll('input, textarea, select')) {
                     const c = komponenKolom(el);
                     let pesan = '';
                     try {
@@ -5291,33 +5398,356 @@ class BotDapodik:
                             pesan = String((g && (g.title || g.text)) || '');
                         }
                     } catch (e) { pesan = ''; }
-                    const bidang = bidangKolom(el);
-                    if (!pesan && bidang && bidang.querySelector) {
-                        const t = bidang.querySelector('.x-form-invalid-under, .x-form-error-msg, '
-                            + '.x-form-invalid-icon');
-                        if (t) pesan = String((t.textContent || t.getAttribute('data-errorqtip')) || '');
+                    if (!pesan) {
+                        const bidang = bidangKolom(el);
+                        if (bidang && bidang.querySelector) {
+                            const t = bidang.querySelector('.x-form-invalid-under, '
+                                + '.x-form-error-msg, .x-form-invalid-icon');
+                            if (t) {
+                                pesan = String((t.textContent
+                                    || t.getAttribute('data-errorqtip')) || '');
+                            }
+                        }
                     }
-                    pesan = String(pesan || '').replace(/\\s+/g, ' ').trim();
+                    pesan = rapi(pesan);
                     if (!pesan) continue;
-                    const kunci = String(el.getAttribute('name') || el.id || '?');
-                    const baris = kunci + (label(el) ? ' («' + label(el) + '»)' : '') + ': ' + pesan;
+                    const nama = String(el.getAttribute('name') || el.id || '?');
+                    if (hasil.some((g) => g.nama === nama && g.pesan === pesan)) continue;
+                    hasil.push({nama: nama, pesan: pesan, label: label(el),
+                                bagian: bagian(el),
+                                xtype: xtypeKolom(c) || String(el.getAttribute('type') || ''),
+                                nilai: (c && c.getValue) ? String(c.getValue() || '')
+                                                         : String(el.value || ''),
+                                id: String(el.id || ''),
+                                terlihat: !!(el.getClientRects && el.getClientRects().length)});
+                    if (hasil.length >= 14) break;
+                }
+                if (hasil.length) return hasil;
+                const umum = [];
+                for (const t of root.querySelectorAll('.x-form-invalid-under, .x-form-error-msg')) {
+                    const teks = rapi(t.textContent);
+                    if (teks && !umum.some((p) => p.pesan === teks)) {
+                        umum.push({nama: '', pesan: teks, label: '', bagian: '', xtype: '',
+                                   nilai: '', id: '', terlihat: true});
+                    }
+                }
+                return umum.slice(0, 8);
+                """, jendela)
+        except Exception:  # noqa: BLE001 — keterangan tambahan saja
+            return []
+        if not isinstance(galat, list):
+            return []
+        return [satu for satu in galat
+                if isinstance(satu, dict) and str(satu.get("pesan") or "").strip()]
+
+    def _galat_validasi_teks(self, daftar) -> str:
+        """Satu baris galat validasi: «nama (label «…», bagian «…»): pesan»."""
+        baris: list[str] = []
+        for satu in daftar or []:
+            nama = str(satu.get("nama") or "?").strip() or "?"
+            label = str(satu.get("label") or "").strip()
+            bagian = str(satu.get("bagian") or "").strip()
+            petunjuk: list[str] = []
+            if label:
+                petunjuk.append(f"label «{label}»")
+            if bagian:
+                petunjuk.append(f"bagian «{bagian}»")
+            tambahan = f" ({', '.join(petunjuk)})" if petunjuk else ""
+            baris.append(f"{nama}{tambahan}: {satu.get('pesan')}")
+        return "; ".join(baris)
+
+    def _nilai_kolom_bernama(self, peramban, jendela, kandidat) -> str:
+        """Nilai sebuah kolom Dapodik yang dicari lewat namanya (mis. nama wali).
+
+        Dipakai untuk tahu apakah siswa ini **punya wali di Dapodik**: bila nama walinya
+        memang kosong, kolom wali yang ditolak Dapodik boleh diisi mengikuti data ayah
+        (lihat :meth:`_perbaiki_galat_validasi_bio`).
+        """
+        nama_kandidat = [str(k) for k in (kandidat if isinstance(kandidat, (list, tuple))
+                                          else (kandidat,)) if str(k).strip()]
+        if not nama_kandidat:
+            return ""
+        try:
+            nilai = peramban.execute_script(
+                JS_ALAT + r"""
+                /* nilai-kolom-bernama */
+                const root = arguments[0] || document;
+                const nama = arguments[1] || [];
+                for (const el of root.querySelectorAll('input, textarea')) {
+                    if (nama.indexOf(String(el.getAttribute('name') || '')) < 0) continue;
+                    const c = komponenKolom(el);
+                    const nilai = (c && c.getValue) ? c.getValue() : el.value;
+                    return String(nilai == null ? '' : nilai).trim();
+                }
+                return '';
+                """, jendela, nama_kandidat)
+        except Exception:  # noqa: BLE001 — hanya keterangan tambahan
+            return ""
+        return str(nilai or "").strip()
+
+    def _unsur_kolom_bernama(self, peramban, jendela, nama: str):
+        """Kotak isian milik sebuah NAMA kolom Dapodik — dipakai saat memperbaiki galat.
+
+        Kolom yang ditolak Dapodik sering hanya muncul sebagai **input tersembunyi** (lazim
+        pada combo Ext JS: ``<input type="hidden" name="pekerjaan_id_wali">``). Yang
+        dikembalikan adalah kotak yang benar-benar perlu diisi: ``inputEl`` komponennya atau
+        unsur terlihat paling dekat di wadah kolomnya.
+        """
+        if not str(nama or "").strip():
+            return None
+        try:
+            return peramban.execute_script(
+                JS_ALAT + r"""
+                /* unsur-kolom-bernama */
+                const root = arguments[0] || document;
+                const nama = String(arguments[1] || '');
+                if (!nama) return null;
+                const tampil = (el) => !!el
+                    && !!(el.getClientRects && el.getClientRects().length)
+                    && String((el.getAttribute && el.getAttribute('type')) || '')
+                        .toLowerCase() !== 'hidden';
+                const cocok = (el) => {
+                    const n = String((el.getAttribute && el.getAttribute('name')) || '');
+                    const id = String(el.id || '');
+                    return n === nama || id === nama || id.indexOf(nama + '-') === 0;
+                };
+                for (const el of root.querySelectorAll('input, textarea')) {
+                    if (cocok(el) && tampil(el)) return el;
+                }
+                for (const el of root.querySelectorAll('input, textarea')) {
+                    if (!cocok(el)) continue;
+                    const c = komponenKolom(el);
+                    if (c && c.inputEl && c.inputEl.dom) return c.inputEl.dom;
+                    const bidang = el.parentElement;
+                    if (bidang && bidang.querySelectorAll) {
+                        for (const lain of bidang.querySelectorAll('input, textarea')) {
+                            if (tampil(lain)) return lain;
+                        }
+                    }
+                    return el;
+                }
+                return null;
+                """, jendela, nama)
+        except Exception:  # noqa: BLE001 — pemanggil mencatatnya jujur
+            return None
+
+    def _keluarga_dari_nama(self, nama: str, label: str, bagian: str) -> tuple[str, str]:
+        """Orang (ayah/ibu/wali) + atribut (pekerjaan, penghasilan, …) dari nama/label kolom."""
+        teks = " ".join((str(nama or ""), str(label or ""), str(bagian or "")))
+        teks = teks.lower().replace(" ", "_")
+        orang = ""
+        for calon, pola in (("wali", ("wali",)), ("ayah", ("ayah", "bapak")), ("ibu", ("ibu",))):
+            if any(p in teks for p in pola):
+                orang = calon
+                break
+        if not orang:
+            return "", ""
+        atribut = ""
+        for pola, kunci in self.ATRIBUT_KELUARGA.items():
+            if pola in teks:
+                atribut = kunci
+                break
+        return orang, atribut
+
+    def _perbaiki_galat_validasi_bio(self, peramban, peta: dict[str, str],
+                                     siswa: dict[str, Any], jendela, daftar_galat) -> int:
+        """Isi kolom yang DITOLAK Dapodik memakai data yang memang ada di SM (ronde 50).
+
+        Sebab «Simpan» ditolak di sekolah (catatan 29 Sep 2026) terbaca dari galatnya:
+        «pekerjaan_id_wali: This field is required» dan «inputItem: The minimum value for this
+        field is 1». Data siswa SM tidak menyimpan wali (aturan aplikasi: wali hanya bila nama
+        ayah kosong), sedangkan Dapodik tetap mewajibkan kolom wali. Yang dilakukan bot:
+
+        * kolom angka yang ditolak dengan «minimum value … is 1» dan **berisi «0»**
+          dikosongkan — Dapodik mengisi sendiri kolom seperti itu dengan «0» sebagai penanda
+          kosong, dan nilai itulah yang membuat penyimpanan gagal (bukan data siswa);
+        * kolom wali yang ditolak diisi dari data wali SM bila ada; bila SM tidak punya wali
+          **dan** Dapodik juga belum punya nama wali, kolomnya diisi mengikuti data ayah
+          (bawaan; dapat dimatikan lewat pengaturan «Wali mengikuti ayah»);
+        * kolom ayah/ibu yang ditolak diisi dari data ayah/ibu SM.
+
+        Tidak ada nilai yang dikarang: yang tidak ada datanya dilaporkan apa adanya (dan bot
+        tidak mengaku berhasil). Kembalikan banyaknya kolom yang berhasil diisi ulang.
+        """
+        ikut_ayah = str(self.opsi.get("bot_wali_ikuti_ayah", "1")) == "1"
+        nama_wali = self._nilai_kolom_bernama(peramban, jendela, ("nama_wali", "wali_nama"))
+        dipakai = 0
+        for satu in daftar_galat or []:
+            nama = str(satu.get("nama") or "").strip()
+            label = str(satu.get("label") or "").strip() or nama or "?"
+            bagian = str(satu.get("bagian") or "").strip()
+            pesan = str(satu.get("pesan") or "").strip()
+            nilai_kini = str(satu.get("nilai") or "").strip()
+            tempat = f"{nama}{', bagian «' + bagian + '»' if bagian else ''}"
+            dicoba = self._bio_perbaikan_cara.setdefault(nama or label, set())
+            if ("minimum value" in pesan.lower() and nilai_kini in ("0", "0.0", "-0")
+                    and "kosongkan" not in dicoba):
+                # Bacaan pertama: «0» adalah penanda KOSONG bawaan Dapodik (rujukan
+                # panduandapik.id) — kolomnya dikosongkan, data siswa tidak diubah.
+                unsur_nol = self._unsur_kolom_bernama(peramban, jendela, nama) if nama else None
+                if unsur_nol is not None and self._set_ext(peramban, unsur_nol, ""):
+                    dicoba.add("kosongkan")
+                    self._catat_kepala(
+                        f"[bio-perbaikan] kolom «{label}» ({tempat}) berisi «0» dan ditolak "
+                        f"Dapodik («{pesan}») — nilai «0» itu penanda kosong dari Dapodik, "
+                        "jadi kolomnya dikosongkan (data siswa tidak diubah).")
+                    dipakai += 1
+                else:
+                    self._catat_kepala(
+                        f"[bio-perbaikan] kolom «{label}» ({tempat}) berisi «0» dan ditolak "
+                        f"Dapodik («{pesan}»), tetapi bot tidak bisa mengosongkannya — mohon "
+                        "dikosongkan manual sekali di Dapodik.")
+                continue
+            unsur = self._unsur_kolom_bernama(peramban, jendela, nama) if nama else None
+            if unsur is None:
+                self._catat_kepala(f"[bio-perbaikan] kolom «{label}» ({tempat}) ditolak Dapodik "
+                                   f"(«{pesan}») tetapi kotaknya tidak ketemu — dilewati.")
+                continue
+            orang, atribut = self._keluarga_dari_nama(nama, label, bagian)
+            nilai = self._nilai_teks(siswa.get(f"{orang}_{atribut}")) if (orang and atribut) else ""
+            sumber = f"data {orang}" if nilai else ""
+            if (not nilai and orang == "wali" and ikut_ayah and not nama_wali
+                    and atribut in ("pendidikan", "pekerjaan", "penghasilan")):
+                # HANYA pendidikan/pekerjaan/penghasilan wali yang boleh mengikuti ayah —
+                # kolom wajib bagian «Wali» di Dapodik. Nama & NIK wali TIDAK PERNAH diisi
+                # dari data ayah: itu akan mengarang wali yang tidak ada.
+                nilai = self._nilai_teks(siswa.get(f"ayah_{atribut}"))
+                if nilai:
+                    sumber = ("data ayah (siswa ini tidak punya wali di data SM dan Dapodik "
+                              "juga belum punya nama wali — kolom wali diisi mengikuti ayah)")
+            if not nilai:
+                tambahan = ""
+                if orang == "wali" and atribut and not ikut_ayah:
+                    tambahan = (", dan pengaturan «Wali mengikuti ayah» sedang dimatikan"
+                                " (Pengaturan bot)")
+                elif orang == "wali" and atribut in ("nama", "nik"):
+                    tambahan = (", dan kolom identitas wali (nama/NIK) memang TIDAK pernah "
+                                "diisi dari data ayah oleh bot — itu akan mengarang wali yang "
+                                "tidak ada")
+                elif "kosongkan" in dicoba:
+                    tambahan = (", dan kolomnya sudah dikosongkan sekali — Dapodik tetap "
+                                "menolaknya, jadi kolom itu memang harus berisi nilai")
+                self._catat_kepala(f"[bio-perbaikan] kolom «{label}» ({tempat}) ditolak Dapodik "
+                                   f"(«{pesan}») — data yang cocok tidak ada di SM{tambahan} — "
+                                   "tidak diisi asal-asalan.")
+                continue
+            info = self._info_kolom(peramban, unsur)
+            if info.get("kombo_kuat"):
+                keterangan = self._isi_dropdown_bio(peramban, peta, label, nilai, unsur,
+                                                    awalan="[bio-perbaikan]")
+            else:
+                keterangan = self._isi_periodik_satu(peramban, peta, "", label, nilai, unsur,
+                                                     awalan="[bio-perbaikan]")
+                if not keterangan.startswith("terisi") and (info.get("panah")
+                        or int(info.get("store") or -1) > 0):
+                    keterangan = self._isi_dropdown_bio(peramban, peta, label, nilai, unsur,
+                                                        awalan="[bio-perbaikan]")
+            if keterangan.startswith("terisi"):
+                dipakai += 1
+                self._catat_kepala(f"[bio-perbaikan] kolom «{label}» ({tempat}) diisi dari "
+                                   f"{sumber}: {keterangan}")
+            else:
+                self._catat_kepala(f"[bio-perbaikan] kolom «{label}» ({tempat}) belum berhasil "
+                                   f"diisi dari {sumber}: {keterangan}")
+        return dipakai
+
+    def _kolom_wajib_kosong_bio(self, peramban, jendela) -> str:
+        """Kolom WAJIB (``allowBlank: false``) yang masih kosong di jendela «Ubah».
+
+        Dapodik menandai kolom wajibnya di **komponen Ext JS**, bukan di DOM — jadi daftar ini
+        dibaca dari komponennya. Satu baris catatan ini membuat sebab penolakan «Simpan»
+        terbaca langsung (mis. «Pekerjaan Wali», «Tahun Lahir Wali») tanpa memotret layar.
+        """
+        try:
+            wajib = peramban.execute_script(
+                JS_ALAT + r"""
+                /* kolom-wajib-kosong */
+                const root = arguments[0] || document;
+                const rapi = (t) => String(t || '').replace(/\s+/g, ' ').trim();
+                const hasil = [];
+                for (const el of root.querySelectorAll('input, textarea, select')) {
+                    const c = komponenKolom(el);
+                    if (!c || c.allowBlank !== false) continue;
+                    let nilai = el.value;
+                    try { if (c.getValue) nilai = c.getValue(); } catch (e) { /* el.value */ }
+                    if (String(nilai == null ? '' : nilai).trim()) continue;
+                    const bidang = bidangKolom(el);
+                    const l = bidang && bidang.querySelector
+                        ? bidang.querySelector('label, .x-fieldlabel, .x-form-item-label') : null;
+                    let teks = rapi((l && l.textContent) || (c.fieldLabel || ''));
+                    const nama = String(el.getAttribute('name') || el.id || '?');
+                    if (!teks) teks = nama;
+                    const baris = teks + ' (' + nama + ')';
                     if (hasil.indexOf(baris) < 0) hasil.push(baris);
                     if (hasil.length >= 12) break;
                 }
-                if (hasil.length) return hasil;
-                // Dapodik versi lain menaruh pesannya di daftar galat milik formulirnya.
-                const pesanUmum = [];
-                for (const t of root.querySelectorAll('.x-form-invalid-under, .x-form-error-msg')) {
-                    const teks = String(t.textContent || '').replace(/\\s+/g, ' ').trim();
-                    if (teks && pesanUmum.indexOf(teks) < 0) pesanUmum.push(teks);
-                }
-                return pesanUmum.slice(0, 8);
+                return hasil;
                 """, jendela)
         except Exception:  # noqa: BLE001 — keterangan tambahan saja
             return ""
-        if not isinstance(galat, list) or not galat:
+        if not isinstance(wajib, list) or not wajib:
             return ""
-        return "; ".join(str(satu).strip() for satu in galat if str(satu).strip())
+        return ", ".join(str(satu) for satu in wajib if str(satu).strip())
+
+    def _tutup_jendela_ubah(self, peramban, jendela, peta: dict[str, str]) -> bool:
+        """Tutup jendela «Ubah» yang tetap terbuka sesudah «Simpan» ditolak Dapodik.
+
+        Jendela yang dibiarkan terbuka menutupi halaman Peserta Didik — di sekolah akibatnya
+        baris siswa tidak lagi terpilih sesudah Data Periodik disimpan. Bot menutupnya (tombol
+        silang ``x-tool-close``, lalu tombol Esc) dan memastikan jendelanya benar-benar hilang.
+        """
+        if jendela is None:
+            jendela = self._jendela_edit(peramban, peta)
+        if jendela is None:
+            return True
+        try:
+            peramban.execute_script(
+                r"""
+                /* tutup-jendela-ubah */
+                const root = arguments[0] || document;
+                const dekat = (akar) => (akar && akar.querySelector)
+                    ? akar.querySelector('.x-tool-close, .x-tool.x-tool-close, a.x-tool-close')
+                    : null;
+                const tombol = dekat(root) || dekat(document) || dekat(document.body);
+                if (tombol) { tombol.click(); return true; }
+                return false;
+                """, jendela)
+        except Exception:  # noqa: BLE001 — masih ada jalur Esc di bawah
+            pass
+        self._tunggu(peramban, 1)
+        if self._jendela_edit(peramban, peta) is not None:
+            from selenium.webdriver.common.by import By
+            from selenium.webdriver.common.keys import Keys
+
+            try:
+                peramban.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
+            except Exception:  # noqa: BLE001 — keadaan jendelanya diperiksa sesudahnya
+                pass
+            self._tunggu(peramban, 1)
+        return self._jendela_edit(peramban, peta) is None
+    def _tekan_simpan_bio(self, peramban, jendela, peta: dict[str, str]) -> None:
+        """Tekan «Simpan» milik jendela «Ubah» SEKALI LAGI sesudah kolomnya diperbaiki.
+
+        Dipakai ronde 50: sesudah kolom yang ditolak Dapodik diisi ulang, penyimpanan dicoba
+        lagi — dan hasilnya diperiksa dari keadaan jendelanya (tertutup = data benar-benar
+        dikirim), bukan dari kliknya.
+        """
+        tombol = self._simpan_dalam_jendela(peramban, jendela)
+        if tombol is None:
+            tombol = self._simpan_dalam_jendela(peramban, None)
+        if tombol is None:
+            self._catat_kepala("[bio] tombol «Simpan» jendela «Ubah» tidak ketemu saat akan "
+                               "menekan ulang — kolom yang ditolak sudah dibetulkan, tekan "
+                               "«Simpan» sekali lagi di Dapodik.")
+            return
+        try:
+            tombol.click()
+        except Exception:  # noqa: BLE001 — klik sungguhan bisa tertelan: dicoba lewat skrip
+            try:
+                peramban.execute_script("arguments[0].click();", tombol)
+            except Exception:  # noqa: BLE001 — hasilnya diperiksa dari keadaan jendelanya
+                return
+        self._tunggu(peramban, 2)
 
     def _pastikan_baris_setelah_bio(self, peramban, xpath_baris: str, nisn: str, loc_cari) -> None:
         """Setelah jendela «Ubah» disimpan, daftar peserta didik kadang tersegar.

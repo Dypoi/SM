@@ -125,7 +125,7 @@ BOT_TERAKHIR = None
 
 
 def jalankan(judul: str, jarak, atur=None, tampilkan: bool = False, opsi: dict | None = None,
-             ubah_siswa: dict | None = None):
+             ubah_siswa: dict | None = None, bio_wali: bool = False):
     """Jalankan bot untuk satu siswa pada keadaan halaman tertentu.
 
     ``opsi`` menimpa pengaturan bot untuk skenario ini (mis. menyalakan langkah BIO).
@@ -137,6 +137,9 @@ def jalankan(judul: str, jarak, atur=None, tampilkan: bool = False, opsi: dict |
     bot_dapodik.time = jam
     try:
         peramban = peramban_palsu.buat("alur_penuh").pakai_jam(jam.monotonic)
+        if bio_wali:
+            # Jendela «Ubah» memuat bagian «Data Wali» (galat sekolah 29 September 2026).
+            peramban.bio_wali_kolom = True
         peramban.popup_detik = None
         peramban.registrasi_otomatis = True
         if atur:
@@ -1186,7 +1189,114 @@ def main() -> int:
             f"{nama_kolom} tidak tersimpan dari daftarnya pada uji panah tanpa data: "
             f"{p50.data_bio_tersimpan.get(nama_kolom)!r}")
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 50 skenario")
+    # 51) Catatan sekolah 29 September 2026 (bot 4728e77): «Simpan» DITOLAK Dapodik —
+    #     «pekerjaan_id_wali: This field is required; inputItem: The minimum value for this
+    #     field is 1». Nama kolom itu saja tidak cukup (kolom bernama «inputItem» tidak
+    #     muncul di layar), jadi bot ronde 50 harus membaca galatnya bersama LABEL & BAGIAN
+    #     kolomnya, mengosongkan «0» bawaan Dapodik, mengisi kolom wali yang wajib dari data
+    #     ayah (SM tidak menyimpan wali selama nama ayah terisi), menekan «Simpan» sekali
+    #     lagi — dan jendelanya benar-benar TERTUTUP: datanya tersimpan, bukan hanya
+    #     dilaporkan.
+    p51, j51 = jalankan("51. «Simpan» ditolak Dapodik: kolom wali wajib → diisi dari ayah", 2,
+                        bio_wali=True,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "bio_gagal_wali", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p51.bio_tolak_simpan_kali == 1,
+        f"Dapodik menolak «Simpan» {p51.bio_tolak_simpan_kali}x — harus 1x sebelum diperbaiki")
+    cek(p51.bio_tersimpan, "jendela «Ubah» tidak tersimpan sesudah kolom wali diperbaiki")
+    cek(not p51.bio_terbuka, "jendela «Ubah» masih terbuka sesudah perbaikan")
+    cek(str(p51.data_bio_tersimpan.get("pekerjaan_id_wali") or "").strip()
+        == SISWA["ayah_pekerjaan"],
+        f"kolom «Pekerjaan Wali» tidak tersimpan dari data ayah: "
+        f"{p51.data_bio_tersimpan.get('pekerjaan_id_wali')!r}")
+    cek(str(p51.data_bio_tersimpan.get("inputItem") or "").strip() == "",
+        f"kolom «inputItem» yang berisi «0» tidak dikosongkan: "
+        f"{p51.data_bio_tersimpan.get('inputItem')!r}")
+    cek(any("Pekerjaan Wali" in b and "Data Wali" in b for b in j51),
+        f"label & bagian kolom yang ditolak tidak dilaporkan: "
+        f"{[b for b in j51 if 'wali' in b.lower()][:4]}")
+    cek(any("mengikuti ayah" in b for b in j51),
+        f"bot tidak melaporkan bahwa kolom wali diisi mengikuti ayah: "
+        f"{[b for b in j51 if 'wali' in b.lower()][:4]}")
+    cek(any("penanda kosong dari Dapodik" in b for b in j51),
+        f"alasan «0» dikosongkan tidak dilaporkan: "
+        f"{[b for b in j51 if 'perbaikan' in b][:4]}")
+    cek(any("tertutup SESUDAH perbaikan" in b for b in j51),
+        f"keberhasilan sesudah perbaikan tidak dilaporkan jujur: {j51[-5:]}")
+    cek(p51.gulir_kursor_di_kolom == 0, "ada gulir selagi kursor masih di dalam kolom")
+    salah51 = [kunci for _, kunci, nilai in BIO_UJI
+               if str(p51.data_bio_tersimpan.get(kunci) or "").strip() != nilai]
+    cek(not salah51, f"kolom lain ikut salah pada uji kolom wali: {salah51}")
+
+    # 52) Pengaturan «Wali mengikuti ayah» DIMATIKAN: bot TIDAK BOLEH mengarang nilai wali.
+    #     Yang diharapkan: laporan jujur (kolom wali belum bisa diisi + pengaturannya
+    #     dimatikan), jendela «Ubah» DITUTUP supaya Data Periodik & Registrasi tetap jalan —
+    #     inilah yang di sekolah masih memunculkan «baris siswa belum terpilih sesudah
+    #     menyimpan Data Periodik».
+    p52, j52 = jalankan("52. pengaturan «Wali mengikuti ayah» mati → jujur & jendela ditutup",
+                        2, bio_wali=True,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "bio_gagal_wali", True)),
+                        tampilkan=True,
+                        opsi={"bot_isi_bio": "1", "bot_wali_ikuti_ayah": "0"})
+    cek(not p52.bio_tersimpan, "BIO dianggap tersimpan padahal Dapodik menolaknya")
+    cek(not p52.bio_terbuka, "jendela «Ubah» tidak ditutup bot sesudah Dapodik menolak")
+    cek(p52.tutup_jendela_ubah_kali == 1,
+        f"jendela «Ubah» ditutup {p52.tutup_jendela_ubah_kali}x (harus tepat 1x)")
+    cek(any("dimatikan" in b and "Wali mengikuti ayah" in b for b in j52),
+        f"pengaturan yang dimatikan tidak dilaporkan: "
+        f"{[b for b in j52 if 'perbaikan' in b][:4]}")
+    cek(any("BELUM tersimpan" in b for b in j52),
+        f"bot tidak berkata jujur bahwa BIO belum tersimpan: {j52[-5:]}")
+    cek(p52.data_periodik_tersimpan.get("jarak_rumah_ke_sekolah_km") == "2",
+        "langkah Data Periodik terganggu oleh jendela «Ubah» yang menolak simpan")
+    cek(any(b.startswith("[OK]") for b in j52), f"Registrasi tidak jalan: {j52[-4:]}")
+
+    # 53) Bacaan KEDUA atas galat yang sama: «0» pada kolom «Penghasilan Wali» tidak cukup
+    #     dikosongkan — Dapodik menuntut pilihan nyata (nilai model ≥ 1). Bot harus mencoba
+    #     cara pertama (kosongkan) DULU, melihat Dapodik masih menolak, lalu mengisi kolom itu
+    #     dari data ayah — berurutan, dibatasi jumlah putarannya, dan tiap putaran dilaporkan.
+    p53, j53 = jalankan("53. «0» keras: dikosongkan dulu, masih ditolak → diisi dari ayah", 2,
+                        bio_wali=True,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "bio_gagal_wali", True),
+                                        setattr(p, "bio_min_keras", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p53.bio_tolak_simpan_kali == 2,
+        f"Dapodik menolak {p53.bio_tolak_simpan_kali}x (harus 2x: «0» lalu pilihan nyata)")
+    cek(p53.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji «0» yang keras")
+    cek(not p53.bio_terbuka, "jendela «Ubah» masih terbuka pada uji «0» yang keras")
+    cek(str(p53.data_bio_tersimpan.get("inputItem") or "").strip()
+        == SISWA["ayah_penghasilan"],
+        f"kolom wajib itu tidak terisi dari data ayah: "
+        f"{p53.data_bio_tersimpan.get('inputItem')!r}")
+    cek(any("perbaikan ke-2" in b for b in j53),
+        f"putaran perbaikan kedua tidak dilaporkan: {[b for b in j53 if 'perbaikan' in b][:4]}")
+    cek(any("Penghasilan Wali" in b and "mengikuti ayah" in b for b in j53),
+        f"kolom wajib itu tidak diisi dari data ayah secara terbuka: "
+        f"{[b for b in j53 if 'perbaikan' in b][:4]}")
+
+    # 54) Identitas wali (nama/NIK) TIDAK boleh dikarang: kolom wajib «Nama wali» ditolak
+    #     Dapodik, sedangkan SM tidak menyimpan data wali sama sekali. Bot tidak boleh mengisi
+    #     nama ayah ke kolom nama wali — yang benar: jujur, jendela ditutup, langkah lain
+    #     (Data Periodik & Registrasi) tetap jalan.
+    p54, j54 = jalankan("54. identitas wali tidak dikarang → jujur & jendela ditutup", 2,
+                        bio_wali=True,
+                        atur=lambda p: (p.siapkan_bio(), setattr(p, "bio_gagal_wali", True),
+                                        setattr(p, "bio_wali_nama_wajib", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(not p54.bio_tersimpan, "BIO dianggap tersimpan padahal nama wali ditolak Dapodik")
+    cek(not str(p54.data_bio_tersimpan.get("nama_wali") or "").strip(),
+        f"nama wali DIISI bot padahal SM tidak punya data wali (mengarang wali): "
+        f"{p54.data_bio_tersimpan.get('nama_wali')!r}")
+    cek(any("mengarang wali" in b for b in j54),
+        f"alasan nama wali tidak diisi tidak dilaporkan: "
+        f"{[b for b in j54 if 'perbaikan' in b][:4]}")
+    cek(p54.tutup_jendela_ubah_kali == 1,
+        f"jendela «Ubah» ditutup {p54.tutup_jendela_ubah_kali}x (harus tepat 1x)")
+    cek(p54.data_periodik_tersimpan.get("jarak_rumah_ke_sekolah_km") == "2",
+        "langkah Data Periodik terganggu pada uji identitas wali")
+    cek(any(b.startswith("[OK]") for b in j54), f"Registrasi tidak jalan: {j54[-4:]}")
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 54 skenario")
     return 0
 
 

@@ -1618,7 +1618,7 @@ BOT_KEYS: tuple[str, ...] = (
     "bot_jawaban_ya", "bot_headless", "bot_simulasi", "bot_timeout",
     "bot_max_retries", "bot_jeda", "bot_jeda_muat", "bot_selector_json",
     "bot_pakai_nisn", "bot_sekolah_asal", "bot_data_periodik", "bot_periodik_jarak",
-    "bot_isi_bio",
+    "bot_isi_bio", "bot_wali_ikuti_ayah",
 )
 
 BOT_BAWAAN: dict[str, str] = {
@@ -1644,6 +1644,11 @@ BOT_BAWAAN: dict[str, str] = {
     #     data ayah & ibu) — persis skrip sekolah; dilewati dengan jujur bila tombolnya ada
     #     tetapi jendelanya tidak mau terbuka.
     "bot_isi_bio": "1",
+    # 1 = bila Dapodik menolak simpan karena kolom WAJIB di bagian Wali sementara siswa ini
+    #     tidak punya wali di data SM (aturan aplikasi: wali hanya bila nama ayah kosong) dan
+    #     Dapodik juga belum punya nama wali, kolom wali itu diisi MENGIKUTI data ayah supaya
+    #     penyimpanan bisa lanjut. Matikan bila sekolah tidak menghendaki kolom wali diisi.
+    "bot_wali_ikuti_ayah": "1",
 }
 
 #: Keadaan item bot.
