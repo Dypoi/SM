@@ -4738,8 +4738,10 @@ def cek_kolom_lewat_nama_dan_label_div() -> str:
                   # tertinggal terbuka menghalangi klik baris & daftar peserta didik yang
                   # tersegar sesudah Data Periodik disimpan; ronde 51 menambah 56–57 — antrean
                   # bot yang tidak membawa kolom desa, daftar desa & nilai desa yang baru muncul
-                  # sesudah ditunggu — sehingga 57).
-                  "57 skenario"):
+                  # sesudah ditunggu; ronde 52 menambah 58–59 — kolom desa diisi persis cara
+                  # pengguna (tunggu isian sebelumnya, Ctrl+A, ketik nama wilayahnya tanpa
+                  # awalan, baca ulang kotak pencariannya) — sehingga 59).
+                  "59 skenario"):
         assert tanda in uji, f"uji bot kehilangan pemeriksaan {tanda!r} (ronde 47)"
 
     return ("kolom dicari lewat NAMA lebih dulu (rt, rw, alamat_jalan, no_kk, kode_pos), label "
@@ -4903,7 +4905,7 @@ def cek_catatan_lengkap_bot() -> str:
     assert "_penjaga_unsur" in sumber_bot and "nilai-model-unsur" in sumber_bot, \
         "unsur pemegang nilai tidak diingat / pembacaan model Ext JS tidak ada"
     uji_bot = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
-    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "57 skenario",
+    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "59 skenario",
                   "kolomnya TIDAK ketemu", "kolom isian yang ADA di halaman"):
         assert tanda in uji_bot or tanda in (BASE_DIR / "scripts/peramban_palsu.py").read_text(
             encoding="utf-8"), f"uji/fixture kehilangan {tanda!r}"
@@ -5260,9 +5262,11 @@ def cek_perbaikan_simpan_bio():
         assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 50)"
     uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
     for judul in ("51. «Simpan» ditolak Dapodik", "52. pengaturan «Wali mengikuti ayah» mati",
-                  "53. «0» keras", "54. identitas wali tidak dikarang", "57 skenario",
+                  "53. «0» keras", "54. identitas wali tidak dikarang", "59 skenario",
                   "56. daftar desa baru muncul", "57. nilai desa baru muncul",
+                  "58. kecamatan/desa berawalan", "59. isian desa sebelumnya muncul sesudah",
                   "desa_nilai_muat_perlu_default", "desa_lambat_kali",
+                  "desa_cocok_ke_kolom_terpisah", "desa_isi_awal_muncul_setelah",
                   "55. jendela «Ubah» menghalangi baris", "jendela_bio_menghalangi",
                   "daftar_tersegar_sesudah_periodik", "baris_klik_terhalang", "daftar_tersegar",
                   "baris_dipilih_ulang_kali", "baris_terpilih_saat_registrasi",
@@ -5344,6 +5348,79 @@ def cek_antrean_desa():
             "tidak pernah sampai ke bot")
 
 
+@cek("45. Desa/Kelurahan diisi dengan cara pengguna: tunggu isian sebelumnya, Ctrl+A, ketik nama wilayahnya")
+def cek_ketik_desa_cara_pengguna():
+    """Ronde 52 — dari cara pengguna di sekolah mengisi kolom «Desa/Kelurahan».
+
+    Pengguna menuliskan caranya: «1. cari inputan bagian desa/kelurahan · 2. tunggu sampai
+    muncul isian data sebelumnya · 3. arahkan kursor ke text input lalu lakukan ctrl + a ·
+    4. ketik kecamatan sesuai bodap, misal data di bodap kecamatan neglasari, maka ketik
+    «neglasari» · 5. tunggu sampai muncul daftarnya, lalu pilih dan klik yang sesuai dengan
+    data bodap». Pemeriksaan ini menjaga tiga hal yang membuat log sekolah berbunyi «daftar
+    desa belum terlihat sesudah 30x baca» lalu «desa TIDAK ADA pada daftar Dapodik»:
+
+    * kata kunci yang DIKETIK adalah nama wilayahnya (awalan «Kec. »/«Desa/Kel. » dibuang),
+      sebab Dapodik mencari nama yang tersimpan di basis datanya — bukan label tampilannya;
+    * isian sebelumnya DITUNGGU sampai muncul sebelum kolomnya disentuh;
+    * kata kunci yang sudah diketik dibaca ulang & dibuktikan sampai ke kotak pencariannya.
+    """
+    import inspect
+
+    from app.bot_dapodik import BotDapodik
+
+    # (a) Awalan jabatan wilayah dibuang — diuji langsung pada fungsi bot yang dipakai.
+    assert BotDapodik._kata_ketik_wilayah("Kec. Batuceper") == "Batuceper", \
+        "«Kec. Batuceper» tidak dibersihkan menjadi «Batuceper» (cara pengguna: ketik namanya)"
+    assert BotDapodik._kata_ketik_wilayah("Desa/Kel. Karawaci Baru") == "Karawaci Baru", \
+        "«Desa/Kel. …» tidak dibersihkan menjadi nama desanya"
+    assert BotDapodik._kata_ketik_wilayah("Neglasari") == "Neglasari", \
+        "nama wilayah yang sudah bersih malah diubah"
+    assert BotDapodik._kata_ketik_wilayah("") == "", "teks kosong berubah"
+
+    # (b) Kata kunci itu yang diketik, dan isian sebelumnya ditunggu dulu.
+    bot = (BASE_DIR / "app/bot_dapodik.py").read_text(encoding="utf-8")
+    assert "_kata_ketik_wilayah(kecamatan)" in bot and "_kata_ketik_wilayah(desa)" in bot, \
+        "bot masih mengirim nama wilayah apa adanya ke kotak pencarian Dapodik"
+    for tanda in ("AWALAN_KETIK_WILAYAH", "ISI_AWAL_DESA_TUNGGU_DETIK",
+                  "awalan jabatan pada nama wilayah dibuang",
+                  "CATATAN BUKTI — kotak pencariannya berbunyi"):
+        assert tanda in bot, f"bot kehilangan {tanda!r} (ronde 52)"
+    badan = {nama: inspect.getsource(fungsi) for nama, fungsi in
+             inspect.getmembers(BotDapodik, predicate=inspect.isfunction)}
+    isi = badan["_isi_desa_kelurahan"]
+    assert "self._tunggu_isi_sebelumnya_desa(" in isi, \
+        "kolom desa tidak menunggu isian sebelumnya muncul (langkah 2 cara pengguna)"
+    assert "self._ketik_pencarian_desa(peramban, unsur, cari, awalan, label)" in isi, \
+        "pengisian kata kunci tidak memakai jalur «Ctrl+A + ketik + baca ulang»"
+    ketik = badan["_ketik_pencarian_desa"]
+    assert "Keys.CONTROL" in ketik and "kotak pencariannya berbunyi" in ketik, \
+        "Ctrl+A + pembacaan ulang isi kotak pencarian tidak ada di pengetikan desa"
+    assert "fokus-kotak-pencarian" in ketik, \
+        "jalan terakhir (fokus lewat JavaScript) tidak ada"
+    tunggu = badan["_tunggu_isi_sebelumnya_desa"]
+    assert "isian sebelumnya" in tunggu and "ISI_AWAL_DESA_TUNGGU_DETIK" in tunggu, \
+        "penantian isian sebelumnya tidak dilaporkan ke catatan bot"
+
+    # (c) Peramban palsu bisa menirukan dua keadaan sekolah itu + ujinya ada.
+    palsu = (BASE_DIR / "scripts/peramban_palsu.py").read_text(encoding="utf-8")
+    for tanda in ("desa_cocok_ke_kolom_terpisah", "desa_isi_awal_muncul_setelah",
+                  "desa_ketik_terlalu_awal", "desa_isi_awal_tunggu_kali",
+                  "bagian_pilihan_desa", "_terapkan_isi_awal_desa_tertunda"):
+        assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 52)"
+    uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
+    for judul in ("58. kecamatan/desa berawalan", "59. isian desa sebelumnya muncul sesudah "
+                  "ditunggu", "59 skenario"):
+        assert judul in uji, f"uji bot kehilangan {judul!r} (ronde 52)"
+
+    return ("kolom «Desa/Kelurahan» diisi persis cara pengguna: isian sebelumnya ditunggu "
+            "dulu (kata kunci yang datang terlalu dini tidak jadi dicari Dapodik), kursor "
+            "diarahkan ke kotak teksnya + Ctrl+A, yang diketik nama wilayahnya tanpa awalan "
+            "«Kec. »/«Desa/Kel. » (kecamatan lebih dulu, baru nama desanya), lalu isi kotak "
+            "pencariannya dibaca ulang sebagai bukti; kata kunci yang sudah diketik dicocokkan "
+            "ke kolom desa/kecamatan/kota Dapodik — bukan ke label tampilannya (uji tiruan "
+            "58–59, merah pada bot ronde 51)")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -5391,6 +5468,7 @@ def main() -> int:
     cek_kolom_melekat_pada_kolomnya()
     cek_perbaikan_simpan_bio()
     cek_antrean_desa()
+    cek_ketik_desa_cara_pengguna()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()

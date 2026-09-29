@@ -380,6 +380,21 @@ BUKTI_MAKSIMAL = 40
 #: maupun nilai pilihannya (lihat ``_batas_tunggu_desa``).
 DESA_TUNGGU_DETIK = 12.0
 
+#: Awalan jabatan pada nama wilayah yang DIBUANG sebelum kata kuncinya diketik ke kotak
+#: pencarian combo «Desa/Kelurahan» — ronde 52, dari cara pengguna di sekolah: «data di bodap
+#: adalah kecamatan neglasari, maka ketik «neglasari»». Data SM memuat nama wilayah apa adanya
+#: dari Excel Dapodik (mis. «Kec. Batuceper», «Desa/Kel. Karawaci Baru»), sedangkan Dapodik
+#: mencari **nama wilayah yang tersimpan di basis datanya** — bukan label tampilannya.
+AWALAN_KETIK_WILAYAH = ("desa/kel.", "desa/kel", "kelurahan", "kel.", "desa",
+                        "kecamatan", "kec.", "kabupaten", "kab.", "kotamadya", "kota",
+                        "provinsi", "prov.")
+
+#: Berapa detik bot menunggu ISI SEBELUMNYA muncul di kolom desa sebelum menyentuhnya.
+#: Langkah 2 cara pengguna (ronde 52): «tunggu sampai muncul isian data sebelumnya» — bila
+#: kolomnya disentuh terlalu dini, kata kunci yang diketik tidak jadi dicari Dapodik, dan
+#: itulah yang membuat daftar desanya terlihat «tidak pernah muncul».
+ISI_AWAL_DESA_TUNGGU_DETIK = 5.0
+
 #: Paling banyak berapa halaman daftar desa yang disusuri.
 #: Picker combo Dapodik memakai bilah halaman («Page 1 of 2» pada tangkapan layar sekolah):
 #: pilihan yang berada di halaman berikutnya tidak akan pernah terlihat — dan karena itu
@@ -4388,6 +4403,33 @@ class BotDapodik:
                  "kabupaten", "prov", "provinsi"}
         return " ".join(k for k in hasil.split() if k not in buang)
 
+    @classmethod
+    def _kata_ketik_wilayah(cls, teks: Any) -> str:
+        """Nama wilayah yang SIAP DIKETIK ke kotak pencarian Dapodik (ronde 52).
+
+        Data SM memuat nama wilayah apa adanya dari Excel Dapodik — «Kec. Batuceper»,
+        «Desa/Kel. Karawaci Baru» — sedangkan Dapodik mencari **nama wilayah yang tersimpan
+        di basis datanya** («Batuceper», «Karawaci Baru»). Cara pengguna di sekolah: «ketik
+        kecamatan sesuai bodap, misal data di bodap adalah kecamatan neglasari, maka ketik
+        «neglasari»». Jadi awalan jabatannya dibuang lebih dulu. Bila hasilnya kosong (mis.
+        nama wilayahnya memang hanya «Kota»), teks aslinya tetap dikembalikan — jangan sampai
+        yang diketik malah kosong.
+        """
+        asli = " ".join(str(teks or "").split())
+        hasil = asli
+        berubah = True
+        while berubah and hasil:
+            berubah = False
+            rendah = hasil.lower()
+            for awalan in AWALAN_KETIK_WILAYAH:
+                if rendah.startswith(awalan):
+                    sisa = hasil[len(awalan):].strip(" .,-/")
+                    if sisa:
+                        hasil = " ".join(sisa.split())
+                        berubah = True
+                    break
+        return hasil or asli
+
     @staticmethod
     def _tampil_desa(teks: Any) -> str:
         """Nama desa dari teks pilihan Dapodik, ditulis apa adanya (untuk pesan laporan)."""
@@ -4516,28 +4558,91 @@ class BotDapodik:
                                   "beberapa pilihan")
         return "", ""
 
-    def _ketik_pencarian_desa(self, peramban, unsur, kueri: str) -> str:
-        """Ketik kueri pencarian ke dalam kolom «Desa/Kelurahan» — persis cara pengguna.
+    def _tunggu_isi_sebelumnya_desa(self, peramban, unsur, awalan: str, label: str) -> str:
+        """Tunggu ISI SEBELUMNYA muncul di kolom desa — langkah 2 cara pengguna (ronde 52).
 
-        Skrip sekolah memakai ``Ctrl+A`` lalu mengetik; begitu pula di sini. Mengetik bukan
-        untuk mengisi nilainya (Dapodik hanya menyimpan pilihan yang ada di daftarnya),
-        melainkan untuk memicu Dapodik mengambil daftar desa untuk kecamatan itu.
+        «1. cari inputan bagian desa/kelurahan · 2. tunggu sampai muncul isian data
+        sebelumnya». Bila kolomnya disentuh sebelum isiannya selesai dimuat, kata kunci yang
+        diketik tidak jadi dicari Dapodik — inilah sebab laporan sekolah «daftar desa belum
+        terlihat» walaupun kata kuncinya benar. Kembalikan isi kolom yang terakhir terbaca
+        (dipakai juga sebagai isi yang harus dipulihkan bila desanya tidak ketemu).
+        """
+        batas = time.time() + ISI_AWAL_DESA_TUNGGU_DETIK
+        baca = 0
+        nilai = ""
+        while True:
+            baca += 1
+            nilai = self._nilai_teks(self._nilai_dropdown(peramban, unsur)[0])
+            if nilai or time.time() >= batas:
+                break
+            self._tunggu(peramban, 0.5)
+        if nilai and baca > 1:
+            self._catat_kepala(
+                f"{awalan} {label}: isian sebelumnya «{nilai}» baru muncul sesudah {baca}x baca "
+                "— kolomnya baru disentuh sesudah itu (langkah pengguna: tunggu dulu isian "
+                "sebelumnya muncul).")
+        elif not nilai:
+            self._catat_kepala(
+                f"{awalan} {label}: kolomnya masih kosong sesudah {baca}x baca — mungkin siswa "
+                "ini memang belum punya desa di Dapodik; kolomnya tetap dicoba (jangan dikira "
+                "gagal hanya karena isinya kosong).")
+        return nilai
+
+    def _ketik_pencarian_desa(self, peramban, unsur, kueri: str, awalan: str = "",
+                              label: str = "") -> str:
+        """Ketik kata kunci pencarian ke kolom «Desa/Kelurahan» — persis cara pengguna.
+
+        Ronde 52 (cara pengguna di sekolah): «arahkan kursor ke arah text input tersebut lalu
+        lakukan ctrl + a · ketik kecamatan ... · tunggu sampai muncul daftar nya». Mengetik
+        bukan untuk mengisi nilainya (Dapodik hanya menyimpan pilihan yang ada di daftarnya),
+        melainkan memicu Dapodik mencari desa untuk kata kunci itu. Sesudah diketik, isi
+        kotaknya **dibaca ulang**: kalau yang tertulis bukan kata kuncinya, bot mencoba sekali
+        lagi lewat fokus JavaScript dan mencatatnya apa adanya — supaya tidak lagi terjadi bot
+        «sudah mengetik» padahal Dapodik tidak mencari apa pun.
         """
         from selenium.webdriver.common.keys import Keys
 
+        kueri = str(kueri)
         try:
             self._paksa_terlihat(peramban, unsur)
+        except Exception:  # noqa: BLE001 — kolomnya tetap dicoba apa adanya
+            pass
+        kesan = ""
+        for percobaan in (1, 2):
             try:
-                unsur.click()
-            except Exception:  # noqa: BLE001 — fokus bisa ditelan lapisan pemuatan
-                pass
-            unsur.send_keys(Keys.CONTROL, "a")
-            unsur.send_keys(str(kueri))
-            return "diketik"
-        except Exception as exc:  # noqa: BLE001 — kolom readonly/kunci: daftar dibaca apa adanya
-            self._catat_kepala(f"[desa] kueri «{kueri}» tidak bisa diketik ke kolomnya "
-                               f"({type(exc).__name__}) — daftar dibaca apa adanya.")
-            return "gagal"
+                if percobaan == 2:
+                    # Fokus lewat JavaScript: cara terakhir bila klik pada kotaknya ditelan
+                    # lapisan pemuatan Dapodik.
+                    peramban.execute_script(
+                        "/* fokus-kotak-pencarian */ const el = arguments[0];"
+                        " if (el && el.focus) el.focus();", unsur)
+                else:
+                    try:
+                        unsur.click()
+                    except Exception:  # noqa: BLE001 — fokus bisa ditelan lapisan pemuatan
+                        pass
+                unsur.send_keys(Keys.CONTROL, "a")
+                unsur.send_keys(kueri)
+            except Exception as exc:  # noqa: BLE001 — kolom readonly/kunci: daftar dibaca apa adanya
+                self._catat_kepala(f"[desa] kueri «{kueri}» tidak bisa diketik ke kolomnya "
+                                   f"({type(exc).__name__}) — daftar dibaca apa adanya.")
+                return "gagal"
+            kesan = self._nilai_teks(self._nilai_dropdown(peramban, unsur)[0])
+            if kesan.strip().lower() == kueri.strip().lower():
+                if awalan:
+                    self._catat_kepala(
+                        f"{awalan} {label}: kotak pencariannya berbunyi «{kesan}» "
+                        f"(sesudah Ctrl+A + ketik, {percobaan}x) — kata kuncinya diterima "
+                        "kolomnya.")
+                return "diketik"
+            self._catat_kepala(
+                f"[desa] sesudah {percobaan}x ketik, kotak pencariannya berbunyi «{kesan}» — "
+                f"bukan «{kueri}»; dicoba sekali lagi lewat fokus JavaScript.")
+        if awalan:
+            self._catat_kepala(
+                f"{awalan} {label}: PERINGATAN — kotak pencariannya tetap berbunyi «{kesan}», "
+                f"bukan «{kueri}»; daftarnya dibaca apa adanya (bukti untuk ronde berikutnya).")
+        return "gagal"
 
     def _halaman_daftar_dropdown(self, peramban, unsur) -> tuple[int, int]:
         """(halaman sekarang, jumlah halaman) bilah halaman picker — (0, 0) bila tidak ada."""
@@ -4673,6 +4778,12 @@ class BotDapodik:
         jadi yang dicocokkan adalah **desa**-nya, dan kecamatan dipakai untuk memastikan
         pilihannya benar (nama desa bisa sama di kecamatan berbeda).
 
+        Ronde 52 — cara pengguna di sekolah diikuti setahap demi setahap: (1) kolom
+        «Desa/Kelurahan» dicari; (2) **isian sebelumnya ditunggu** sampai muncul; (3) kursor
+        diarahkan ke kotak teksnya, lalu ``Ctrl+A``; (4) nama **kecamatan** (atau desa) dari
+        data SM diketik — tanpa awalan «Kec.»/«Desa/Kel.»; (5) daftarnya ditunggu, digulir
+        bila perlu, lalu pilihan yang cocok diklik.
+
         Bot **tidak pernah** hanya mengetikkan nilainya: yang diketik adalah kata kunci
         pencarian, dan nilai kolomnya diambil dengan memilih dari daftar Dapodik — lalu
         diperiksa kembali dari nilai kolomnya.
@@ -4697,8 +4808,10 @@ class BotDapodik:
                                "dicoba apa adanya.")
         # Isi kolom SEBELUM bot menyentuhnya: kalau desa yang diminta tidak ada di daftar
         # Dapodik, isi lama ini dikembalikan supaya data Dapodik tidak ikut berubah karena
-        # kata kunci pencarian yang tertinggal di kotaknya.
-        nilai_awal = self._nilai_teks(self._nilai_dropdown(peramban, unsur)[0])
+        # kata kunci pencarian yang tertinggal di kotaknya. Ronde 52 — langkah 2 cara
+        # pengguna: isian sebelumnya ditunggu dulu; mengetik sebelum isiannya muncul membuat
+        # kata kunci itu tidak jadi dicari Dapodik.
+        nilai_awal = self._tunggu_isi_sebelumnya_desa(peramban, unsur, awalan, label)
         # Kode wilayah desa yang sedang tersimpan (``kode_wilayah_str``). Dipakai untuk
         # memastikan desa yang dipilih benar-benar PINDAH — bukan sekadar teksnya berubah.
         kode_terbaca, kode_awal = self._kode_wilayah(peramban, unsur)
@@ -4712,15 +4825,35 @@ class BotDapodik:
         self._catat_kepala(f"{awalan} {label}: isi sebelum disentuh — «{nilai_awal or '(kosong)'}»"
                            + pesan_kode)
         kueri: list[str] = []
-        for calon in (kecamatan, desa, self._kata_rapat(desa)):
+        # Ronde 52 — yang DIKETIK adalah nama wilayahnya, bukan label berawalan: data SM
+        # «Kec. Batuceper» → yang diketik «Batuceper»; «Desa/Kel. Karawaci Baru» →
+        # «Karawaci Baru». Kata kunci apa adanya (dari data SM) tetap dicoba paling akhir
+        # sebagai cadangan, dan apa yang diketik dilaporkan jujur ke catatan bot.
+        kecamatan_ketik = self._kata_ketik_wilayah(kecamatan)
+        desa_ketik = self._kata_ketik_wilayah(desa)
+        if kecamatan and kecamatan_ketik != kecamatan:
+            self._catat_kepala(
+                f"{awalan} {label}: awalan jabatan pada nama wilayah dibuang — data SM "
+                f"«{kecamatan}», yang diketik «{kecamatan_ketik}» (persis cara pengguna: "
+                "ketik nama kecamatan/desanya, bukan label «Kec. …»; Dapodik mencari nama "
+                "yang tersimpan di basis datanya).")
+        for calon in (kecamatan_ketik, desa_ketik, self._kata_rapat(desa_ketik),
+                      kecamatan, desa):
             if calon and calon.lower() not in {k.lower() for k in kueri}:
                 kueri.append(calon)
+        # Keterangan tambahan untuk kata kunci cadangan (apa adanya dari data SM).
+        catatan_kueri: dict[str, str] = {}
+        if kecamatan and kecamatan not in (kecamatan_ketik, desa_ketik):
+            catatan_kueri[kecamatan] = (" (kata kunci cadangan — apa adanya dari data SM, "
+                                        "sesudah yang tanpa awalan tidak menemukan apa-apa)")
+        if desa and desa not in (kecamatan_ketik, desa_ketik):
+            catatan_kueri[desa] = (" (kata kunci cadangan — apa adanya dari data SM)")
         cocok = ""
         catatan = ""
         semua: list[str] = []
         info: dict[str, Any] = {}
         for nomor, cari in enumerate(kueri, start=1):
-            if cari == kecamatan:
+            if cari in (kecamatan_ketik, kecamatan):
                 cara_cari = "kecamatan"
             elif self._kata_wilayah(cari) == self._kata_wilayah(desa):
                 cara_cari = "nama desa"
@@ -4728,9 +4861,9 @@ class BotDapodik:
                 cara_cari = "nama desa yang ditulis rapat (tanpa spasi)"
             self._catat_kepala(
                 f"{awalan} {label}: mengetik «{cari}» pada kolomnya (Dapodik mencari desa lewat "
-                f"{cara_cari}) — daftarnya diambil Dapodik dari basis datanya, jadi ditunggu "
-                "lebih dulu.")
-            self._ketik_pencarian_desa(peramban, unsur, cari)
+                f"{cara_cari}){catatan_kueri.get(cari, '')} — daftarnya diambil Dapodik dari "
+                "basis datanya, jadi ditunggu lebih dulu.")
+            self._ketik_pencarian_desa(peramban, unsur, cari, awalan, label)
             self._tunggu(peramban, 0.8)
             if not self._dropdown_terbuka(peramban, unsur):
                 for cara in ("panah", "panah-bawah", "kolom", "Ext JS"):
@@ -4755,6 +4888,18 @@ class BotDapodik:
                 f"{awalan} {label}: «{desa}» tidak ada pada hasil pencarian «{cari}» "
                 f"({len(semua)} pilihan dibaca, daftar digeser {info.get('geser', 0)}x, "
                 f"{info.get('halaman', 0)} halaman berikutnya dibuka).")
+            if not semua:
+                # Bukti untuk ronde berikutnya: bila daftarnya kosong, lihat apa yang
+                # SEBENARNYA tertulis di kotak pencariannya. Kalau bukan kata kunci yang
+                # diketik, berarti ketikan itu tidak sampai ke Dapodik — jangan disimpulkan
+                # «desanya tidak ada di Dapodik».
+                isi_kotak = self._nilai_teks(self._nilai_dropdown(peramban, unsur)[0])
+                if isi_kotak.strip().lower() != cari.strip().lower():
+                    self._catat_kepala(
+                        f"{awalan} {label}: CATATAN BUKTI — kotak pencariannya berbunyi "
+                        f"«{isi_kotak or '(kosong)'}», bukan «{cari}»; kemungkinan kata kunci "
+                        "ini tidak sampai ke kolom Dapodik (mis. kolomnya belum selesai memuat "
+                        "isian sebelumnya), jadi Dapodik tidak mencari apa pun.")
             if nomor < len(kueri):
                 self._catat_kepala(f"{awalan} {label}: kueri berikutnya dicoba dengan nama "
                                    "desanya.")

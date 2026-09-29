@@ -114,16 +114,51 @@ XPATH_DESA_SEKOLAH = ("/html/body/div[10]/div[2]/div/div[1]/div/div[1]/div/div/f
 DESA_PER_HALAMAN = 8
 
 
-def pilihan_desa_palsu(kueri: str) -> tuple[str, ...]:
+def bagian_pilihan_desa(teks: str) -> tuple[str, str, str]:
+    """(desa, kecamatan, kota) dari teks pilihan combo Dapodik.
+
+    «Desa/Kel. Karawaci Baru - Kec. Karawaci - Kota Tangerang» → («Karawaci Baru»,
+    «Karawaci», «Tangerang»). Dipakai untuk menirukan Dapodik yang mencocokkan kata kunci
+    dengan **nama wilayah yang tersimpan di basis datanya** — bukan label tampilannya yang
+    berawalan «Desa/Kel. … - Kec. …» (ronde 52).
+    """
+    bagian = [b.strip() for b in re.split(r"\s+-\s+", " ".join(str(teks or "").split()))
+              if b.strip()]
+    if not bagian:
+        return "", "", ""
+    awalan = (("desa/kel.", "desa/kel", "kelurahan", "kel.", "desa"),
+              ("kecamatan", "kec."), ("kotamadya", "kota", "kabupaten", "kab."))
+    keluar: list[str] = []
+    for posisi, awalan_pos in enumerate(awalan):
+        isi = bagian[posisi] if posisi < len(bagian) else ""
+        rendah = isi.lower()
+        for aw in awalan_pos:
+            if rendah.startswith(aw):
+                isi = isi[len(aw):].strip(" .,-/")
+                break
+        keluar.append(isi)
+    return keluar[0], keluar[1], keluar[2]
+
+
+def pilihan_desa_palsu(kueri: str, kolom_terpisah: bool = False) -> tuple[str, ...]:
     """Hasil pencarian combo «Desa/Kelurahan» Dapodik tiruan untuk sebuah kata kunci.
 
     Dapodik mencocokkan kata kunci dengan isi pilihannya (nama desa, kecamatan, atau kota).
     Persis seperti di sekolah: **mengetik nama kecamatan** menampilkan seluruh desa di
     kecamatan itu.
+
+    ``kolom_terpisah`` = Dapodik mencocokkan kata kunci dengan **nama wilayah yang tersimpan**
+    (desa/kecamatan/kota) alih-alih label tampilannya. Dalam keadaan itu «Kec. Batuceper»
+    tidak menemukan apa-apa, sedangkan «Batuceper» menemukan seluruh desa di kecamatan itu —
+    persis seperti laporan sekolah ronde 52 («ketik kecamatan sesuai bodap, misal ... ketik
+    «neglasari»»).
     """
     cari = " ".join(str(kueri or "").split()).lower()
     if not cari:
         return ()
+    if kolom_terpisah:
+        return tuple(teks for teks in DESA_KARAWACI_PALSU
+                     if any(cari in bagian.lower() for bagian in bagian_pilihan_desa(teks)))
     return tuple(teks for teks in DESA_KARAWACI_PALSU if cari in teks.lower())
 
 
@@ -953,6 +988,19 @@ class PerambanPalsu:
         self.desa_nilai_muat_perlu_default = 0
         #: Berapa kali daftar desa harus dibaca sebelum isinya muncul (bukti bot menunggu).
         self.desa_lambat_kali = 0
+        #: Ronde 52 — Dapodik mencocokkan kata kunci dengan nama desa/kecamatan/kota yang
+        #: TERSIMPAN di basis datanya, bukan label tampilannya: «Kec. Batuceper» tidak
+        #: menemukan apa-apa, «Batuceper» menemukan seluruh desa kecamatan itu. Persis cara
+        #: pengguna di sekolah: «ketik kecamatan sesuai bodap, misal ... ketik «neglasari»».
+        self.desa_cocok_ke_kolom_terpisah = False
+        #: Ronde 52 — berapa bacaan dulu sebelum ISI SEBELUMNYA muncul di kolom desa (langkah 2
+        #: cara pengguna: «tunggu sampai muncul isian data sebelumnya»). 0 = langsung ada.
+        self.desa_isi_awal_muncul_setelah = 0
+        #: Berapa kali bot mengetik SEBELUM isian sebelumnya muncul — Dapodik belum siap,
+        #: kata kunci itu tidak jadi dicari (bukti uji: harus 0).
+        self.desa_ketik_terlalu_awal = 0
+        #: Berapa bacaan sampai isian sebelumnya muncul (bukti bot benar-benar menunggu).
+        self.desa_isi_awal_tunggu_kali = 0
         #: True = combo tidak punya elemen tombol panah (hanya bisa dibuka lewat tombol ↓)
         self.dropdown_tanpa_panah = False
         #: Isi kolom BIO yang benar-benar tersimpan (name → nilai saat «Simpan» ditekan)
@@ -1353,6 +1401,9 @@ class PerambanPalsu:
                 # Combo desa pada data nyata SUDAH berisi pilihan lama (inilah data yang
                 # tidak boleh ikut berubah bila bot tidak menemukan desa yang diminta).
                 nilai_lama = DESA_LAMA_BIO if wilayah else ""
+                # Ronde 52 — langkah 2 cara pengguna: isian sebelumnya belum tentu sudah
+                # tampil saat jendela «Ubah» dibuka; kolomnya masih diisi Dapodik.
+                sembunyi_awal = bool(wilayah and self.desa_isi_awal_muncul_setelah)
                 # Ronde 47: kolom combo desa bisa TIDAK punya atribut ``name`` dan labelnya
                 # digambar sebagai div Ext JS — persis keadaan yang membuat bot melaporkan
                 # «kolomnya tidak ketemu». Yang tersisa untuk menemukannya: XPath lengkap
@@ -1378,8 +1429,11 @@ class PerambanPalsu:
                 combo = UnsurPalsu(self, "input", type="text", name=nama_unsur,
                                    label=label_unsur, label_div=label_div,
                                    kunci_data=nama, jalur=jalur_unsur,
-                                   bio=True, nilai=nilai_lama, nilai_model=nilai_lama,
-                                   nilai_id=(DESA_LAMA_ID if wilayah else ""),
+                                   bio=True,
+                                   nilai=("" if sembunyi_awal else nilai_lama),
+                                   nilai_model=("" if sembunyi_awal else nilai_lama),
+                                   nilai_id=("" if sembunyi_awal
+                                             else (DESA_LAMA_ID if wilayah else "")),
                                    aria="combobox", role="combobox",
                                    # Combo desa BISA diketik (di situlah kecamatan
                                    # diketikkan); combo lain readonly — persis Dapodik.
@@ -1399,6 +1453,9 @@ class PerambanPalsu:
                     combo.halaman = 0
                     combo.halaman_maks = 0
                     combo._item_halaman = 0
+                    if sembunyi_awal:
+                        combo.isi_awal_sudah_muncul = False
+                        combo.isi_awal_baca = 0
                 self.unsur.append(combo)
                 if not self.dropdown_tanpa_panah:
                     panah = UnsurPalsu(self, "div",
@@ -1420,7 +1477,7 @@ class PerambanPalsu:
                     if not self.tanpa_kode_wilayah:
                         sembunyi = UnsurPalsu(self, "input", type="hidden",
                                               name="kode_wilayah_str", bio=True,
-                                              nilai=DESA_LAMA_ID)
+                                              nilai=("" if sembunyi_awal else DESA_LAMA_ID))
                         self.kode_wilayah_kolom = sembunyi
                         self.unsur.append(sembunyi)
                     continue          # pilihannya baru ada setelah kata kunci diketik
@@ -1763,11 +1820,18 @@ class PerambanPalsu:
         kemudian, persis Dapodik yang datanya tidak langsung muncul.
         """
         rapikan = " ".join(str(kueri or "").split())
+        if getattr(combo, "isi_awal_sudah_muncul", True) is False:
+            # Ronde 52 — langkah 2 cara pengguna: kolomnya belum selesai memuat isian
+            # sebelumnya, jadi ketikan ini TIDAK jadi dicari Dapodik (kata kuncinya tidak
+            # sampai). Bot harus menunggu isian sebelumnya muncul lebih dulu.
+            self.desa_ketik_terlalu_awal += 1
+            return
         self.desa_kueri_dipakai.append(rapikan)
         combo.nilai = rapikan            # tulisan yang diketik pengguna tampak di kotaknya
         combo.nilai_model = ""           # belum ada pilihan yang tersimpan sebelum dipilih
         combo.nilai_id = ""
-        combo.desa_hasil = pilihan_desa_palsu(rapikan)
+        combo.desa_hasil = pilihan_desa_palsu(
+            rapikan, kolom_terpisah=bool(self.desa_cocok_ke_kolom_terpisah))
         combo.halaman = 1 if combo.desa_hasil else 0
         combo.halaman_maks = (max(1, -(-len(combo.desa_hasil) // DESA_PER_HALAMAN))
                               if combo.desa_hasil else 0)
@@ -1857,6 +1921,28 @@ class PerambanPalsu:
             return False
         # Setiap 30 px gulir menyingkap satu baris lagi (tinggi baris ±30 px).
         return posisi < self.dropdown_band + (self.gulir_daftar_px // 30)
+
+    def _terapkan_isi_awal_desa_tertunda(self, combo: "UnsurPalsu") -> None:
+        """Isian SEBELUMNYA muncul sesudah beberapa bacaan — langkah 2 cara pengguna (ronde 52).
+
+        Di jendela «Ubah», kolom «Desa/Kelurahan» belum selalu sudah memuat desa yang lama
+        saat dibuka: Dapodik masih mengambilnya dari basis data. Kolom yang disentuh sebelum
+        isiannya muncul tidak menerima kata kunci pencarian — sebab itulah bot harus menunggu
+        dulu (dan mengapa bot versi lama melaporkan «daftar desa belum terlihat»).
+        """
+        if getattr(combo, "isi_awal_sudah_muncul", True):
+            return
+        combo.isi_awal_baca = int(getattr(combo, "isi_awal_baca", 0)) + 1
+        if combo.isi_awal_baca <= int(self.desa_isi_awal_muncul_setelah or 0):
+            self.desa_isi_awal_tunggu_kali = combo.isi_awal_baca
+            return
+        combo.nilai = getattr(combo, "nilai_lama", "")
+        combo.nilai_model = getattr(combo, "nilai_model_lama", "")
+        combo.nilai_id = getattr(combo, "nilai_id_lama", "")
+        combo.isi_awal_sudah_muncul = True
+        if self.kode_wilayah_kolom is not None and combo.nilai_id != "":
+            # Kolom tersembunyi ``kode_wilayah_str`` ditulis bersama tampilan desanya.
+            self.kode_wilayah_kolom.nilai = combo.nilai_id
 
     def _terapkan_nilai_desa_tertunda(self, combo: "UnsurPalsu") -> None:
         """Nilai pilihan desa baru tampil sesudah beberapa bacaan (persis Dapodik).
@@ -2818,6 +2904,9 @@ class PerambanPalsu:
             if sasaran is None:
                 return {}
             if getattr(sasaran, "pencarian_desa", False):
+                # Ronde 52: isian SEBELUMNYA pun muncul sesudah ditunggu (langkah 2 cara
+                # pengguna) — tiap bacaan memajukan pemunculannya.
+                self._terapkan_isi_awal_desa_tertunda(sasaran)
                 # Tiap bacaan memajukan penulisan nilai desa yang tertunda (ronde 51).
                 self._terapkan_nilai_desa_tertunda(sasaran)
             if self.dropdown_tanpa_ext:

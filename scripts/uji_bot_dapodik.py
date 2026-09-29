@@ -1383,7 +1383,69 @@ def main() -> int:
         f"{[b for b in j57 if 'Desa/Kelurahan' in b][-3:]}")
     cek(any(b.startswith("[OK]") for b in j57), f"Registrasi tidak jalan: {j57[-4:]}")
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 57 skenario")
+    # 58) Cara pengguna di sekolah (ronde 52): «ketik kecamatan sesuai bodap, misal data di
+    #     bodap adalah kecamatan neglasari, maka ketik «neglasari»». Data SM memuat nama
+    #     wilayah apa adanya dari Excel Dapodik («Kec. Karawaci», «Desa/Kel. Karawaci Baru»),
+    #     sedangkan Dapodik mencari NAMA WILAYAH yang tersimpan di basis datanya. Uji ini
+    #     menirukan Dapodik yang mencocokkan kata kunci ke kolom desa/kecamatan/kota — bukan
+    #     ke label tampilannya: «Kec. Karawaci» tidak menemukan apa-apa, «Karawaci» menemukan
+    #     seluruh desa di kecamatan itu. Bot versi lama mengirim kata kunci apa adanya dan
+    #     melaporkan «desa tidak ada pada daftar Dapodik» (persis log sekolah).
+    p58, j58 = jalankan(
+        "58. kecamatan/desa berawalan «Kec.» & «Desa/Kel.» → yang diketik namanya saja", 2,
+        atur=lambda p: (p.siapkan_bio(), setattr(p, "desa_cocok_ke_kolom_terpisah", True)),
+        ubah_siswa={"kecamatan": "Kec. Karawaci", "kelurahan": "Desa/Kel. Karawaci Baru"},
+        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p58.desa_kueri_dipakai and p58.desa_kueri_dipakai[0] == "Karawaci",
+        f"kata kunci pertama bukan nama kecamatan tanpa awalan: {p58.desa_kueri_dipakai}")
+    cek(not any(k.strip().lower().startswith(("kec.", "desa/kel."))
+                for k in p58.desa_kueri_dipakai[:1]),
+        f"kata kunci pertama masih membawa awalan jabatan: {p58.desa_kueri_dipakai}")
+    cek(any("awalan jabatan pada nama wilayah dibuang" in b for b in j58),
+        f"bot tidak melaporkan pembuangan awalan: {[b for b in j58 if 'Desa/Kelurahan' in b][:4]}")
+    cek(any("kotak pencariannya berbunyi" in b and "Ctrl+A" in b for b in j58),
+        f"bot tidak membuktikan kata kuncinya sampai ke kotak pencarian: "
+        f"{[b for b in j58 if 'pencariannya' in b][:3]}")
+    cek(str(p58.data_bio_tersimpan.get("kelurahan") or "").strip() != ""
+        and "Karawaci Baru" in str(p58.data_bio_tersimpan.get("kelurahan")),
+        f"desa tidak terisi pada uji kata kunci berawalan: "
+        f"{p58.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p58.kode_wilayah() == kode_desa_palsu(DESA_PILIH_PALSU),
+        f"kode wilayah bukan milik desa yang dipilih: {p58.kode_wilayah()!r}")
+    cek(not any("TIDAK ADA pada daftar Dapodik" in b for b in j58),
+        f"bot melaporkan desanya tidak ada (persis keluhan sekolah): "
+        f"{[b for b in j58 if 'TIDAK ADA' in b][:2]}")
+    cek(any(b.startswith("[OK]") for b in j58), f"Registrasi tidak jalan: {j58[-4:]}")
+
+    # 59) Langkah 2 cara pengguna (ronde 52): «tunggu sampai muncul isian data sebelumnya» —
+    #     bila kolomnya disentuh sebelum isian sebelumnya muncul, kata kunci yang diketik TIDAK
+    #     jadi dicari Dapodik dan daftarnya selamanya kosong (itulah «daftar desa belum
+    #     terlihat sesudah 30x baca» pada log sekolah). Uji ini menirukan isian sebelumnya yang
+    #     baru muncul sesudah beberapa bacaan: bot harus menunggu dulu, bukan langsung mengetik.
+    p59, j59 = jalankan(
+        "59. isian desa sebelumnya muncul sesudah ditunggu → bot menunggu dulu", 2,
+        atur=lambda p: (p.siapkan_bio(), setattr(p, "desa_cocok_ke_kolom_terpisah", True),
+                        setattr(p, "desa_isi_awal_muncul_setelah", 6)),
+        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p59.desa_isi_awal_tunggu_kali >= 5,
+        f"uji tidak bermakna: isian sebelumnya sudah muncul terlalu cepat "
+        f"({p59.desa_isi_awal_tunggu_kali} bacaan)")
+    cek(p59.desa_ketik_terlalu_awal == 0,
+        f"bot mengetik {p59.desa_ketik_terlalu_awal}x SEBELUM isian sebelumnya muncul — "
+        "kata kunci itu tidak jadi dicari Dapodik (sebab «daftar desa belum terlihat» di "
+        "sekolah)")
+    cek(any("isian sebelumnya" in b and "baru muncul sesudah" in b for b in j59),
+        f"bot tidak melaporkan penantian isian sebelumnya: "
+        f"{[b for b in j59 if 'Desa/Kelurahan' in b][:4]}")
+    cek(str(p59.data_bio_tersimpan.get("kelurahan") or "").strip() != ""
+        and "Karawaci Baru" in str(p59.data_bio_tersimpan.get("kelurahan")),
+        f"desa tidak terisi pada uji isian sebelumnya yang tertunda: "
+        f"{p59.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p59.kode_wilayah() == kode_desa_palsu(DESA_PILIH_PALSU),
+        f"kode wilayah bukan milik desa yang dipilih: {p59.kode_wilayah()!r}")
+    cek(any(b.startswith("[OK]") for b in j59), f"Registrasi tidak jalan: {j59[-4:]}")
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 59 skenario")
     return 0
 
 
