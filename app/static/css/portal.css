@@ -1,0 +1,826 @@
+/* SM — tema **portal siswa** (ramah anak, kelas 7 SMP: 12–13 tahun).
+ *
+ * Dimuat SETELAH app.css dan hanya menyentuh elemen di dalam `.portal-shell`,
+ * jadi halaman petugas (tabel padat) tidak berubah sama sekali.
+ *
+ * Prinsipnya: huruf lebih besar, tombol besar & mudah disentuh di HP, kartu
+ * membulat dengan bayangan lembut, kalimat sederhana, warna ceria tapi tetap
+ * rapi seperti aplikasi sekolah.
+ */
+
+.portal-shell {
+  --pl-radius: 18px;
+  --pl-primary: #2563eb;
+  --pl-primary-tua: #1d4ed8;
+  --pl-primary-lembut: #e9f1ff;
+  --pl-ceria: #f59e0b;
+  --pl-ceria-lembut: #fff4e3;
+  --pl-hijau: #15a34a;
+  --pl-hijau-lembut: #e8f9ee;
+  --pl-merah: #dc2626;
+  --pl-merah-lembut: #fdecec;
+  --pl-tinta: #17233d;
+  --pl-redup: #5b6884;
+  --pl-garis: #e6edf8;
+  --pl-latar: #f3f7fd;
+
+  min-height: 100vh;
+  background: var(--pl-latar);
+  color: var(--pl-tinta);
+  font-size: 16.5px;
+  line-height: 1.55;
+  padding-bottom: 96px;
+}
+
+/* ---------- Bilah atas ---------- */
+.pl-bar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: .55rem clamp(.75rem, 3vw, 1.4rem);
+  background: #fff;
+  border-bottom: 1px solid var(--pl-garis);
+}
+
+.pl-brand {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.pl-brand .pl-logo {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  background: linear-gradient(140deg, #3b82f6, var(--pl-primary-tua));
+  color: #fff;
+  flex: none;
+}
+
+.pl-brand .pl-logo svg { width: 22px; height: 22px; }
+
+.pl-brand strong { display: block; font-size: 1.02rem; letter-spacing: .01em; }
+.pl-brand small {
+  display: block;
+  color: var(--pl-redup);
+  font-size: .78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pl-bar-user { margin-left: auto; display: flex; align-items: center; gap: .5rem; }
+
+.pl-siapa {
+  display: none;
+  align-items: center;
+  gap: .45rem;
+  background: var(--pl-primary-lembut);
+  color: var(--pl-primary-tua);
+  font-weight: 600;
+  font-size: .86rem;
+  padding: .3rem .7rem .3rem .35rem;
+  border-radius: 999px;
+}
+
+.pl-siapa .pl-mini {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--pl-primary-tua);
+  font-size: .8rem;
+  font-weight: 800;
+}
+
+.pl-keluar {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  min-height: 40px;
+  padding: .4rem .8rem;
+  border: 1px solid var(--pl-garis);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--pl-redup);
+  font: inherit;
+  font-size: .86rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pl-keluar:hover { background: #f7f9fd; color: var(--pl-tinta); }
+.pl-keluar svg { width: 18px; height: 18px; }
+
+/* ---------- Isi ---------- */
+.pl-main {
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: clamp(.9rem, 3vw, 1.5rem) clamp(.8rem, 3vw, 1.2rem) 1.5rem;
+}
+
+.pl-main > * + * { margin-top: 1rem; }
+
+/* Halaman dengan dua kolom (isian + lampiran berkas) di layar lebar: kerangka
+   760 px membuat kolom isian hanya ~385 px sehingga kisi formulir 2 kolom
+   tergencet dan isiannya terpotong (keluhan sekolah ronde 38). */
+.pl-main-lebar { width: min(1060px, 100%); }
+
+.pl-judul {
+  font-size: 1.32rem;
+  margin: 0 0 .2rem;
+  letter-spacing: -.01em;
+}
+
+.pl-sub { margin: 0; color: var(--pl-redup); font-size: .95rem; }
+
+/* Kartu sambutan (hero) */
+.pl-hero {
+  position: relative;
+  /* Popup «!» harus boleh keluar dari kartu → jangan dipotong; dekorasi
+     lingkaran dipindah ke dalam batas kartu agar tetap rapi. */
+  overflow: visible;
+  border-radius: 22px;
+  padding: 1.15rem 1.25rem;
+  color: #fff;
+  background: linear-gradient(135deg, #3b82f6 0%, var(--pl-primary) 52%, var(--pl-primary-tua) 100%);
+  box-shadow: 0 10px 26px rgba(29, 78, 216, .22);
+}
+
+.pl-hero::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .12);
+  pointer-events: none;
+}
+
+.pl-hero-isi { position: relative; display: flex; align-items: center; gap: .95rem; flex-wrap: wrap; }
+
+.pl-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .95);
+  color: var(--pl-primary-tua);
+  font-size: 1.6rem;
+  font-weight: 800;
+}
+
+.pl-hero h2 { margin: 0 0 .35rem; font-size: 1.3rem; }
+.pl-hero p { margin: 0; font-size: .92rem; opacity: .95; }
+
+.pl-keping {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .22rem .62rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .2);
+  color: #fff;
+  font-size: .82rem;
+  font-weight: 600;
+}
+
+.pl-hero-baris { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .55rem; }
+
+/* Kartu umum */
+.pl-card {
+  background: #fff;
+  border: 1px solid var(--pl-garis);
+  border-radius: var(--pl-radius);
+  box-shadow: 0 6px 20px rgba(23, 35, 61, .055);
+  padding: 1.05rem 1.15rem;
+}
+
+.pl-card > h3,
+.pl-card-judul {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin: 0 0 .2rem;
+  font-size: 1.08rem;
+}
+
+.pl-card-judul svg { width: 20px; height: 20px; color: var(--pl-primary); }
+.pl-card-ket { margin: 0 0 .8rem; color: var(--pl-redup); font-size: .9rem; }
+
+/* Petak aksi besar (mudah disentuh di HP) */
+.pl-petak { display: grid; gap: .7rem; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); } .pl-petak { grid-template-columns: repeat(auto-fit, minmax(min(215px, 100%), 1fr)); }
+/* Kartu kegiatan lebih banyak teksnya (nama + jadwal + tombol) → kolomnya
+   dibuat lebih lebar supaya «Jadwal belum ditetapkan · 0 anggota» tidak
+   terpotong menjadi banyak baris di layar sempit. */
+.pl-petak.pl-petak-lebar { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); } .pl-petak.pl-petak-lebar { grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); }
+
+.pl-aksi {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  min-height: 64px;
+  padding: .8rem .9rem;
+  border: 1px solid var(--pl-garis);
+  border-radius: 16px;
+  background: #fff;
+  color: inherit;
+  text-decoration: none;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+
+/* Dipakai juga sebagai <button> (mis. «Cetak / simpan PDF») → warisi huruf halaman.
+   flex-wrap supaya teks panjang membungkus ke baris berikutnya, bukan meluber
+   keluar kartu (kesalahan yang terlihat di halaman kegiatan pada ronde 34). */
+.pl-aksi { font: inherit; text-align: left; cursor: pointer; width: 100%; flex-wrap: wrap; }
+.pl-aksi > span:not(.pl-aksi-ikon) { min-width: 0; flex: 1 1 12ch; }
+.pl-aksi:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(23, 35, 61, .09); }
+.pl-aksi strong { display: block; font-size: 1rem; }
+.pl-aksi span { display: block; color: var(--pl-redup); font-size: .84rem; }
+
+/* Lencana ikon. Selector kedua (`.pl-aksi .pl-aksi-ikon`) sengaja lebih khusus
+   daripada aturan teks `.pl-aksi span { display: block; … }` di atas: dulu aturan
+   itu menang sehingga lencananya menjadi `block` dan ikon menempel di pojok
+   kiri-atas, bukan di tengah. */
+.pl-aksi-ikon,
+.pl-aksi .pl-aksi-ikon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: var(--pl-primary-lembut);
+  color: var(--pl-primary-tua);
+}
+
+.pl-aksi-ikon svg { width: 25px; height: 25px; }
+.pl-aksi.utama { background: var(--pl-primary-lembut); border-color: #cfe0ff; }
+.pl-aksi.utama .pl-aksi-ikon { background: #fff; }
+.pl-aksi.perhatian .pl-aksi-ikon { background: var(--pl-ceria-lembut); color: #b45309; }
+.pl-aksi.perhatian { border-color: #f6e3c4; }
+.pl-aksi.selesai .pl-aksi-ikon { background: var(--pl-hijau-lembut); color: var(--pl-hijau); }
+.pl-aksi.selesai { border-color: #ccecd8; }
+
+/* Daftar data yang mudah dibaca */
+.pl-baris {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: .6rem .1rem;
+  border-bottom: 1px dashed var(--pl-garis);
+}
+
+.pl-baris:last-child { border-bottom: 0; }
+.pl-baris dt, .pl-baris .pl-label { color: var(--pl-redup); font-size: .9rem; }
+.pl-baris dd, .pl-baris .pl-nilai { margin: 0; font-weight: 600; text-align: right; }
+
+.pl-kosong { color: #b45309; font-weight: 600; }
+.pl-kosong::before { content: "○ "; }
+
+.pl-seksi {
+  margin: 1rem 0 .35rem;
+  font-size: .78rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--pl-redup);
+  font-weight: 700;
+}
+
+/* Kelengkapan data */
+.pl-progress {
+  height: 14px;
+  border-radius: 999px;
+  background: #e8eef8;
+  overflow: hidden;
+  margin: .55rem 0 .3rem;
+}
+
+.pl-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #34d399, var(--pl-hijau));
+}
+
+.pl-progress.warn > span { background: linear-gradient(90deg, #fbbf24, var(--pl-ceria)); }
+
+.pl-angka { font-size: 1.5rem; font-weight: 800; }
+
+.pl-tanda {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .26rem .6rem;
+  border-radius: 999px;
+  font-size: .84rem;
+  font-weight: 700;
+}
+
+.pl-tanda.ok { background: var(--pl-hijau-lembut); color: #10753a; }
+.pl-tanda.tunggu { background: var(--pl-ceria-lembut); color: #a35b06; }
+.pl-tanda.kosong { background: #eef1f7; color: var(--pl-redup); }
+.pl-tanda.gagal { background: var(--pl-merah-lembut); color: #b91c1c; }
+
+/* Kartu kegiatan (ekskul) */
+/* Kartu kegiatan (halaman siswa): ikon duduk SEBARIS dengan nama kegiatan —
+   sebelumnya kotak ikon 46 px menggantung di pojok kartu yang tinggi sehingga
+   terlihat «tidak pada tempatnya». Susunannya: kepala (ikon + nama) → jadwal →
+   tombol; semuanya rata karena memakai flex, bukan tebakan piksel. */
+.pl-kegiatan {
+  display: flex;
+  flex-direction: column;      /* kepala → jadwal → tombol; WAJIB menurun */
+  gap: .3rem;
+  border: 1px solid var(--pl-garis);
+  border-radius: 16px;
+  padding: .8rem .85rem;
+  background: #fff;
+  min-width: 0;
+  height: 100%;
+}
+.pl-kegiatan-kepala { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.pl-kegiatan-kepala strong { display: block; font-size: 1rem; line-height: 1.25; }
+.pl-kegiatan-ikon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: var(--pl-primary-lembut);
+  color: var(--pl-primary-tua);
+}
+.pl-kegiatan-ikon svg { width: 18px; height: 18px; }
+.pl-kegiatan-ket { color: var(--pl-redup); font-size: .85rem; line-height: 1.4; }
+.pl-kegiatan-aksi { margin-top: auto; padding-top: .5rem; }
+.pl-kegiatan-tombol {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .4rem;
+}
+
+.pl-kegiatan + .pl-kegiatan { margin-top: .6rem; }
+.pl-kegiatan strong { font-size: 1.02rem; }
+.pl-kegiatan .pl-ket { color: var(--pl-redup); font-size: .87rem; }
+
+/* ---------- Menu bawah (seperti aplikasi HP) ---------- */
+.pl-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: #fff;
+  border-top: 1px solid var(--pl-garis);
+  box-shadow: 0 -6px 20px rgba(23, 35, 61, .07);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.pl-nav > a,
+.pl-nav > form { display: block; margin: 0; }
+
+.pl-nav a,
+.pl-nav button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .15rem;
+  width: 100%;
+  min-height: 64px;
+  padding: .45rem .2rem;
+  border: 0;
+  background: none;
+  color: var(--pl-redup);
+  font: inherit;
+  font-size: .74rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.pl-nav svg { width: 24px; height: 24px; }
+.pl-nav a.aktif, .pl-nav a[aria-current="page"] { color: var(--pl-primary-tua); background: var(--pl-primary-lembut); }
+.pl-nav button:hover, .pl-nav a:hover { color: var(--pl-primary-tua); }
+
+/* ---------- Kaki ---------- */
+.pl-foot {
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: 0 clamp(.8rem, 3vw, 1.2rem) 1.2rem;
+  color: var(--pl-redup);
+  font-size: .82rem;
+  text-align: center;
+}
+
+/* ---------- Penyesuaian komponen app.css di dalam portal ---------- */
+.portal-shell .card { border-radius: var(--pl-radius); border: 1px solid var(--pl-garis); }
+.portal-shell .card-head h3 { font-size: 1.06rem; }
+.portal-shell .card-head p { font-size: .88rem; }
+.portal-shell h1, .portal-shell h2 { letter-spacing: -.01em; }
+.portal-shell .muted, .portal-shell .soft { color: var(--pl-redup); }
+.portal-shell .badge { padding: .28rem .62rem; border-radius: 999px; font-size: .82rem; font-weight: 700; }
+.portal-shell .chip { background: #eef2f9; border-radius: 999px; padding: .25rem .6rem; font-size: .84rem; }
+.portal-shell .btn { min-height: 44px; border-radius: 13px; font-size: .96rem; }
+.portal-shell .btn-sm { min-height: 38px; font-size: .88rem; }
+.portal-shell .data th, .portal-shell .data td { padding: .68rem .6rem; font-size: .95rem; }
+.portal-shell .data thead th { background: #f7fafd; }
+.portal-shell .table-wrap { border-radius: 14px; }
+.portal-shell .progress { height: 14px; border-radius: 999px; }
+.portal-shell input, .portal-shell select, .portal-shell textarea { font-size: 1rem; }
+.portal-shell label { font-size: .95rem; }
+.portal-shell .alert { border-radius: 14px; }
+
+/* Layar lebar: ruang lebih lega, menu bawah tetap di bawah. */
+@media (min-width: 720px) {
+  .pl-siapa { display: inline-flex; }
+  .portal-shell { font-size: 17px; }
+}
+
+/* Saat dicetak (mis. orang tua minta salinan data): tanpa menu & tombol. */
+@media print {
+  .pl-nav, .pl-bar-user, .pl-foot { display: none !important; }
+  .portal-shell { padding-bottom: 0; background: #fff; }
+  .pl-hero { color: #000; background: #fff; border: 1px solid #ccc; box-shadow: none; }
+  .pl-hero::after { display: none; }
+  .pl-card, .pl-aksi, .pl-kegiatan { box-shadow: none; }
+}
+
+
+/* ========================================================================== */
+/* Halaman MASUK — bagian siswa dibuat ramah anak (ronde 29)                  */
+/* Semua aturan di bawah hanya berlaku pada halaman login, dan bagian siswa    */
+/* ditandai .pl-masuk-siswa; tampilan petugas tidak diubah selain tombol yang  */
+/* diperbesar supaya mudah disentuh di HP.                                    */
+/* ========================================================================== */
+
+.login-ramah {
+  --pl-primary: #2563eb;
+  --pl-primary-tua: #1d4ed8;
+  --pl-primary-lembut: #e9f1ff;
+  --pl-hijau: #15a34a;
+  --pl-hijau-lembut: #e8f9ee;
+  --pl-tinta: #17233d;
+  --pl-redup: #5b6884;
+  --pl-garis: #e6edf8;
+}
+
+/* Tab peran: sasaran sentuh besar dan tulisan jelas. */
+.login-ramah .switch button { min-height: 66px; border-radius: 15px; }
+.login-ramah .switch button .icon { width: 22px; height: 22px; }
+.login-ramah .switch button strong { font-size: .97rem; }
+.login-ramah .switch button small { font-size: .78rem; }
+.login-ramah .pl-tab-siswa.active { border-color: #bcd6ff; background: var(--pl-primary-lembut); }
+
+.login-ramah .login-card h2 { font-size: 1.5rem; letter-spacing: -.01em; }
+.login-ramah .login-card .sub { font-size: .9rem; }
+
+/* Kartu sapaan siswa */
+.pl-sapa {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  padding: .8rem .9rem;
+  margin-bottom: .9rem;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #eef6ff, #e6f0ff);
+  border: 1px solid #d5e5ff;
+}
+
+.pl-sapa-ikon {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border: 1px solid #d5e5ff;
+  color: var(--pl-primary);
+}
+
+.pl-sapa-ikon svg { width: 20px; height: 20px; }
+/* Semua aturan di bawah memakai pembatas `>` supaya hanya menyentuh teksnya:
+   lencana ikon (`.pl-sapa-ikon`) tidak boleh ikut menjadi `display: block`
+   (ikonnya akan menempel di pojok, bukan di tengah), dan kata yang ditebalkan
+   di tengah kalimat («NISN») tidak boleh jadi baris sendiri. */
+.pl-sapa > div > strong { display: block; font-size: 1.08rem; color: var(--pl-primary-tua); }
+.pl-sapa > div > span { display: block; font-size: .92rem; color: #3c4a68; }
+.pl-sapa > div > span strong { display: inline; font-size: inherit; }
+
+.pl-masuk-siswa .login-siswa-head .ikon { background: var(--pl-hijau-lembut); color: var(--pl-hijau); }
+.pl-masuk-siswa .login-siswa-head h3 { font-size: 1.05rem; }
+.pl-masuk-siswa .login-siswa-head p { font-size: .9rem; }
+
+/* Layar HP: hero dipersingkat supaya isian langsung terlihat. */
+@media (max-width: 720px) {
+  .login-ramah .login-hero { padding: 1.3rem 1.1rem; gap: .7rem; }
+  .login-ramah .login-hero h1 { font-size: 1.35rem; }
+  .login-ramah .login-hero p { font-size: .9rem; }
+  .login-ramah .login-peran-kartu span { font-size: .82rem; }
+  .login-ramah .login-page > .login-hero .login-features { display: none; }
+  .pl-masuk-siswa input.input-nisn { font-size: 1.3rem; }
+}
+
+
+/* ---------- «Dataku»: kartu per kelompok + pencarian (ronde 31) ---------- */
+/* Tabel gaya lembar kerja diganti baris «nama data — isi» yang mudah dibaca anak. */
+.portal-shell .pl-grup { scroll-margin-top: 70px; }
+
+.portal-shell .pl-baris {
+  align-items: flex-start;
+  gap: .6rem;
+  padding: .58rem .1rem;
+}
+
+.portal-shell .pl-baris dt { flex: 0 1 46%; }
+.portal-shell .pl-baris dd { flex: 1 1 54%; overflow-wrap: anywhere; }
+.portal-shell .pl-baris dd .pl-tanda { margin-left: .35rem; vertical-align: middle; }
+.portal-shell .pl-baris details summary { color: var(--pl-primary-tua); }
+
+/* Kotak pencarian data */
+.pl-cari {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .55rem .75rem;
+  border: 1px solid #cfe0ff;
+  border-radius: 14px;
+  background: #f7fbff;
+}
+
+.pl-cari svg { width: 20px; height: 20px; color: var(--pl-primary); flex: none; }
+.pl-cari input {
+  flex: 1;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 1rem;
+  padding: .35rem 0;
+  color: inherit;
+  min-width: 0;
+}
+.pl-cari input:focus { outline: none; }
+.pl-cari:focus-within { border-color: var(--pl-primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, .12); }
+
+/* Angka panjang (NIK, KK, NISN) tetap mudah dibaca & disalin */
+.portal-shell .mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .01em;
+}
+
+@media (max-width: 520px) {
+  .portal-shell .pl-baris { flex-direction: column; gap: .1rem; }
+  .portal-shell .pl-baris dt { flex: none; }
+  .portal-shell .pl-baris dd { flex: none; text-align: left; font-size: 1.02rem; }
+}
+
+/* Cetak: pencarian & tombol tidak perlu ikut tercetak. */
+@media print {
+  .pl-cari, .pl-petak, .pl-card-ket { display: none !important; }
+  .pl-baris dd .pl-tanda { display: none; }
+}
+
+
+/* ========================================================================== */
+/* Tombol petunjuk «!» + popup kecil (ronde 32)                               */
+/* Gagasan sekolah: tata cara jangan memenuhi halaman — cukup tanda «!»,       */
+/* dibuka saat diklik. Hanya dipakai di ruang siswa.                          */
+/* ========================================================================== */
+.pl-info { position: relative; display: inline-flex; align-items: center;
+  vertical-align: middle; align-self: center; }
+
+.pl-info-tombol {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1.5px solid #bccbe4;
+  border-radius: 50%;
+  background: #f4f8ff;
+  color: #46587c;
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 800;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.pl-info-tombol:hover,
+.pl-info-tombol[aria-expanded="true"] {
+  background: var(--pl-primary);
+  border-color: var(--pl-primary);
+  color: #fff;
+}
+
+.pl-info-pop {
+  position: absolute;
+  top: calc(100% + 9px);
+  left: 0;
+  z-index: 60;
+  width: max-content;
+  max-width: min(280px, 78vw);
+  padding: .6rem .7rem;
+  border-radius: 12px;
+  background: #1f2b45;
+  color: #fff;
+  font-size: .85rem;
+  font-weight: 500;
+  line-height: 1.45;
+  text-align: left;
+  box-shadow: 0 12px 26px rgba(15, 23, 42, .28);
+}
+
+.pl-info-pop::before {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 9px;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: #1f2b45;
+  transform: rotate(45deg);
+}
+
+.pl-info-pop strong { display: block; margin-bottom: .15rem; }
+.pl-info.pop-kanan .pl-info-pop { left: auto; right: 0; }
+.pl-info.pop-kanan .pl-info-pop::before { left: auto; right: 9px; }
+
+/* Judul kartu: judul + tombol «!» sejajar, tanpa kalimat panjang. */
+.pl-kartu-judul,
+.pl-card > h3.pl-kartu-judul { display: flex; align-items: center; gap: .4rem; }
+.pl-card > h3 { margin: 0 0 .2rem; }
+.pl-card.pl-ringkas { padding: .85rem 1rem; }
+
+/* Satu baris ringkas untuk kelengkapan data. */
+.pl-mini-baris { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; }
+.pl-mini-baris > * { min-width: 0; }
+.pl-mini-baris .pl-mini-label { color: var(--pl-redup); font-size: .9rem; flex: none; }
+.pl-mini-baris .pl-mini-angka { font-weight: 800; }
+.pl-mini-baris .pl-progress { flex: 1; margin: 0; height: 10px; }
+
+/* Bagian yang bisa dilipat: satu baris judul, isinya dibuka saat perlu.
+   Dipakai halaman «Minta perbaikan data» (isian per bagian) & riwayat. */
+.pl-lipat {
+  border: 1px solid var(--pl-garis, #e2e6f0);
+  border-radius: 12px;
+  margin-bottom: .5rem;
+  background: #fff;
+}
+.pl-lipat > summary {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .7rem .85rem;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+.pl-lipat > summary::-webkit-details-marker { display: none; }
+.pl-lipat > summary::after {
+  content: "▾";
+  margin-left: auto;
+  color: var(--pl-redup, #6b7280);
+  transition: transform .15s ease;
+}
+.pl-lipat[open] > summary::after { transform: rotate(180deg); }
+.pl-lipat[open] > summary { border-bottom: 1px solid var(--pl-garis, #e2e6f0); }
+.pl-lipat-jumlah {
+  font-weight: 600;
+  color: var(--pl-redup, #6b7280);
+  font-size: .8rem;
+  margin-left: auto;
+  padding-left: .5rem;
+  /* «8 isian» tidak boleh pecah jadi dua baris di layar sempit. */
+  white-space: nowrap;
+}
+.pl-lipat-jumlah + .pl-lipat-jumlah { margin-left: .2rem; }
+.pl-lipat > .form-grid,
+.pl-lipat > .card-body { padding: .85rem; }
+
+/* Riwayat pengajuan siswa: baris ringkas, bukan tabel lembar kerja. */
+.pl-riwayat-item { padding: .7rem .85rem; border-top: 1px solid var(--pl-garis, #e2e6f0); }
+.pl-riwayat .pl-riwayat-item:first-of-type { border-top: 0; }
+.pl-riwayat-kepala { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; }
+.pl-riwayat-isi { margin-top: .35rem; font-size: .92rem; }
+.pl-riwayat-isi ul { margin: .35rem 0 0; padding-left: 1.1rem; }
+.pl-riwayat-isi summary { cursor: pointer; }
+
+/* ==========================================================================
+   Halaman «Ajukan Perubahan» siswa (ronde 37)
+   ========================================================================== */
+
+/* --- Panel unggah berkas ---------------------------------------------------
+   Isian berkas bawaan peramban menyisakan tulisan «Choose File / No file chosen»
+   (bahasa Inggris, gaya sistem) yang tampak asing di halaman anak. Isiannya
+   disembunyikan tetapi tetap bisa difokus dengan papan tik; yang diklik siswa
+   adalah label bergaya tombol. Nama berkas pilihan ditampilkan skrip app.js. */
+.pl-unggah {
+  border: 1px solid var(--pl-garis);
+  border-radius: 14px;
+  background: #fbfdff;
+  padding: .7rem .8rem;
+  margin-top: .6rem;
+  min-width: 0;
+}
+
+.pl-unggah-kepala {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+
+.pl-unggah-kepala strong { font-size: .95rem; }
+
+.pl-unggah-berkas {
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+  margin-top: .4rem;
+  font-size: .84rem;
+  min-width: 0;
+}
+
+.pl-unggah-berkas a { overflow-wrap: anywhere; }
+
+.pl-unggah-pilih {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  flex-wrap: wrap;
+  margin-top: .55rem;
+  min-width: 0;
+}
+
+.pl-berkas {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pl-unggah-pilih .btn { flex: 0 0 auto; }
+.pl-berkas:focus-visible + .btn { outline: 2px solid var(--pl-primary); outline-offset: 2px; }
+
+.pl-berkas-nama {
+  flex: 1 1 12ch;
+  min-width: 0;
+  font-size: .8rem;
+  color: var(--pl-redup);
+  overflow-wrap: anywhere;
+}
+
+.pl-unggah.siap { border-color: #bfe7cd; background: #f6fdf9; }
+.pl-unggah.siap .pl-berkas-nama { color: var(--pl-hijau); font-weight: 600; }
+
+/* --- Baris «Kirim Pengajuan» di akhir halaman ----------------------------- */
+.pl-kirim {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .9rem;
+  flex-wrap: wrap;
+  padding: .9rem 1rem;
+  background: #fff;
+  border: 1px solid var(--pl-garis);
+  border-radius: var(--pl-radius);
+}
+
+.pl-kirim-teks { min-width: 0; }
+.pl-kirim-teks strong { display: block; font-size: .98rem; color: var(--pl-tinta); }
+.pl-kirim-teks span { display: block; font-size: .84rem; color: var(--pl-redup); }
+
+.pl-kirim-tombol { display: flex; gap: .6rem; flex-wrap: wrap; }
+
+@media (max-width: 620px) {
+  /* Di ponsel tombol jadi selebar layar dan yang utama berada paling bawah
+     (paling mudah dijangkau ibu jari). */
+  .pl-kirim { padding: .85rem .8rem; }
+  .pl-kirim-tombol { width: 100%; }
+  .pl-kirim-tombol .btn { flex: 1 1 100%; }
+}

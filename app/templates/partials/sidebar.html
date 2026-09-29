@@ -1,0 +1,51 @@
+{% from "_macros.html" import icon %}
+<aside class="sidebar" id="sidebar">
+  <div class="brand">
+    <div class="brand-mark">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M8 22V11l8-5 8 5v11" fill="none" stroke="currentColor" stroke-width="2.3"
+              stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M13 22v-5h6v5" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="brand-text">
+      <strong>{{ app_name }}</strong>
+      <small>Manajemen Sekolah</small>
+    </div>
+    <button type="button" class="sidebar-close" data-sidebar-close aria-label="Tutup menu">&times;</button>
+  </div>
+
+  <div class="sidebar-school">
+    <span class="dot"></span>
+    <span title="{{ profil.nama }}">{{ profil.nama | singkat(26) }}</span>
+  </div>
+
+  <nav class="nav" aria-label="Menu utama">
+    {#- nav_grup baru ada pada versi ini; kode lama hanya mengirim `nav`. -#}
+    {% set menu_samping = nav_grup if nav_grup is defined else [{'label': '', 'items': nav}] %}
+    {% for grup in menu_samping %}
+      {% if grup.label %}<div class="nav-label">{{ grup.label }}</div>{% endif %}
+      {% for item in grup['items'] %}
+      <a class="nav-link {{ 'active' if current_path == item.href or (item.href != '/' and current_path.startswith(item.href)) }}"
+         href="{{ item.href }}" {{ 'aria-current=page' if current_path == item.href }}>
+        {{ icon(item.icon) }}<span>{{ item.label }}</span>
+        {% if item.badge %}<span class="badge badge-warning nav-badge">{{ item.badge }}</span>{% endif %}
+      </a>
+      {% endfor %}
+    {% endfor %}
+  </nav>
+
+  <div class="sidebar-foot">
+    <div class="role-chip">
+      {{ icon('user') }}
+      <div>
+        <strong>{{ user.nama | singkat(20) if user else '-' }}</strong>
+        <small>{{ user.role_label if user else '' }}{% if user and user.rombel %} · {{ user.rombel }}{% endif %}</small>
+      </div>
+    </div>
+    <form method="post" action="/logout">
+      <button class="btn btn-ghost btn-block" type="submit">{{ icon('logout') }} Keluar</button>
+    </form>
+  </div>
+</aside>
+<div class="sidebar-backdrop" data-sidebar-close></div>

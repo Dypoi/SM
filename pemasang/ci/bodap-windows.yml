@@ -1,0 +1,89 @@
+# TEMPLAT ALUR GITHUB ACTIONS — salin berkas ini ke tempatnya untuk mengaktifkan:
+#
+#   Windows :  mkdir .github\workflows
+#              copy pemasang\ci\bodap-windows.yml .github\workflows\bodap-windows.yml
+#   Linux   :  mkdir -p .github/workflows
+#              cp pemasang/ci/bodap-windows.yml .github/workflows/bodap-windows.yml
+#
+#   lalu:  git add .github/workflows/bodap-windows.yml && git commit -m "Aktifkan alur bodap" && git push
+#
+# Setelah itu: tab Actions -> «bodap.exe (pemasang Windows)» -> Run workflow.
+# Hasil: artifact «bodap-windows» berisi bodap.exe + laporan uji.
+name: bodap.exe (pemasang Windows)
+
+# Membangun bodap.exe secara otomatis di runner Windows GitHub, lalu mengujinya:
+# paket di dalam EXE benar-benar dipasang ke folder sementara, aplikasi dijalankan
+# sebentar (halaman utama dijawab), lalu pemasangannya dicabut.
+#
+# Cara menjalankan:
+#   * GitHub → tab Actions → «bodap.exe (pemasang Windows)» → Run workflow; atau
+#   * unggah tanda versi:  git tag v0.1.0 && git push origin v0.1.0
+#     (hasilnya sekaligus dilampirkan pada Release).
+#
+# Hasil unduhan: artifact «bodap-windows» berisi bodap.exe.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  bangun:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Ambil kode
+        uses: actions/checkout@v4
+
+      - name: Siapkan Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Pasang PyInstaller
+        run: python -m pip install --upgrade pip pyinstaller --disable-pip-version-check
+
+      - name: Buat ikon
+        run: python pemasang/buat_ikon.py
+
+      - name: Siapkan payload (Python bawaan + pip + pustaka)
+        run: python pemasang/buat_payload.py --dengan-python --dengan-bahan --untuk-python 3.12 --untuk-platform win_amd64
+
+      - name: Bungkus menjadi bodap.exe
+        run: python -m PyInstaller --noconfirm --clean pemasang/bodap.spec
+
+      - name: Ukuran hasil
+        run: |
+          Get-Item dist\bodap.exe | Select-Object Name,Length | Format-Table
+
+      - name: Uji bodap.exe (pasang → jalankan → periksa → hapus)
+        run: |
+          dist\bodap.exe --uji --laporan hasil-uji.json --diam
+          if ($LASTEXITCODE -ne 0) { Write-Error "uji bodap gagal ($LASTEXITCODE)" }
+          Get-Content hasil-uji.json
+
+      - name: Simpan bodap.exe sebagai artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bodap-windows
+          path: |
+            dist/bodap.exe
+            hasil-uji.json
+          if-no-files-found: error
+
+      - name: Lampirkan ke Release (bila dipicu oleh tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/bodap.exe
+          body: |
+            Pemasang SM satu berkas untuk Windows.
+
+            Cara pakai: unduh `bodap.exe`, pindahkan ke laptop/PC lain, klik dua kali,
+            lalu ikuti jendelanya (Next → Next → Install → Finish). Ikon «SM» otomatis
+            dibuat di Desktop. Perlu sambungan internet sekali saja untuk memasang pustaka.

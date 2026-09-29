@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, input_medan, bagian_wali %}
+
+{% block content %}
+<form method="post" action="/data-siswa/baru" class="card">
+  <div class="card-head">
+    <div>
+      <h3>Tambah Peserta Didik</h3>
+      <p>Isi minimal Nama dan NISN. Kolom lain dapat dilengkapi menyusul dan akan terhitung pada halaman Kualitas Data.</p>
+    </div>
+    <a class="btn btn-outline btn-sm" href="/data-siswa">Kembali ke daftar</a>
+  </div>
+
+  <div class="card-body">
+    {% for grup, daftar in grup_field.items() %}
+      {% if grup == 'wali' %}
+        {{ bagian_wali(daftar, {}) }}
+      {% else %}
+        <div class="section-title">{{ GROUP_LABELS.get(grup, grup) }}</div>
+        <div class="form-grid">
+          {% for spec in daftar %}
+            {{ input_medan(spec, none, agama_options) }}
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endfor %}
+
+    <div class="section-title">Status</div>
+    <div class="form-grid">
+      <div class="field">
+        <label for="status">Status siswa</label>
+        <select id="status" name="status">
+          {% for opsi in status_options %}
+            <option value="{{ opsi }}">{{ opsi }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field span-2">
+        <label for="catatan">Catatan internal</label>
+        <textarea id="catatan" name="catatan"></textarea>
+      </div>
+    </div>
+
+    <div class="form-actions sticky-actions">
+      <button class="btn btn-primary" type="submit">{{ icon('check') }} Simpan Siswa</button>
+      <a class="btn btn-outline" href="/data-siswa">Batal</a>
+    </div>
+  </div>
+</form>
+{% endblock %}
