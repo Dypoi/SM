@@ -1581,7 +1581,75 @@ def main() -> int:
     cek(p62.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji kode wilayah")
     cek(any(b.startswith("[OK]") for b in j62), f"Registrasi tidak jalan: {j62[-4:]}")
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 62 skenario")
+    # 63) Ronde 55 — laporan sekolah 30 September 2026 (versi 0.1.14): kata kuncinya SUDAH
+    #     masuk ke kotak pencarian («kotak pencariannya berbunyi «Batuceper»»), tetapi store
+    #     combo-nya tetap kosong sesudah 31x periksa dan daftarnya tidak pernah tampil —
+    #     pencariannya sendiri yang tidak jalan di Dapodik. Bot harus memicu pencarian itu
+    #     lewat model Ext JS combo-nya (expand/doQuery/store.load), lalu menunggu dan membaca
+    #     ulang daftarnya.
+    p63, j63 = jalankan("63. store desa kosong walau kata kunci masuk → pencarian dipaksa", 2,
+                        atur=lambda p: (p.siapkan_bio(),
+                                        setattr(p, "desa_cocok_ke_kolom_terpisah", True),
+                                        setattr(p, "desa_pencarian_perlu_dipicu", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p63.desa_pencarian_dipaksa >= 1,
+        "uji tidak bermakna: Dapodik palsu tidak menuntut pencariannya dipicu lewat Ext JS")
+    cek(any("pencariannya dipaksa lewat model Ext JS combo-nya" in b for b in j63),
+        f"bot tidak memaksa pencarian ketika daftar & store-nya kosong: "
+        f"{[b for b in j63 if 'Desa/Kelurahan' in b][:6]}")
+    cek(any("pencarian dipaksa lewat model Ext JS combo" in b and "queryMode" in b for b in j63),
+        f"bot tidak melaporkan cara pencariannya dipaksa (queryMode/minChars/store): "
+        f"{[b for b in j63 if 'dipaksa' in b][:4]}")
+    cek("Karawaci Baru" in str(p63.data_bio_tersimpan.get("kelurahan") or ""),
+        f"desa tidak terisi sesudah pencariannya dipaksa: "
+        f"{p63.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p63.kode_wilayah() == kode_desa_palsu(DESA_PILIH_PALSU),
+        f"kode wilayah bukan milik desa yang dipilih: {p63.kode_wilayah()!r}")
+    cek(not any("«Simpan» DITAHAN" in b for b in j63),
+        "«Simpan» ditahan padahal desanya berhasil dipilih sesudah pencariannya dipaksa")
+    cek(p63.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji pencarian dipaksa")
+
+    # 64) Ronde 55 — pencariannya sudah dipaksa, Dapodik tetap tidak mengembalikan apa pun:
+    #     bot melaporkan keadaannya apa adanya (bedah kolom wilayah: combo, queryMode,
+    #     minChars, jumlah record store, url) supaya ronde berikutnya tidak menebak lagi.
+    p64, j64 = jalankan("64. pencarian dipaksa tetap kosong → keadaan wilayah dibedah", 2,
+                        atur=lambda p: (p.siapkan_bio(),
+                                        setattr(p, "desa_cocok_ke_kolom_terpisah", True),
+                                        setattr(p, "desa_pencarian_perlu_dipicu", True),
+                                        setattr(p, "desa_pencarian_gagal_meski_dipaksa", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(any("bedah kolom wilayah" in b for b in j64),
+        f"keadaan kolom wilayah tidak dibedah ke catatan bot: "
+        f"{[b for b in j64 if 'Desa/Kelurahan' in b][-4:]}")
+    cek(any("queryMode" in b and "store" in b for b in j64 if "bedah kolom wilayah" in b),
+        "bedah kolom wilayahnya tidak menyebut combo/queryMode/store-nya")
+    cek("Karawaci Baru" not in str(p64.data_bio_tersimpan.get("kelurahan") or ""),
+        "desa terisi padahal Dapodik (tiruan) tidak mengembalikan apa pun — bot mengarang")
+    cek(any("TIDAK ADA pada daftar Dapodik" in b for b in j64),
+        f"bot tidak melaporkan bahwa desanya tidak ada di daftar: {j64[-4:]}")
+
+    # 65) Ronde 55 — kemungkinan kedua: Dapodik memakai picker DUA TAHAP (combo wilayahnya
+    #     ber-id «combokecamatan» pada log sekolah). Daftar yang muncul berisi KECAMATAN
+    #     lebih dulu — pilihan seperti itu JANGAN dianggap desa — lalu daftar desanya baru
+    #     diambil Dapodik sesudah kecamatannya dipilih.
+    p65, j65 = jalankan("65. daftar berisi kecamatan dulu → kecamatan dipilih, lalu desanya", 2,
+                        atur=lambda p: (p.siapkan_bio(),
+                                        setattr(p, "desa_cocok_ke_kolom_terpisah", True),
+                                        setattr(p, "desa_dua_tahap", True)),
+                        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(p65.desa_tahap_kecamatan_diklik >= 1,
+        "uji tidak bermakna: kecamatan pada daftar dua tahap tidak pernah dipilih")
+    cek(any("daftar yang muncul berisi KECAMATAN" in b for b in j65),
+        f"bot tidak melaporkan bahwa daftarnya berisi kecamatan lebih dulu: "
+        f"{[b for b in j65 if 'Desa/Kelurahan' in b][:6]}")
+    cek("Karawaci Baru" in str(p65.data_bio_tersimpan.get("kelurahan") or ""),
+        f"desa tidak terisi pada daftar dua tahap: "
+        f"{p65.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(p65.kode_wilayah() == kode_desa_palsu(DESA_PILIH_PALSU),
+        f"kode wilayah bukan milik desa yang dipilih (dua tahap): {p65.kode_wilayah()!r}")
+    cek(p65.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji daftar dua tahap")
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 65 skenario")
     return 0
 
 

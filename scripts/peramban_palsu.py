@@ -991,6 +991,17 @@ class PerambanPalsu:
         #: Berapa bacaan dulu sebelum daftar desa (hasil pencarian) tampil — persis Dapodik:
         #: daftarnya baru diambil dari basis data sesudah kata kunci diketik.
         self.desa_muat_perlu_default = 2
+        #: Ronde 55 — keadaan sekolah 30 September 2026: kata kuncinya SUDAH masuk ke kotak
+        #: pencarian, tetapi Dapodik tidak menjalankan pencariannya (store & daftar tetap
+        #: kosong). Hasilnya baru keluar bila pencariannya DIPICU lewat model Ext JS combo-nya
+        #: (``doQuery``/``expand``/``store.load``) — persis yang dilakukan bot ronde 55.
+        self.desa_pencarian_perlu_dipicu = False
+        #: Ronde 55 — Dapodik memakai picker DUA TAHAP: daftarnya berisi KECAMATAN lebih dulu;
+        #: daftar desa baru diambil sesudah kecamatannya dipilih (id combo «combokecamatan»).
+        self.desa_dua_tahap = False
+        #: Ronde 55 — pencariannya dipicu tetapi Dapodik tetap tidak mengembalikan apa pun:
+        #: bot harus melaporkan keadaannya apa adanya (bedah kolom wilayah), bukan mengarang.
+        self.desa_pencarian_gagal_meski_dipaksa = False
         #: Ronde 51 — berapa bacaan dulu sebelum NILAI pilihan desa muncul di kolomnya
         #: (termasuk ``kode_wilayah_str``): di sekolah «harus menunggu agak lama biar valuenya
         #: muncul». 0 = langsung seperti sebelumnya.
@@ -1033,6 +1044,9 @@ class PerambanPalsu:
         #: Berapa kali store combo desa diperiksa lewat Ext JS (``store-desa``) — bukti bahwa
         #: bot menunggu daftarnya siap, bukan membaca layar saja.
         self.desa_store_dibaca = 0
+        #: Ronde 55 — pencarian desa yang dipicu lewat model Ext JS (bot) & tahap kecamatan.
+        self.desa_pencarian_dipaksa = 0
+        self.desa_tahap_kecamatan_diklik = 0
         #: True = combo tidak punya elemen tombol panah (hanya bisa dibuka lewat tombol ↓)
         self.dropdown_tanpa_panah = False
         #: Isi kolom BIO yang benar-benar tersimpan (name → nilai saat «Simpan» ditekan)
@@ -1877,8 +1891,17 @@ class PerambanPalsu:
         combo.nilai = rapikan            # tulisan yang diketik pengguna tampak di kotaknya
         combo.nilai_model = ""           # belum ada pilihan yang tersimpan sebelum dipilih
         combo.nilai_id = ""
-        combo.desa_hasil = pilihan_desa_palsu(
-            rapikan, kolom_terpisah=bool(self.desa_cocok_ke_kolom_terpisah))
+        if self.desa_pencarian_perlu_dipicu:
+            # Ronde 55 (log sekolah 30 September 2026): kata kuncinya sudah ada di kotaknya,
+            # tetapi Dapodik TIDAK menjalankan pencariannya — store & daftar tetap kosong
+            # sampai pencariannya dipicu lewat model Ext JS combo-nya.
+            combo.kueri_menunggu = rapikan
+            combo.desa_hasil = ()
+        else:
+            combo.desa_hasil = pilihan_desa_palsu(
+                rapikan, kolom_terpisah=bool(self.desa_cocok_ke_kolom_terpisah))
+        combo.tahap_desa = not self.desa_dua_tahap
+        combo.kecamatan_hasil = ()
         combo.halaman = 1 if combo.desa_hasil else 0
         combo.halaman_maks = (max(1, -(-len(combo.desa_hasil) // DESA_PER_HALAMAN))
                               if combo.desa_hasil else 0)
@@ -1900,7 +1923,19 @@ class PerambanPalsu:
         sedang tampil** — desa di halaman berikutnya benar-benar harus dibuka halamannya.
         """
         awal = (combo.halaman - 1) * DESA_PER_HALAMAN
-        combo.daftar_pilihan = tuple(combo.desa_hasil[awal:awal + DESA_PER_HALAMAN])
+        if self.desa_dua_tahap and not getattr(combo, "tahap_desa", False):
+            # Ronde 55 — Dapodik dua tahap: daftarnya berisi KECAMATAN lebih dulu; daftar desa
+            # baru diambil sesudah kecamatannya dipilih.
+            kecamatan: list[str] = []
+            for teks in combo.desa_hasil:
+                bagian = [b.strip() for b in str(teks).split(" - ")]
+                nama_kec = next((b for b in bagian if b.lower().startswith("kec")), "")
+                if nama_kec and nama_kec not in kecamatan:
+                    kecamatan.append(nama_kec)
+            combo.kecamatan_hasil = tuple(kecamatan)
+            combo.daftar_pilihan = tuple(kecamatan)
+        else:
+            combo.daftar_pilihan = tuple(combo.desa_hasil[awal:awal + DESA_PER_HALAMAN])
         self.unsur = [u for u in self.unsur
                       if not (getattr(u, "item_dropdown", False) and u.induk is combo)]
         for teks in combo.daftar_pilihan:
@@ -2033,6 +2068,26 @@ class PerambanPalsu:
             # Klik pada pilihannya ditelan lapisan Dapodik: daftarnya tetap terbuka dan
             # nilai model TIDAK berubah — bot harus naik ke jalur model Ext JS.
             self.dropdown_item_ditelan_kali += 1
+            return
+        if (getattr(combo, "pencarian_desa", False) and self.desa_dua_tahap
+                and not getattr(combo, "tahap_desa", False)
+                and item.teks in tuple(getattr(combo, "kecamatan_hasil", ()) or ())):
+            # Ronde 55 — kecamatan pada picker dua tahap dipilih: Dapodik baru mengambil
+            # daftar DESA untuk kecamatan itu (tahap kedua).
+            self.desa_tahap_kecamatan_diklik += 1
+            combo.tahap_desa = True
+            combo.desa_menunggu = int(self.desa_muat_perlu_default)
+            self.dropdown_baca_kali = 0
+            combo._item_halaman = 0
+            nama_kec = str(item.teks).lower()
+            combo.desa_hasil = tuple(
+                teks for teks in combo.desa_hasil if nama_kec in str(teks).lower())
+            combo.halaman = 1 if combo.desa_hasil else 0
+            combo.halaman_maks = (max(1, -(-len(combo.desa_hasil) // DESA_PER_HALAMAN))
+                                  if combo.desa_hasil else 0)
+            combo.daftar_pilihan = ()
+            self.unsur = [u for u in self.unsur
+                          if not (getattr(u, "item_dropdown", False) and u.induk is combo)]
             return
         lama = (combo.nilai, combo.nilai_model, combo.nilai_id)
         combo.nilai = item.teks            # tulisan di layar
@@ -3019,6 +3074,7 @@ class PerambanPalsu:
             # Ronde 54 — bot menuliskan kode wilayah langsung ke kolom tersembunyinya
             # (upaya terakhir bila memilih desanya tidak memindahkan kodenya).
             kode = str(argumen[1] if len(argumen) > 1 else "")
+            nama = str(argumen[2] if len(argumen) > 2 else "")
             kandidat: list[Any] = []
             if self.kode_wilayah_kolom is not None:
                 kandidat.append(self.kode_wilayah_kolom)
@@ -3027,15 +3083,30 @@ class PerambanPalsu:
                          and u not in kandidat]
             if not kandidat:
                 return {"ada": False, "ditulis": 0, "jumlah": 0}
+            import re as _re
             ditulis = 0
+            ditulis_kode = 0
+            ditulis_nama = 0
             for kolom in kandidat:
-                if str(kolom.nilai or "") == kode:
+                penanda = (str(getattr(kolom, "name", "") or "")
+                           + " " + str(getattr(kolom, "id", "") or "")).lower()
+                kolom_teks = "kode_wilayah_str" in penanda
+                sekarang = str(kolom.nilai or "")
+                tampak_kode = bool(_re.match(r"^\s*[\d.]+\s*$", sekarang))
+                pakai = (nama if (kolom_teks and not tampak_kode and sekarang and nama)
+                         else kode)
+                if sekarang == pakai:
                     continue
-                kolom.nilai = kode
+                kolom.nilai = pakai
                 ditulis += 1
-            if ditulis:
+                if pakai == nama and kolom_teks and not tampak_kode:
+                    ditulis_nama += 1
+                else:
+                    ditulis_kode += 1
+            if ditulis_kode:
                 self.desa_kode_ditulis_langsung += 1
-            return {"ada": True, "ditulis": ditulis, "jumlah": len(kandidat)}
+            return {"ada": True, "ditulis": ditulis, "ditulis_kode": ditulis_kode,
+                    "ditulis_nama": ditulis_nama, "jumlah": len(kandidat)}
         if "/* bedah-kode-wilayah */" in skrip:
             # Ronde 54 — keadaan kode wilayah apa adanya: kolom tersembunyi, nilai & tulisan
             # combo-nya, dan seluruh kolom record yang sedang terpilih.
@@ -3055,6 +3126,70 @@ class PerambanPalsu:
                            "kode_wilayah_str": str(sasaran.nilai_id or "")}
             return {"kode": kode_kolom, "tersembunyi": tersembunyi, "combo": combo,
                     "rekaman": rekaman}
+        if "/* paksa-pencarian-desa */" in skrip:
+            # Ronde 55 — bot memicu pencarian desanya lewat model Ext JS combo-nya
+            # (``expand``/``doQuery``/``store.load``). Di tiruan ini hasil pencariannya barulah
+            # keluar sesudah dipicu (knob ``desa_pencarian_perlu_dipicu``) — persis log sekolah
+            # 30 September 2026 yang storenya tetap kosong walau kata kuncinya sudah diketik.
+            sasaran = argumen[0] if argumen else None
+            kueri = " ".join(str(argumen[1] if len(argumen) > 1 else "").split())
+            info = {"ada": False, "id": "", "queryMode": "", "minChars": None,
+                    "triggerAction": "", "lastQuery": None, "jumlah": 0, "loading": False,
+                    "url": "", "diminta": False}
+            if sasaran is None or self.dropdown_tanpa_ext \
+                    or not getattr(sasaran, "pencarian_desa", False):
+                return info
+            info.update({"ada": True, "id": f"combokecamatan-{id(sasaran) % 10000}",
+                         "queryMode": "remote", "minChars": 2, "triggerAction": "query",
+                         "url": "/WebService/wilayah/getDataWilayah"})
+            if int(getattr(sasaran, "desa_menunggu", 0) or 0) > self.dropdown_baca_kali:
+                # Pencariannya sedang berjalan (datanya belum siap) — pemicunya dicatat.
+                self.desa_pencarian_dipaksa += 1
+                info["loading"] = True
+                return info
+            kueri = kueri or str(getattr(sasaran, "kueri_menunggu", "") or sasaran.nilai or "")
+            if self.desa_pencarian_gagal_meski_dipaksa:
+                self.desa_pencarian_dipaksa += 1
+                info.update({"diminta": True, "jumlah": 0, "lastQuery": kueri})
+                return info
+            hasil = pilihan_desa_palsu(kueri,
+                                       kolom_terpisah=bool(self.desa_cocok_ke_kolom_terpisah))
+            sasaran.desa_hasil = hasil
+            sasaran.kueri_menunggu = ""
+            sasaran.halaman = 1 if hasil else 0
+            sasaran.halaman_maks = (max(1, -(-len(hasil) // DESA_PER_HALAMAN)) if hasil else 0)
+            sasaran.desa_menunggu = int(self.desa_muat_perlu_default)
+            sasaran._item_halaman = 0
+            self.buka_dropdown(sasaran)
+            self.desa_pencarian_dipaksa += 1
+            info.update({"diminta": True, "jumlah": len(hasil),
+                         "lastQuery": kueri, "loading": False})
+            return info
+        if "/* bedah-wilayah */" in skrip:
+            # Ronde 55 — keadaan kolom wilayah/kecamatan di jendela, apa adanya.
+            sasaran = argumen[0] if argumen else None
+            keluar = []
+            for unsur in [sasaran] + [u for u in self.unsur if u is not sasaran]:
+                if unsur is None:
+                    continue
+                nama = str(getattr(unsur, "name", "") or getattr(unsur, "id", "") or "")
+                gabung = (nama + " " + str(getattr(unsur, "id", "") or "")).lower()
+                if ("wilayah" not in gabung and "kecamatan" not in gabung
+                        and "desa" not in gabung and "kelurahan" not in gabung):
+                    continue
+                baris = {"kolom": nama[:40], "jenis": str(getattr(unsur, "type", "text") or "text"),
+                         "terlihat": bool(getattr(unsur, "terlihat", False)), "combo": "",
+                         "queryMode": "", "minChars": None, "jumlah": 0, "memuat": False,
+                         "url": ""}
+                if getattr(unsur, "pencarian_desa", False):
+                    baris.update({"combo": f"combokecamatan-{id(unsur) % 10000}",
+                                  "queryMode": "remote", "minChars": 2,
+                                  "jumlah": len(getattr(unsur, "daftar_pilihan", ()) or ()),
+                                  "url": "/WebService/wilayah/getDataWilayah"})
+                keluar.append(baris)
+                if len(keluar) >= 8:
+                    break
+            return keluar
         if "/* store-desa */" in skrip:
             # Ronde 53 (persis ``tunggu_store_desa()`` skrip pengguna): keadaan STORE Ext JS
             # combo desa — ada/sedang memuat/berapa record. Yang ditunggu bot adalah storenya

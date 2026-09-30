@@ -608,6 +608,11 @@ class BotDapodik:
         #: Ronde 54 — bedah keadaan kode wilayah (kolom tersembunyi + record combo) cukup
         #: dilaporkan sekali per siswa, supaya catatannya tidak dibanjiri baris yang sama.
         self._bedah_kode_dilaporkan = False
+        #: Ronde 55 — bedah kolom wilayah (combo/picker + store-nya) juga sekali per siswa,
+        #: dilaporkan hanya bila daftar desanya tetap kosong sesudah pencariannya dipaksa.
+        self._bedah_wilayah_dilaporkan = False
+        #: Ronde 55 — daftar dua tahap (kecamatan dulu, baru desa) hanya dicoba sekali.
+        self._kecamatan_dua_tahap_dicoba = False
         self.simulasi = opsi.get("bot_simulasi", "0") == "1"
 
     # ---------------------------------------------------------------- jalan ---
@@ -3869,7 +3874,7 @@ class BotDapodik:
         return bool(berhasil)
 
     def _tulis_kode_wilayah(self, peramban, unsur, kode: str, awalan: str = "",
-                            label: str = "") -> bool:
+                            label: str = "", tampil: str = "") -> bool:
         """Tuliskan kode wilayah langsung ke kolom tersembunyinya — upaya terakhir (ronde 54).
 
         Kejadian yang masih dilaporkan sekolah: desanya sudah benar-benar dipilih dari daftar
@@ -3889,7 +3894,9 @@ class BotDapodik:
                 /* tulis-kode-wilayah */
                 const el = arguments[0] || null;
                 const kode = String(arguments[1] || '');
-                if (!kode) return {ada: false, ditulis: 0, jumlah: 0};
+                const nama = String(arguments[2] || '');
+                if (!kode) return {ada: false, ditulis: 0, ditulis_kode: 0, ditulis_nama: 0,
+                                   jumlah: 0};
                 const akar = (el && el.closest && el.closest('.x-window')) || document;
                 const kumpul = (w) => {
                     const hasil = [];
@@ -3902,23 +3909,35 @@ class BotDapodik:
                 };
                 let kandidat = kumpul(akar);
                 if (!kandidat.length && akar !== document) kandidat = kumpul(document);
-                let ditulis = 0;
+                let ditulisKode = 0, ditulisNama = 0;
                 for (const inp of kandidat) {
-                    if (String(inp.value) === kode) continue;
-                    inp.value = kode;
-                    for (const nama of ['input', 'change', 'blur', 'keyup']) {
-                        try { inp.dispatchEvent(new Event(nama, {bubbles: true})); } catch (e) {}
+                    const penanda = (String(inp.name || '') + ' ' + String(inp.id || '')).toLowerCase();
+                    const kolomTeks = penanda.indexOf('kode_wilayah_str') >= 0;
+                    const sekarang = String(inp.value === undefined ? '' : inp.value);
+                    // Laporan sekolah 30 September 2026: di Dapodik yang sebenarnya kolom
+                    // ``kode_wilayah_str`` berisi NAMA wilayahnya («Koangjaya - Kec. Karawaci»),
+                    // bukan kodenya — jadi isinya diikuti: kolom yang berisi kode tetap ditulis
+                    // kode, kolom yang berisi nama wilayah ditulis nama wilayahnya.
+                    const tampakKode = /^\\s*[\\d.]+\\s*$/.test(sekarang);
+                    const pakai = (kolomTeks && !tampakKode && sekarang !== '' && nama) ? nama : kode;
+                    if (sekarang === pakai) continue;
+                    inp.value = pakai;
+                    for (const jenis of ['input', 'change', 'blur', 'keyup']) {
+                        try { inp.dispatchEvent(new Event(jenis, {bubbles: true})); } catch (e) {}
                     }
                     if (typeof Ext !== 'undefined' && Ext.getCmp && inp.id) {
                         try {
                             const c = Ext.getCmp(inp.id);
-                            if (c && c.setValue) c.setValue(kode);
+                            if (c && c.setValue) c.setValue(pakai);
                         } catch (e) {}
                     }
-                    ditulis++;
+                    if (pakai === nama && kolomTeks && !tampakKode) { ditulisNama++; }
+                    else { ditulisKode++; }
                 }
-                return {ada: kandidat.length > 0, ditulis: ditulis, jumlah: kandidat.length};
-                """, unsur, kode)
+                return {ada: kandidat.length > 0, ditulis: ditulisKode + ditulisNama,
+                        ditulis_kode: ditulisKode, ditulis_nama: ditulisNama,
+                        jumlah: kandidat.length};
+                """, unsur, kode, tampil)
         except Exception:  # noqa: BLE001 — upaya tambahan saja
             return False
         if not isinstance(hasil, dict) or not hasil.get("ada"):
@@ -3929,11 +3948,18 @@ class BotDapodik:
                     "ini. Bedah kolomnya: " + self._bedah_kode_wilayah(peramban, unsur))
             return False
         if awalan:
+            bentuk = ""
+            if hasil.get("ditulis_nama"):
+                bentuk = (f" — kolom yang berisi NAMA wilayah («kode_wilayah_str») ikut ditulis "
+                          f"«{tampil}» (di Dapodik kolom itu memang berisi nama wilayahnya, "
+                          "bukan kodenya), sedangkan kolom kodenya tetap «" + str(kode) + "»")
             self._catat_kepala(
                 f"{awalan} {label}: kode wilayah «{kode}» dituliskan langsung ke kolom "
                 f"tersembunyinya ({hasil.get('ditulis')} dari {hasil.get('jumlah')} kolom "
-                "berubah) — lalu diperiksa ulang. Dapodik sendiri yang menentukan diterima atau "
-                "tidaknya; kalau ditolak, pesan penyimpanannya yang akan menyebutkan.")
+                f"berubah: {hasil.get('ditulis_kode')} kolom kode, "
+                f"{hasil.get('ditulis_nama')} kolom nama)" + bentuk + " — lalu diperiksa ulang. "
+                "Dapodik sendiri yang menentukan diterima atau tidaknya; kalau ditolak, pesan "
+                "penyimpanannya yang akan menyebutkan.")
         return True
 
     def _bedah_kode_wilayah(self, peramban, unsur) -> str:
@@ -4934,6 +4960,165 @@ class BotDapodik:
                 f"bukan «{kueri}»; daftarnya dibaca apa adanya (bukti untuk ronde berikutnya).")
         return "gagal"
 
+    def _paksa_pencarian_desa(self, peramban, unsur, kueri: str, awalan: str = "",
+                              label: str = "") -> dict[str, Any]:
+        """Paksa Dapodik menjalankan pencarian desanya lewat model Ext JS combo (ronde 55).
+
+        Laporan sekolah 30 September 2026 (versi 0.1.14): kata kuncinya **sudah** masuk ke
+        kotak pencarian («kotak pencariannya berbunyi «Batuceper» … kata kuncinya diterima
+        kolomnya»), tetapi sesudah 31x periksa store combo-nya tetap kosong dan daftarnya
+        tidak pernah tampil — jadi yang tidak jalan adalah **pencariannya di sisi Dapodik**,
+        bukan pengetikannya. Di sini pencarian itu dipicu langsung dari model combo Ext JS-nya
+        (``expand()`` + ``doQuery()``, atau ``store.load({params: {query: …}})``), lalu
+        keadaannya dilaporkan apa adanya — termasuk ``queryMode``/``minChars``/``lastQuery``
+        dan url store-nya, supaya kegagalan berikutnya terbaca dari log.
+
+        Ini **bukan** jaminan Dapodik menerima: kalau store-nya tetap kosong, bot melaporkan
+        apa adanya (dan membedah kolom wilayahnya) — tidak mengarang hasil.
+        """
+        try:
+            hasil = peramban.execute_script(
+                JS_ALAT + """
+                /* paksa-pencarian-desa */
+                const el = arguments[0] || null;
+                const kueri = String(arguments[1] || '');
+                const c = (typeof komponenKolom === 'function') ? komponenKolom(el) : null;
+                const info = {ada: !!c, id: '', queryMode: '', minChars: null,
+                              triggerAction: '', lastQuery: null, jumlah: 0, loading: false,
+                              url: '', diminta: false};
+                if (!c) return info;
+                try { info.id = (c.getId && c.getId()) || c.id || ''; } catch (e) {}
+                info.queryMode = String(c.queryMode || '');
+                info.minChars = (c.minChars === undefined ? null : c.minChars);
+                info.triggerAction = String(c.triggerAction || '');
+                info.lastQuery = (c.lastQuery === undefined ? null : c.lastQuery);
+                try { if (c.setRawValue) c.setRawValue(kueri); } catch (e) {}
+                try { if (c.expand) c.expand(); } catch (e) {}
+                try { c.lastQuery = null; } catch (e) {}
+                try {
+                    if (typeof c.doQuery === 'function') { c.doQuery(kueri); info.diminta = true; }
+                } catch (e) {}
+                try {
+                    const s = (c.getStore && c.getStore()) || null;
+                    if (s) {
+                        info.jumlah = (s.getCount ? s.getCount() : 0);
+                        info.loading = !!(s.isLoading && s.isLoading());
+                        try {
+                            const pr = (s.getProxy && s.getProxy()) || s.proxy || null;
+                            info.url = String((pr && (pr.url
+                                || (pr.getUrl && pr.getUrl()))) || '');
+                        } catch (e) {}
+                        if (!info.diminta && s.load) {
+                            try { s.load({params: {query: kueri}}); info.diminta = true; }
+                            catch (e) {}
+                        }
+                    }
+                } catch (e) {}
+                return info;
+                """, unsur, kueri)
+        except Exception:  # noqa: BLE001 — jalur tambahan saja
+            return {}
+        if not isinstance(hasil, dict):
+            return {}
+        if awalan:
+            if not hasil.get("ada"):
+                self._catat_kepala(
+                    f"{awalan} {label}: pencarian dipaksa lewat model Ext JS — combo-nya TIDAK "
+                    "terbaca dari kolom itu, jadi pencariannya tidak bisa dipicu dari sisi bot.")
+            elif hasil.get("diminta"):
+                self._catat_kepala(
+                    f"{awalan} {label}: pencarian dipaksa lewat model Ext JS combo «"
+                    f"{hasil.get('id') or '-'}» (queryMode=«{hasil.get('queryMode') or '-'}», "
+                    f"minChars={hasil.get('minChars')}, lastQuery=«{hasil.get('lastQuery')}», "
+                    f"store: {hasil.get('jumlah')} record, memuat={bool(hasil.get('loading'))}, "
+                    f"url=«{hasil.get('url') or '-'}») — Dapodik diminta mencari «{kueri}» lagi.")
+            else:
+                self._catat_kepala(
+                    f"{awalan} {label}: combo «{hasil.get('id') or '-'}» tidak punya "
+                    "doQuery/store.load yang bisa dipanggil — pencariannya tidak bisa dipicu "
+                    "dari sisi bot.")
+        return hasil
+
+    def _bedah_wilayah(self, peramban, unsur, awalan: str = "[bio]", label: str = "") -> None:
+        """Sebutkan combo/picker wilayah di jendela itu apa adanya — sekali per siswa (ronde 55).
+
+        Dipakai **hanya** ketika daftar desanya tetap kosong sesudah pencariannya dipaksa:
+        barisnya menyebut setiap kolom wilayah/kecamatan di jendela itu beserta combo Ext JS-nya
+        (``queryMode``, ``minChars``, jumlah record store, sedang memuat, url store). Dari situ
+        kelihatan apakah Dapodik memakai **dua combo** (kecamatan → desa) atau satu picker —
+        supaya ronde berikutnya tidak menebak lagi.
+        """
+        if self._bedah_wilayah_dilaporkan:
+            return
+        self._bedah_wilayah_dilaporkan = True
+        try:
+            hasil = peramban.execute_script(
+                JS_ALAT + """
+                /* bedah-wilayah */
+                const el = arguments[0] || null;
+                const akar = (el && el.closest && el.closest('.x-window')) || document;
+                const potong = (t, n) => String(t === undefined || t === null ? '' : t)
+                    .replace(/\\s+/g, ' ').slice(0, n);
+                const keluar = [];
+                const dilihat = {};
+                for (const inp of akar.querySelectorAll('input')) {
+                    const nama = String((inp.getAttribute && inp.getAttribute('name')) || '');
+                    const id = String(inp.id || '');
+                    const jenis = String(inp.getAttribute('type') || 'text').toLowerCase();
+                    const gabung = (nama + ' ' + id).toLowerCase();
+                    const wilayah = gabung.indexOf('wilayah') >= 0
+                        || gabung.indexOf('kecamatan') >= 0 || gabung.indexOf('desa') >= 0
+                        || gabung.indexOf('kelurahan') >= 0;
+                    if (!wilayah) continue;
+                    const kunci = id + '|' + nama;
+                    if (dilihat[kunci]) continue;
+                    dilihat[kunci] = true;
+                    const c = (typeof komponenKolom === 'function') ? komponenKolom(inp) : null;
+                    const baris = {kolom: potong(nama || id, 40), jenis: jenis,
+                                   terlihat: !!(inp.getClientRects && inp.getClientRects().length),
+                                   combo: '', queryMode: '', minChars: null, jumlah: 0,
+                                   memuat: false, url: ''};
+                    if (c) {
+                        baris.combo = potong((c.getId && c.getId()) || c.id || '', 40);
+                        baris.queryMode = potong(c.queryMode || '', 12);
+                        baris.minChars = (c.minChars === undefined ? null : c.minChars);
+                        try {
+                            const s = c.getStore && c.getStore();
+                            baris.jumlah = (s && s.getCount) ? s.getCount() : 0;
+                            baris.memuat = !!(s && s.isLoading && s.isLoading());
+                            const pr = (s && ((s.getProxy && s.getProxy()) || s.proxy)) || null;
+                            baris.url = potong((pr && (pr.url
+                                || (pr.getUrl && pr.getUrl()))) || '', 70);
+                        } catch (e) {}
+                    }
+                    keluar.push(baris);
+                    if (keluar.length >= 8) break;
+                }
+                return keluar;
+                """, unsur)
+        except Exception:  # noqa: BLE001 — keterangan tambahan saja
+            return
+        if not isinstance(hasil, list) or not hasil:
+            self._catat_kepala(f"{awalan} {label}: bedah kolom wilayah — tidak ada kolom "
+                               "wilayah/kecamatan yang terbaca di jendela ini.")
+            return
+        bagian = []
+        for baris in hasil[:8]:
+            if not isinstance(baris, dict):
+                continue
+            satu = (f"«{baris.get('kolom')}» ({baris.get('jenis')}"
+                    + (", terlihat" if baris.get("terlihat") else ", tidak terlihat"))
+            if baris.get("combo"):
+                satu += (f", combo «{baris.get('combo')}», queryMode=«{baris.get('queryMode')}», "
+                         f"minChars={baris.get('minChars')}, store {baris.get('jumlah')} record"
+                         + (", masih memuat" if baris.get("memuat") else "")
+                         + (f", url=«{baris.get('url')}»" if baris.get("url") else ""))
+            else:
+                satu += ", tanpa combo Ext JS"
+            bagian.append(satu + ")")
+        self._catat_kepala(f"{awalan} {label}: bedah kolom wilayah (bahan ronde berikutnya) — "
+                           + "; ".join(bagian) + ".")
+
     def _halaman_daftar_dropdown(self, peramban, unsur) -> tuple[int, int]:
         """(halaman sekarang, jumlah halaman) bilah halaman picker — (0, 0) bila tidak ada."""
         try:
@@ -5063,55 +5248,146 @@ class BotDapodik:
             return baru
 
         serap()
-        langkah = 0
-        sepi = 0
-        while langkah < 80 and len(semua) < DESA_PILIHAN_MAKSIMAL:
-            langkah += 1
-            cocok, catatan = self._cocokkan_desa(desa, kecamatan, semua)
-            if cocok:
-                return cocok, catatan, semua, {"geser": geser, "halaman": halaman_dilewati}
-            jumlah_awal = len(semua)
-            if self._gulir_daftar_dropdown(peramban, unsur):
-                geser += 1                       # masih ada bagian daftar yang belum terlihat
-            else:
-                halaman, total = self._halaman_daftar_dropdown(peramban, unsur)
-                if (0 < halaman < total) and halaman_dilewati < DESA_HALAMAN_MAKSIMAL - 1 \
-                        and self._halaman_berikutnya_dropdown(peramban, unsur):
-                    halaman_dilewati += 1
-                    self._catat_kepala(
-                        f"{awalan} {label}: pilihan belum ketemu pada halaman itu — membuka "
-                        "halaman berikutnya pada bilah halaman daftarnya («Page x of y»).")
-                    self._tunggu(peramban, 1.0)  # halaman baru masih diambil dari basis data
-                    # Ronde 54 — halaman baru itu datanya tetap diambil Dapodik dari basis
-                    # datanya: store-nya ditunggu siap dulu (di sekolah «harus menunggu agak
-                    # lama biar valuenya muncul»), baru pilihannya dibaca.
-                    self._tunggu_store_desa(peramban, unsur)
-                    self._gulir_daftar_dropdown(peramban, unsur, jauh=-100000)
-                elif halaman_dilewati < DESA_HALAMAN_MAKSIMAL - 1:
-                    # Ronde 54 — daftar picker-nya tidak terjangkau (tidak mau terbuka/bilah
-                    # halamannya tidak ada): halaman berikutnya diminta lewat STORE combonya,
-                    # supaya seluruh daftar desa tetap tersusuri tanpa kata kunci kedua.
-                    sewaktu, sejumlah, dimuat = self._halaman_store_desa(peramban, unsur)
-                    if dimuat:
+
+        def susur() -> tuple[str, str]:
+            """Satu putaran menyusuri daftar: baca → gulir → halaman berikutnya → baca lagi."""
+            nonlocal geser, halaman_dilewati
+            langkah = 0
+            sepi = 0
+            while langkah < 80 and len(semua) < DESA_PILIHAN_MAKSIMAL:
+                langkah += 1
+                cocok, catatan = self._cocokkan_desa(desa, kecamatan, semua)
+                if cocok and self._hanya_kecamatan(cocok, desa, kecamatan):
+                    # Ronde 55 — pada Dapodik dua tahap, daftar pertama berisi KECAMATAN
+                    # («Kec. Karawaci»). Pilihan seperti itu TIDAK boleh dianggap desa hanya
+                    # karena namanya memuat nama kecamatan — desanya belum ada di daftar.
+                    cocok, catatan = "", "pilihan di daftar itu hanya kecamatan"
+                if cocok:
+                    return cocok, catatan
+                jumlah_awal = len(semua)
+                if self._gulir_daftar_dropdown(peramban, unsur):
+                    geser += 1                       # masih ada bagian daftar yang belum terlihat
+                else:
+                    halaman, total = self._halaman_daftar_dropdown(peramban, unsur)
+                    if (0 < halaman < total) and halaman_dilewati < DESA_HALAMAN_MAKSIMAL - 1 \
+                            and self._halaman_berikutnya_dropdown(peramban, unsur):
                         halaman_dilewati += 1
                         self._catat_kepala(
-                            f"{awalan} {label}: pilihan belum ketemu pada halaman itu — "
-                            f"halaman berikutnya diminta lewat store combo-nya "
-                            f"(halaman {sewaktu} dari {sejumlah}; daftar picker-nya sendiri "
-                            "tidak terjangkau, jadi datanya dibaca dari store).")
-                        self._tunggu(peramban, 1.0)
-            self._tunggu(peramban, 0.4)
-            serap()
-            if len(semua) > jumlah_awal:
-                sepi = 0
-            else:
-                # Belum ada tambahan: datanya (halaman baru) memang butuh beberapa bacaan.
-                # Baru sesudah beberapa putaran tanpa tambahan, daftarnya dianggap mentok.
-                sepi += 1
-                if sepi >= 6:
-                    break
-        cocok, catatan = self._cocokkan_desa(desa, kecamatan, semua)
+                            f"{awalan} {label}: pilihan belum ketemu pada halaman itu — membuka "
+                            "halaman berikutnya pada bilah halaman daftarnya («Page x of y»).")
+                        self._tunggu(peramban, 1.0)  # halaman baru masih diambil dari basis data
+                        # Ronde 54 — halaman baru itu datanya tetap diambil Dapodik dari basis
+                        # datanya: store-nya ditunggu siap dulu (di sekolah «harus menunggu agak
+                        # lama biar valuenya muncul»), baru pilihannya dibaca.
+                        self._tunggu_store_desa(peramban, unsur)
+                        self._gulir_daftar_dropdown(peramban, unsur, jauh=-100000)
+                    elif halaman_dilewati < DESA_HALAMAN_MAKSIMAL - 1:
+                        # Ronde 54 — daftar picker-nya tidak terjangkau (tidak mau terbuka/bilah
+                        # halamannya tidak ada): halaman berikutnya diminta lewat STORE combonya,
+                        # supaya seluruh daftar desa tetap tersusuri tanpa kata kunci kedua.
+                        sewaktu, sejumlah, dimuat = self._halaman_store_desa(peramban, unsur)
+                        if dimuat:
+                            halaman_dilewati += 1
+                            self._catat_kepala(
+                                f"{awalan} {label}: pilihan belum ketemu pada halaman itu — "
+                                f"halaman berikutnya diminta lewat store combo-nya "
+                                f"(halaman {sewaktu} dari {sejumlah}; daftar picker-nya sendiri "
+                                "tidak terjangkau, jadi datanya dibaca dari store).")
+                            self._tunggu(peramban, 1.0)
+                self._tunggu(peramban, 0.4)
+                serap()
+                if len(semua) > jumlah_awal:
+                    sepi = 0
+                else:
+                    # Belum ada tambahan: datanya (halaman baru) memang butuh beberapa bacaan.
+                    # Baru sesudah beberapa putaran tanpa tambahan, daftarnya dianggap mentok.
+                    sepi += 1
+                    if sepi >= 6:
+                        break
+            cocok, catatan = self._cocokkan_desa(desa, kecamatan, semua)
+            if cocok and self._hanya_kecamatan(cocok, desa, kecamatan):
+                cocok, catatan = "", "pilihan di daftar itu hanya kecamatan"
+            return cocok, catatan
+
+        cocok, catatan = susur()
+        if not cocok and kecamatan and not self._kecamatan_dua_tahap_dicoba:
+            # Ronde 55 — kemungkinan kedua yang dilaporkan Dapodik sekolah: pilihannya DUA
+            # TAHAP. Combo wilayah menampilkan **kecamatan** lebih dulu; daftar desa baru
+            # diambil Dapodik sesudah kecamatannya dipilih (lihat «combokecamatan» pada log
+            # 30 September 2026). Jadi bila daftar yang muncul berisi kecamatan yang cocok,
+            # kecamatan itu DIKLIK dulu — lalu daftarnya dibaca ulang untuk desanya. Kalau
+            # daftarnya tidak berisi kecamatan yang cocok, bot tidak mengklik apa pun.
+            self._kecamatan_dua_tahap_dicoba = True
+            if self._klik_kecamatan_daftar(peramban, unsur, kecamatan, semua, awalan, label):
+                semua.clear()
+                serap()
+                cocok, catatan = susur()
+        else:
+            cocok, catatan = self._cocokkan_desa(desa, kecamatan, semua)
         return cocok, catatan, semua, {"geser": geser, "halaman": halaman_dilewati}
+
+    @classmethod
+    def _hanya_kecamatan(cls, teks: str, desa: str, kecamatan: str) -> bool:
+        """Apakah pilihan itu **hanya nama kecamatan**, bukan desa (ronde 55).
+
+        Dipakai pada Dapodik dua tahap: daftar pertamanya berisi kecamatan («Kec. Karawaci»)
+        — pilihan itu jangan dianggap desa hanya karena memuat kata kecamatannya. Pilihan
+        bernama desa selalu membawa kata yang tidak ada pada nama kecamatan (mis.
+        «Karawaci Baru»).
+        """
+        kata_teks = cls._kata_wilayah(teks)
+        kata_kec = cls._kata_wilayah(kecamatan)
+        kata_desa = cls._kata_wilayah(desa)
+        if not kata_teks or not kata_kec:
+            return False
+        if kata_teks == kata_kec:
+            return True
+        if kata_kec not in kata_teks:
+            return False
+        sisa = [k for k in kata_teks.split() if k not in kata_kec.split()]
+        # Kata sisa yang bukan bagian dari nama desa = daftar itu memang kecamatan saja.
+        return not any(k in kata_desa.split() for k in sisa)
+
+    def _klik_kecamatan_daftar(self, peramban, unsur, kecamatan: str, semua: list[str],
+                               awalan: str = "[bio]", label: str = "") -> bool:
+        """Klik KECAMATAN pada daftar yang muncul, lalu tunggu daftar desanya (ronde 55).
+
+        Dipakai hanya bila daftar yang tampil berisi kecamatan yang **cocok dengan data SM** —
+        bukti bahwa Dapodik memang memakai picker dua tahap (kecamatan → desa). Yang diklik
+        hanya pilihan yang cocok; bila tidak ada yang cocok, bot tidak mengklik apa pun dan
+        melaporkan apa adanya (tidak menebak).
+        """
+        kata = self._kata_wilayah(kecamatan)
+        if not kata:
+            return False
+        calon: list[str] = []
+        for teks in semua:
+            bersih = self._nilai_teks(teks)
+            if not bersih:
+                continue
+            rendah = bersih.lower()
+            pembanding = self._kata_wilayah(rendah)
+            if pembanding != kata:
+                continue
+            # Pilihan kecamatan dikenali dari bentuknya (berawalan «Kec.») atau karena
+            # teksnya memang hanya nama kecamatan — bukan gabungan desa + kecamatan.
+            if rendah.startswith("kec") or ("kec" not in rendah and "-" not in rendah):
+                calon.append(bersih)
+        if not calon:
+            return False
+        pilih = calon[0]
+        self._catat_kepala(
+            f"{awalan} {label}: daftar yang muncul berisi KECAMATAN «{pilih}» — Dapodik "
+            "mengambil daftar desa sesudah kecamatannya dipilih; kecamatan itu diklik dulu, "
+            "lalu daftarnya dibaca ulang untuk desanya.")
+        try:
+            self._klik_pilihan_dropdown(peramban, unsur, pilih)
+        except Exception:  # noqa: BLE001 — klik tambahan saja
+            return False
+        self._tunggu(peramban, 1.0)
+        self._tunggu_store_desa(peramban, unsur)
+        self._tunggu_daftar_dropdown(peramban, unsur, percobaan=8)
+        return True
 
     def _isi_desa_kelurahan(self, peramban, peta: dict[str, str], label: str, unsur,
                             siswa: dict[str, Any], awalan: str = "[bio]") -> str:
@@ -5238,6 +5514,23 @@ class BotDapodik:
             tampil = self._tunggu_daftar_dropdown(
                 peramban, unsur, percobaan=max(4, int(self._batas_tunggu_desa() / 0.5)))
             jumlah_store = self._tunggu_store_desa(peramban, unsur, awalan, label)
+            if not jumlah_store and not tampil:
+                # Ronde 55 — laporan sekolah 30 September 2026 (0.1.14): kata kuncinya SUDAH
+                # masuk ke kotak pencarian («kotak pencariannya berbunyi «Batuceper»»), tetapi
+                # store combo-nya tetap kosong sesudah 31x periksa dan daftarnya tidak pernah
+                # tampil — yang tidak jalan adalah pencariannya di sisi Dapodik. Pencariannya
+                # dipaksa lewat model Ext JS combo-nya, lalu ditunggu lagi; bila tetap kosong,
+                # keadaan kolom wilayahnya dibedah supaya sebabnya terbaca dari log.
+                self._catat_kepala(
+                    f"{awalan} {label}: daftar masih kosong sesudah ditunggu — pencariannya "
+                    "dipaksa lewat model Ext JS combo-nya, lalu ditunggu lagi.")
+                if self._paksa_pencarian_desa(peramban, unsur, cari, awalan, label):
+                    self._tunggu(peramban, DESA_STORE_POLL_DETIK)
+                    tampil = (self._tunggu_daftar_dropdown(peramban, unsur, percobaan=8)
+                              or self._pilihan_dropdown(peramban, unsur) or tampil)
+                    jumlah_store = self._tunggu_store_desa(peramban, unsur, awalan, label)
+                if not jumlah_store and not tampil:
+                    self._bedah_wilayah(peramban, unsur, awalan, label)
             for rek in (self._data_desa_dropdown(peramban, unsur) if jumlah_store else []):
                 if rek["teks"] not in semua:
                     semua.append(rek["teks"])
@@ -5445,7 +5738,8 @@ class BotDapodik:
                 # Ronde 54 — upaya terakhir sesudah cara Dapodik sendiri: tuliskan kode wilayah
                 # pilihan itu langsung ke kolom tersembunyinya.
                 ditulis_langsung = True
-                if self._tulis_kode_wilayah(peramban, unsur, kode_diharapkan, "[desa]", "kode"):
+                if self._tulis_kode_wilayah(peramban, unsur, kode_diharapkan, "[desa]", "kode",
+                                             tampil=cocok):
                     self._tunggu(peramban, 0.3)
                     continue
             self._tunggu(peramban, 0.5)

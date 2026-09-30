@@ -4741,7 +4741,7 @@ def cek_kolom_lewat_nama_dan_label_div() -> str:
                   # sesudah ditunggu; ronde 52 menambah 58–59 — kolom desa diisi persis cara
                   # pengguna (tunggu isian sebelumnya, Ctrl+A, ketik nama wilayahnya tanpa
                   # awalan, baca ulang kotak pencariannya) — sehingga 59).
-                  "62 skenario"):
+                  "65 skenario"):
         assert tanda in uji, f"uji bot kehilangan pemeriksaan {tanda!r} (ronde 47)"
 
     return ("kolom dicari lewat NAMA lebih dulu (rt, rw, alamat_jalan, no_kk, kode_pos), label "
@@ -4905,7 +4905,7 @@ def cek_catatan_lengkap_bot() -> str:
     assert "_penjaga_unsur" in sumber_bot and "nilai-model-unsur" in sumber_bot, \
         "unsur pemegang nilai tidak diingat / pembacaan model Ext JS tidak ada"
     uji_bot = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
-    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "62 skenario",
+    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "65 skenario",
                   "kolomnya TIDAK ketemu", "kolom isian yang ADA di halaman"):
         assert tanda in uji_bot or tanda in (BASE_DIR / "scripts/peramban_palsu.py").read_text(
             encoding="utf-8"), f"uji/fixture kehilangan {tanda!r}"
@@ -5262,7 +5262,7 @@ def cek_perbaikan_simpan_bio():
         assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 50)"
     uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
     for judul in ("51. «Simpan» ditolak Dapodik", "52. pengaturan «Wali mengikuti ayah» mati",
-                  "53. «0» keras", "54. identitas wali tidak dikarang", "62 skenario",
+                  "53. «0» keras", "54. identitas wali tidak dikarang", "65 skenario",
                   "56. daftar desa baru muncul", "57. nilai desa baru muncul",
                   "58. kecamatan/desa berawalan", "59. isian desa sebelumnya muncul sesudah",
                   "desa_nilai_muat_perlu_default", "desa_lambat_kali",
@@ -5409,7 +5409,7 @@ def cek_ketik_desa_cara_pengguna():
         assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 52)"
     uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
     for judul in ("58. kecamatan/desa berawalan", "59. isian desa sebelumnya muncul sesudah "
-                  "ditunggu", "62 skenario"):
+                  "ditunggu", "65 skenario"):
         assert judul in uji, f"uji bot kehilangan {judul!r} (ronde 52)"
 
     return ("kolom «Desa/Kelurahan» diisi persis cara pengguna: isian sebelumnya ditunggu "
@@ -5487,7 +5487,7 @@ def cek_desa_dipilih_dari_daftar():
         assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 53)"
     uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
     for judul in ("60. satu kata kunci: ketik kecamatan, lalu pilih dari daftar",
-                  "61. kata kunci menempel & tertinggal", "kueri_pencarian_desa", "62 skenario"):
+                  "61. kata kunci menempel & tertinggal", "kueri_pencarian_desa", "65 skenario"):
         assert judul in uji, f"uji bot kehilangan {judul!r} (ronde 53)"
 
     return ("kolom «Desa/Kelurahan» diisi persis cara pengguna ronde 53: yang diketik HANYA "
@@ -5549,7 +5549,7 @@ def cek_kode_wilayah_ditulis_langsung():
                   "desa_store_halaman_dipakai", "/* store-desa-halaman */"):
         assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 54)"
     uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
-    for judul in ("62. kode wilayah tidak ikut pindah", "62 skenario"):
+    for judul in ("62. kode wilayah tidak ikut pindah", "65 skenario"):
         assert judul in uji, f"uji bot kehilangan {judul!r} (ronde 54)"
 
     return ("kode wilayah (kode_wilayah_str) ditangani sampai tuntas: pemilihan lewat model "
@@ -5559,6 +5559,60 @@ def cek_kode_wilayah_ditulis_langsung():
             "ke catatan bot (kolom tersembunyi, getValue/getRawValue, valueField/displayField, "
             "record terpilih) supaya kegagalan berikutnya terbaca sebabnya (uji tiruan 62, "
             "merah pada bot ronde 53)")
+
+
+@cek("48. Daftar desa kosong walau kata kunci masuk → pencarian dipaksa lewat model Ext JS, "
+      "lalu keadaan kolom wilayahnya dibedah; daftar dua tahap (kecamatan → desa) ikut ditangani")
+def cek_pencarian_desa_dipaksa():
+    """Ronde 55 — laporan sekolah 30 September 2026 (versi 0.1.14).
+
+    Log yang dikirim: «Desa/Kelurahan: kotak pencariannya berbunyi «Batuceper» … kata kuncinya
+    diterima kolomnya», lalu «store combo-nya ada tetapi belum berisi sesudah 31x periksa» dan
+    «daftar desa belum terlihat sesudah 30x baca» — jadi yang tidak jalan adalah **pencariannya
+    di sisi Dapodik**, bukan pengetikannya. Pemeriksaan ini menjaga tiga hal: (a) bot memicu
+    pencarian lewat model Ext JS combo-nya (``expand``/``doQuery``/``store.load``) dan melaporkan
+    ``queryMode``/``minChars``/``lastQuery``/url store-nya; (b) bila tetap kosong, keadaan kolom
+    wilayahnya **dibedah** (combo, queryMode, jumlah record store) — bukan dikarang; (c) daftar
+    dua tahap ditangani: pilihan yang hanya berisi KECAMATAN tidak dianggap desa, kecamatannya
+    diklik lebih dulu, lalu daftar desanya dibaca ulang.
+    """
+    import inspect
+
+    from app.bot_dapodik import BotDapodik
+
+    bot = (BASE_DIR / "app/bot_dapodik.py").read_text(encoding="utf-8")
+    for tanda in ("_paksa_pencarian_desa", "/* paksa-pencarian-desa */", "_bedah_wilayah",
+                  "/* bedah-wilayah */", "_hanya_kecamatan", "_klik_kecamatan_daftar",
+                  "dipaksa lewat model Ext JS combo-nya", "bedah kolom wilayah"):
+        assert tanda in bot, f"bot kehilangan {tanda!r} (ronde 55)"
+    badan = {nama: inspect.getsource(fungsi) for nama, fungsi in
+             inspect.getmembers(BotDapodik, predicate=inspect.isfunction)}
+    paksa = badan["_paksa_pencarian_desa"]
+    for tanda in ("doQuery", "store.load", "queryMode", "minChars", "lastQuery"):
+        assert tanda in paksa, f"pemaksaan pencarian desa tidak memakai {tanda!r}"
+    bedah = badan["_bedah_wilayah"]
+    for tanda in ("kolom wilayah", "queryMode", "getStore"):
+        assert tanda in bedah, f"bedah kolom wilayah tidak melaporkan {tanda!r}"
+    kumpul = badan["_kumpulkan_pilihan_desa"]
+    assert "_klik_kecamatan_daftar" in kumpul and "_hanya_kecamatan" in kumpul, \
+        "daftar dua tahap (kecamatan → desa) tidak ditangani di penyusuran daftar desa"
+
+    # Peramban palsu bisa menirukan keadaan sekolah + ujinya ada (63–65).
+    palsu = (BASE_DIR / "scripts/peramban_palsu.py").read_text(encoding="utf-8")
+    for tanda in ("desa_pencarian_perlu_dipicu", "desa_pencarian_gagal_meski_dipaksa",
+                  "desa_dua_tahap", "desa_pencarian_dipaksa", "desa_tahap_kecamatan_diklik",
+                  "/* paksa-pencarian-desa */", "/* bedah-wilayah */"):
+        assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 55)"
+    uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
+    for judul in ("63. store desa kosong walau kata kunci masuk", "64. pencarian dipaksa tetap kosong",
+                  "65. daftar berisi kecamatan dulu", "65 skenario"):
+        assert judul in uji, f"uji bot kehilangan {judul!r} (ronde 55)"
+
+    return ("daftar desa yang tetap kosong walau kata kuncinya sudah diketik ditangani sampai "
+            "tuntas: pencariannya dipaksa lewat model Ext JS combo-nya (queryMode/minChars/"
+            "lastQuery/url store dilaporkan), bila tetap kosong keadaan kolom wilayahnya dibedah "
+            "ke catatan bot, dan daftar dua tahap (kecamatan dulu, baru desa) ikut ditangani "
+            "(uji tiruan 63–65, merah pada bot ronde 54)")
 
 
 def main() -> int:
@@ -5611,6 +5665,7 @@ def main() -> int:
     cek_ketik_desa_cara_pengguna()
     cek_desa_dipilih_dari_daftar()
     cek_kode_wilayah_ditulis_langsung()
+    cek_pencarian_desa_dipaksa()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()
