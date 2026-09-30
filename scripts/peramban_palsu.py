@@ -1017,6 +1017,17 @@ class PerambanPalsu:
         self.desa_ketik_menempel_pencarian = False
         #: Berapa kali ketikan menempel pada isi kotak pencarian desa yang sudah ada.
         self.desa_ketik_menempel = 0
+        #: Ronde 54 — memilih desanya TIDAK memindahkan kode wilayahnya: kolom tersembunyi
+        #: ``kode_wilayah_str`` tetap berisi kode desa yang lama (kejadian yang masih
+        #: dilaporkan sekolah). True = kode tidak ikut pindah saat desa dipilih.
+        self.desa_kode_tak_ikut_pilih = False
+        #: Berapa kali pilihan desa tidak memindahkan kode wilayahnya (bukti uji).
+        self.desa_kode_tidak_pindah = 0
+        #: Berapa kali bot menuliskan kode wilayah langsung ke kolom tersembunyinya.
+        self.desa_kode_ditulis_langsung = 0
+        #: Ronde 54 — berapa kali halaman daftar desa diminta lewat STORE combonya (dipakai
+        #: bila daftar picker-nya sendiri tidak terjangkau).
+        self.desa_store_halaman_dipakai = 0
         #: Berapa kali ketikan ke kotak pencarian desa benar-benar diterima.
         self.desa_ketik_berhasil = 0
         #: Berapa kali store combo desa diperiksa lewat Ext JS (``store-desa``) — bukti bahwa
@@ -1829,6 +1840,21 @@ class PerambanPalsu:
         self.angka_dinormalkan += 1
         return True
 
+    def pasang_kode_wilayah(self, nilai_id: str) -> None:
+        """Tuliskan kode wilayah sesudah sebuah desa dipilih.
+
+        Di sekolah, memilih desanya **tidak selalu** memindahkan kode wilayahnya (knob
+        ``desa_kode_tak_ikut_pilih``): ``kode_wilayah_str`` tetap berisi kode desa yang lama,
+        dan itulah yang membuat Dapodik menyimpan desa lama. Di situlah bot harus menuliskan
+        kodenya sendiri (``_tulis_kode_wilayah``).
+        """
+        if self.kode_wilayah_kolom is None:
+            return
+        if self.desa_kode_tak_ikut_pilih:
+            self.desa_kode_tidak_pindah += 1
+            return
+        self.kode_wilayah_kolom.nilai = nilai_id
+
     def kode_wilayah(self) -> str:
         """Isi kolom tersembunyi ``kode_wilayah_str`` (kode desa yang benar-benar tersimpan)."""
         return str(getattr(self.kode_wilayah_kolom, "nilai", "") or "")
@@ -1983,8 +2009,7 @@ class PerambanPalsu:
         combo.nilai, combo.nilai_model, combo.nilai_id = nilai, nilai_model, nilai_id
         combo.kode_basi = kode_basi
         combo._nilai_tertunda = None
-        if self.kode_wilayah_kolom is not None:
-            self.kode_wilayah_kolom.nilai = nilai_id
+        self.pasang_kode_wilayah(nilai_id)
 
     def daftar_dropdown_terlihat(self, combo: "UnsurPalsu | None") -> list["UnsurPalsu"]:
         """Pilihan yang terlihat pada daftar dropdown sebuah kolom (urutan tampilannya)."""
@@ -2036,9 +2061,12 @@ class PerambanPalsu:
         else:
             combo.nilai_id = (combo.daftar_pilihan.index(item.teks) + 1
                               if item.teks in combo.daftar_pilihan else "")
-        if getattr(combo, "_nilai_tertunda", None) is None \
-                and self.kode_wilayah_kolom is not None:
-            self.kode_wilayah_kolom.nilai = combo.nilai_id
+        # Kolom tersembunyi ``kode_wilayah_str`` hanya ditulis oleh combo DESA — bukan oleh
+        # dropdown lain (pendidikan/pekerjaan/penghasilan punya nilai sendiri-sendiri; kalau
+        # ikut menulis, kode desa yang sudah benar tertimpa nomor urut kolom lain).
+        if getattr(combo, "pencarian_desa", False) \
+                and getattr(combo, "_nilai_tertunda", None) is None:
+            self.pasang_kode_wilayah(combo.nilai_id)
         self.dropdown_terbuka = None
         self.dropdown_item_diklik += 1
         self.kursor_di = combo              # fokus kembali ke kotak combonya (persis Ext JS)
@@ -2074,8 +2102,8 @@ class PerambanPalsu:
                 combo._nilai_tertunda = (cocok, cocok, nilai_id_baru, False)
                 combo._nilai_baca = 0
                 combo.nilai, combo.nilai_model, combo.nilai_id = lama_nilai
-            elif self.kode_wilayah_kolom is not None:
-                self.kode_wilayah_kolom.nilai = combo.nilai_id
+            else:
+                self.pasang_kode_wilayah(combo.nilai_id)
         else:
             combo.nilai_id = combo.daftar_pilihan.index(cocok) + 1
         self.dropdown_terbuka = None
@@ -2987,6 +3015,46 @@ class PerambanPalsu:
                 return []
             return [{"teks": p, "nilai": i + 1}
                     for i, p in enumerate(sasaran.daftar_pilihan)]
+        if "/* tulis-kode-wilayah */" in skrip:
+            # Ronde 54 — bot menuliskan kode wilayah langsung ke kolom tersembunyinya
+            # (upaya terakhir bila memilih desanya tidak memindahkan kodenya).
+            kode = str(argumen[1] if len(argumen) > 1 else "")
+            kandidat: list[Any] = []
+            if self.kode_wilayah_kolom is not None:
+                kandidat.append(self.kode_wilayah_kolom)
+            kandidat += [u for u in self.unsur
+                         if u.type == "hidden" and "kode_wilayah" in ((u.name or "") + (u.id or ""))
+                         and u not in kandidat]
+            if not kandidat:
+                return {"ada": False, "ditulis": 0, "jumlah": 0}
+            ditulis = 0
+            for kolom in kandidat:
+                if str(kolom.nilai or "") == kode:
+                    continue
+                kolom.nilai = kode
+                ditulis += 1
+            if ditulis:
+                self.desa_kode_ditulis_langsung += 1
+            return {"ada": True, "ditulis": ditulis, "jumlah": len(kandidat)}
+        if "/* bedah-kode-wilayah */" in skrip:
+            # Ronde 54 — keadaan kode wilayah apa adanya: kolom tersembunyi, nilai & tulisan
+            # combo-nya, dan seluruh kolom record yang sedang terpilih.
+            sasaran = argumen[0] if argumen else None
+            kode_kolom = []
+            if self.kode_wilayah_kolom is not None:
+                kode_kolom.append({"nama": self.kode_wilayah_kolom.name or "kode_wilayah_str",
+                                   "nilai": str(self.kode_wilayah_kolom.nilai or "")})
+            tersembunyi = [{"nama": (u.name or u.id or "?"), "nilai": str(u.nilai or "")}
+                           for u in self.unsur if u.type == "hidden"][:10]
+            combo: dict[str, str] = {}
+            rekaman: dict[str, str] = {}
+            if getattr(sasaran, "pencarian_desa", False):
+                combo = {"value": str(sasaran.nilai_id or ""), "rawValue": str(sasaran.nilai or ""),
+                         "valueField": "kode_wilayah_str", "displayField": "nama"}
+                rekaman = {"nama": str(sasaran.nilai_model or sasaran.nilai or ""),
+                           "kode_wilayah_str": str(sasaran.nilai_id or "")}
+            return {"kode": kode_kolom, "tersembunyi": tersembunyi, "combo": combo,
+                    "rekaman": rekaman}
         if "/* store-desa */" in skrip:
             # Ronde 53 (persis ``tunggu_store_desa()`` skrip pengguna): keadaan STORE Ext JS
             # combo desa — ada/sedang memuat/berapa record. Yang ditunggu bot adalah storenya
@@ -3007,6 +3075,24 @@ class PerambanPalsu:
             siap = self._desa_siap(sasaran)
             return {"ada": True, "loading": not siap,
                     "jumlah": len(sasaran.daftar_pilihan) if siap else 0, "sebab": ""}
+        if "/* store-desa-halaman */" in skrip:
+            # Ronde 54 — halaman berikutnya diminta lewat store combonya (combo Ext JS yang
+            # berhalaman): datanya berganti ke halaman berikutnya tanpa perlu daftar picker
+            # terbuka — persis ``store.nextPage()`` di Dapodik.
+            sasaran = argumen[0] if argumen else None
+            if (sasaran is None or self.dropdown_tanpa_ext
+                    or not getattr(sasaran, "pencarian_desa", False)):
+                return {"halaman": 0, "total": 0, "dimuat": False}
+            halaman = int(getattr(sasaran, "halaman", 0) or 0)
+            total = int(getattr(sasaran, "halaman_maks", 0) or 0)
+            if halaman <= 0 or total <= halaman:
+                return {"halaman": halaman, "total": total, "dimuat": False}
+            sasaran.halaman = halaman + 1
+            self._bangun_item_desa(sasaran)
+            self.halaman_dropdown_dibuka += 1
+            self.dropdown_baca_kali = 0
+            self.desa_store_halaman_dipakai += 1
+            return {"halaman": halaman, "total": total, "dimuat": True}
         if "/* store-desa-data */" in skrip:
             # Record daftar desa dari store combo: teks pilihan, nilainya, dan kode wilayahnya
             # (``kode_wilayah_str``) — persis ``baca_store_desa()`` skrip pengguna (ronde 53).

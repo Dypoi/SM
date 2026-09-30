@@ -4741,7 +4741,7 @@ def cek_kolom_lewat_nama_dan_label_div() -> str:
                   # sesudah ditunggu; ronde 52 menambah 58–59 — kolom desa diisi persis cara
                   # pengguna (tunggu isian sebelumnya, Ctrl+A, ketik nama wilayahnya tanpa
                   # awalan, baca ulang kotak pencariannya) — sehingga 59).
-                  "61 skenario"):
+                  "62 skenario"):
         assert tanda in uji, f"uji bot kehilangan pemeriksaan {tanda!r} (ronde 47)"
 
     return ("kolom dicari lewat NAMA lebih dulu (rt, rw, alamat_jalan, no_kk, kode_pos), label "
@@ -4905,7 +4905,7 @@ def cek_catatan_lengkap_bot() -> str:
     assert "_penjaga_unsur" in sumber_bot and "nilai-model-unsur" in sumber_bot, \
         "unsur pemegang nilai tidak diingat / pembacaan model Ext JS tidak ada"
     uji_bot = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
-    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "61 skenario",
+    for tanda in ('"tanpa_kolom_angka"', '"model_angka_terpisah"', "62 skenario",
                   "kolomnya TIDAK ketemu", "kolom isian yang ADA di halaman"):
         assert tanda in uji_bot or tanda in (BASE_DIR / "scripts/peramban_palsu.py").read_text(
             encoding="utf-8"), f"uji/fixture kehilangan {tanda!r}"
@@ -5262,7 +5262,7 @@ def cek_perbaikan_simpan_bio():
         assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 50)"
     uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
     for judul in ("51. «Simpan» ditolak Dapodik", "52. pengaturan «Wali mengikuti ayah» mati",
-                  "53. «0» keras", "54. identitas wali tidak dikarang", "61 skenario",
+                  "53. «0» keras", "54. identitas wali tidak dikarang", "62 skenario",
                   "56. daftar desa baru muncul", "57. nilai desa baru muncul",
                   "58. kecamatan/desa berawalan", "59. isian desa sebelumnya muncul sesudah",
                   "desa_nilai_muat_perlu_default", "desa_lambat_kali",
@@ -5409,7 +5409,7 @@ def cek_ketik_desa_cara_pengguna():
         assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 52)"
     uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
     for judul in ("58. kecamatan/desa berawalan", "59. isian desa sebelumnya muncul sesudah "
-                  "ditunggu", "61 skenario"):
+                  "ditunggu", "62 skenario"):
         assert judul in uji, f"uji bot kehilangan {judul!r} (ronde 52)"
 
     return ("kolom «Desa/Kelurahan» diisi persis cara pengguna: isian sebelumnya ditunggu "
@@ -5487,7 +5487,7 @@ def cek_desa_dipilih_dari_daftar():
         assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 53)"
     uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
     for judul in ("60. satu kata kunci: ketik kecamatan, lalu pilih dari daftar",
-                  "61. kata kunci masih tertinggal", "kueri_pencarian_desa", "61 skenario"):
+                  "61. kata kunci menempel & tertinggal", "kueri_pencarian_desa", "62 skenario"):
         assert judul in uji, f"uji bot kehilangan {judul!r} (ronde 53)"
 
     return ("kolom «Desa/Kelurahan» diisi persis cara pengguna ronde 53: yang diketik HANYA "
@@ -5498,6 +5498,67 @@ def cek_desa_dipilih_dari_daftar():
             "+ kode wilayah) sebelum «Simpan» — dan «Simpan» DITAHAN bila pilihan desanya "
             "belum terverifikasi sementara isi kolomnya tidak bisa dikembalikan (uji tiruan "
             "60–61, merah pada bot ronde 52)")
+
+
+@cek("47. Kode wilayah (kode_wilayah_str) tidak ikut pindah → dituliskan langsung, diperiksa "
+      "ulang, dan dibedah ke catatan bila tetap gagal")
+def cek_kode_wilayah_ditulis_langsung():
+    """Ronde 54 — «masih gagal untuk masalah bagian kode_wilayah_str ini».
+
+    Sampai ronde 53, bot memilih desanya lewat model Ext JS dengan ``select(record)`` lalu
+    ``setValue`` hanya bila ``getRawValue()`` masih kosong — dan sesudah kata kunci pencarian
+    diketik, ``getRawValue()`` **tidak pernah** kosong, jadi ``setValue`` tidak pernah jalan
+    dan nilai model combo-nya (sumber ``kode_wilayah_str``) tetap nilai lama. Pemeriksaan ini
+    menjaga tiga hal: (a) ``setValue`` selalu dipanggil beserta ``fireEvent('select'/'change')``;
+    (b) bila kodenya tetap tidak pindah, kode wilayah pilihan itu **dituliskan langsung** ke
+    kolom tersembunyinya lalu diperiksa ulang; (c) keadaan kode wilayahnya **dibedah** ke
+    catatan (kolom tersembunyi, getValue/getRawValue, valueField/displayField, record terpilih),
+    supaya bila masih gagal di sekolah, sebabnya terbaca dari log — bukan ditebak.
+    """
+    import inspect
+
+    from app.bot_dapodik import BotDapodik
+
+    bot = (BASE_DIR / "app/bot_dapodik.py").read_text(encoding="utf-8")
+    for tanda in ("_tulis_kode_wilayah", "_bedah_kode_wilayah", "_halaman_store_desa",
+                  "/* tulis-kode-wilayah */", "/* bedah-kode-wilayah */", "/* store-desa-halaman */",
+                  "bedah kolomnya", "dituliskan langsung ke kolom", "_bedah_kode_dilaporkan"):
+        assert tanda in bot, f"bot kehilangan {tanda!r} (ronde 54)"
+    assert "if (c.setValue && !(c.getRawValue && c.getRawValue()))" not in bot, \
+        "setValue masih dilewati bila getRawValue() berisi (nilai model combo-nya tidak " \
+        "pernah ikut berubah — sumber kode_wilayah_str tidak pindah)"
+    badan = {nama: inspect.getsource(fungsi) for nama, fungsi in
+             inspect.getmembers(BotDapodik, predicate=inspect.isfunction)}
+    pilih_ext = badan["_pilih_dropdown_ext"]
+    assert "setValue" in pilih_ext and "fireEvent('change'" in pilih_ext, \
+        "pemilihan lewat model Ext JS tidak setValue + fireEvent('change')"
+    periksa = badan["_periksa_desa_sampai_siap"]
+    assert "kode_diharapkan" in periksa and "self._tulis_kode_wilayah(" in periksa, \
+        "kode wilayah tidak dituliskan langsung sesudah cara Dapodik sendiri dicoba"
+    tulis = badan["_tulis_kode_wilayah"]
+    assert "kode_wilayah" in tulis and "dispatchEvent" in tulis, \
+        "penulisan kode wilayah tidak menyentuh kolom tersembunyi beserta peristiwanya"
+    bedah = badan["_bedah_kode_wilayah"]
+    for tanda in ("getRawValue", "valueField", "displayField", "kode_wilayah"):
+        assert tanda in bedah, f"bedah kode wilayah tidak melaporkan {tanda!r}"
+
+    # Peramban palsu bisa menirukan kode wilayah yang tidak ikut pindah + ujinya ada (62).
+    palsu = (BASE_DIR / "scripts/peramban_palsu.py").read_text(encoding="utf-8")
+    for tanda in ("desa_kode_tak_ikut_pilih", "desa_kode_tidak_pindah",
+                  "desa_kode_ditulis_langsung", "pasang_kode_wilayah",
+                  "desa_store_halaman_dipakai", "/* store-desa-halaman */"):
+        assert tanda in palsu, f"peramban palsu kehilangan {tanda!r} (bukti ronde 54)"
+    uji = (BASE_DIR / "scripts/uji_bot_dapodik.py").read_text(encoding="utf-8")
+    for judul in ("62. kode wilayah tidak ikut pindah", "62 skenario"):
+        assert judul in uji, f"uji bot kehilangan {judul!r} (ronde 54)"
+
+    return ("kode wilayah (kode_wilayah_str) ditangani sampai tuntas: pemilihan lewat model "
+            "Ext JS selalu memanggil select + setValue + fireEvent('select'/'change'), dan bila "
+            "kodenya tetap tidak ikut pindah, kode wilayah pilihan itu dituliskan langsung ke "
+            "kolom tersembunyinya lalu diperiksa ulang sampai benar; keadaan kolomnya dibedah "
+            "ke catatan bot (kolom tersembunyi, getValue/getRawValue, valueField/displayField, "
+            "record terpilih) supaya kegagalan berikutnya terbaca sebabnya (uji tiruan 62, "
+            "merah pada bot ronde 53)")
 
 
 def main() -> int:
@@ -5549,6 +5610,7 @@ def main() -> int:
     cek_antrean_desa()
     cek_ketik_desa_cara_pengguna()
     cek_desa_dipilih_dari_daftar()
+    cek_kode_wilayah_ditulis_langsung()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()

@@ -759,9 +759,13 @@ def main() -> int:
     cek(p33.kode_wilayah() == kode_desa_palsu(DESA_PILIH_PALSU),
         f"kode_wilayah_str masih menunjuk desa lain (basi): {p33.kode_wilayah()!r} "
         f"(seharusnya {kode_desa_palsu(DESA_PILIH_PALSU)!r})")
-    cek(any("dipilih lewat model Ext JS" in b or "lewat model Ext JS" in b for b in j33),
-        "bot tidak memakai jalur model Ext JS untuk memindahkan kode wilayahnya: "
-        f"{[b for b in j33 if 'kode wilayah' in b][:4]}")
+    # Ronde 54: kode wilayahnya dipindahkan lewat model Ext JS (sinkronisasi select/setValue)
+    # atau — bila itu belum cukup — dengan menuliskannya langsung ke kolom tersembunyinya.
+    # Yang diperiksa bukan nama jalurnya, melainkan buktinya: kodenya benar-benar pindah dan
+    # bot mencatat cara pemindahannya.
+    cek(any(("lewat select/setValue" in b or "dituliskan langsung" in b) for b in j33),
+        "bot tidak mencatat cara kode wilayahnya dipindahkan (sinkronisasi Ext JS / tulis "
+        f"langsung): {[b for b in j33 if 'kode wilayah' in b][:4]}")
     cek(any("kode wilayah" in b and "→" in b for b in j33),
         f"perubahan kode wilayah tidak dicatat apa adanya: "
         f"{[b for b in j33 if 'kode wilayah' in b][:4]}")
@@ -1517,10 +1521,13 @@ def main() -> int:
                         setattr(p, "desa_ketik_menempel_pencarian", True)),
         ubah_siswa={"kecamatan": "Kec. Cibodas", "kelurahan": "Cimone Jaya"},
         tampilkan=True, opsi={"bot_isi_bio": "1"})
-    cek(getattr(p61, "desa_ketik_berhasil", 0) == 1
+    # Yang penting di sini bukan jumlah ketikan seluruhnya (pemulihan isi kolom juga mengetik,
+    # dan di tiruan ini Ctrl+A memang tidak membersihkan kotaknya), melainkan: ketikan
+    # PERTAMA-nya persis satu kata kunci polos, dan tiruannya memang membuatnya menempel.
+    cek(p61.desa_kueri_dipakai[:1] == ["Cibodas"]
         and getattr(p61, "desa_ketik_menempel", 0) >= 1,
-        f"uji tidak bermakna: ketikan diterima {getattr(p61, 'desa_ketik_berhasil', 0)}x, "
-        f"menempel {getattr(p61, 'desa_ketik_menempel', 0)}x")
+        f"uji tidak bermakna: kata kunci pertama {p61.desa_kueri_dipakai[:1]}, menempel "
+        f"{getattr(p61, 'desa_ketik_menempel', 0)}x")
     cek(all(not k.startswith("CibodasCibodas") for k in p61.desa_kueri_dipakai)
         and "Cimone Jaya" not in p61.desa_kueri_dipakai,
         f"ada kata kunci kedua (nama desa) yang diketik: {p61.desa_kueri_dipakai}")
@@ -1540,7 +1547,41 @@ def main() -> int:
     cek(any("Desa/Kelurahan" in b and "TIDAK ADA pada daftar Dapodik" in b for b in j61),
         [b for b in j61 if "Desa/Kelurahan" in b][:8] or j61[-8:])
 
-    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 61 skenario")
+    # 62) Ronde 54 — «masih gagal untuk masalah bagian kode_wilayah_str ini»: memilih desanya
+    #     benar (tulisan & nilai model combo-nya), tetapi kolom tersembunyi ``kode_wilayah_str``
+    #     TIDAK ikut pindah — di Dapodik itu berarti desa yang lama tetap tersimpan. Bot harus
+    #     menyelesaikannya sendiri: sesudah cara Dapodik (klik & select/setValue) dicoba, kode
+    #     wilayah pilihannya dituliskan langsung ke kolom tersembunyinya, lalu DIPERIKSA ULANG
+    #     sampai benar — dan kalau tetap tidak bisa, «Simpan» ditahan (bukan diklaim berhasil).
+    p62, j62 = jalankan(
+        "62. kode wilayah tidak ikut pindah → dituliskan langsung & diverifikasi", 2,
+        atur=lambda p: (p.siapkan_bio(), setattr(p, "desa_kode_tak_ikut_pilih", True)),
+        tampilkan=True, opsi={"bot_isi_bio": "1"})
+    cek(getattr(p62, "desa_kode_tidak_pindah", 0) >= 1,
+        "uji tidak bermakna: kode wilayahnya ikut pindah sendiri "
+        f"({getattr(p62, 'desa_kode_tidak_pindah', 0)}x)")
+    cek(getattr(p62, "desa_kode_ditulis_langsung", 0) >= 1,
+        "bot tidak menuliskan kode wilayahnya langsung ke kolom tersembunyinya")
+    cek(p62.kode_wilayah() == kode_desa_palsu(DESA_PILIH_PALSU),
+        f"kode wilayah sesudah bot bukan milik desa yang dipilih: {p62.kode_wilayah()!r}")
+    cek(str(p62.data_bio_tersimpan.get("kelurahan") or "") != ""
+        and "Karawaci Baru" in str(p62.data_bio_tersimpan.get("kelurahan")),
+        f"desa tidak tersimpan pada uji kode wilayah: {p62.data_bio_tersimpan.get('kelurahan')!r}")
+    cek(any("kode wilayah" in b and "dituliskan langsung" in b for b in j62),
+        f"bot tidak melaporkan penulisan kode wilayahnya: "
+        f"{[b for b in j62 if 'kode wilayah' in b][-4:]}")
+    cek(any("bedah" in b and "record terpilih" in b for b in j62),
+        f"bot tidak membedah keadaan kode wilayahnya untuk catatan: "
+        f"{[b for b in j62 if 'bedah' in b][:2]}")
+    cek(any("valueField" in b and "kode_wilayah_str" in b for b in j62),
+        f"bedah kode wilayahnya tidak menyebut valueField/record combo-nya: "
+        f"{[b for b in j62 if 'valueField' in b][:2]}")
+    cek(not any("«Simpan» DITAHAN" in b for b in j62),
+        "«Simpan» ditahan padahal kode wilayahnya sudah berhasil dituliskan & diverifikasi")
+    cek(p62.bio_tersimpan, "jendela «Ubah» tidak tersimpan pada uji kode wilayah")
+    cek(any(b.startswith("[OK]") for b in j62), f"Registrasi tidak jalan: {j62[-4:]}")
+
+    print(f"\n[SELESAI] {pemeriksaan} pemeriksaan lolos pada 62 skenario")
     return 0
 
 
