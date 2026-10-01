@@ -955,7 +955,8 @@ table.data.anggota td input[name="catatan"] { min-width: 190px; }
 .form-bot .field.span-3 { grid-column: 1 / -1; }
 .form-bot .form-aksi { grid-column: 1 / -1; }
 .opsi-bot {
-  display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));   grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+  display: grid; gap: .6rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
 }
 /* Baris opsi pada form uji koneksi Dapodik (tetap ringkas di kepala kartu). */
 .opsi-uji { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
@@ -968,7 +969,10 @@ table.data.anggota td input[name="catatan"] { min-width: 190px; }
   padding: .7rem .8rem; background: #fcfdff; cursor: pointer;
 }
 .cek-bot input { margin-top: .25rem; accent-color: var(--primary); width: 16px; height: 16px; }
-.cek-bot small { color: var(--muted); font-size: .76rem; }
+.cek-bot small { color: var(--muted); font-size: .76rem; display: block; margin-top: .15rem; }
+.cek-bot-isi { min-width: 0; display: flex; flex-direction: column; }
+.cek-bot-judul { cursor: pointer; font-size: .87rem; }
+.cek-bot-judul:hover strong { color: var(--primary); }
 textarea.mono-blok { font-family: var(--mono); font-size: .8rem; }
 .langkah-bot { margin: 0; padding-left: 1.1rem; font-size: .85rem; color: var(--text-soft); }
 .langkah-bot li { margin-bottom: .4rem; }
@@ -1232,3 +1236,118 @@ input.input-nik {
 }
 .daftar-ringkas { margin: .2rem 0 0 1.1rem; padding: 0; }
 .daftar-ringkas li { margin: .3rem 0; }
+
+/* --- Ronde 56: kerapian halaman «Pembaruan» & «Bot Dapodik» -----------------
+   Aturan di bawah menggantikan gaya sebaris yang dulu ditulis langsung pada
+   template. Tujuannya sama seperti ronde 34/35: susunan yang rapi diukur, bukan
+   dikira-kira — halaman Bot pernah memakai 43 `style="…"` dan penjelasan pilihan
+   yang sangat panjang sehingga kartunya menjulang tanpa terbaca. */
+
+/* Teks bantu kecil yang dipakai berulang */
+.kecil { font-size: .8rem; }
+.kecil-rapat { font-size: .83rem; margin: .35rem 0 0; }
+.pesan-rapat { margin: 0 0 .35rem; }
+.catatan-kecil { margin: .85rem 0 0; font-size: .82rem; color: var(--text-soft); }
+.teks-sukses { color: var(--success); }
+.teks-danger { color: var(--danger); }
+.teks-warning { color: var(--warning, #b45309); }
+.mono-sebaris { display: inline-block; padding: .15rem .4rem; }
+
+/* Enam kotak ringkasan (versi, cabang, revisi, pemeriksaan, perubahan lokal) */
+.ringkas-info {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
+  gap: .55rem .9rem;
+  margin: .2rem 0 .35rem;
+}
+.ringkas-info > div {
+  background: var(--surface-2, #f6f8fc);
+  border: 1px solid var(--border, #e3e8f0);
+  border-radius: 10px;
+  padding: .5rem .65rem;
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+  min-width: 0;
+}
+.ringkas-info span {
+  font-size: .72rem; text-transform: uppercase; letter-spacing: .02em; color: var(--muted);
+}
+.ringkas-info strong { font-size: .9rem; overflow-wrap: anywhere; }
+.ringkas-info small { font-size: .74rem; color: var(--muted); overflow-wrap: anywhere; }
+
+/* Kepala halaman Bot: judul di kiri, tombol di kanan (turun baris bila sempit) */
+.kepala-bot {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap;
+}
+.kepala-bot-utama { min-width: min(300px, 100%); flex: 1 1 420px; }
+.kepala-bot-utama h2 { margin-bottom: .35rem; }
+.kepala-bot-ket { margin: 0 0 .1rem; font-size: .83rem; color: var(--text-soft); }
+.aksi-bot { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.aksi-bot form { margin: 0; }
+
+/* Kotak uji koneksi: satu blok ringkas, bukan label yang berpencar */
+.kotak-uji {
+  margin: .7rem 0 .2rem;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: #fcfdff; padding: .5rem .7rem;
+}
+.kotak-uji form { margin: 0; }
+.kotak-uji-judul {
+  display: inline-flex; align-items: center; gap: .35rem;
+  font-size: .8rem; font-weight: 600; color: var(--muted);
+  margin-right: .25rem;
+}
+.kotak-uji-judul .icon { width: 15px; height: 15px; }
+.kotak-uji .cek-bot {
+  border: 0; background: none; padding: .1rem .2rem; align-items: center;
+}
+.kotak-uji .cek-bot input { margin-top: 0; }
+
+/* Angka kemajuan: label kecil di atas, angka besar di bawah */
+.angka-bot span { display: block; font-size: .78rem; color: var(--muted); }
+.angka-bot strong { font-size: 1.05rem; }
+progress.progress-bot {
+  display: block; width: 100%; height: 12px; border: 0; border-radius: 999px;
+  overflow: hidden; background: #f1f5f9;
+  appearance: none; -webkit-appearance: none;
+}
+progress.progress-bot::-webkit-progress-bar { background: #f1f5f9; border-radius: 999px; }
+progress.progress-bot::-webkit-progress-value {
+  background: linear-gradient(90deg, var(--primary), var(--teal)); border-radius: 999px;
+  transition: width .3s ease;
+}
+progress.progress-bot::-moz-progress-bar { background: var(--primary); border-radius: 999px; }
+
+/* Penjelasan panjang tiap pilihan: bisa dibuka-tutup supaya kartunya ringkas */
+.cek-bot .rinci-opsi { margin: .35rem 0 0; }
+.cek-bot .rinci-opsi > summary {
+  cursor: pointer; font-size: .76rem; font-weight: 600; color: var(--primary);
+  list-style: none;
+}
+.cek-bot .rinci-opsi > summary::-webkit-details-marker { display: none; }
+.cek-bot .rinci-opsi > summary::before { content: "▸ "; }
+.cek-bot .rinci-opsi[open] > summary::before { content: "▾ "; }
+.cek-bot .rinci-opsi p {
+  margin: .3rem 0 0; font-size: .78rem; color: var(--text-soft);
+}
+
+/* Antrean siswa: kotak tersendiri supaya tidak menyatu dengan formulir */
+.kotak-antrean {
+  margin-top: 1rem; border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm); padding: .2rem .6rem .6rem;
+  background: #fcfdff;
+}
+.kotak-antrean .section-title { margin-top: .6rem; }
+
+/* Daftar yang panjang: tinggi dibatasi, isinya bisa digulir sendiri */
+.daftar-gulir { max-height: 430px; overflow-y: auto; }
+.daftar-aman { margin: 0; padding-left: 1.1rem; font-size: .86rem; color: var(--text-soft); }
+.daftar-aman li + li { margin-top: .25rem; }
+.kepala-lencana { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+
+@media (max-width: 640px) {
+  .kepala-bot { flex-direction: column; }
+  .aksi-bot { width: 100%; }
+}

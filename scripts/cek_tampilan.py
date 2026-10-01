@@ -19,6 +19,10 @@ Alat ini memeriksa empat hal yang bisa dibuktikan dari berkas:
 4. **Teks yang bisa melimpah**: elemen baris (``.pl-aksi``, ``.pl-mini-baris``,
    ``.pl-baris``, ``.notif-pop``) harus memakai ``flex-wrap`` atau ``min-width: 0``
    pada anak yang berisi teks panjang.
+5. **Kerapian halaman petugas** (ronde 56): halaman «Pembaruan» & «Bot Dapodik»
+   tidak boleh memakai **gaya sebaris** (``style="…"``) dan tidak boleh menyimpan
+   **keterangan panjang** (lebih dari 160 karakter) di luar ``<details>`` —
+   keterangan sepanjang paragraf membuat kartu pengaturan menjulang tanpa terbaca.
 
 Pemakaian::
 
@@ -28,6 +32,7 @@ Pemakaian::
 from __future__ import annotations
 
 import asyncio
+import html
 import re
 import sys
 from html.parser import HTMLParser
@@ -42,6 +47,13 @@ BLOK = {"div", "p", "ul", "ol", "dl", "dt", "dd", "table", "form", "section", "a
         "li", "figure", "blockquote", "aside", "main"}
 
 HALAMAN_SISWA = ("/portal", "/portal/profil", "/portal/ekstrakurikuler", "/portal/pengajuan")
+
+#: Halaman petugas yang diperiksa susunannya (login admin).
+HALAMAN_PETUGAS = ("/online", "/bot-dapodik/catatan", "/pembaruan", "/bot-dapodik")
+
+#: Halaman yang wajib bebas gaya sebaris & keterangan panjang (ronde 56).
+HALAMAN_RAPI = ("/pembaruan", "/bot-dapodik")
+BATAS_KETERANGAN = 160
 
 
 class PeriksaSusunan(HTMLParser):
@@ -127,6 +139,36 @@ def periksa_css(teks_css: str) -> list[str]:
     return masalah
 
 
+def periksa_kerapian(teks: str, jalur: str) -> list[str]:
+    """Gaya sebaris & keterangan panjang (ronde 56).
+
+    Halaman Bot Dapodik dulu memakai puluhan ``style="…"`` dan menyimpan keterangan
+    pilihan bot yang panjangnya ratusan karakter di dalam label — kartu
+    «Pengaturan Bot» jadi menjulang dan sulit dibaca. Keduanya diukur dari HTML yang
+    benar-benar dikirim aplikasi, bukan dari berkas templatnya.
+    """
+    masalah: list[str] = []
+    for m in re.finditer(r'style="([^"]*)"', teks):
+        contoh = re.sub(r"\s+", " ", m.group(1))[:40]
+        masalah.append(f"{jalur}: masih memakai gaya sebaris (style=\"{contoh}\")")
+    dalam = 0
+    for bagian in re.split(r"(<details\b|</details>)", teks):
+        if bagian == "<details":
+            dalam += 1
+            continue
+        if bagian == "</details>":
+            dalam = max(0, dalam - 1)
+            continue
+        if dalam:
+            continue
+        for m in re.finditer(r"<small[^>]*>(.*?)</small>", bagian, re.S):
+            isi = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", m.group(1)))).strip()
+            if len(isi) > BATAS_KETERANGAN:
+                masalah.append(f"{jalur}: keterangan {len(isi)} karakter di luar <details> "
+                               f"(«{isi[:48]}…») — pindahkan ke «Penjelasan lengkap»")
+    return masalah
+
+
 async def periksa_halaman() -> tuple[list[str], int]:
     import httpx
 
@@ -164,7 +206,7 @@ async def periksa_halaman() -> tuple[list[str], int]:
                                          "password": "admin123"})
         # Halaman «Catatan Bot Dapodik (lengkap)» (ronde 48) juga ikut diperiksa: catatan
         # panjangnya harus tetap rapi di dalam kartunya (tidak melimpah ke luar kartu).
-        for jalur in ("/online", "/bot-dapodik/catatan"):
+        for jalur in HALAMAN_PETUGAS:
             halaman = await klien.get(jalur)
             assert halaman.status_code == 200, f"{jalur} -> {halaman.status_code}"
             jumlah += 1
@@ -173,6 +215,8 @@ async def periksa_halaman() -> tuple[list[str], int]:
             for temuan_kecil in (pemeriksa.blok_dalam_sebaris + pemeriksa.baris_berisi_blok
                                  + pemeriksa.kelas_ganda):
                 masalah.append(f"{jalur}: {temuan_kecil}")
+            if jalur in HALAMAN_RAPI:
+                masalah += periksa_kerapian(halaman.text, jalur)
         await klien.post("/logout")
     return masalah, jumlah
 
@@ -184,15 +228,16 @@ def main() -> int:
 
     masalah_html, jumlah = asyncio.run(periksa_halaman())
     semua = masalah_css + masalah_html
-    print(f"Diperiksa {jumlah} halaman (masuk + ruang siswa + halaman petugas «Online» & "
-          "«Catatan Bot Dapodik»).")
+    print(f"Diperiksa {jumlah} halaman (masuk + ruang siswa + halaman petugas "
+          + " + ".join(f"«{p.strip('/') or 'beranda'}»" for p in HALAMAN_PETUGAS) + ").")
     if semua:
         for temuan in semua:
             print(f"  MASALAH {temuan}")
         return 1
     print("  Susunan rapi: tidak ada tag blok di dalam tag sebaris, tidak ada kartu baris "
-          "yang berisi blok, kartu kegiatan bertumpuk (column), dan wadah teks panjang "
-          "memakai pembungkus.")
+          "yang berisi blok, kartu kegiatan bertumpuk (column), wadah teks panjang "
+          "memakai pembungkus, serta «Pembaruan» & «Bot Dapodik» bebas gaya sebaris dan "
+          "keterangan panjang di luar <details>.")
     return 0
 
 
