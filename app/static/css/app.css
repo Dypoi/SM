@@ -945,15 +945,21 @@ table.data.anggota td select[name="status"] { max-width: 118px; }
 table.data.anggota td input[name="catatan"] { min-width: 190px; }
 
 /* --- Halaman Bot Dapodik ---------------------------------------------- */
+/* Ronde 57: «Jalankan Bot» simetris.
+   Dulu `auto-fit` membuat 4–5 kolom sempit sehingga isian hanya menumpuk di kiri
+   (setengah kartu kosong) dan `align-items: end` membuat LABEL isian yang punya
+   keterangan (mis. «Batasi jumlah siswa») naik 45 px dibanding tetangganya —
+   terukur: label 803 px vs 849 px, lalu 1069 px vs 1092 px. Sekarang dua kolom
+   sama lebar, isian sejajar dari ATAS (`align-items: start`), tinggi select &
+   kotak isian disamakan, dan di layar sempit menjadi satu kolom. */
 .form-bot {
-  display: grid; gap: .8rem; align-items: end;
-  /* Dulu 190px 190px minmax(240px, 1fr): di layar 390–600 px isinya terpotong
-     (isian «Batasi jumlah siswa» dan kotak «Daftar NISN» keluar dari kartu). */
-  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  display: grid; gap: .9rem 1rem; align-items: start;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-.form-bot .field { margin: 0; }
-.form-bot .field.span-3 { grid-column: 1 / -1; }
-.form-bot .form-aksi { grid-column: 1 / -1; }
+.form-bot .field { margin: 0; min-width: 0; }
+.form-bot .field.span-3, .form-bot .form-aksi { grid-column: 1 / -1; }
+/* Kotak isian & select sama tinggi (bawaan peramban: select ~4 px lebih pendek). */
+.form-bot .field input, .form-bot .field select { min-height: 2.55rem; }
 .opsi-bot {
   display: grid; gap: .6rem;
   grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
@@ -1134,7 +1140,7 @@ input.input-nik {
    aturan dasarnya, jadi urutan yang menentukan. Bila dipindah ke atas, aturan
    ini akan kalah dan tombolnya kembali keluar dari kartu di HP (lihat ronde 39). */
 @media (max-width: 700px) {
-  .form-tambah-anggota, .form-cari-cepat, .form-jadwal { grid-template-columns: 1fr; }
+  .form-tambah-anggota, .form-cari-cepat, .form-jadwal, .form-bot { grid-template-columns: 1fr; }
   .form-tambah-anggota .btn, .form-cari-cepat .btn, .form-jadwal .btn { width: 100%; }
   .cari-cepat-isi, .card-body.tambah-anggota { padding: .8rem; }
 }

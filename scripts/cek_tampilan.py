@@ -23,6 +23,12 @@ Alat ini memeriksa empat hal yang bisa dibuktikan dari berkas:
    tidak boleh memakai **gaya sebaris** (``style="…"``) dan tidak boleh menyimpan
    **keterangan panjang** (lebih dari 160 karakter) di luar ``<details>`` —
    keterangan sepanjang paragraf membuat kartu pengaturan menjulang tanpa terbaca.
+6. **Kisi isian yang simetris** (ronde 57): ``.form-bot`` (kartu «Jalankan Bot»)
+   wajib **dua kolom sama lebar** & **sejajar dari atas** (``align-items: start``).
+   Dulu ``auto-fit`` membuat 4–5 kolom sempit (isian menumpuk di kiri, separuh
+   kartu kosong) dan ``align-items: end`` membuat label isian yang punya keterangan
+   naik 45 px dibanding tetangganya — terukur di peramban, lihat
+   ``pratinjau/ronde57/repro.py``.
 
 Pemakaian::
 
@@ -123,6 +129,17 @@ def periksa_css(teks_css: str) -> list[str]:
     if ".pl-kegiatan" in bersih and "flex-direction: column" not in aturan(".pl-kegiatan"):
         masalah.append("portal.css: .pl-kegiatan belum `flex-direction: column` "
                        "(isinya harus bertumpuk: kepala → jadwal → tombol)")
+    # Ronde 57: kartu «Jalankan Bot» harus simetris — dua kolom sama lebar dan
+    # semua isian sejajar dari ATAS (dulu `end` → label yang punya keterangan naik).
+    if ".form-bot" in bersih:
+        isi = aturan(".form-bot")
+        if "repeat(2" not in isi.replace(" ", ""):
+            masalah.append(".form-bot belum memakai dua kolom sama lebar "
+                           "(dulu auto-fit → 4–5 kolom sempit & separuh kartu kosong)")
+        if "align-items:start" not in isi.replace(" ", "").replace("align-items:", "align-items:"):
+            masalah.append(".form-bot belum `align-items: start` "
+                           "(dulu `end` → label isian yang punya keterangan naik sendiri)")
+
     for wadah, wajib in ((".pl-aksi", ("flex-wrap", "min-width: 0")),
                          (".pl-mini-baris", ("flex-wrap", "min-width: 0")),
                          (".pl-baris", ("flex-wrap", "overflow-wrap", "min-width: 0")),
