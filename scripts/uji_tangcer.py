@@ -796,6 +796,7 @@ def main() -> int:
         buat_pdf_tabel(tujuan / "sk-definitif-tabel.pdf")
         buat_pdf_bagian(tujuan / "sk-definitif-bagian.pdf")
         buat_csv(tujuan / "daftar-tanpa-kolom-sekolah.csv", dengan_sekolah=False)
+        buat_pdf_pindai(tujuan / "sk-pindai.pdf")   # PDF tanpa teks → wajib dilaporkan
         (tujuan / "daftar-sel-sekolah-bergabung.csv").write_text(
             "NO;NISN;NAMA PESERTA DIDIK;NAMA SEKOLAH;ROMBEL\r\n"
             "1;0091234501;Achmad Fauzi Ramadhan;SMP NEGERI 2 TANGERANG;7A\r\n"
