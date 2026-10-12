@@ -56,10 +56,10 @@ HALAMAN_SISWA = ("/portal", "/portal/profil", "/portal/ekstrakurikuler", "/porta
 
 #: Halaman petugas yang diperiksa susunannya (login admin).
 HALAMAN_PETUGAS = ("/online", "/bot-dapodik/catatan", "/pembaruan", "/bot-dapodik", "/tangcer",
-                  "/tangcer/bedah")
+                  "/tangcer/spj", "/tangcer/bedah")
 
 #: Halaman yang wajib bebas gaya sebaris & keterangan panjang (ronde 56 & 58).
-HALAMAN_RAPI = ("/pembaruan", "/bot-dapodik", "/tangcer", "/tangcer/bedah")
+HALAMAN_RAPI = ("/pembaruan", "/bot-dapodik", "/tangcer", "/tangcer/spj", "/tangcer/bedah")
 BATAS_KETERANGAN = 160
 
 

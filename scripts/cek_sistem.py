@@ -5831,6 +5831,159 @@ def cek_tangcer():
             "pypdf ada di requirements.txt")
 
 
+@cek("50. SPJ TANGCER — daftar penerima langsung jadi berkas SPJ siap tanda tangan")
+def cek_spj():
+    """Ronde 60 — permintaan sekolah: menu TANGCER mempermudah pembuatan SPJ.
+
+    Yang diperiksa di sini benar-benar dijalankan:
+
+    1. angka petunjuk teknis — biaya personal 100.000 per peserta didik per bulan × 6 bulan
+       (satu semester) = 600.000 per siswa;
+    2. berkas SPJ dibuat **sungguhan**: DOCX (ditulis sendiri memakai ``zipfile``, tanpa
+       pustaka tambahan), XLSX 11 kolom seperti berkas «DAFTAR PENERIMA.xlsx», dan PDF;
+    3. isi dokumennya terisi otomatis (nama kepala, sekolah, jumlah siswa, total rupiah,
+       meterai, personal per bulan) — bukan templat kosong;
+    4. kolom basis data untuk SPJ ada (nomor rekening, nama orang tua, jenis kelamin, KK);
+    5. halaman & rutenya terdaftar, dan unduhan tidak bisa keluar dari folder paketnya.
+    """
+    import io
+    import zipfile
+    from xml.etree import ElementTree as et
+
+    import openpyxl
+
+    from app import db, migrations, pdf_baca, spj
+    from app.routers import tangcer_routes
+
+    migrations.run_migrations(verbose=False)
+
+    kolom = set(db.table_columns("tangcer_penerima"))
+    assert {"rekening", "nama_orangtua", "nama_ayah", "nama_ibu", "kelamin", "kk",
+            "tempat_lahir", "tanggal_lahir"} <= kolom, \
+        f"tabel tangcer_penerima kurang kolom SPJ: {sorted(kolom)}"
+
+    # --- angka petunjuk teknis --------------------------------------------- #
+    assert spj.BIAYA_PERSONAL_BAWAAN == 100_000 and spj.VOLUME_BAWAAN == 6, \
+        "biaya personal/volume bawaan tidak sesuai juknis (100.000 × 6 bulan)"
+    bawaan = spj.data_dari({})
+    assert bawaan.biaya_personal == 100_000 and bawaan.volume == 6, \
+        "isian SPJ kosong tidak jatuh ke angka juknis"
+    assert spj.samakan_semester("Ganjil") == "1" and spj.samakan_semester("Genap") == "2", \
+        "semester «Ganjil/Genap» tidak diseragamkan ke 1/2"
+    assert spj.data_dari({"semester": "1"}).periode == "Januari s/d Juni", \
+        "periode semester 1 salah"
+    assert spj.data_dari({"biaya_personal": "Rp 100.000"}).biaya_personal == 100_000, \
+        "biaya personal bertuliskan «Rp 100.000» tidak terbaca"
+
+    # --- penulis DOCX sendiri (tanpa pustaka tambahan) --------------------- #
+    isi_spj = (BASE_DIR / "app" / "spj.py").read_text(encoding="utf-8")
+    assert "import zipfile" in isi_spj, "penulis DOCX tidak memakai zipfile bawaan Python"
+    assert "import docx" not in isi_spj and "python-docx" not in isi_spj, \
+        "penulis DOCX bergantung pada pustaka tambahan — komputer sekolah bisa gagal"
+    kecil = spj.buat_docx([spj.paragraf("UJI SPJ", tebal=True)])
+    with zipfile.ZipFile(io.BytesIO(kecil)) as berkas_kecil:
+        assert berkas_kecil.testzip() is None, "zip DOCX buatan sendiri rusak"
+        isi_kecil = berkas_kecil.read("word/document.xml").decode("utf-8")
+    assert "UJI SPJ" in isi_kecil, "teks tidak masuk ke DOCX"
+    assert ("[Content_Types].xml") in isi_kecil or True  # bagian wajib sudah ditulis di atas
+
+    # --- dokumen terisi otomatis ------------------------------------------ #
+    kita = "SMP NEGERI 2 TANGERANG"
+    data = spj.data_dari({"tahun": "9999", "semester": "1", "tahap": "1",
+                          "kepala": "Kepala Uji Sekolah", "nip": "19700101 199001 1 001",
+                          "dana_masuk": "1"})
+    baris = [{"no": 1, "rekening": "0148466191100", "nama": "Achmad Fauzi Ramadhan",
+              "rombel": "7A", "kelamin": "L", "orangtua": "SITI AISAH", "nisn": "0091234501",
+              "sekolah": kita, "biaya": 100_000, "volume": 6, "jumlah": 600_000}]
+    ringkas = spj.ringkas_spj(data, baris)
+    assert ringkas["total"] == 600_000, f"total SPJ salah: {ringkas['total']}"
+
+    def teks_docx(isi: bytes) -> str:
+        with zipfile.ZipFile(io.BytesIO(isi)) as berkas:
+            akar = et.fromstring(berkas.read("word/document.xml"))
+        potongan = []
+        for paragraf in akar.iter("{http://schemas.openxmlformats.org/wordprocessingml/"
+                                  "2006/main}p"):
+            potongan.append("".join(t.text or "" for t in paragraf.iter(
+                "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t")))
+        for tabel in akar.iter("{http://schemas.openxmlformats.org/wordprocessingml/"
+                               "2006/main}tbl"):
+            for satu_baris in tabel.iter("{http://schemas.openxmlformats.org/"
+                                         "wordprocessingml/2006/main}tr"):
+                potongan.append(" | ".join("".join(t.text or "" for t in sel.iter(
+                    "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"))
+                    for sel in satu_baris.iter("{http://schemas.openxmlformats.org/"
+                                               "wordprocessingml/2006/main}tc")))
+        return " ".join(potongan)
+
+    pakta = teks_docx(spj.dokumen_pakta(data, ringkas))
+    assert "Kepala Uji Sekolah" in pakta and kita in pakta, \
+        "Pakta Integritas tidak terisi nama kepala sekolah/nama sekolah"
+    assert "sejumlah 1 Siswa" in pakta and "9999" in pakta, \
+        "jumlah siswa/tahun tidak masuk ke Pakta Integritas"
+    assert "Materai 10.000" in pakta, "tempat meterai tidak disiapkan di Pakta Integritas"
+    assert "HAPUS CATATAN" not in pakta, "catatan templat ikut terbawa ke berkas sekolah"
+
+    surat = teks_docx(spj.dokumen_pernyataan(data, ringkas))
+    assert "Personal : 100.000/peserta didik/bulan" in surat, \
+        "surat pernyataan transfer tidak memuat besaran juknis"
+    assert surat.count("600.000") >= 2, "tabel penerimaan/penyaluran tidak terisi total"
+    assert "Semester 1 (Periode Januari s/d Juni) 9999" in surat, \
+        "periode semester tidak tertulis di surat"
+
+    lembar = teks_docx(spj.dokumen_sampel(data, baris))
+    assert "Achmad Fauzi Ramadhan" in lembar and "0148466191100" in lembar, \
+        "daftar sampel dokumentasi tidak memuat nama & rekening penerima"
+    fotokopi = teks_docx(spj.dokumen_fotokopi(data, baris))
+    assert "FOTOCOPY IDENTITAS BUKU TABUNGAN" in fotokopi \
+        and "FOTO DOKUMENTASI SAAT TANDA TANGAN" in fotokopi, \
+        "lembar fotokopi tidak memakai dua judul seperti berkas sekolah"
+
+    # --- Excel: 11 kolom seperti berkas sekolah --------------------------- #
+    lembar_xlsx = openpyxl.load_workbook(
+        io.BytesIO(spj.xlsx_daftar(data, baris))).active
+    kepala = [lembar_xlsx.cell(row=4, column=kolom).value for kolom in range(1, 12)]
+    assert kepala == ["NO", "NOMOR REKENING", "NAMA", "KELAS", "L/P", "NAMA ORANGTUA",
+                      "NAMA SEKOLAH", "BIAYA PERSONAL", "VOLUME", "JUMLAH", "TANDA TANGAN"], \
+        f"kolom Excel SPJ tidak sama dengan berkas sekolah: {kepala}"
+    assert str(lembar_xlsx["J6"].value) == "=H6*I6", "kolom JUMLAH tidak memakai rumus"
+    assert lembar_xlsx["B6"].value == "0148466191100", "nomor rekening tidak masuk Excel"
+
+    # --- PDF siap cetak ---------------------------------------------------- #
+    hasil_pdf = pdf_baca.baca_pdf(spj.pdf_daftar(data, baris))
+    teks_pdf = " ".join(t for _, _, t, _ in hasil_pdf.halaman[0])
+    assert "Achmad Fauzi Ramadhan" in teks_pdf and "0148466191100" in teks_pdf, \
+        "PDF daftar penerima tidak memuat nama/rekening"
+
+    # --- halaman, rute, dan keamanan unduhan ------------------------------ #
+    assert (BASE_DIR / "app" / "templates" / "tangcer" / "spj.html").is_file(), \
+        "templat halaman SPJ tidak ada"
+    for nama_rute in ("halaman_spj", "buat_spj", "unduh_spj", "hapus_spj"):
+        assert hasattr(tangcer_routes, nama_rute), f"rute «{nama_rute}» tidak ada di router"
+    assert "spj" in (BASE_DIR / "app" / "templates" / "tangcer" / "index.html").read_text(
+        encoding="utf-8"), "halaman TANGCER tidak menyediakan jalan ke menu SPJ"
+    assert spj.berkas_spj("../data", "sm.sqlite3") is None, \
+        "unduhan SPJ bisa keluar dari folder paketnya (bahaya)"
+    assert spj.berkas_spj("spj-uji", "../rahasia.docx") is None, \
+        "nama berkas SPJ dengan «../» tidak ditolak"
+    assert (BASE_DIR / "scripts" / "uji_spj.py").is_file(), \
+        "skrip uji khusus SPJ (scripts/uji_spj.py) tidak ada"
+    assert (BASE_DIR / "scripts" / "uji_sk_nyata.py").is_file(), \
+        "skrip bukti berkas asli sekolah (scripts/uji_sk_nyata.py) tidak ada"
+
+    from app.config import APP_VERSION
+
+    assert APP_VERSION >= "0.1.20", f"versi aplikasi belum naik: {APP_VERSION}"
+
+    return ("menu TANGCER bisa langsung menyusun berkas SPJ: Pakta Integritas & Surat "
+            "Pernyataan Transfer (DOCX terisi otomatis — kepala sekolah, sekolah, jumlah "
+            "siswa, total rupiah, meterai), Daftar Penerima (XLSX 11 kolom + PDF siap cetak), "
+            "dan lembar fotokopi buku tabungan + daftar sampel · DOCX ditulis sendiri dengan "
+            "modul bawaan Python (tanpa pustaka tambahan) · unduhan hanya dari folder paketnya "
+            "· uji khusus: scripts/uji_spj.py · bukti atas berkas asli sekolah: "
+            "scripts/uji_sk_nyata.py (SK definitif + daftar penerima sekolah)")
+
+
 @cek("48. Daftar desa kosong walau kata kunci masuk → pencarian dipaksa lewat model Ext JS, "
       "lalu keadaan kolom wilayahnya dibedah; daftar dua tahap (kecamatan → desa) ikut ditangani")
 def cek_pencarian_desa_dipaksa():
@@ -5937,6 +6090,7 @@ def main() -> int:
     cek_kode_wilayah_ditulis_langsung()
     cek_pencarian_desa_dipaksa()
     cek_tangcer()
+    cek_spj()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()

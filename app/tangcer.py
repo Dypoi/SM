@@ -218,13 +218,31 @@ def cocok_sekolah(nama_berkas: Any, nama_kita: Any, npsn_kita: str = "",
 # Pengenalan kolom
 # =========================================================================== #
 def _kunci_judul(judul: str) -> str:
-    return norm_teks(judul)
+    """Kunci judul kolom **tanpa spasi**.
+
+    Judul bertingkat hasil gabungan potongan (mis. «NOMOR KARTU» + «KELUARGA», atau
+    «TEMPA» + «T» + «LA» + «HIR») harus tetap dikenali sebagai satu judul — karena itu
+    spasi dibuang sebelum dibandingkan.
+    """
+    return norm_teks(judul).replace(" ", "")
 
 
 #: Sinonim judul kolom → nama bidang internal. Diperiksa berurutan.
 SINONIM_KOLOM: list[tuple[str, tuple[str, ...]]] = [
     ("nisn", ("NISN",)),
-    ("nik", ("NIK", "NOMOR INDUK KEPENDUDUKAN")),
+    # Urutan penting: «NIK AYAH»/«NIK IBU» diperiksa SEBELUM «NIK» supaya tidak tertukar
+    # dengan NIK siswa, dan «NAMA AYAH»/«NAMA IBU» sebelum «NAMA».
+    ("nik_ayah", ("NIK AYAH", "NIK AYAH KANDUNG", "NIK AYAH/WALI")),
+    ("nik_ibu", ("NIK IBU", "NIK IBU KANDUNG", "NIK IBU/WALI")),
+    ("nik", ("NIK", "NIK SISWA", "NIK PESERTA DIDIK", "NOMOR INDUK KEPENDUDUKAN")),
+    ("kk", ("NOMOR KARTU KELUARGA", "NO KARTU KELUARGA", "NOMOR KK", "NO KK",
+            "KARTU KELUARGA", "NOMOR KARTU KELUARGA (KK)")),
+    ("rekening", ("NO REKENING", "NOMOR REKENING", "REKENING", "NOREK", "NO BUKU TABUNGAN")),
+    ("nama_ayah", ("NAMA AYAH", "NAMA AYAH KANDUNG", "AYAH", "NAMA AYAH/WALI")),
+    ("nama_ibu", ("NAMA IBU", "NAMA IBU KANDUNG", "IBU", "NAMA IBU/WALI")),
+    ("kelamin", ("JENIS KELAMIN", "KELAMIN", "L/P", "LP", "JENIS KELAMIN (L/P)")),
+    ("tempat_lahir", ("TEMPAT LAHIR", "TEMPAT & TANGGAL LAHIR", "TEMPAT")),
+    ("tanggal_lahir", ("TANGGAL LAHIR", "TGL LAHIR", "TANGGAL")),
     ("sekolah", ("NAMA SEKOLAH", "SEKOLAH", "SATUAN PENDIDIKAN", "SEKOLAH INDUK",
                  "UNIT SEKOLAH", "NAMA SATUAN PENDIDIKAN", "SEKOLAH PENERIMA",
                  "NAMA SEKOLAH PENERIMA")),
@@ -241,6 +259,10 @@ SINONIM_KOLOM: list[tuple[str, tuple[str, ...]]] = [
     ("tahun", ("TAHUN ANGGARAN", "TAHUN PELAJARAN", "PERIODE", "TAHUN", "ANGKATAN")),
     ("keterangan", ("KETERANGAN", "CATATAN", "STATUS", "ALASAN")),
     ("no", ("NO", "NOMOR", "NO URUT", "NO.", "NO PENERIMA")),
+    ("alamat", ("ALAMAT", "ALAMAT TINGGAL", "ALAMAT TINGGAL SISWA", "NAMA JALAN",
+                "JALAN", "KAMPUNG")),
+    ("kelurahan", ("KELURAHAN", "DESA", "DESA/KELURAHAN")),
+    ("kecamatan", ("KECAMATAN", "KORWIL", "KORWIL/KECAMATAN")),
 ]
 
 #: Kata yang menandakan baris rekap — jangan dianggap data penerima.
@@ -255,11 +277,12 @@ def tebak_bidang(judul: Any) -> str | None:
         return None
     for bidang, sinonim in SINONIM_KOLOM:
         for satu in sinonim:
-            if kunci == satu:
+            if kunci == _kunci_judul(satu):
                 return bidang
     for bidang, sinonim in SINONIM_KOLOM:
         for satu in sinonim:
-            if kunci.startswith(satu) or satu.endswith(kunci):
+            padat = _kunci_judul(satu)
+            if padat and (kunci.startswith(padat) or padat.endswith(kunci)):
                 return bidang
     return None
 
@@ -296,6 +319,18 @@ class BarisPenerima:
     nama: str = ""
     nisn: str = ""
     nik: str = ""
+    nik_ayah: str = ""
+    nik_ibu: str = ""
+    kk: str = ""
+    rekening: str = ""
+    nama_ayah: str = ""
+    nama_ibu: str = ""
+    kelamin: str = ""
+    tempat_lahir: str = ""
+    tanggal_lahir: str = ""
+    alamat: str = ""
+    kelurahan: str = ""
+    kecamatan: str = ""
     sekolah: str = ""
     rombel: str = ""
     jenis: str = ""
@@ -315,9 +350,31 @@ class BarisPenerima:
     def lengkap(self) -> bool:
         return bool(self.nama or self.nisn)
 
+    @property
+    def nama_orangtua(self) -> str:
+        """Nama orang tua untuk SPJ: ayah dulu, kalau kosong ibu (dilaporkan apa adanya)."""
+        return self.nama_ayah or self.nama_ibu
+
+    @property
+    def kelamin_rapi(self) -> str:
+        """«L»/«P» dari kolom jenis kelamin apa pun tulisannya."""
+        kunci = norm_teks(self.kelamin)
+        if kunci in ("L", "LAKI LAKI", "LAKI-LAKI", "PRIA", "L P"):
+            return "L"
+        if kunci in ("P", "PEREMPUAN", "WANITA", "P R"):
+            return "P"
+        return bersih_teks(self.kelamin)
+
     def ke_dict(self) -> dict[str, Any]:
         return {
-            "nama": self.nama, "nisn": self.nisn, "nik": self.nik, "sekolah": self.sekolah,
+            "nama": self.nama, "nisn": self.nisn, "nik": self.nik,
+            "nik_ayah": self.nik_ayah, "nik_ibu": self.nik_ibu, "kk": self.kk,
+            "rekening": self.rekening, "nama_ayah": self.nama_ayah,
+            "nama_ibu": self.nama_ibu, "nama_orangtua": self.nama_orangtua,
+            "kelamin": self.kelamin, "tempat_lahir": self.tempat_lahir,
+            "tanggal_lahir": self.tanggal_lahir, "alamat": self.alamat,
+            "kelurahan": self.kelurahan, "kecamatan": self.kecamatan,
+            "sekolah": self.sekolah,
             "rombel": self.rombel, "jenis": self.jenis, "nominal": self.nominal,
             "tahap": self.tahap, "tahun": self.tahun, "keterangan": self.keterangan,
             "no": self.no, "baris_ke": self.baris_ke, "cocok": self.cocok,
@@ -407,7 +464,7 @@ def isi_baris(baris: Sequence[Any], peta: dict[int, str]) -> BarisPenerima:
         if indeks >= len(baris):
             continue
         nilai = baris[indeks]
-        if bidang in {"nisn", "nik"}:
+        if bidang in {"nisn", "nik", "nik_ayah", "nik_ibu", "kk", "rekening"}:
             setattr(item, bidang, bersih_nomor(nilai))
         elif bidang == "nominal":
             item.nominal = bersih_nominal(nilai)
@@ -491,11 +548,20 @@ class GarisPdf:
     potongan: list[tuple[float, str]] = dataclass_field(default_factory=list)
     #: potongan mentah dari pembaca PDF (x, y, teks[, lebar]) — dipakai menyusun spasi
     potongan_asli: list[Any] = dataclass_field(default_factory=list)
+    #: lebar tiap potongan pada :attr:`potongan` (sejajar indeksnya)
+    lebar_potongan: list[float] = dataclass_field(default_factory=list)
 
     def sel(self) -> list[str]:
-        """Potongan-potongan pada baris ini (satu potongan dipecah bila berjarak jauh)."""
+        """Potongan-potongan pada baris ini (satu potongan dipecah bila berjarak jauh).
+
+        Kalau barisnya hanya satu potongan, teksnya diambil dari potongan **mentah** — di sana
+        jarak antarsel masih berupa spasi ganda, sementara di potongan gabungan spasi ganda
+        sudah dirapikan sehingga batas selnya hilang.
+        """
         if len(self.potongan) == 1:
-            return _pisah(self.potongan[0][1])
+            asli = "".join(str(butir[2]) for butir in sorted(self.potongan_asli,
+                                                             key=lambda b: b[0]))
+            return _pisah(asli or self.potongan[0][1])
         return [teks for _, teks in self.potongan if teks.strip()]
 
     def teks(self) -> str:
@@ -643,7 +709,9 @@ def _kelompok_baris(potongan: Sequence[Sequence[Any]], nomor_halaman: int) -> li
     OpenOffice/PdfLaTeX) digabung kembali lewat :func:`pdf_baca.rapatkan_potongan`
     supaya satu sel tidak terhitung sebagai beberapa kolom.
     """
-    terurut = sorted(potongan, key=lambda item: (-float(item[1]), float(item[0])))
+    # Hanya diurutkan berdasarkan baris (y). Urutan di dalam satu baris dibiarkan seperti
+    # urutan penulisan PDF — itu yang membuat pemisahan sel tidak tertukar pada nama panjang.
+    terurut = sorted(potongan, key=lambda item: -float(item[1]))
     garis: list[GarisPdf] = []
     for butir in terurut:
         y = float(butir[1])
@@ -655,7 +723,9 @@ def _kelompok_baris(potongan: Sequence[Sequence[Any]], nomor_halaman: int) -> li
             garis.append(satu)
     for nomor, satu in enumerate(garis, start=1):
         satu.nomor = nomor
-        satu.potongan = pdf_baca.rapatkan_potongan(satu.potongan_asli)
+        rapat = pdf_baca.rapatkan_potongan_lebar(satu.potongan_asli)
+        satu.potongan = [(x, teks) for x, teks, _ in rapat]
+        satu.lebar_potongan = [lebar for _, _, lebar in rapat]
     return garis
 
 
@@ -665,18 +735,202 @@ def teks_pdf(isi: bytes, *, catatan: list[str] | None = None) -> list[str]:
             if garis.teks()]
 
 
-def _baris_dari_kolom(garis: GarisPdf, kolom_x: Sequence[tuple[float, str]]) -> BarisPenerima:
-    """Susun calon penerima dari potongan teks satu baris, dibagi menurut posisi X."""
+#: Jarak (pt) maksimum antar potongan judul yang masih dianggap satu kolom.
+JARAK_KOLOM_JUDUL = 4.0
+#: Toleransi (pt) potongan yang dianggap sejajar kiri dengan judul kolomnya.
+TOLERANSI_SEJAJAR = 3.0
+#: Lebar (pt) dan jumlah kata maksimum sebuah potongan agar masih dianggap judul kolom —
+#: kalimat pembuka dokumen («TENTANG : DAFTAR DEFINITIF PENERIMA …») jelas bukan judul
+#: kolom, dan kalau ikut dihitung ia menelan semua kolom judul di sebelahnya.
+LEBAR_JUDUL_MAKS = 150.0
+KATA_JUDUL_MAKS = 4
+
+
+def _tampak_data(garis: GarisPdf) -> bool:
+    """Apakah baris ini tampak baris DATA (bukan judul) — dipakai saat menggabung judul."""
+    if len(garis.potongan) >= 8:
+        return True
+    return any(re.fullmatch(r"\d{6,}", teks.strip()) for _, teks in garis.potongan)
+
+
+def _tampak_judul_kolom(teks: str, lebar: float) -> bool:
+    """Potongan ini masih masuk akal sebagai judul kolom (bukan kalimat panjang)."""
+    bersih = teks.strip()
+    if not bersih:
+        return False
+    return lebar <= LEBAR_JUDUL_MAKS and len(bersih.split()) <= KATA_JUDUL_MAKS
+
+
+def _jarak_baris(datar: Sequence[GarisPdf]) -> float:
+    """Jarak baris tipikal (median) pada satu halaman, untuk batas penggabungan judul."""
+    tinggi = [abs(datar[i].y - datar[i + 1].y) for i in range(min(len(datar) - 1, 40))]
+    tinggi = sorted(t for t in tinggi if 1.0 < t < 200.0)
+    return tinggi[len(tinggi) // 2] if tinggi else 14.0
+
+
+def _judul_lengkap(datar: Sequence[GarisPdf], indeks: int) -> list[tuple[float, float, str]]:
+    """Gabungkan judul tabel yang berlapis menjadi daftar kolom ``(x_awal, x_tengah, judul)``.
+
+    Judul tabel dinas sering ditulis dua–tiga baris («NOMOR KARTU» di atas, «KELUARGA» di
+    bawahnya) dan selnya sempit sehingga judulnya terpotong («TEMPA»/«T»/«LA»/«HIR»). Kolom
+    karena itu ditentukan dari **posisi X** lalu judulnya digabungkan — bukan dari urutan
+    teks, yang bisa menukar kolom.
+    """
+    potongan: list[tuple[float, float, str, float]] = []
+
+    def tambah(garis: GarisPdf) -> None:
+        lebar = list(garis.lebar_potongan)
+        for nomor, (x, teks) in enumerate(garis.potongan):
+            luas = lebar[nomor] if nomor < len(lebar) else 0.5 * max(1, len(teks))
+            if _tampak_judul_kolom(teks, luas):
+                potongan.append((x, x + luas, teks, garis.y))
+
+    tambah(datar[indeks])
+    # Rantai ke atas & ke bawah hanya berlanjut selama jarak antara dua baris berturut-turut
+    # jauh lebih rapat daripada jarak baris data — begitu ketemu baris berjarak normal
+    # (mis. kalimat pembuka dokumen), penggabungan berhenti.
+    batas = _jarak_baris(datar) * 0.6
+    for arah in (-1, 1):
+        i = indeks + arah
+        while 0 <= i < len(datar):
+            tetangga = datar[i - arah]
+            if abs(datar[i].y - tetangga.y) > batas or _tampak_data(datar[i]):
+                break
+            tambah(datar[i])
+            i += arah
+    potongan.sort(key=lambda butir: butir[0])
+    kolom: list[dict[str, object]] = []
+    for x, akhir, teks, y in potongan:
+        if kolom and x <= float(kolom[-1]["akhir"]) + JARAK_KOLOM_JUDUL:
+            isi = kolom[-1]["teks"]
+            assert isinstance(isi, list)
+            isi.append((y, x, teks))
+            kolom[-1]["akhir"] = max(float(kolom[-1]["akhir"]), akhir)
+        else:
+            kolom.append({"awal": x, "akhir": akhir, "teks": [(y, x, teks)]})
+    keluaran: list[tuple[float, float, str]] = []
+    for satu in kolom:
+        isi = satu["teks"]
+        assert isinstance(isi, list)
+        urut = sorted(isi, key=lambda butir: (-butir[0], butir[1]))
+        label = " ".join(str(teks) for _, _, teks in urut).strip()
+        awal = float(satu["awal"])
+        akhir = max(float(satu["akhir"]), awal + 1.0)
+        keluaran.append((awal, (awal + akhir) / 2.0, label))
+    return keluaran
+
+
+#: Bidang yang isinya angka (nomor induk, nomor rekening, tanggal).
+BIDANG_ANGKA = frozenset({"no", "nisn", "nik", "nik_ayah", "nik_ibu", "kk", "rekening",
+                          "tanggal_lahir"})
+#: Bidang yang isinya kata (nama orang, sekolah, alamat, tempat lahir).
+BIDANG_HURUF = frozenset({"nama", "alamat", "kelurahan", "kecamatan", "sekolah", "nama_ayah",
+                          "nama_ibu", "nama_orangtua", "tempat_lahir"})
+
+
+def _tipe_potongan(teks: str) -> str:
+    """«angka», «huruf», atau «campur» — dipakai supaya nama tidak masuk kolom NISN dsb."""
+    bersih = teks.strip()
+    angka = sum(1 for huruf in bersih if huruf.isdigit())
+    lain = sum(1 for huruf in bersih if huruf.isalpha())
+    if lain >= 2 and lain >= angka:
+        return "huruf"
+    if angka >= 2 and lain == 0:
+        return "angka"
+    return "campur"
+
+
+def _pilih_kolom(x: float, x_akhir: float, kolom: Sequence[tuple[float, float, str]]) -> str:
+    """Bidang kolom untuk satu potongan teks.
+
+    Dua aturan, berurutan: (1) potongan yang **sejajar kiri** dengan judul kolomnya (tabel
+    rata kiri) langsung masuk kolom itu; (2) selebihnya memakai **titik tengah** potongan —
+    perlu, karena sel tabel dinas umumnya di tengah, dan nilai yang lebih panjang daripada
+    judulnya bisa mulai di sebelah kiri judul (mis. NISN yang mulai 14 pt sebelum judulnya).
+    """
+    for awal, _, bidang in kolom:
+        if abs(x - awal) <= TOLERANSI_SEJAJAR:
+            return bidang
+    tengah = (x + x_akhir) / 2.0
+    return min(kolom, key=lambda satu: abs(satu[1] - tengah))[2]
+
+
+def _pilih_kolom_isi(x: float, x_akhir: float, kolom: Sequence[tuple[float, float, str]],
+                     teks: str) -> str:
+    """Seperti :func:`_pilih_kolom`, tetapi jenis isi potongan ikut dipertimbangkan.
+
+    Nama siswa pada SK dinas bisa mulai di kiri judulnya (sel lebih lebar daripada judulnya),
+    sehingga titik tengahnya justru lebih dekat ke kolom nomor. Potongan yang berisi kata
+    karena itu hanya dicocokkan ke kolom teks, dan potongan angka hanya ke kolom angka.
+    """
+    awal = _pilih_kolom(x, x_akhir, kolom)
+    tipe = _tipe_potongan(teks)
+    kandidat = [satu for satu in kolom
+                if (tipe == "huruf" and satu[2] in BIDANG_HURUF)
+                or (tipe == "angka" and satu[2] in BIDANG_ANGKA)]
+    if not kandidat:
+        return awal
+    pilihan = awal if any(satu[2] == awal for satu in kandidat) else None
+    if pilihan is None:
+        tengah = (x + x_akhir) / 2.0
+        pilihan = min(kandidat, key=lambda satu: abs(satu[1] - tengah))[2]
+    return pilihan
+
+
+#: Jarak (pt) antar potongan yang masih dianggap satu sel. Potongan yang lebih jauh dari ini
+#: pada kolom sempit (KELAS, JENIS KELAMIN, NO) berasal dari kolom lain yang judulnya tidak
+#: ada di PDF — mis. ALAMAT pada SK dinas — dan tidak diikutkan supaya kolomnya tidak kotor.
+JARAK_DALAM_SEL = 6.0
+#: Kolom sempit yang hanya boleh berisi satu sel pendek pada satu baris.
+BIDANG_SEMPIT = frozenset({"no", "rombel", "kelamin"})
+
+
+def _lanjutan_nama(garis: GarisPdf, kolom_x: Sequence[tuple[float, float, str]],
+                   sebelumnya: BarisPenerima | None) -> str:
+    """Nama siswa yang **terbawa ke baris berikutnya** karena selnya sempit.
+
+    Word/Excel membungkus nama panjang menjadi dua baris tabel; baris keduanya tidak punya
+    nomor urut dan tidak punya NISN, sehingga kalau dibiarkan ia jadi baris kosong dan nama
+    siswa hilang. Kalau potongannya jatuh di kolom NAMA (dan baris sebelumnya memang belum
+    punya nama), teks itu ditempelkan ke nama sebelumnya.
+    """
+    if sebelumnya is None or (sebelumnya.nama or "").strip():
+        return ""
+    if not garis.potongan or len(garis.potongan) > 3:
+        return ""
+    teks = " ".join(dua.strip() for _, dua in garis.potongan if dua.strip()).strip()
+    if sum(1 for huruf in teks if huruf.isalpha()) < 3:
+        return ""
+    if any(re.fullmatch(r"\d{4,}", dua.strip()) for _, dua in garis.potongan):
+        return ""
+    letak = list(garis.lebar_potongan)
+    bidang = {_pilih_kolom(x, x + (letak[nomor] if nomor < len(letak) else 0.5 * len(dua)),
+                           kolom_x)
+              for nomor, (x, dua) in enumerate(garis.potongan)}
+    return teks if "nama" in bidang else ""
+
+
+def _baris_dari_kolom(garis: GarisPdf, kolom_x: Sequence[tuple[float, float, str]]
+                      ) -> tuple[BarisPenerima, list[str]]:
+    """Susun calon penerima dari potongan teks satu baris, dibagi menurut kolom.
+
+    Kembalikan juga catatan potongan yang dilewati (mis. alamat tak berkolom judul).
+    """
     bagian: dict[str, list[str]] = {}
-    for x, teks in garis.potongan:
+    letak: dict[str, float] = {}
+    catatan: list[str] = []
+    lebar = list(garis.lebar_potongan)
+    for nomor, (x, teks) in enumerate(garis.potongan):
         bersih = teks.strip()
         if not bersih or bersih == "-":
             continue
-        pilih = kolom_x[0][1]
-        for posisi, bidang in kolom_x:
-            if x + 1.0 >= posisi:
-                pilih = bidang
+        luas = lebar[nomor] if nomor < len(lebar) else 0.5 * len(bersih)
+        pilih = _pilih_kolom_isi(x, x + luas, kolom_x, bersih)
+        if pilih in BIDANG_SEMPIT and pilih in letak and (x - letak[pilih]) > JARAK_DALAM_SEL:
+            catatan.append(f"«{bersih}» di luar kolom {pilih} (baris {garis.nomor})")
+            continue
         bagian.setdefault(pilih, []).append(bersih)
+        letak[pilih] = x + luas
 
     item = BarisPenerima()
     for bidang, potongan in bagian.items():
@@ -691,7 +945,7 @@ def _baris_dari_kolom(garis: GarisPdf, kolom_x: Sequence[tuple[float, str]]) -> 
             item.no = bersih_teks(teks)
         else:
             setattr(item, bidang, bersih_teks(teks))
-    return item
+    return item, catatan
 
 
 def baca_baris_pdf(halaman: Sequence[str] | Sequence[list[GarisPdf]],
@@ -732,15 +986,20 @@ def baca_baris_pdf(halaman: Sequence[str] | Sequence[list[GarisPdf]],
 
     if indeks_judul >= 0:
         garis_judul = datar[indeks_judul]
-        hasil.kolom = peta_kolom(garis_judul.sel())
+        blok = _judul_lengkap(datar, indeks_judul)
+        hasil.kolom = peta_kolom([label for _, _, label in blok])
         hasil.header_ke = garis_judul.nomor
-        kolom_x = [(x, bidang) for (x, _), bidang in
-                   zip(garis_judul.potongan, _bidang_urut(garis_judul))]
+        kolom_x = [(awal, pusat, hasil.kolom.get(nomor, f"__{nomor}"))
+                   for nomor, (awal, pusat, _) in enumerate(blok)]
+        berlapis = len(blok) > len(garis_judul.potongan)
         # Bila judul kolom hanya satu potongan (dipisah spasi), posisinya tidak diketahui:
         # jatuh ke pencocokan berdasarkan urutan sel.
-        pakai_posisi = len(garis_judul.potongan) >= 3
+        pakai_posisi = len(blok) >= 3
+        rincian = f"{len(hasil.kolom)} kolom dikenali dari {len(blok)} kolom judul"
+        if berlapis:
+            rincian += " (judul berlapis digabung)"
         hasil.catatan.append(
-            "tata letak PDF: tabel" + (f" ({len(hasil.kolom)} kolom dikenali, dicocokkan lewat posisi)"
+            "tata letak PDF: tabel" + (f" ({rincian}, dicocokkan lewat posisi)"
                                        if pakai_posisi else " (dicocokkan lewat urutan sel)"))
         for garis in datar[indeks_judul + 1:]:
             teks = garis.teks()
@@ -751,9 +1010,19 @@ def baca_baris_pdf(halaman: Sequence[str] | Sequence[list[GarisPdf]],
                 continue
             if skor_header(garis.sel()) >= 6:
                 continue  # judul berulang di halaman berikutnya
-            item = (_baris_dari_kolom(garis, kolom_x) if pakai_posisi
-                    else isi_baris(garis.sel(), hasil.kolom))
+            if pakai_posisi:
+                item, dilewati = _baris_dari_kolom(garis, kolom_x)
+                for satu in dilewati:
+                    if satu not in hasil.catatan and len(hasil.catatan) < 40:
+                        hasil.catatan.append(satu)
+            else:
+                item = isi_baris(garis.sel(), hasil.kolom)
             if not item.lengkap:
+                lanjutan = _lanjutan_nama(garis, kolom_x, hasil.baris[-1] if hasil.baris else None)
+                if lanjutan:
+                    hasil.baris[-1].nama = f"{hasil.baris[-1].nama} {lanjutan}".strip()
+                    hasil.catatan.append(
+                        f"baris {garis.nomor} digabung ke nama sebelumnya: «{lanjutan[:40]}»")
                 continue
             item.baris_ke = garis.nomor
             hasil.baris.append(item)
@@ -1043,12 +1312,17 @@ def simpan_banyak(import_id: int, item_list: Sequence[BarisPenerima], *, tahun: 
                 """
                 INSERT INTO tangcer_penerima
                     (import_id, tahun, semester, tahap, nisn, nik, nama, sekolah, rombel,
-                     jenis, nominal, keterangan, student_id, cocok, sidik)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     jenis, nominal, keterangan, student_id, cocok, sidik,
+                     rekening, nama_ayah, nama_ibu, nama_orangtua, kelamin,
+                     nik_ayah, nik_ibu, kk, tempat_lahir, tanggal_lahir)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (import_id, tahun, semester, tahap, item.nisn, item.nik, item.nama, item.sekolah,
                  item.rombel, item.jenis, item.nominal, item.keterangan,
-                 item.student_id, item.status_cocok or "belum_dicek", sidik),
+                 item.student_id, item.status_cocok or "belum_dicek", sidik,
+                 item.rekening, item.nama_ayah, item.nama_ibu, item.nama_orangtua,
+                 item.kelamin_rapi, item.nik_ayah, item.nik_ibu, item.kk,
+                 item.tempat_lahir, item.tanggal_lahir),
             )
             baru += 1
     return baru, ganda

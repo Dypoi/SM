@@ -416,6 +416,27 @@ def _migrasi_008(conn: sqlite3.Connection) -> None:
     )
     log.info("Tabel TANGCER siap (tangcer_imports, tangcer_penerima).")
 
+def _migrasi_009(conn: sqlite3.Connection) -> None:
+    """TANGCER — kolom tambahan untuk penyusunan SPJ.
+
+    SPJ butuh hal yang tidak ada di daftar penerima awal: **nomor rekening**, **nama orang
+    tua**, jenis kelamin, dan identitas pendukung (NIK ayah/ibu, nomor Kartu Keluarga, tempat
+    & tanggal lahir). Kolomnya ditambahkan lewat ``ALTER TABLE`` dengan pemeriksaan lebih
+    dulu supaya aman dijalankan pada basis data yang sudah berisi data.
+    """
+    ada = {baris[1] for baris in conn.execute("PRAGMA table_info(tangcer_penerima)")}
+    tambahan = (
+        ("rekening", "TEXT"), ("nama_ayah", "TEXT"), ("nama_ibu", "TEXT"),
+        ("nama_orangtua", "TEXT"), ("kelamin", "TEXT"), ("nik_ayah", "TEXT"),
+        ("nik_ibu", "TEXT"), ("kk", "TEXT"), ("tempat_lahir", "TEXT"),
+        ("tanggal_lahir", "TEXT"),
+    )
+    for nama, tipe in tambahan:
+        if nama not in ada:
+            conn.execute(f"ALTER TABLE tangcer_penerima ADD COLUMN {nama} {tipe}")
+    log.info("Kolom SPJ TANGCER siap (rekening, orang tua, kelamin, KK).")
+
+
 #: Setiap entri: (id_migrasi, skrip SQL) atau (id_migrasi, fungsi(conn)).
 Migrasi: Callable[[sqlite3.Connection], None]
 
@@ -704,6 +725,10 @@ MIGRATIONS: list[tuple[str, str | Callable[[sqlite3.Connection], None]]] = [
     (
         "008_tangcer",
         _migrasi_008,
+    ),
+    (
+        "009_tangcer_spj",
+        _migrasi_009,
     ),
 ]
 

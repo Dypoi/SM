@@ -312,6 +312,9 @@ def pasang_dependensi(venv_py: Path, tujuan: Path, bahan: Path | None = None,
     if kurang:
         raise GalatPemasang("Pustaka ini belum terpasang: " + ", ".join(kurang))
     status = "pustaka inti siap"
+    # «pypdf» = pembaca PDF cadangan saja; aplikasi tetap jalan tanpanya.
+    if _cek_pustaka(venv_py, ("pypdf",)):
+        status += " · pembaca PDF cadangan (pypdf) belum ada"
     if dengan_bot:
         status += (" · pustaka bot (selenium) siap" if not _cek_pustaka(venv_py, ("selenium",))
                    else " · pustaka bot belum siap")

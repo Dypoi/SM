@@ -17,12 +17,20 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
-from .. import auth, config, db, services, tangcer
+#: Media type berkas SPJ (untuk unduhan).
+MEDIA_SPJ = {
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".pdf": "application/pdf",
+}
+
+from .. import auth, config, db, services, spj, tangcer
 from ..readers import UnsupportedFormatError, format_label, supported_extensions
 from ..web import render
 
@@ -218,6 +226,130 @@ def unduh_bedah(
     return Response(
         jalur.read_bytes(), media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{jalur.name}"'})
+
+
+
+
+# =========================================================================== #
+# SPJ — «Pakta Integritas», «Surat Pernyataan Transfer», «Daftar Penerima»
+# =========================================================================== #
+def _isian_spj(request: Request, form: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Gabungkan isian dari kueri/form dengan nilai bawaan dari data sekolah."""
+    sumber = dict(request.query_params)
+    if form:
+        sumber.update(form)
+    return sumber
+
+
+def _tampilan_spj(request: Request, form: dict[str, Any] | None = None):
+    """Halaman penyusun SPJ: pratinjau baris + isian + paket yang pernah dibuat."""
+    isian = _isian_spj(request, form)
+    token = (isian.get("token") or "").strip()
+    data = spj.data_dari(isian)
+    baris = spj.baris_spj(data)
+    ringkas = spj.ringkas_spj(data, baris)
+    profil = services.school_profile()
+    return render(
+        request,
+        "tangcer/spj.html",
+        {
+            "page_title": "SPJ TANGCER",
+            "sekolah_kita": profil["nama"],
+            "npsn_kita": profil["npsn"],
+            "data": data,
+            "ringkas": ringkas,
+            "baris": baris,
+            "batas_tampil": 200,
+            "catatan": list(data.catatan),
+            "paket": spj.paket_tersimpan(batas=8),
+            "token_aktif": token,
+            "paket_aktif": spj.nama_berkas_paket(token) if token else None,
+            "tahun_terpakai": tangcer.daftar_tahun(),
+            "tahun_ajaran": profil.get("tahun_ajaran", ""),
+            "semester_default": profil.get("semester", "Ganjil"),
+            "urutan_berkas": spj.URUTAN_BERKAS,
+        },
+    )
+
+
+@router.get("/tangcer/spj")
+def halaman_spj(
+    request: Request,
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Halaman SPJ: lihat dulu daftar penerima apa adanya, lalu susun berkasnya."""
+    return _tampilan_spj(request)
+
+
+@router.post("/tangcer/spj")
+def buat_spj(
+    request: Request,
+    tahun: str = Form(""),
+    semester: str = Form(""),
+    tahap: str = Form("1"),
+    kepala: str = Form(""),
+    nip: str = Form(""),
+    jabatan: str = Form("Kepala Sekolah"),
+    alamat: str = Form(""),
+    kota: str = Form(""),
+    tanggal: str = Form(""),
+    biaya_personal: str = Form(""),
+    volume: str = Form(""),
+    sampel: str = Form(""),
+    dana_masuk: str = Form(""),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Susun berkas SPJ dari data penerima yang sudah tersimpan."""
+    form = {
+        "tahun": tahun, "semester": semester, "tahap": tahap, "kepala": kepala, "nip": nip,
+        "jabatan": jabatan, "alamat": alamat, "kota": kota, "tanggal": tanggal,
+        "biaya_personal": biaya_personal, "volume": volume, "sampel": sampel,
+        "dana_masuk": dana_masuk.strip() not in {"", "0"},
+    }
+    data = spj.data_dari(form)
+    try:
+        baris = spj.baris_spj(data)
+        paket = spj.buat_paket(data, baris)
+    except tangcer.TangcerError as galat:
+        return _kembali("/tangcer/spj", "err", str(galat))
+    except Exception as galat:  # noqa: BLE001
+        log.exception("Gagal menyusun berkas SPJ")
+        return _kembali("/tangcer/spj", "err", f"Gagal menyusun berkas SPJ: {galat}")
+    services.log_audit(user.username, user.role, "tangcer_spj", "spj", paket["token"],
+                       f"{paket['ringkas']['jumlah_siswa']} siswa, {len(paket['berkas'])} berkas")
+    pesan = (f"Berkas SPJ siap: {len(paket['berkas'])} berkas untuk "
+             f"{paket['ringkas']['jumlah_siswa']} siswa. Silakan unduh satu per satu.")
+    return RedirectResponse(
+        f"/tangcer/spj?token={paket['token']}&level=ok&msg={quote_plus(pesan)}", status_code=303)
+
+
+@router.get("/tangcer/spj/unduh")
+def unduh_spj(
+    token: str = "",
+    berkas: str = "",
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Unduh satu berkas SPJ hasil penyusunan."""
+    jalur = spj.berkas_spj(token, berkas)
+    if jalur is None:
+        return _kembali("/tangcer/spj", "err",
+                        "Berkas SPJ tidak ditemukan (mungkin sudah dihapus).")
+    media = MEDIA_SPJ.get(jalur.suffix.lower(), "application/octet-stream")
+    return Response(
+        jalur.read_bytes(), media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{jalur.name}"'})
+
+
+@router.post("/tangcer/spj/hapus")
+def hapus_spj(
+    token: str = Form(""),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Hapus satu paket berkas SPJ dari folder data."""
+    if not spj.hapus_paket(token):
+        return _kembali("/tangcer/spj", "err", "Paket SPJ itu tidak ditemukan.")
+    services.log_audit(user.username, user.role, "tangcer_spj_hapus", "spj", token, "")
+    return _kembali("/tangcer/spj", "ok", "Paket berkas SPJ dihapus.")
 
 
 @router.get("/tangcer/impor/{import_id}")

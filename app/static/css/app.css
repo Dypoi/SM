@@ -1373,3 +1373,23 @@ progress.progress-bot::-moz-progress-bar { background: var(--primary); border-ra
   line-height: 1.45;
   white-space: pre;
 }
+
+/* ===== Ronde 60: pratinjau SPJ TANGCER ================================== */
+/* Tabel pratinjau SPJ punya kolom teks panjang (nama siswa & nama orang tua).
+   Di sini teksnya boleh turun baris penuh, sedangkan kolom angka & nomor
+   rekening tetap satu baris supaya angkanya tidak pecah. */
+/* Ditulis dengan awalan `table.` supaya pemeriksa kerapian tabel (cek_sistem
+   #21) mengenali gaya kelas ini. */
+table.table-spj th, table.table-spj td { padding: .5rem .6rem; }
+/* Lebar minimum kolom panjang: tanpa ini peramban menyempitkan kolom nama
+   sampai satu kata per baris (potret ronde 60). */
+table.table-spj th:nth-child(2), table.table-spj td:nth-child(2) { min-width: 9.5rem; }
+table.table-spj th:nth-child(3), table.table-spj td:nth-child(3) { min-width: 12rem; }
+table.table-spj th:nth-child(6), table.table-spj td:nth-child(6) { min-width: 10.5rem; }
+/* Judul kolom tetap satu baris (seperti tabel lain); yang boleh turun baris
+   hanya isi kolom panjang (nama siswa & nama orang tua) supaya kolom angka
+   tidak pernah terpotong tepi kartu. */
+table.table-spj td.isi { white-space: normal; overflow-wrap: break-word; }
+table.table-spj th.num, table.table-spj td.num, table.table-spj td.mono,
+table.table-spj th:first-child, table.table-spj td:first-child { white-space: nowrap; }
+table.table-spj tfoot th { background: #f8fafc; }

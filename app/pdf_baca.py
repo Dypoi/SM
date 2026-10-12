@@ -497,6 +497,9 @@ class Huruf:
     lebar: dict[int, float] | None = None
     dasar: dict[int, str] | None = None
     lebar_rata: float = 0.0
+    #: lebar bawaan tiap kode (satuan em) bila tidak ada di ``lebar`` — 0,5 em untuk huruf
+    #: sederhana, /DW font CID kalau ada
+    lebar_bawaan: float = 0.5
 
     def baca(self, data: bytes) -> tuple[str, int]:
         """Ubah data teks PDF menjadi huruf; kembalikan (teks, jumlah kode gagal)."""
@@ -527,7 +530,7 @@ class Huruf:
 
     def lebar_kode(self, ukuran: float) -> float:
         """Perkiraan lebar satu kode huruf (hanya untuk jarak antar potongan)."""
-        return max(0.2, self.lebar_rata or (0.5 if not self.dua_byte else 0.9)) * ukuran
+        return max(0.2, self.lebar_rata or self.lebar_bawaan) * ukuran
 
     def ukur(self, data: bytes) -> float:
         """Jumlah lebar huruf untuk data teks ini (satuan em, 1 em = ukuran huruf).
@@ -540,9 +543,8 @@ class Huruf:
         else:
             kode = list(data)
         if not self.lebar:
-            return len(kode) * (0.9 if self.dua_byte else 0.5)
-        rata = max(0.2, self.lebar_rata or 0.5)
-        return sum(self.lebar.get(k, rata) for k in kode)
+            return len(kode) * self.lebar_bawaan
+        return sum(self.lebar.get(k, self.lebar_bawaan) for k in kode)
 
 
 # --------------------------------------------------------------------------- #
@@ -556,17 +558,22 @@ def _panjang(a: float, b: float) -> float:
     return (a * a + b * b) ** 0.5
 
 
-def rapatkan_potongan(potongan: Sequence[Sequence[Any]]) -> list[tuple[float, str]]:
-    """Gabungkan potongan teks yang bersambung erat menjadi satu sel; beri ruang bila jauh.
+def rapatkan_potongan_lebar(potongan: Sequence[Sequence[Any]]) -> list[tuple[float, str, float]]:
+    """Gabungkan potongan bersambung erat menjadi satu sel; kembalikan ``(x, teks, lebar)``.
 
     Potongan hasil pembaca bawaan membawa perkiraan lebarnya (unsur ke-4). Banyak PDF
     (Word/OpenOffice/PdfLaTeX) memecah satu sel menjadi beberapa show-string; tanpa
-    penggabungan, kolom TANGCER bisa terbaca terpotong-potong.
+    penggabungan, kolom TANGCER bisa terbaca terpotong-potong. Lebarnya dikembalikan karena
+    dipakai menebak kolom tabel: nilai yang lebih panjang daripada judulnya sering mulai
+    di sebelah kiri judul, jadi titik tengah potongan yang menentukan kolomnya.
     """
-    terurut = sorted(potongan, key=lambda item: (item[0],))
-    sel: list[tuple[float, str]] = []
-    akhir = 0.0  # posisi X ujung kanan potongan yang terakhir ditambahkan
-    rata = 0.0   # perkiraan lebar satu huruf
+    # Sengaja TIDAK diurutkan berdasarkan x: PDF menulis teks dalam urutan baca, dan pada
+    # dokumen dinas nama siswa yang panjang bisa melewati batas kolomnya sehingga posisi x
+    # (NISN di sebelah kanan judul nama) menyisip di tengah nama. Dengan urutan penulisan,
+    # potongan «…NUGRA» + «HA» tetap bersambung dan NISN dipisah karena x-nya melompat mundur.
+    terurut = list(potongan)
+    sel: list[list[Any]] = []      # [x, teks, akhir_kanan]
+    rata = 0.0                     # perkiraan lebar satu huruf
     for butir in terurut:
         x = float(butir[0])
         teks = str(butir[2])
@@ -575,22 +582,37 @@ def rapatkan_potongan(potongan: Sequence[Sequence[Any]]) -> list[tuple[float, st
         lebar = float(butir[3]) if len(butir) > 3 and butir[3] else 0.0
         huruf = len(teks.strip()) or 1
         if not sel:
-            sel.append((x, teks.strip()))
-            akhir = x + lebar
+            sel.append([x, teks, x + lebar])
             rata = lebar / huruf
-            lanjut_spasi = teks.endswith(" ") or teks.startswith(" ")
             continue
-        rapat = sel[-1][1].endswith(" ") or teks.startswith(" ")
+        # Spasi di ujung potongan = batas kata di dalam satu sel: digabung, tetap dengan syarat
+        # jaraknya masih sepanjang satu spasi. Tanpa syarat itu, dua judul kolom berjauhan
+        # («NOMOR KARTU» dan «TANGGAL») ikut menyatu karena potongan pertama berakhir spasi.
+        jarak = x - sel[-1][2]
+        # Potongan baru yang mulai jauh di sebelah KIRI potongan sebelumnya jelas sel lain.
+        dekat = -1.5 <= jarak <= max(0.6 * (rata or 1.0), 1.5)
+        rapat = dekat and (teks[:1] == " " or sel[-1][1].endswith(" "))
         batas = 0.22 * (rata or (lebar / huruf) or 0.0)
-        if rapat or (batas > 0 and (x - akhir) <= batas):
-            sel[-1] = (sel[-1][0], (sel[-1][1] + " " + teks.strip()).replace("  ", " ").strip()
-                       if rapat else sel[-1][1] + teks.strip())
+        # Spasi tidak dibuang saat menggabung: banyak PDF menaruh spasi di ujung show-string
+        # («…a » + «Nu»), dan kalau di-strip nama seperti «Adelia Nur Barokah» jadi menempel.
+        if rapat or (batas > 0 and -1.5 <= jarak <= batas):
+            sel[-1][1] += teks                  # satu sel dipecah show-string bertetangga
         else:
-            sel.append((x, teks.strip()))
-        akhir = x + lebar
+            sel.append([x, teks, x + lebar])
+        sel[-1][2] = max(sel[-1][2], x + lebar)
         if lebar and huruf:
             rata = lebar / huruf
-    return sel
+    hasil: list[tuple[float, str, float]] = []
+    for x, teks, akhir in sorted(sel, key=lambda butir: butir[0]):
+        rapi = re.sub(r"\s{2,}", " ", str(teks)).strip()
+        if rapi:
+            hasil.append((x, rapi, max(0.5 * len(rapi), akhir - x)))
+    return hasil
+
+
+def rapatkan_potongan(potongan: Sequence[Sequence[Any]]) -> list[tuple[float, str]]:
+    """Seperti :func:`rapatkan_potongan_lebar`, tanpa lebar (untuk pemakaian lama)."""
+    return [(x, teks) for x, teks, _ in rapatkan_potongan_lebar(potongan)]
 
 
 def _kali(m1: Sequence[float], m2: Sequence[float]) -> tuple[float, ...]:
@@ -812,6 +834,11 @@ class PdfDokumen:
                         peta[kode] = huruf_dari_nama(butir.bersih())
                     kode += 1
             huruf.peta = peta
+        if huruf.dua_byte:
+            # Lebar huruf gabungan (CID) TIDAK ada di /Widths, melainkan di /W + /DW milik
+            # font turunannya. Tanpa ini semua posisi (x) hasil pembaca melenceng — kolom
+            # tabel jadi saling menimpa dan barisnya tercampur.
+            huruf.lebar, huruf.lebar_bawaan = self._lebar_cid(kamus)
         lebar = self.ambil(kamus.get("/Widths"))
         awal = self.ambil(kamus.get("/FirstChar"))
         if isinstance(lebar, list):
@@ -825,6 +852,49 @@ class PdfDokumen:
             if huruf.lebar:
                 huruf.lebar_rata = max(0.2, sum(huruf.lebar.values()) / len(huruf.lebar))
         return huruf
+
+    def _lebar_cid(self, kamus: dict[str, Any]) -> tuple[dict[int, float] | None, float]:
+        """Lebar huruf per kode (em) dari font turunan CID: ``/W`` dan ``/DW``.
+
+        Bentuk ``/W`` ada dua: ``[awal [w1 w2 …]]`` (berurutan) dan ``[awal akhir lebar]``
+        (rentang). Keduanya dibaca; kode yang tidak disebut memakai ``/DW`` (bawaan 1000).
+        """
+        turunan = self.ambil(kamus.get("/DescendantFonts"))
+        cid = self.ambil(turunan[0]) if isinstance(turunan, list) and turunan else None
+        if not isinstance(cid, dict):
+            return None, 0.9 if kamus.get("/Subtype") == "/Type0" else 0.5
+        dw = self.ambil(cid.get("/DW"))
+        bawaan = float(dw) / 1000.0 if isinstance(dw, (int, float)) and dw else 1.0
+        daftar = self.ambil(cid.get("/W"))
+        lebar: dict[int, float] = {}
+        if isinstance(daftar, list):
+            i = 0
+            while i < len(daftar):
+                awal = self.ambil(daftar[i])
+                if not isinstance(awal, (int, float)):
+                    break
+                i += 1
+                if i >= len(daftar):
+                    break
+                kedua = self.ambil(daftar[i])
+                if isinstance(kedua, list):
+                    for urutan, nilai in enumerate(kedua):
+                        nilai = self.ambil(nilai)
+                        if isinstance(nilai, (int, float)):
+                            lebar[int(awal) + urutan] = float(nilai) / 1000.0
+                    i += 1
+                elif isinstance(kedua, (int, float)):
+                    i += 1
+                    if i >= len(daftar):
+                        break
+                    akhir = self.ambil(daftar[i])
+                    i += 1
+                    if isinstance(akhir, (int, float)):
+                        for kode in range(int(awal), int(akhir) + 1):
+                            lebar[kode] = float(kedua) / 1000.0
+                else:
+                    i += 1
+        return (lebar or None), bawaan
 
     def huruf_peta(self, sumber_daya: dict[str, Any] | None) -> dict[str, Huruf]:
         """Kumpulan font halaman: nama di konten → cara membacanya."""

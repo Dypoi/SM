@@ -4,6 +4,20 @@
 {% block content %}
 {#- Menu TANGCER: mengolah berkas mentah dari dinas (Excel/CSV/PDF) lalu menyimpan
     HANYA baris yang sekolahnya cocok dengan sekolah kita. -#}
+<div class="card mb-2">
+  <div class="card-head">
+    <div>
+      <h3>Menyusun SPJ? Pakai daftar penerima di bawah ini</h3>
+      <p>
+        Menu <strong>SPJ</strong> menyusun sendiri berkasnya: Pakta Integritas, Surat Pernyataan
+        Transfer, Daftar Penerima (Excel + PDF siap cetak), dan lembar fotokopi buku tabungan —
+        nama, kelas, nomor rekening, dan nama orang tua terisi dari data penerima yang tersimpan.
+      </p>
+    </div>
+    <a class="btn btn-primary btn-sm" href="/tangcer/spj">{{ icon('file') }} Susun berkas SPJ</a>
+  </div>
+</div>
+
 <div class="grid grid-4 mb-2">
   <div class="stat-card stat-primary">
     <div class="stat-icon">{{ icon('star') }}</div>

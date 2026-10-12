@@ -876,6 +876,11 @@ class Pemasang:
                               + ".\nJalankan bodap.exe lagi (berkas yang sudah tersalin tidak "
                                 "perlu diulang).")
         catatan = f"{cara}"
+        # «pypdf» hanya pembaca PDF CADANGAN: aplikasi tetap membaca PDF dengan
+        # pembaca bawaannya walau pustaka ini tidak ada, jadi kekurangannya cukup
+        # dicatat — bukan alasan menggagalkan pemasangan (ronde 59).
+        if _pustaka_kurang(python, ("pypdf",)):
+            catatan += " · pembaca PDF cadangan (pypdf) belum ada — pembaca bawaan tetap jalan"
         if self.dengan_bot:
             bot_kurang = _pustaka_kurang(python, ("selenium",))
             catatan += (" · pustaka bot siap" if not bot_kurang
