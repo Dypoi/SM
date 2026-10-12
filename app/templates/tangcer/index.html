@@ -1,0 +1,352 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{#- Menu TANGCER: mengolah berkas mentah dari dinas (Excel/CSV/PDF) lalu menyimpan
+    HANYA baris yang sekolahnya cocok dengan sekolah kita. -#}
+<div class="grid grid-4 mb-2">
+  <div class="stat-card stat-primary">
+    <div class="stat-icon">{{ icon('star') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Siswa penerima</div>
+      <div class="stat-value">{{ ringkas.total | angka_id }}</div>
+      <div class="stat-note">Ada di daftar TANGCER aplikasi ini</div>
+    </div>
+  </div>
+  <div class="stat-card stat-success">
+    <div class="stat-icon">{{ icon('check') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Dikenali di data siswa</div>
+      <div class="stat-value">{{ ringkas.cocok | angka_id }}</div>
+      <div class="stat-note">NISN, NIK, atau nama cocok</div>
+    </div>
+  </div>
+  <div class="stat-card stat-warning">
+    <div class="stat-icon">{{ icon('warning') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Belum dikenali</div>
+      <div class="stat-value">{{ ringkas.belum_cocok | angka_id }}</div>
+      <div class="stat-note">Perlu dicocokkan ulang / diperiksa</div>
+    </div>
+  </div>
+  <div class="stat-card stat-info">
+    <div class="stat-icon">{{ icon('chart') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Total nominal</div>
+      <div class="stat-value">{{ ringkas.nominal | rupiah }}</div>
+      <div class="stat-note">Jumlah seluruh baris penerima</div>
+    </div>
+  </div>
+</div>
+
+<div class="split">
+  <div>
+    <form class="card" method="post" action="/tangcer/unggah" enctype="multipart/form-data">
+      <div class="card-head">
+        <div>
+          <h3>Unggah berkas mentah TANGCER</h3>
+          <p>
+            Berkas Excel/CSV maupun <strong>PDF SK definitif</strong> dibaca apa adanya.
+            Yang disimpan hanya baris yang <strong>sekolahnya cocok</strong> dengan sekolah
+            kita — <strong>{{ sekolah_kita }}</strong>{% if npsn_kita %} (NPSN {{ npsn_kita }}){% endif %}.
+            Baris sekolah lain tidak masuk, hanya dihitung jumlahnya.
+          </p>
+        </div>
+        <a class="btn btn-outline btn-sm" href="/pengaturan">{{ icon('cog') }} Ubah nama sekolah</a>
+      </div>
+      <div class="card-body">
+        <div class="upload-zone" data-upload-zone>
+          <input type="file" name="berkas" id="berkas-tangcer" hidden
+                 accept=".xlsx,.xlsm,.xltx,.xltm,.xls,.xlsb,.ods,.csv,.txt,.tsv,.pdf">
+          {{ icon('upload') }}
+          <h3>Letakkan berkas Excel, CSV, atau PDF di sini</h3>
+          <p>
+            Mendukung
+            {% for ext, label in format_didukung %}<code>{{ ext }}</code>{{ ', ' if not loop.last }}{% endfor %}
+            — maksimal {{ maks_ukuran }} MB
+          </p>
+          <span class="chip" data-file-name></span>
+        </div>
+
+        <div class="form-grid mt-2">
+          <div class="field">
+            <label for="tangcer-tahun">Tahun</label>
+            <input type="text" id="tangcer-tahun" name="tahun" value="{{ tahun_ajaran }}"
+                   placeholder="2026">
+            <span class="hint">Dipakai untuk menandai dan menghitung data penerima.</span>
+          </div>
+          <div class="field">
+            <label for="tangcer-semester">Semester</label>
+            <select id="tangcer-semester" name="semester">
+              {% for pilihan in ['Ganjil', 'Genap'] %}
+              <option value="{{ pilihan }}" {% if pilihan == semester_default %}selected{% endif %}>{{ pilihan }}</option>
+              {% endfor %}
+            </select>
+            <span class="hint">Menentukan kelompok data saat difilter &amp; diekspor.</span>
+          </div>
+          <div class="field">
+            <label for="tangcer-tahap">Tahap</label>
+            <input type="text" id="tangcer-tahap" name="tahap" placeholder="Tahap 1">
+            <span class="hint">Boleh dikosongkan bila berkas tidak menyebut tahap.</span>
+          </div>
+        </div>
+
+        <div class="cek-bot mt-2">
+          <input type="checkbox" id="khusus-sekolah" name="khusus_sekolah" value="1">
+          <div class="cek-bot-isi">
+            <label class="cek-bot-judul" for="khusus-sekolah"><strong>Berkas sudah khusus sekolah kita</strong></label>
+            <small>Centang hanya bila berkas tidak punya kolom nama sekolah.</small>
+            <details class="rinci-opsi">
+              <summary>Penjelasan lengkap</summary>
+              <p>
+                Pilihan ini untuk SK yang sudah dipisah per sekolah sehingga tidak ada kolom
+                nama sekolah. Bila dicentang, seluruh baris pada berkas dianggap milik
+                {{ sekolah_kita }} — jadi pastikan berkasnya memang milik sekolah kita.
+                Bila berkas masih memuat banyak sekolah, biarkan tidak dicentang: sistem
+                mencocokkan nama sekolah tiap baris dengan sekolah kita.
+              </p>
+            </details>
+          </div>
+        </div>
+
+        <div class="form-actions mt-2">
+          <button class="btn btn-primary" type="submit">{{ icon('upload') }} Baca &amp; Pratinjau</button>
+          <span class="muted">Data belum masuk sebelum Anda menekan <em>Simpan</em> pada pratinjau.</span>
+        </div>
+      </div>
+    </form>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Riwayat impor TANGCER</h3>
+          <p>Berkas yang sudah dibaca, berapa baris diambil, dan berapa baris sekolah lain diabaikan.</p>
+        </div>
+      </div>
+      <div class="card-body p-0 table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Berkas</th><th>Periode</th><th class="num">Terbaca</th>
+              <th class="num">Diambil</th><th class="num">Diabaikan</th><th>Status</th>
+              <th class="text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in riwayat %}
+            <tr>
+              <td>
+                <a href="/tangcer/impor/{{ item.id }}"><strong>{{ item.berkas | singkat(38) }}</strong></a>
+                <div class="muted">{{ item.dibuat }} · {{ item.ext or '' }} ·
+                  {{ (item.ukuran or 0) // 1024 }} KB</div>
+              </td>
+              <td>{{ item.tahun or '-' }} · {{ item.semester or '-' }}{% if item.tahap %} · {{ item.tahap }}{% endif %}</td>
+              <td class="num">{{ item.total_baris | angka_id }}</td>
+              <td class="num"><span class="badge badge-success">{{ item.diterima | angka_id }}</span></td>
+              <td class="num">{% if item.sekolah_lain %}<span class="badge badge-muted">{{ item.sekolah_lain | angka_id }}</span>{% else %}-{% endif %}</td>
+              <td>
+                {% if item.status == 'tersimpan' %}
+                <span class="badge badge-primary">tersimpan</span>
+                {% else %}
+                <span class="badge badge-warning">pratinjau</span>
+                {% endif %}
+              </td>
+              <td class="text-right">
+                <a class="btn btn-outline btn-sm" href="/tangcer/impor/{{ item.id }}">{{ icon('search') }} Pratinjau</a>
+                <form class="inline-form" method="post" action="/tangcer/impor/{{ item.id }}/hapus"
+                      onsubmit="return confirm('Hapus riwayat impor «{{ item.berkas }}» beserta penerima hasil impor itu?')">
+                  <button class="btn btn-danger btn-sm" type="submit">{{ icon('trash') }} Hapus</button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7"><div class="empty">Belum ada berkas TANGCER yang diunggah.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3>Ringkasan per periode</h3>
+          <p>Jumlah penerima yang sudah tersimpan di aplikasi ini.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        {% if ringkas.per_tahun %}
+        {#- Daftar (bukan tabel) supaya tidak terpotong di kolom samping yang sempit. -#}
+        <dl class="kv">
+          {% for item in ringkas.per_tahun %}
+          <dt>{{ item.tahun or '(tanpa tahun)' }} · {{ item.semester or '-' }}</dt>
+          <dd>{{ item.jumlah | angka_id }} penerima · {{ item.nominal | rupiah }}</dd>
+          {% endfor %}
+        </dl>
+        {% else %}
+        <div class="empty">Belum ada data penerima tersimpan.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Penerima per rombel</h3>
+          <p>Untuk memeriksa sebaran penerima di tiap kelas.</p>
+        </div>
+      </div>
+      <div class="card-body p-0 table-wrap">
+        <table class="data">
+          <thead><tr><th>Rombel</th><th class="num">Penerima</th></tr></thead>
+          <tbody>
+            {% for item in ringkas.per_rombel %}
+            <tr><td>{{ item.rombel }}</td><td class="num">{{ item.jumlah | angka_id }}</td></tr>
+            {% else %}
+            <tr><td colspan="2"><div class="empty">Belum ada data penerima tersimpan.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Ekspor daftar penerima</h3>
+          <p>Hasil ekspor memuat seluruh data penerima sesuai filter di bawah.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="btn-group">
+          <a class="btn btn-outline btn-sm" href="/tangcer/ekspor.xlsx?tahun={{ filter.tahun }}&semester={{ filter.semester }}">{{ icon('download') }} Excel</a>
+          <a class="btn btn-outline btn-sm" href="/tangcer/ekspor.csv?tahun={{ filter.tahun }}&semester={{ filter.semester }}">{{ icon('download') }} CSV</a>
+          <a class="btn btn-outline btn-sm" href="/tangcer/ekspor.pdf?tahun={{ filter.tahun }}&semester={{ filter.semester }}">{{ icon('printer') }} PDF</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Daftar siswa penerima TANGCER</h3>
+      <p>
+        {{ penerima | length }} baris ditampilkan{% if penerima | length >= 500 %} (maksimal 500 — persempit dengan filter){% endif %}.
+        Kolom <strong>Kecocokan</strong> menunjukkan apakah penerima ini ada di data siswa aplikasi.
+      </p>
+    </div>
+    <form class="inline-form" method="post" action="/tangcer/cocokkan">
+      <button class="btn btn-outline btn-sm" type="submit">{{ icon('refresh') }} Cocokkan dengan data siswa</button>
+    </form>
+  </div>
+  <div class="card-body">
+    <form class="filter-bar" method="get" action="/tangcer">
+      <div class="field">
+        <label for="filter-tahun">Tahun</label>
+        <select id="filter-tahun" name="tahun">
+          <option value="">Semua tahun</option>
+          {% for pilihan in tahun_terpakai %}
+          <option value="{{ pilihan }}" {% if pilihan == filter.tahun %}selected{% endif %}>{{ pilihan }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="filter-semester">Semester</label>
+        <select id="filter-semester" name="semester">
+          <option value="">Semua semester</option>
+          {% for pilihan in ['Ganjil', 'Genap'] %}
+          <option value="{{ pilihan }}" {% if pilihan == filter.semester %}selected{% endif %}>{{ pilihan }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="filter-cocok">Kecocokan</label>
+        <select id="filter-cocok" name="cocok">
+          <option value="">Semua</option>
+          <option value="ada" {% if filter.cocok == 'ada' %}selected{% endif %}>Ada di data siswa</option>
+          <option value="belum" {% if filter.cocok == 'belum' %}selected{% endif %}>Belum dikenali</option>
+        </select>
+      </div>
+      <div class="field span-2">
+        <label for="filter-cari">Cari</label>
+        <input type="search" id="filter-cari" name="cari" value="{{ filter.cari }}"
+               placeholder="Nama, NISN, NIK, atau rombel">
+      </div>
+      <div class="field">
+        <label>&nbsp;</label>
+        <button class="btn btn-primary" type="submit">{{ icon('search') }} Tampilkan</button>
+      </div>
+    </form>
+    {% if filter.tahun or filter.semester or filter.cari or filter.cocok %}
+    <div class="filter-chips">
+      <span class="filter-chip">
+        {{ icon('search') }} Filter aktif
+        <a href="/tangcer" title="Hapus semua filter">&times;</a>
+      </span>
+    </div>
+    {% endif %}
+  </div>
+  <div class="card-body p-0 table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th class="num">No</th><th>Nama penerima</th><th>NISN</th><th>Rombel</th>
+          <th>Jenis</th><th class="num">Nominal</th><th>Periode</th><th>Kecocokan</th>
+          <th class="text-right">Aksi</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in penerima %}
+        <tr>
+          <td class="num">{{ loop.index }}</td>
+          <td>
+            <a href="/tangcer/penerima/{{ item.id }}"><strong>{{ item.nama or '(tanpa nama)' }}</strong></a>
+            {% if item.sekolah %}<div class="muted">{{ item.sekolah | singkat(42) }}</div>{% endif %}
+          </td>
+          <td>{{ item.nisn or '-' }}</td>
+          <td>{{ item.rombel or '-' }}</td>
+          <td>{{ item.jenis or '-' }}</td>
+          <td class="num">{{ item.nominal | rupiah }}</td>
+          <td>{{ item.tahun or '-' }} · {{ item.semester or '-' }}{% if item.tahap %} · {{ item.tahap }}{% endif %}</td>
+          <td>
+            {% if item.cocok in ['nisn', 'nik', 'nama'] %}
+            <span class="badge badge-success">ya ({{ item.cocok }})</span>
+            {% elif item.cocok == 'belum_dicek' %}
+            <span class="badge badge-muted">belum diperiksa</span>
+            {% else %}
+            <span class="badge badge-warning">belum dikenali</span>
+            {% endif %}
+          </td>
+          <td class="text-right">
+            <a class="btn btn-outline btn-sm" href="/tangcer/penerima/{{ item.id }}">{{ icon('edit') }} Detail</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="9">
+            <div class="empty">
+              Belum ada siswa penerima yang tersimpan. Unggah berkas TANGCER di atas, lalu tekan
+              <strong>Simpan</strong> pada halaman pratinjau.
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if ringkas.total %}
+  <div class="card-foot">
+    <form class="inline-form" method="post" action="/tangcer/hapus"
+          onsubmit="return confirm('Hapus {{ ringkas.total }} data penerima{{ ' pada filter ini' if filter.tahun or filter.semester }}? Tindakan ini tidak bisa dibatalkan.')">
+      <input type="hidden" name="tahun" value="{{ filter.tahun }}">
+      <input type="hidden" name="semester" value="{{ filter.semester }}">
+      <button class="btn btn-danger btn-sm" type="submit">{{ icon('trash') }} Hapus daftar penerima{{ ' (filter ini)' if filter.tahun or filter.semester }}</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

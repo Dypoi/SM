@@ -349,6 +349,73 @@ def _migrasi_007(conn: sqlite3.Connection) -> None:
     )
     log.info("Tabel dapodik_job_items siap (rincian bot Dapodik).")
 
+
+def _migrasi_008(conn: sqlite3.Connection) -> None:
+    """TANGCER — impor berkas mentah (Excel/CSV/PDF) & daftar penerima.
+
+    ``tangcer_imports`` menyimpan **kepala impor**: berkas apa yang diunggah,
+    berapa baris terbaca, berapa yang diambil (sekolah kita) dan berapa yang
+    diabaikan (sekolah lain), plus catatan pembacaan — sehingga pratinjau bisa
+    dibuka ulang kapan saja tanpa mengunggah berkasnya lagi.
+
+    ``tangcer_penerima`` menyimpan baris penerima yang **sudah tersaring**:
+    hanya baris yang sekolahnya cocok dengan sekolah kita. Kolom ``sidik``
+    (sidik jari baris) dipakai untuk mencegah data ganda ketika berkas yang
+    sama diunggah dua kali.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS tangcer_imports (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            berkas        TEXT NOT NULL,
+            ext           TEXT,
+            ukuran        INTEGER DEFAULT 0,
+            sumber_path   TEXT,
+            tahun         TEXT,
+            semester      TEXT,
+            tahap         TEXT,
+            sekolah_kita  TEXT,
+            total_baris   INTEGER DEFAULT 0,
+            diterima      INTEGER DEFAULT 0,
+            sekolah_lain  INTEGER DEFAULT 0,
+            sekolah_ditemukan TEXT,
+            kolom         TEXT,
+            catatan       TEXT,
+            status        TEXT NOT NULL DEFAULT 'pratinjau',
+            actor         TEXT,
+            tanpa_kolom_sekolah INTEGER DEFAULT 0,
+            dibuat        TEXT DEFAULT (datetime('now','localtime')),
+            disimpan      TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_tangcer_imports_dibuat ON tangcer_imports(dibuat);
+
+        CREATE TABLE IF NOT EXISTS tangcer_penerima (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            import_id  INTEGER,
+            tahun      TEXT,
+            semester   TEXT,
+            tahap      TEXT,
+            nisn       TEXT,
+            nik        TEXT,
+            nama       TEXT,
+            sekolah    TEXT,
+            rombel     TEXT,
+            jenis      TEXT,
+            nominal    REAL,
+            keterangan TEXT,
+            student_id INTEGER,
+            cocok      TEXT DEFAULT 'belum_dicek',
+            sidik      TEXT,
+            dibuat     TEXT DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_tangcer_penerima_sekolah ON tangcer_penerima(tahun, semester);
+        CREATE INDEX IF NOT EXISTS idx_tangcer_penerima_sidik ON tangcer_penerima(sidik);
+        CREATE INDEX IF NOT EXISTS idx_tangcer_penerima_nama ON tangcer_penerima(nama);
+        CREATE INDEX IF NOT EXISTS idx_tangcer_penerima_siswa ON tangcer_penerima(student_id);
+        """
+    )
+    log.info("Tabel TANGCER siap (tangcer_imports, tangcer_penerima).")
+
 #: Setiap entri: (id_migrasi, skrip SQL) atau (id_migrasi, fungsi(conn)).
 Migrasi: Callable[[sqlite3.Connection], None]
 
@@ -633,6 +700,10 @@ MIGRATIONS: list[tuple[str, str | Callable[[sqlite3.Connection], None]]] = [
     (
         "007_bot_dapodik_item",
         _migrasi_007,
+    ),
+    (
+        "008_tangcer",
+        _migrasi_008,
     ),
 ]
 

@@ -37,6 +37,7 @@ from .routers import (
     settings_routes,
     student_routes,
     update_routes,
+    tangcer_routes,
 )
 from .web import render
 
@@ -166,6 +167,7 @@ app.include_router(online_routes.router)
 app.include_router(approval_routes.router)
 app.include_router(api_routes.router)
 app.include_router(bot_routes.router)
+app.include_router(tangcer_routes.router)
 
 
 # --------------------------------------------------------------------------- #

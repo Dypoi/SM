@@ -191,6 +191,7 @@ baru kemudian disimpan. Tidak ada data yang langsung masuk tanpa persetujuan And
 | `.xlsb` | Excel Binary Workbook | pyxlsb |
 | `.ods` | LibreOffice / OpenOffice | odfpy |
 | `.csv`, `.txt`, `.tsv` | Teks berpemisah | `csv` bawaan Python |
+| `.pdf` | **SK definitif** yang memuat teks (khusus menu **TANGCER**) | pypdf |
 
 Pemisah CSV (`,` `;` tab `|`), BOM, dan encoding (UTF-8 / Windows-1252 / Latin-1)
 dideteksi otomatis — berkas hasil ekspor Excel Indonesia yang memakai titik-koma
@@ -259,6 +260,25 @@ akta lahir, kesehatan, sampai koordinat rumah.
   kebutuhan khusus)
   **tidak lagi dipakai**; berkas lama tetap bisa diunggah dan kolom tersebut ditampilkan
   sebagai "tidak lagi dipakai" pada halaman pratinjau impor.
+
+### TANGCER — siswa penerima bantuan (menu **TANGCER**)
+- Mengolah **berkas mentah dari dinas**: Excel/CSV maupun **PDF SK definitif**
+  (yang memuat teks, bukan hasil pindai).
+- Dari berkas yang memuat banyak sekolah, **hanya baris yang sekolahnya cocok dengan
+  sekolah kita** yang disimpan; baris sekolah lain dihitung dan dilaporkan, tidak masuk.
+  Pencocokan mengabaikan perbedaan huruf besar/kecil, titik, spasi berlebih, angka nol di
+  depan, dan singkatan seperti `SMPN` → `SMP NEGERI`; yang **tidak** diabaikan: jenjang
+  (SMP ≠ SMA), status (Negeri ≠ Swasta), dan jenis daerah (Kota ≠ Kabupaten). Bila NPSN
+  sekolah tertulis di berkas, NPSN yang menentukan.
+- **Pratinjau sebelum simpan**: jumlah baris terbaca · diambil · diabaikan, rekap tiap
+  sekolah lain, catatan pembacaan (baris rekap yang dilewati, tata letak PDF yang
+  dikenali, kolom yang dikenali), dan **alasan tiap baris** — diambil maupun diabaikan.
+- **Tidak menggandakan data**: berkas yang sama diunggah dua kali tidak membuat baris ganda.
+- Berkas yang **tidak punya kolom sekolah** (SK yang sudah dipisah per sekolah) baru
+  diambil bila Anda mencentang «Berkas sudah khusus sekolah kita».
+- Daftar penerima bisa dicari/difilter (tahun, semester, kecocokan), **dicocokkan dengan
+  data siswa** aplikasi (lewat NISN → NIK → nama), diperbaiki satu per satu, dihapus, dan
+  **diekspor** ke Excel / CSV / PDF.
 
 ### Ekstrakurikuler
 - Kelola kegiatan: **nama, pembina, pelatih**, hari & jam, deskripsi, dan status.

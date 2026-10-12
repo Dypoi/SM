@@ -2590,6 +2590,14 @@ def daftar_pengajuan(status: str | None = None, q: str | None = None,
     )
 
 
+def hitung_penerima_tangcer() -> int:
+    """Jumlah siswa penerima TANGCER (dipakai lencana menu samping)."""
+    try:
+        return int(db.query_value("SELECT COUNT(*) FROM tangcer_penerima", default=0) or 0)
+    except Exception:  # noqa: BLE001 - tabel belum ada (pasang baru) → tanpa lencana
+        return 0
+
+
 def hitung_pengajuan(status: str | None = None) -> int:
     if status:
         return int(db.query_value("SELECT COUNT(*) FROM change_requests WHERE status = ?", (status,)) or 0)

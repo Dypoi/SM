@@ -15,3 +15,6 @@ xlrd==2.0.2         # .xls                    (Excel 97-2003)
 pyxlsb==1.0.10      # .xlsb                   (Excel Binary)
 odfpy==1.4.1        # .ods                    (LibreOffice/OpenOffice)
 # .csv / .txt / .tsv memakai modul `csv` bawaan Python (tanpa dependensi)
+
+# --- Pembaca berkas PDF (SK definitif TANGCER) ---
+pypdf==6.20.0        # membaca PDF berbasis teks (bukan hasil pindai)

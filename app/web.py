@@ -132,6 +132,17 @@ def field_label(key: str) -> str:
     return EXTRA_LABELS.get(key, key.replace("_", " ").title())
 
 
+def rupiah(value: Any) -> str:
+    """«Rp 1.000.000» — nilai kosong ditulis «-» (bukan Rp 0)."""
+    if value is None or value == "":
+        return "-"
+    try:
+        angka = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return "Rp " + f"{angka:,.0f}".replace(",", ".")
+
+
 def singkat(value: Any, length: int = 40) -> str:
     text = "" if value is None else str(value)
     return text if len(text) <= length else text[: length - 1] + "…"
@@ -361,6 +372,7 @@ templates.env.filters.update(
         "umur": umur,
         "badge": badge_status,
         "singkat": singkat,
+        "rupiah": rupiah,
     }
 )
 
@@ -391,6 +403,8 @@ def nav_items(user: auth.SessionUser | None) -> list[dict[str, str]]:
         {"href": "/ekstrakurikuler", "label": "Ekstrakurikuler", "icon": "flag"},
         {"href": "/statistik", "label": "Statistik", "icon": "chart"},
         {"href": "/kualitas-data", "label": "Kualitas Data", "icon": "check"},
+        {"href": "/tangcer", "label": "TANGCER", "icon": "star",
+         "badge": services.hitung_penerima_tangcer()},
         {"href": "/bot-dapodik", "label": "Bot Dapodik", "icon": "robot",
          "badge": services.bot_menunggu_kira()},
         {"href": "/online", "label": "Online", "icon": "globe"},
@@ -411,6 +425,7 @@ NAV_GRUP = {
     "/pengajuan": "Utama",
     "/impor": "Data & Laporan",
     "/kualitas-data": "Data & Laporan",
+    "/tangcer": "Data & Laporan",
     "/bot-dapodik": "Sistem",
     "/online": "Sistem",
     "/statistik": "Data & Laporan",
@@ -443,6 +458,7 @@ PAGE_TITLES = {
     "/ekstrakurikuler": "Ekstrakurikuler",
     "/statistik": "Statistik",
     "/kualitas-data": "Kualitas Data",
+    "/tangcer": "TANGCER",
     "/bot-dapodik": "Bot Dapodik",
     "/pengaturan": "Pengaturan",
     "/online": "Online",

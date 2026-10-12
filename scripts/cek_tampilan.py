@@ -55,10 +55,10 @@ BLOK = {"div", "p", "ul", "ol", "dl", "dt", "dd", "table", "form", "section", "a
 HALAMAN_SISWA = ("/portal", "/portal/profil", "/portal/ekstrakurikuler", "/portal/pengajuan")
 
 #: Halaman petugas yang diperiksa susunannya (login admin).
-HALAMAN_PETUGAS = ("/online", "/bot-dapodik/catatan", "/pembaruan", "/bot-dapodik")
+HALAMAN_PETUGAS = ("/online", "/bot-dapodik/catatan", "/pembaruan", "/bot-dapodik", "/tangcer")
 
-#: Halaman yang wajib bebas gaya sebaris & keterangan panjang (ronde 56).
-HALAMAN_RAPI = ("/pembaruan", "/bot-dapodik")
+#: Halaman yang wajib bebas gaya sebaris & keterangan panjang (ronde 56 & 58).
+HALAMAN_RAPI = ("/pembaruan", "/bot-dapodik", "/tangcer")
 BATAS_KETERANGAN = 160
 
 

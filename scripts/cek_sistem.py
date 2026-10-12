@@ -5561,6 +5561,204 @@ def cek_kode_wilayah_ditulis_langsung():
             "merah pada bot ronde 53)")
 
 
+@cek("49. Menu TANGCER — berkas mentah (Excel/CSV/PDF) disaring per sekolah & dikelola")
+def cek_tangcer():
+    """Ronde 58 — permintaan sekolah: menu **TANGCER** untuk siswa penerima bantuan.
+
+    Berkas mentah dari dinas memuat banyak sekolah sekaligus (Excel/CSV maupun PDF SK
+    definitif), sedangkan yang boleh masuk aplikasi **hanya baris milik sekolah kita**
+    («SMP NEGERI 2 TANGERANG»). Yang diperiksa di sini benar-benar dijalankan, bukan
+    diperiksa dari nama fungsinya:
+
+    1. pencocokan nama sekolah — tulisan yang berbeda untuk sekolah yang sama harus
+       dianggap sama, sedangkan sekolah lain (SMP 1, SMP Swasta, Kabupaten vs Kota,
+       jenjang lain) harus DITOLAK beserta alasannya;
+    2. pembaca berkas — CSV/Excel **dan PDF** (dua tata letak: tabel & judul bagian),
+       termasuk berkas PDF hasil pindai yang harus dilaporkan jujur;
+    3. penyaringan & penyimpanan — hanya baris sekolah kita yang tersimpan, baris
+       sekolah lain dihitung, dan berkas yang sama diunggah dua kali tidak menggandakan;
+    4. sisa sambungannya: tabel basis data, menu samping, halaman, dan `pypdf` pada
+       `requirements.txt` supaya pemasangan baru tetap bisa membaca PDF.
+    """
+    import tempfile
+
+    from app import auth, config, db, migrations, tangcer
+    from app import web
+
+    migrations.run_migrations(verbose=False)
+
+    # --- tabel basis data ------------------------------------------------- #
+    kolom_impor = set(db.table_columns("tangcer_imports"))
+    kolom_penerima = set(db.table_columns("tangcer_penerima"))
+    assert {"berkas", "total_baris", "diterima", "sekolah_lain", "kolom", "catatan",
+            "status", "tanpa_kolom_sekolah"} <= kolom_impor, \
+        f"tabel tangcer_imports kurang kolom: {sorted(kolom_impor)}"
+    assert {"nama", "nisn", "nik", "sekolah", "rombel", "nominal", "sidik", "cocok",
+            "student_id"} <= kolom_penerima, \
+        f"tabel tangcer_penerima kurang kolom: {sorted(kolom_penerima)}"
+
+    # --- pencocokan nama sekolah ------------------------------------------ #
+    kita, npsn, daerah = "SMP NEGERI 2 TANGERANG", "20631000", "Kota Tangerang"
+    sama = ["SMP NEGERI 2 TANGERANG", "SMPN 2 TANGERANG", "smp negeri 2 tangerang",
+            "SMP Negeri 2 Kota Tangerang", "S.M.P. Negeri 2 Tangerang",
+            "SMP NEGERI 02 TANGERANG", "SMP NEGERI 2 TANGERANG (NPSN 20631000)"]
+    beda = ["SMP NEGERI 1 TANGERANG", "SMP SWASTA ISLAM AL HIDAYAH",
+            "SMP NEGERI 2 KABUPATEN TANGERANG", "SMP NEGERI 2 TANGERANG SELATAN",
+            "SMA NEGERI 2 TANGERANG", "SD NEGERI 2 TANGERANG", "SMP NEGERI 2 TANGE"]
+    for teks in sama:
+        cocok, alasan = tangcer.cocok_sekolah(teks, kita, npsn, daerah)
+        assert cocok, f"«{teks}» seharusnya dianggap sekolah kita (alasan: {alasan})"
+    for teks in beda:
+        cocok, alasan = tangcer.cocok_sekolah(teks, kita, npsn, daerah)
+        assert not cocok, f"«{teks}» seharusnya DITOLAK (alasan: {alasan})"
+    # Baris yang cocok setelah kata wilayah dibuang diambil, tetapi wajib ditandai.
+    saring_longgar = tangcer.saring_sekolah(
+        tangcer.baca_baris_tabel([["NO", "NISN", "NAMA PESERTA DIDIK", "NAMA SEKOLAH"],
+                                  ["1", "0091234599", "Zulfa Aulia", "SMP Negeri 2"]]),
+        kita, npsn, daerah)
+    assert len(saring_longgar.diragukan) == 1 and any(
+        "mohon diperiksa" in catatan for catatan in saring_longgar.catatan), \
+        "baris hasil pencocokan longgar tidak ditandai untuk diperiksa manusia"
+
+    # --- pembaca berkas: CSV, Excel, dan PDF ------------------------------ #
+    with tempfile.TemporaryDirectory(prefix="cek-tangcer-") as tmp:
+        folder = pathlib.Path(tmp)
+        baris = [["NO", "NISN", "NAMA PESERTA DIDIK", "NAMA SEKOLAH", "ROMBEL",
+                  "JENIS BANTUAN", "NOMINAL", "TAHAP"]]
+        baris += [["1", "0091234501", "Achmad Fauzi Ramadhan", kita, "7A", "TANGCER",
+                   "1.000.000", "Tahap 1"],
+                  ["2", "0091234502", "Bella Safitri", "SMPN 2 TANGERANG", "7B", "TANGCER",
+                   "Rp 1.000.000", "Tahap 1"],
+                  ["3", "0091234505", "Eko Prasetyo", "SMP NEGERI 1 TANGERANG", "7A",
+                   "TANGCER", "1.000.000", "Tahap 1"],
+                  ["4", "0091234507", "Gilang Ramadhan", "SMP SWASTA ISLAM AL HIDAYAH", "7C",
+                   "TANGCER", "1.000.000", "Tahap 1"]]
+        baris.append(["", "", "JUMLAH", "", "", "", "4.000.000", ""])   # baris rekap
+        csv_berkas = folder / "daftar-tangcer.csv"
+        csv_berkas.write_text("\r\n".join(";".join(sel) for sel in baris) + "\r\n",
+                             encoding="utf-8")
+        hasil_csv = tangcer.baca_berkas(csv_berkas, ".csv")
+        assert hasil_csv.jumlah_baris == 4, \
+            f"baris rekap «JUMLAH» seharusnya tidak dihitung data (terbaca {hasil_csv.jumlah_baris})"
+        saring = tangcer.saring_sekolah(hasil_csv, kita, npsn, daerah)
+        assert saring.jumlah_diterima == 2, f"diterima {saring.jumlah_diterima} (harus 2)"
+        assert len(saring.ditolak) == 2, f"ditolak {len(saring.ditolak)} (harus 2)"
+        assert all(item.alasan for item in saring.diterima + saring.ditolak), \
+            "setiap baris harus punya alasan diambil/diabaikan"
+
+        # Nama sekolah yang ditulis sekali untuk satu blok (sel bergabung di Excel)
+        gabung = folder / "gabung.csv"
+        gabung.write_text(
+            "NO;NISN;NAMA PESERTA DIDIK;NAMA SEKOLAH\r\n"
+            "1;0091234501;Achmad Fauzi Ramadhan;SMP NEGERI 2 TANGERANG\r\n"
+            "2;0091234502;Bella Safitri;\r\n"
+            "3;0091234505;Eko Prasetyo;SMP NEGERI 1 TANGERANG\r\n",
+            encoding="utf-8")
+        hasil_gabung = tangcer.baca_berkas(gabung, ".csv")
+        assert all(item.sekolah for item in hasil_gabung.baris), \
+            "nama sekolah pada sel bergabung tidak diteruskan ke baris di bawahnya"
+        assert any("sel bergabung" in catatan for catatan in hasil_gabung.catatan), \
+            "penerusan nama sekolah tidak dilaporkan di catatan"
+        saring_gabung = tangcer.saring_sekolah(hasil_gabung, kita, npsn, daerah)
+        assert saring_gabung.jumlah_diterima == 2 and len(saring_gabung.ditolak) == 1, \
+            "penyaringan berkas bersel-bergabung tidak benar"
+
+        import openpyxl
+
+        buku = openpyxl.Workbook()
+        lembar = buku.active
+        lembar.append(["DAFTAR PENERIMA TANGCER 2026"]); lembar.append([])
+        for sel in baris[:-1]:
+            lembar.append(sel)
+        xlsx_berkas = folder / "daftar-tangcer.xlsx"
+        buku.save(xlsx_berkas)
+        assert tangcer.baca_berkas(xlsx_berkas, ".xlsx").jumlah_baris == 4, \
+            "pembaca Excel TANGCER tidak membaca baris penerima"
+
+        from app.pdf import buat_pdf_tabel
+
+        pdf_berkas = folder / "sk-definitif.pdf"
+        pdf_berkas.write_bytes(buat_pdf_tabel(
+            "SK DEFINITIF TANGCER", [("No", 26), ("NISN", 70), ("Nama", 150),
+                                     ("Sekolah", 170), ("Rombel", 40)],
+            [[str(no), item[1], item[2], item[3], item[4]]
+             for no, item in enumerate(baris[1:-1], start=1)],
+            subjudul=[kita]))
+        hasil_pdf = tangcer.baca_berkas(pdf_berkas, ".pdf")
+        assert hasil_pdf.jumlah_baris == 4, \
+            f"PDF SK definitif terbaca {hasil_pdf.jumlah_baris} baris (harus 4)"
+        assert any(item.sekolah == kita for item in hasil_pdf.baris), \
+            "kolom sekolah pada PDF tidak terbaca (posisi X judul kolom tidak dipakai)"
+        saring_pdf = tangcer.saring_sekolah(hasil_pdf, kita, npsn, daerah)
+        assert saring_pdf.jumlah_diterima == 2 and len(saring_pdf.ditolak) == 2, \
+            "penyaringan PDF tidak sama hasilnya dengan CSV"
+
+        # PDF tanpa teks (hasil pindai) harus dilaporkan, bukan dikarang.
+        from app.pdf import _rakit_pdf
+
+        pindai = folder / "pindai.pdf"
+        pindai.write_bytes(_rakit_pdf([b"q Q\n"]))
+        try:
+            tangcer.baca_isi("pindai.pdf", pindai.read_bytes())
+            raise AssertionError("PDF tanpa teks seharusnya dilaporkan (perlu di-OCR)")
+        except tangcer.TangcerError as galat:
+            assert "pindai" in str(galat) or "OCR" in str(galat), str(galat)
+
+        # --- penyimpanan: tidak menggandakan & hanya sekolah kita ---------- #
+        jumlah_awal = tangcer.ringkas_penerima()["total"]
+        import_id = tangcer.buat_impor(
+            nama_berkas=csv_berkas.name, path=csv_berkas, ext=".csv",
+            ukuran=csv_berkas.stat().st_size, tahun="9999", semester="Uji", tahap="Cek",
+            hasil=hasil_csv, saring=saring, kolom=hasil_csv.kolom, actor="cek_sistem",
+            tanpa_kolom_sekolah=False)
+        baru, ganda = tangcer.simpan_banyak(import_id, saring.diterima, tahun="9999",
+                                            semester="Uji", tahap="Cek")
+        assert baru == 2 and ganda == 0, f"tersimpan {baru} baru, {ganda} ganda"
+        baru2, ganda2 = tangcer.simpan_banyak(import_id, saring.diterima, tahun="9999",
+                                              semester="Uji", tahap="Cek")
+        assert baru2 == 0 and ganda2 == 2, \
+            f"berkas yang sama diunggah dua kali menambah {baru2} baris ganda"
+        tersimpan = tangcer.daftar_penerima(tahun="9999", semester="Uji", batas=50)
+        assert len(tersimpan) == 2, f"daftar penerima berisi {len(tersimpan)} baris"
+        assert all(item["sekolah"] != "SMP NEGERI 1 TANGERANG" for item in tersimpan), \
+            "baris sekolah lain ikut tersimpan"
+        assert tangcer.ekspor_csv("9999", "Uji").decode("utf-8-sig").count("\r\n") == 3, \
+            "ekspor CSV TANGCER tidak berisi 2 baris + kepala"
+        tangcer.hapus_impor(import_id)
+        assert tangcer.ringkas_penerima()["total"] == jumlah_awal, \
+            "data uji TANGCER tidak terhapus (jumlah penerima berubah)"
+
+    # --- sambungan ke halaman & pemasangan ------------------------------- #
+    petugas = auth.SessionUser(id=1, username="admin", nama="Admin", role=auth.ROLE_ADMIN)
+    menu = [item for item in web.nav_items(petugas) if item.get("href") == "/tangcer"]
+    assert menu, "menu «TANGCER» tidak ada di daftar menu samping"
+    assert web.NAV_GRUP.get("/tangcer") == "Data & Laporan", \
+        f"TANGCER masuk grup {web.NAV_GRUP.get('/tangcer')!r}"
+    assert web.PAGE_TITLES.get("/tangcer"), "judul halaman TANGCER belum didaftarkan"
+    for nama_berkas in ("index.html", "pratinjau.html", "penerima.html"):
+        assert (BASE_DIR / "app" / "templates" / "tangcer" / nama_berkas).exists(), \
+            f"templat tangcer/{nama_berkas} tidak ada"
+    from app.routers import tangcer_routes
+
+    assert ".pdf" in tangcer_routes.EKSTENSI_TANGCER, \
+        "menu TANGCER tidak menerima berkas .pdf"
+    isi_req = (BASE_DIR / "requirements.txt").read_text(encoding="utf-8")
+    assert "pypdf" in isi_req, \
+        "pustaka pembaca PDF (pypdf) tidak ada di requirements.txt — pemasangan baru " \
+        "tidak akan bisa membaca SK definitif"
+    isi_halaman = (BASE_DIR / "app" / "templates" / "tangcer" / "index.html").read_text(
+        encoding="utf-8")
+    assert "sekolahnya cocok" in isi_halaman and "khusus_sekolah" in isi_halaman, \
+        "halaman TANGCER tidak menjelaskan penyaringan sekolah / tidak punya pilihan " \
+        "«berkas sudah khusus sekolah kita»"
+
+    return ("menu TANGCER (unggah → pratinjau → simpan) mengolah Excel/CSV & PDF SK definitif, "
+            "hanya baris sekolah kita yang masuk (SMP 1/Swasta/Kabupaten/jenjang lain ditolak "
+            "beserta alasannya) · PDF pindai dilaporkan jujur · berkas yang sama tidak "
+            "menggandakan (sidik baris) · daftar penerima tersimpan & bisa diekspor · "
+            "pypdf ada di requirements.txt")
+
+
 @cek("48. Daftar desa kosong walau kata kunci masuk → pencarian dipaksa lewat model Ext JS, "
       "lalu keadaan kolom wilayahnya dibedah; daftar dua tahap (kecamatan → desa) ikut ditangani")
 def cek_pencarian_desa_dipaksa():
@@ -5666,6 +5864,7 @@ def main() -> int:
     cek_desa_dipilih_dari_daftar()
     cek_kode_wilayah_ditulis_langsung()
     cek_pencarian_desa_dipaksa()
+    cek_tangcer()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()
