@@ -453,7 +453,8 @@ def _kerja_nyalakan(port: int, https_port: int) -> None:
                 _pekerjaan["pesan"] = ("Tailscale menunggu persetujuan Funnel — buka tautan "
                                        "persetujuan sekali saja, lalu prosesnya lanjut sendiri.")
 
-    threading.Thread(target=baca, daemon=True).start()
+    benang = threading.Thread(target=baca, daemon=True)
+    benang.start()
     kode: int | None = None
     for putaran in range(RONDE_TUNGGU):
         try:
@@ -474,6 +475,10 @@ def _kerja_nyalakan(port: int, https_port: int) -> None:
             break
 
     _pekerjaan["kode"] = kode
+    # Jangan membaca catatan sebelum pembacanya selesai: keluaran terakhir (mis. dari stderr)
+    # sering baru masuk beberapa milidetik setelah prosesnya berakhir — tanpa penantian ini,
+    # pesan galat kadang tidak memuat langkah perbaikannya.
+    benang.join(timeout=3.0)
     if kode == 0:
         alamat = ""
         for _ in range(6):

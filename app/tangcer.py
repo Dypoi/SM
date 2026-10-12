@@ -22,7 +22,14 @@ Tiga hal yang dijaga modul ini:
 
 Format berkas: semua format spreadsheet yang sudah didukung aplikasi
 (``.xlsx .xlsm .xltx .xls .xlsb .ods .csv .txt .tsv``) **dan** ``.pdf`` (teks,
-bukan hasil pindai) lewat pustaka ``pypdf``.
+bukan hasil pindai).
+
+PDF dibaca **pembaca bawaan SM** (:mod:`app.pdf_baca`) yang hanya memakai modul
+standar Python — jadi SK definitif tetap terbaca walau komputer sekolah belum
+memasang pustaka tambahan apa pun (``pypdf`` hanya cadangan/pembanding bila
+kebetulan terpasang). Tambahan **bedah berkas** (:func:`bedah_berkas`) dipakai
+halaman TANGCER untuk memperlihatkan isi sebuah berkas apa adanya beserta
+unduhan teksnya, supaya bagian yang belum terbaca bisa diperiksa/dilaporkan.
 """
 
 from __future__ import annotations
@@ -40,7 +47,7 @@ from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
 from typing import Any, Sequence
 
-from . import db, services
+from . import config, db, pdf_baca, services
 
 log = logging.getLogger("sm.tangcer")
 
@@ -482,6 +489,8 @@ class GarisPdf:
     nomor: int
     y: float
     potongan: list[tuple[float, str]] = dataclass_field(default_factory=list)
+    #: potongan mentah dari pembaca PDF (x, y, teks[, lebar]) — dipakai menyusun spasi
+    potongan_asli: list[Any] = dataclass_field(default_factory=list)
 
     def sel(self) -> list[str]:
         """Potongan-potongan pada baris ini (satu potongan dipecah bila berjarak jauh)."""
@@ -490,6 +499,8 @@ class GarisPdf:
         return [teks for _, teks in self.potongan if teks.strip()]
 
     def teks(self) -> str:
+        if self.potongan_asli:
+            return pdf_baca._teks_satu_baris(self.potongan_asli).strip()
         return " ".join(teks for _, teks in self.potongan if teks.strip()).strip()
 
 
@@ -509,25 +520,17 @@ def _tampak_sekolah(teks: str) -> bool:
     return ada_jenjang and ada_status
 
 
-def halaman_pdf(isi: bytes, *, catatan: list[str] | None = None) -> list[list[GarisPdf]]:
-    """Teks PDF per halaman, dikelompokkan menjadi baris **beserta posisi X tiap potongan**.
+#: Pembaca PDF yang dipakai lebih dulu — bawaan SM, tanpa pustaka tambahan.
+MESIN_PDF_BAWAAN = "bawaan"
+#: Pembaca cadangan bila pustaka pypdf kebetulan terpasang.
+MESIN_PDF_PYPF = "pypdf"
 
-    Posisi X dipakai supaya kolom yang berdekatan (mis. nomor urut yang mepet kolom NISN)
-    tidak salah dipotong — hal yang sering terjadi bila hanya mengandalkan jarak spasi.
-    """
-    try:
-        import pypdf  # noqa: PLC0415
-    except ImportError as exc:  # pragma: no cover - tergantung lingkungan
-        raise TangcerError(
-            "Pustaka pembaca PDF (pypdf) belum terpasang. Pasang dengan "
-            "«pip install pypdf» (atau lewat tombol pasang pustaka di halaman ini)."
-        ) from exc
 
-    try:
-        pembaca = pypdf.PdfReader(io.BytesIO(isi))
-    except Exception as exc:  # noqa: BLE001
-        raise TangcerError(f"Berkas PDF tidak bisa dibaca: {exc}") from exc
+def _halaman_pdf_pypdf(isi: bytes, catatan: list[str]) -> list[list[GarisPdf]]:
+    """Cadangan: baca PDF memakai pustaka ``pypdf`` bila memang terpasang."""
+    import pypdf  # noqa: PLC0415
 
+    pembaca = pypdf.PdfReader(io.BytesIO(isi))
     halaman: list[list[GarisPdf]] = []
     jumlah_potongan = 0
     for nomor_halaman, halaman_pdf_satu in enumerate(pembaca.pages, start=1):
@@ -547,37 +550,112 @@ def halaman_pdf(isi: bytes, *, catatan: list[str] | None = None) -> list[list[Ga
             try:
                 try:
                     teks_halaman = halaman_pdf_satu.extract_text(extraction_mode="layout")
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, NotImplementedError):
                     teks_halaman = halaman_pdf_satu.extract_text()
             except Exception as exc:  # noqa: BLE001
-                raise TangcerError(f"Teks PDF halaman {nomor_halaman} tidak bisa dibaca: {exc}") from exc
+                raise TangcerError(
+                    f"Teks PDF halaman {nomor_halaman} tidak bisa dibaca: {exc}") from exc
             for nomor_baris, baris in enumerate((teks_halaman or "").splitlines(), start=1):
                 if baris.strip():
                     potongan.append((0.0, -float(nomor_baris), baris.strip()))
         jumlah_potongan += len(potongan)
         halaman.append(_kelompok_baris(potongan, nomor_halaman))
-
-    if catatan is not None:
-        if not jumlah_potongan:
-            catatan.append("PDF tidak memuat teks — kemungkinan hasil pindai (scan); "
-                           "berkas seperti itu perlu di-OCR lebih dulu.")
-        else:
-            catatan.append(f"PDF {len(pembaca.pages)} halaman · {jumlah_potongan} potongan teks terbaca")
+    catatan.append(f"pembaca pypdf: {len(pembaca.pages)} halaman · "
+                   f"{jumlah_potongan} potongan teks")
     return halaman
 
 
-def _kelompok_baris(potongan: Sequence[tuple[float, float, str]], nomor_halaman: int) -> list[GarisPdf]:
-    """Kelompokkan potongan teks menjadi baris berdasarkan posisi Y (toleransi 3 pt)."""
-    terurut = sorted(potongan, key=lambda item: (-item[1], item[0]))
-    garis: list[GarisPdf] = []
-    for x, y, teks in terurut:
-        if garis and abs(garis[-1].y - y) <= 3.0:
-            garis[-1].potongan.append((x, teks))
+def halaman_pdf(isi: bytes, *, catatan: list[str] | None = None,
+                mesin: str = "otomatis") -> list[list[GarisPdf]]:
+    """Teks PDF per halaman, dikelompokkan menjadi baris **beserta posisi X tiap potongan**.
+
+    Posisi X dipakai supaya kolom yang berdekatan (mis. nomor urut yang mepet kolom NISN)
+    tidak salah dipotong — hal yang sering terjadi bila hanya mengandalkan jarak spasi.
+
+    Berkas PDF dibaca dengan **pembaca bawaan SM** (``app.pdf_baca``) lebih dulu, sehingga
+    menu TANGCER tetap bisa membaca SK definitif walau pustaka tambahan (``pypdf``) belum
+    terpasang di komputer sekolah. Pustaka ``pypdf`` — bila kebetulan ada — hanya dipakai
+    sebagai **cadangan** ketika pembaca bawaan tidak menemukan teks, dan pilihan mesinnya
+    selalu disebutkan di ``catatan`` (tidak menebak, tidak menyembunyikan).
+    """
+    kumpul: list[str] = []
+    halaman_bawaan: list[list[GarisPdf]] = []
+    pesan_bawaan = ""
+
+    if mesin in ("otomatis", MESIN_PDF_BAWAAN):
+        try:
+            hasil_bawaan = pdf_baca.baca_pdf(isi)
+        except pdf_baca.PdfBacaError as galat:
+            pesan_bawaan = str(galat)
+            kumpul.append(f"pembaca PDF bawaan SM: {galat}")
         else:
-            garis.append(GarisPdf(nomor=0, y=y, potongan=[(x, teks)]))
+            for nomor, potongan in enumerate(hasil_bawaan.halaman, start=1):
+                halaman_bawaan.append(_kelompok_baris(potongan, nomor))
+            if hasil_bawaan.ada_teks:
+                kumpul.extend(hasil_bawaan.catatan)
+                kumpul.append("pembaca: bawaan SM (tanpa pustaka tambahan) — PDF tetap "
+                              "terbaca walau «pypdf» belum terpasang")
+                if catatan is not None:
+                    catatan.extend(kumpul)
+                return halaman_bawaan
+            pesan_bawaan = hasil_bawaan.catatan[-1] if hasil_bawaan.catatan else pesan_bawaan
+            kumpul.extend(hasil_bawaan.catatan)
+
+    if mesin in ("otomatis", MESIN_PDF_PYPF):
+        if pdf_baca.ada_pembaca_pypdf():
+            try:
+                halaman_pypf = _halaman_pdf_pypdf(isi, kumpul)
+            except Exception as galat:  # noqa: BLE001 - cadangan, jangan menggagalkan semuanya
+                kumpul.append(f"pembaca pypdf gagal: {galat}")
+            else:
+                ada_teks = any(garis.potongan for satu_halaman in halaman_pypf
+                               for garis in satu_halaman)
+                if ada_teks:
+                    kumpul.append("pembaca: pypdf (cadangan) — pembaca bawaan tidak "
+                                  "menemukan teks pada berkas ini")
+                    if catatan is not None:
+                        catatan.extend(kumpul)
+                    return halaman_pypf
+        elif mesin == MESIN_PDF_PYPF:
+            raise TangcerError(
+                "Pustaka pembaca PDF (pypdf) belum terpasang. Pembaca bawaan SM tidak "
+                "diminta (mesin='pypdf') — gunakan mesin bawaan yang tidak butuh pustaka.")
+
+    if mesin == MESIN_PDF_BAWAAN and halaman_bawaan:
+        if catatan is not None:
+            catatan.extend(kumpul)
+        return halaman_bawaan
+
+    if catatan is not None:
+        catatan.extend(kumpul)
+    raise TangcerError(
+        "Teks PDF ini tidak bisa dibaca: "
+        + (pesan_bawaan or "tidak ada teks yang bisa diambil dari halamannya")
+        + " Bila berkasnya hasil pindai (scan/gambar), isinya perlu di-OCR lebih dulu. "
+          "Berkasnya juga bisa diperiksa lewat «Bedah berkas» di halaman TANGCER supaya "
+          "apa yang terbaca (atau tidak terbaca) bisa dilihat apa adanya.")
+
+
+def _kelompok_baris(potongan: Sequence[Sequence[Any]], nomor_halaman: int) -> list[GarisPdf]:
+    """Kelompokkan potongan teks menjadi baris berdasarkan posisi Y (toleransi 3 pt).
+
+    Potongan yang bersambung erat (satu sel dipecah beberapa show-string oleh Word/
+    OpenOffice/PdfLaTeX) digabung kembali lewat :func:`pdf_baca.rapatkan_potongan`
+    supaya satu sel tidak terhitung sebagai beberapa kolom.
+    """
+    terurut = sorted(potongan, key=lambda item: (-float(item[1]), float(item[0])))
+    garis: list[GarisPdf] = []
+    for butir in terurut:
+        y = float(butir[1])
+        if garis and abs(garis[-1].y - y) <= 3.0:
+            garis[-1].potongan_asli.append(butir)
+        else:
+            satu = GarisPdf(nomor=0, y=y, potongan=[])
+            satu.potongan_asli.append(butir)
+            garis.append(satu)
     for nomor, satu in enumerate(garis, start=1):
         satu.nomor = nomor
-        satu.potongan.sort(key=lambda item: item[0])
+        satu.potongan = pdf_baca.rapatkan_potongan(satu.potongan_asli)
     return garis
 
 
@@ -1250,3 +1328,155 @@ def format_rupiah(nilai: Any) -> str:
     return f"Rp {teks}"
 
 
+
+
+# =========================================================================== #
+# Bedah berkas — «apa isi berkas ini sebenarnya?»
+# =========================================================================== #
+#: Folder penyimpanan teks hasil bedah (bisa diunduh supaya ikut dilaporkan).
+FOLDER_BEDAH = "bedah"
+#: Batas panjang teks yang disimpan supaya berkasnya tetap ringan dikirim.
+BATAS_TEKS_BEDAH = 300_000
+#: Berapa baris yang ditampilkan di halaman (sisanya tetap ada di berkas teks).
+BARIS_TAMPIL_BEDAH = 60
+
+
+def _nama_aman(nama: str) -> str:
+    bersih = re.sub(r"[^A-Za-z0-9._-]+", "-", (nama or "berkas").strip()).strip("-._")
+    return (bersih or "berkas")[:60]
+
+
+def _baris_dari_potongan(potongan: Sequence[Sequence[Any]]) -> list[str]:
+    """Susun potongan teks satu halaman menjadi baris siap dibaca manusia."""
+    terurut = sorted(potongan, key=lambda item: (-float(item[1]), float(item[0])))
+    baris: list[list[Any]] = []
+    for butir in terurut:
+        y = float(butir[1])
+        if baris and abs(baris[-1][0] - y) <= 3.0:
+            baris[-1][1].append(butir)
+        else:
+            baris.append([y, [butir]])
+    keluaran: list[str] = []
+    for _, isi in baris:
+        teks = pdf_baca._teks_satu_baris(isi)
+        if teks.strip():
+            keluaran.append(teks)
+    return keluaran
+
+
+def simpan_teks_bedah(nama: str, teks: str) -> str:
+    """Simpan hasil bedah sebagai berkas teks yang bisa diunduh & dikirim.
+
+    Hanya 12 berkas terbaru yang disimpan — ini alat laporan sementara, bukan arsip.
+    """
+    folder = config.DATA_DIR / FOLDER_BEDAH
+    folder.mkdir(parents=True, exist_ok=True)
+    cap = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    token = f"{cap}-{_nama_aman(Path(nama).stem)}.txt"
+    (folder / token).write_text(teks, encoding="utf-8")
+    lama = sorted(folder.glob("*.txt"))[:-12]
+    for berkas in lama:
+        berkas.unlink(missing_ok=True)
+    return token
+
+
+def berkas_bedah(token: str) -> Path | None:
+    """Cari berkas teks hasil bedah berdasarkan tokennya (dijaga dari keluar folder)."""
+    if not token or token.startswith(".") or "/" in token or "\\" in token:
+        return None
+    jalur = config.DATA_DIR / FOLDER_BEDAH / token
+    return jalur if jalur.is_file() else None
+
+
+def bedah_berkas(nama: str, isi: bytes) -> dict[str, Any]:
+    """Periksa isi berkas apa adanya (PDF maupun spreadsheet) untuk dilaporkan.
+
+    Hasilnya sengaja **tidak** menyimpulkan apa pun tentang sekolah: yang dilaporkan
+    hanya apa yang benar-benar terbaca (mesin pembaca, jumlah halaman/baris, kolom yang
+    dikenali) beserta catatan bila ada yang tidak terbaca. Teks lengkapnya disimpan
+    supaya bisa diunduh dan dikirim untuk pemeriksaan lanjutan.
+    """
+    ext = Path(nama).suffix.lower()
+    hasil: dict[str, Any] = {
+        "nama": nama, "ext": ext or "(tanpa ekstensi)", "ukuran": len(isi), "jenis": "",
+        "pembaca": [], "catatan": [], "bagian": [], "jumlah_baris": 0,
+        "baris_tampil": BARIS_TAMPIL_BEDAH, "teks": "", "token": "", "saran": "",
+    }
+    teks_berkas: list[str] = [f"Berkas : {nama}", f"Jenis  : {ext or '(tanpa ekstensi)'}",
+                              f"Ukuran : {len(isi)} bita",
+                              f"Waktu  : {dt.datetime.now():%Y-%m-%d %H:%M:%S}", ""]
+
+    if ext in FORMAT_PDF:
+        hasil["jenis"] = "PDF (SK definitif)"
+        try:
+            bawaan = pdf_baca.baca_pdf(isi)
+        except pdf_baca.PdfBacaError as galat:
+            hasil["catatan"].append(f"pembaca bawaan SM: {galat}")
+            teks_berkas.append(f"[pembaca bawaan SM] {galat}")
+        else:
+            hasil["pembaca"].append(
+                f"pembaca bawaan SM (tanpa pustaka tambahan): {bawaan.jumlah_halaman} halaman · "
+                f"{bawaan.jumlah_potongan} potongan teks")
+            hasil["catatan"].extend(bawaan.catatan)
+            for nomor, halaman in enumerate(bawaan.halaman, start=1):
+                baris = _baris_dari_potongan(halaman)
+                hasil["jumlah_baris"] += len(baris)
+                hasil["bagian"].append({"judul": f"Halaman {nomor}", "jumlah": len(baris),
+                                        "baris": baris})
+                teks_berkas.append(f"=== Halaman {nomor} ({len(baris)} baris) ===")
+                teks_berkas.extend(baris or ["(tidak ada teks pada halaman ini)"])
+                teks_berkas.append("")
+        if pdf_baca.ada_pembaca_pypdf():
+            try:
+                halaman_pypf = halaman_pdf(isi, mesin=MESIN_PDF_PYPF)
+            except TangcerError as galat:
+                hasil["pembaca"].append(f"pustaka pypdf: {galat}")
+            else:
+                jumlah = sum(len(garis.potongan) for halaman in halaman_pypf for garis in halaman)
+                hasil["pembaca"].append(
+                    f"pustaka pypdf (pembanding): {len(halaman_pypf)} halaman · "
+                    f"{jumlah} potongan teks")
+        else:
+            hasil["pembaca"].append("pustaka pypdf: tidak terpasang — tidak masalah, "
+                                    "pembaca bawaan SM sudah dipakai")
+        if not hasil["jumlah_baris"]:
+            hasil["saran"] = ("Berkas ini tidak memuat teks yang bisa dibaca — kemungkinan "
+                              "hasil pindai (scan/gambar). Berkas seperti itu perlu di-OCR "
+                              "lebih dulu; potret (screenshot) halamannya juga bisa dipakai.")
+        else:
+            hasil["saran"] = ("Teks di bawah persis seperti yang terbaca aplikasi. Unduh "
+                              "berkas teksnya lalu kirimkan bila ada baris yang seharusnya "
+                              "masuk tetapi belum terbaca.")
+    else:
+        from .readers import UnsupportedFormatError, read_spreadsheet  # noqa: PLC0415
+        import tempfile  # noqa: PLC0415
+
+        hasil["jenis"] = "berkas tabel (Excel/CSV)"
+        if not ext:
+            raise TangcerError("Berkas ini tanpa ekstensi — beri nama dengan .xlsx/.csv/.pdf "
+                               "supaya isinya bisa dibaca.")
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as berkas:
+            berkas.write(isi)
+            sementara = Path(berkas.name)
+        try:
+            sheets = read_spreadsheet(sementara, ext)
+        finally:
+            sementara.unlink(missing_ok=True)
+        for sheet in sheets:
+            baris_sheet = ["  |  ".join(bersih_teks(sel) for sel in baris)
+                           for baris in sheet.rows if any(bersih_teks(sel) for sel in baris)]
+            hasil["jumlah_baris"] += len(baris_sheet)
+            hasil["bagian"].append({"judul": f"worksheet «{sheet.name}»",
+                                    "jumlah": len(baris_sheet), "baris": baris_sheet})
+            teks_berkas.append(f"=== worksheet «{sheet.name}» ({len(baris_sheet)} baris) ===")
+            teks_berkas.extend(baris_sheet or ["(kosong)"])
+            teks_berkas.append("")
+        hasil["pembaca"].append(f"pembaca spreadsheet bawaan aplikasi: {len(sheets)} worksheet · "
+                                f"{hasil['jumlah_baris']} baris")
+        hasil["saran"] = ("Berkas tabel bisa langsung diunggah lewat «Baca & Pratinjau»; "
+                          "halaman ini hanya memperlihatkan isinya apa adanya.")
+
+    teks_penuh = "\n".join(teks_berkas)
+    hasil["teks"] = teks_penuh[:BATAS_TEKS_BEDAH]
+    hasil["token"] = simpan_teks_bedah(nama, teks_penuh[:BATAS_TEKS_BEDAH])
+    return hasil

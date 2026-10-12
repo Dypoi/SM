@@ -5561,7 +5561,8 @@ def cek_kode_wilayah_ditulis_langsung():
             "merah pada bot ronde 53)")
 
 
-@cek("49. Menu TANGCER — berkas mentah (Excel/CSV/PDF) disaring per sekolah & dikelola")
+@cek("49. Menu TANGCER — berkas mentah (Excel/CSV/PDF) disaring per sekolah & dikelola · "
+      "PDF terbaca tanpa pustaka tambahan")
 def cek_tangcer():
     """Ronde 58 — permintaan sekolah: menu **TANGCER** untuk siswa penerima bantuan.
 
@@ -5582,7 +5583,7 @@ def cek_tangcer():
     """
     import tempfile
 
-    from app import auth, config, db, migrations, tangcer
+    from app import auth, config, db, migrations, pdf_baca, tangcer
     from app import web
 
     migrations.run_migrations(verbose=False)
@@ -5744,15 +5745,86 @@ def cek_tangcer():
         "menu TANGCER tidak menerima berkas .pdf"
     isi_req = (BASE_DIR / "requirements.txt").read_text(encoding="utf-8")
     assert "pypdf" in isi_req, \
-        "pustaka pembaca PDF (pypdf) tidak ada di requirements.txt — pemasangan baru " \
-        "tidak akan bisa membaca SK definitif"
+        "pustaka pypdf tidak ada di requirements.txt — pembaca PDF cadangan tidak akan " \
+        "tersedia pada pemasangan baru (pembaca bawaan SM tetap bekerja tanpanya)"
+    # --- pembaca PDF bawaan (tanpa pustaka tambahan) — ronde 59 ------------ #
+    assert (BASE_DIR / "app" / "pdf_baca.py").is_file(), \
+        "pembaca PDF bawaan SM (app/pdf_baca.py) tidak ada — komputer sekolah tanpa " \
+        "pustaka pypdf tidak akan bisa membaca SK definitif"
+    isi_pembaca = (BASE_DIR / "app" / "pdf_baca.py").read_text(encoding="utf-8")
+    assert "import pypdf" not in isi_pembaca and "from pypdf" not in isi_pembaca, \
+        "pembaca PDF bawaan mengimpor pypdf — bukan lagi berdiri sendiri"
+    with tempfile.TemporaryDirectory(prefix="cek-tangcer-pdf-") as tmp:
+        from app.pdf import buat_pdf_tabel
+
+        pdf_uji = pathlib.Path(tmp) / "sk.pdf"
+        pdf_uji.write_bytes(buat_pdf_tabel(
+            "SK DEFINITIF", [("No", 26), ("NISN", 70), ("Nama", 150), ("Sekolah", 170),
+                             ("Rombel", 40)],
+            [["1", "0091234501", "Achmad Fauzi Ramadhan", kita, "7A"],
+             ["2", "0091234505", "Eko Prasetyo", "SMP NEGERI 1 TANGERANG", "7A"]],
+            subjudul=[kita]))
+        asli_ada_pypdf = pdf_baca.ada_pembaca_pypdf
+        pdf_baca.ada_pembaca_pypdf = lambda: False      # seolah pypdf tidak terpasang
+        try:
+            hasil_pdf_bawaan = tangcer.baca_isi("sk.pdf", pdf_uji.read_bytes())
+        finally:
+            pdf_baca.ada_pembaca_pypdf = asli_ada_pypdf
+        assert hasil_pdf_bawaan.jumlah_baris >= 2, \
+            "PDF tidak terbaca saat pustaka pypdf tidak tersedia (pembaca bawaan gagal)"
+        saring_pdf_bawaan = tangcer.saring_sekolah(hasil_pdf_bawaan, kita, npsn, daerah)
+        assert saring_pdf_bawaan.jumlah_diterima >= 1, \
+            "baris sekolah kita tidak lolos dari PDF yang dibaca pembaca bawaan"
+        assert any("bawaan" in catatan.lower() for catatan in hasil_pdf_bawaan.catatan), \
+            "mesin pembaca PDF tidak disebutkan pada catatan (pengguna tidak tahu siapa " \
+            "yang membaca berkasnya)"
+
+        # PDF tanpa teks (hasil pindai) → dilaporkan jujur, dan TIDAK menyuruh pip install.
+        from app.pdf import _rakit_pdf
+
+        pindai_uji = pathlib.Path(tmp) / "pindai.pdf"
+        pindai_uji.write_bytes(_rakit_pdf([b"q Q\n"]))
+        try:
+            tangcer.baca_isi("pindai.pdf", pindai_uji.read_bytes())
+            pesan_pindai = ""
+        except tangcer.TangcerError as galat:
+            pesan_pindai = str(galat)
+        assert "pindai" in pesan_pindai.lower() or "OCR" in pesan_pindai, \
+            "PDF hasil pindai tidak dilaporkan sebagai perlu OCR"
+        assert "pip install" not in pesan_pindai, \
+            "pesan galat masih menyuruh pengguna memasang pustaka secara manual"
+
+    # --- «bedah berkas»: isi berkas bisa dilihat & dikirim apa adanya ------- #
+    with tempfile.TemporaryDirectory(prefix="cek-tangcer-bedah-") as tmp_bedah:
+        from app.pdf import buat_pdf_tabel
+
+        pdf_bedah = pathlib.Path(tmp_bedah) / "contoh.pdf"
+        pdf_bedah.write_bytes(buat_pdf_tabel(
+            "SK DEFINITIF", [("No", 26), ("NISN", 70), ("Nama", 150), ("Sekolah", 170)],
+            [["1", "0091234501", "Achmad Fauzi Ramadhan", kita]], subjudul=[kita]))
+        hasil_bedah = tangcer.bedah_berkas("contoh.pdf", pdf_bedah.read_bytes())
+    assert hasil_bedah["jumlah_baris"] >= 1 and hasil_bedah["teks"], \
+        "bedah berkas tidak menampilkan isi berkas"
+    assert any("bawaan" in satu.lower() for satu in hasil_bedah["pembaca"]), \
+        "bedah berkas tidak menyebut pembaca yang dipakai"
+    jalur_bedah = tangcer.berkas_bedah(hasil_bedah["token"])
+    assert jalur_bedah is not None and jalur_bedah.read_text(encoding="utf-8"), \
+        "teks hasil bedah tidak bisa diunduh ulang"
+    assert tangcer.berkas_bedah("../../app/main.py") is None, \
+        "token bedah bisa keluar dari foldernya (bahaya)"
+    for nama_rute in ("halaman_bedah", "bedah_tangcer", "unduh_bedah"):
+        assert hasattr(tangcer_routes, nama_rute), f"rute «{nama_rute}» tidak ada di router"
+
     isi_halaman = (BASE_DIR / "app" / "templates" / "tangcer" / "index.html").read_text(
         encoding="utf-8")
     assert "sekolahnya cocok" in isi_halaman and "khusus_sekolah" in isi_halaman, \
         "halaman TANGCER tidak menjelaskan penyaringan sekolah / tidak punya pilihan " \
         "«berkas sudah khusus sekolah kita»"
 
-    return ("menu TANGCER (unggah → pratinjau → simpan) mengolah Excel/CSV & PDF SK definitif, "
+    return ("menu TANGCER (unggah → pratinjau → simpan) mengolah Excel/CSV & PDF SK definitif "
+            "dengan pembaca PDF bawaan SM (tetap terbaca walau «pypdf» tidak terpasang; "
+            "pypdf hanya cadangan) · «Bedah berkas» memperlihatkan isi apa adanya & bisa "
+            "diunduh untuk dilaporkan, "
             "hanya baris sekolah kita yang masuk (SMP 1/Swasta/Kabupaten/jenjang lain ditolak "
             "beserta alasannya) · PDF pindai dilaporkan jujur · berkas yang sama tidak "
             "menggandakan (sidik baris) · daftar penerima tersimpan & bisa diekspor · "

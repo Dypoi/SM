@@ -1357,3 +1357,19 @@ progress.progress-bot::-moz-progress-bar { background: var(--primary); border-ra
   .kepala-bot { flex-direction: column; }
   .aksi-bot { width: 100%; }
 }
+
+/* ===== Ronde 59: bedah berkas TANGCER (teks apa adanya) ================== */
+/* Isi berkas yang sedang diperiksa: huruf tetap, bisa digulir sendiri,
+   panjang baris tidak dipotong supaya kolomnya tetap kelihatan apa adanya. */
+.teks-berkas {
+  margin: .5rem 0 0;
+  padding: .6rem .7rem;
+  max-height: 26rem;
+  overflow: auto;
+  background: #f7f9fc;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  font-size: .78rem;
+  line-height: 1.45;
+  white-space: pre;
+}

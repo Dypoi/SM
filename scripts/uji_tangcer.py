@@ -37,7 +37,9 @@ sys.path.insert(0, str(AKAR))
 
 os.environ.setdefault("SM_DB", str(AKAR / "data" / "sm.sqlite3"))
 
-from app import db, tangcer  # noqa: E402
+from app import db, pdf_baca, tangcer  # noqa: E402
+from app import config as config_app  # noqa: E402
+from app import pdf as pdf_buat  # noqa: E402
 
 SEKOLAH_KITA = "SMP NEGERI 2 TANGERANG"
 NPSN_KITA = "20631000"
@@ -538,6 +540,338 @@ def uji_sel_sekolah_bergabung() -> None:
         f"diterima {saring.jumlah_diterima}, ditolak {len(saring.ditolak)}")
 
 
+
+def buat_pdf_padat(tujuan: Path, baris: list[str] | None = None) -> Path:
+    """PDF seperti hasil Excel/Word: aliran **terkompresi** + huruf Identity-H + ToUnicode.
+
+    Bentuk inilah yang paling sering dipakai berkas dinas — dan paling sering membuat
+    pembaca PDF sederhana gagal — jadi ikut diuji (tanpa bantuan pustaka apa pun).
+    """
+    import zlib
+
+    baris = baris or ["SMP NEGERI 2 TANGERANG",
+                      "1  0091234501  Achmad Fauzi Ramadhan  7A",
+                      "2  0091234502  Bella Safitri  7B"]
+    peta: dict[int, str] = {}
+    berikut = 0x0041
+    for teks in baris:
+        for huruf in teks:
+            if huruf not in peta.values():
+                peta[berikut] = huruf
+                berikut += 1
+    balik = {huruf: kode for kode, huruf in peta.items()}
+    isi_konten = []
+    for urutan, teks in enumerate(baris):
+        kode = "".join(f"{balik[huruf]:04X}" for huruf in teks)
+        isi_konten.append(f"BT /F1 11 Tf 1 0 0 1 40 {780 - urutan * 18} Tm <{kode}> Tj ET")
+    konten = zlib.compress(("\n".join(isi_konten) + "\n").encode("latin-1"))
+    cmap = ("begincmap\n1 beginbfchar\n"
+            + "\n".join(f"<{kode:04X}> <{ord(huruf):04X}>" for kode, huruf in peta.items())
+            + "\nendbfchar\nendcmap")
+    cmap_padat = zlib.compress(cmap.encode("latin-1"))
+
+    objek = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        3: (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+            b"/Resources << /Font << /F1 4 0 R >> >> /Contents 6 0 R >>"),
+        4: (b"<< /Type /Font /Subtype /Type0 /BaseFont /ABCDEF+BerkasDinas "
+            b"/Encoding /Identity-H /DescendantFonts [5 0 R] /ToUnicode 7 0 R >>"),
+        5: (b"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /ABCDEF+BerkasDinas "
+            b"/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> >>"),
+        6: b"<< /Length %d /Filter /FlateDecode >>\nstream\n" % len(konten) + konten + b"\nendstream",
+        7: b"<< /Length %d /Filter /FlateDecode >>\nstream\n" % len(cmap_padat) + cmap_padat
+           + b"\nendstream",
+    }
+    keluaran = bytearray(b"%PDF-1.5\n")
+    posisi: dict[int, int] = {}
+    for nomor in sorted(objek):
+        posisi[nomor] = len(keluaran)
+        keluaran += f"{nomor} 0 obj\n".encode() + objek[nomor] + b"\nendobj\n"
+    mulai = len(keluaran)
+    keluaran += f"xref\n0 {len(objek) + 1}\n0000000000 65535 f \n".encode()
+    for nomor in sorted(objek):
+        keluaran += f"{posisi[nomor]:010d} 00000 n \n".encode()
+    keluaran += (f"trailer\n<< /Size {len(objek) + 1} /Root 1 0 R >>\n"
+                 f"startxref\n{mulai}\n%%EOF\n").encode()
+    tujuan.write_bytes(bytes(keluaran))
+    return tujuan
+
+
+def buat_pdf_objstm(tujuan: Path) -> Path:
+    """PDF 1.5 yang objeknya disimpan di dalam **object stream** (bentuk Word/Excel baru).
+
+    Berkas seperti ini tidak punya satu pun baris ``N 0 obj`` untuk halaman/fontnya, jadi
+    pembaca yang hanya memindai objek akan tampak "tidak menemukan apa-apa" — karena itu
+    jalur ini ikut diuji.
+    """
+    import zlib
+
+    konten = (b"BT /F1 11 Tf 1 0 0 1 60 780 Tm (SMP NEGERI 2 TANGERANG) Tj ET\n"
+              b"BT /F1 11 Tf 1 0 0 1 60 760 Tm (1  0091234501  Achmad Fauzi Ramadhan  7A) Tj ET\n")
+    di_dalam = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Count 1 /Kids [4 0 R] >>",
+        4: (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+            b"/Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>"),
+    }
+    kepala = b""
+    badan = b""
+    for nomor in sorted(di_dalam):
+        kepala += f"{nomor} {len(badan)} ".encode()
+        badan += di_dalam[nomor] + b" "
+    kumpulan = zlib.compress(kepala + badan)
+    konten_padat = zlib.compress(konten)
+    objek = {
+        3: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+        6: (b"<< /Type /ObjStm /N %d /First %d /Filter /FlateDecode /Length %d >>\nstream\n"
+            % (len(di_dalam), len(kepala), len(kumpulan))) + kumpulan + b"\nendstream",
+        7: (b"<< /Length %d /Filter /FlateDecode >>\nstream\n" % len(konten_padat)
+            + konten_padat + b"\nendstream"),
+    }
+    keluaran = bytearray(b"%PDF-1.5\n")
+    posisi: dict[int, int] = {}
+    for nomor in sorted(objek):
+        posisi[nomor] = len(keluaran)
+        keluaran += f"{nomor} 0 obj\n".encode() + objek[nomor] + b"\nendobj\n"
+    mulai = len(keluaran)
+    keluaran += b"xref\n0 8\n0000000000 65535 f \n"
+    for nomor in range(1, 8):
+        if nomor in posisi:
+            keluaran += f"{posisi[nomor]:010d} 00000 n \n".encode()
+        else:
+            keluaran += b"0000000000 65535 f \n"
+    keluaran += b"trailer\n<< /Size 8 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % mulai
+    tujuan.write_bytes(bytes(keluaran))
+    return tujuan
+
+
+def buat_pdf_gaya_dinas(tujuan: Path) -> Path:
+    """PDF **bergaya berkas dinas nyata** (Word/OpenOffice/laporan PDF).
+
+    Tiga hal yang membuat pembaca PDF sederhana gagal ada sekaligus di sini:
+    huruf Type1 subset dengan ``/Differences`` (hanya sebagian kode dipetakan) + ``ToUnicode``
+    seadanya, satu sel dipecah menjadi beberapa show-string, dan sebagian teks berada di
+    dalam **Form XObject**. Berkas inilah yang diuji supaya isi SK dari sekolah benar-benar
+    terbaca — bukan hanya PDF buatan aplikasi sendiri.
+    """
+    import zlib
+
+    def show(x: int, y: int, teks: str) -> str:
+        return "BT /F1 10 Tf 1 0 0 1 %d %d Tm (%s) Tj ET" % (x, y, teks)
+
+    isi_form = []
+    for y, sel in (
+        (700, [("NO", 40), ("NISN", 100), ("NAMA", 180), ("SEKOLAH", 320)]),
+        (680, [("1", 40), ("0091", 100), ("2345", 120), ("01", 140),
+               ("Ach", 180), ("mad", 195), (" Fauzi", 210), (" Ramadhan", 240),
+               ("SMP NE", 320), ("GERI 2", 350), (" TANGERANG", 380)]),
+        (660, [("2", 40), ("0091", 100), ("2345", 120), ("02", 140),
+               ("Bella", 180), (" Safitri", 210),
+               ("SMP NE", 320), ("GERI 2", 350), (" TANGERANG", 380)]),
+    ):
+        for teks, x in sel:
+            isi_form.append(show(x, y, teks))
+    form_padat = zlib.compress(("\n".join(isi_form) + "\n").encode("latin-1"))
+
+    konten = ("BT /F1 12 Tf 1 0 0 1 40 800 Tm <010203> Tj ET\n"      # "SMP" lewat /Differences
+              "BT /F1 12 Tf 1 0 0 1 40 784 Tm <4E4547455249> Tj ET\n"  # "NEGERI" (ToUnicode + biasa)
+              "BT /F1 12 Tf 1 0 0 1 40 768 Tm (2 TANGERANG) Tj ET\n"   # teks ASCII biasa
+              "q 1 0 0 1 0 0 cm /Fm1 Do Q\n")                          # tabel di dalam XObject
+    konten_padat = zlib.compress(konten.encode("latin-1"))
+
+    cmap = ("begincmap\n1 beginbfchar\n<0004> <004E>\nendbfchar\nendcmap")
+    cmap_padat = zlib.compress(cmap.encode("latin-1"))
+    lebar = "[" + " ".join(["500"] * 255) + "]"
+
+    objek = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+        3: (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+            b"/Resources << /Font << /F1 4 0 R >> /XObject << /Fm1 8 0 R >> >> "
+            b"/Contents 6 0 R >>"),
+        4: ("<< /Type /Font /Subtype /Type1 /BaseFont /ABCDEF+DinasSerif /Encoding 5 0 R "
+            "/ToUnicode 7 0 R /FirstChar 1 /LastChar 255 /Widths " + lebar + " >>").encode(),
+        5: b"<< /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [ 1 /S /M /P ] >>",
+        6: (b"<< /Length %d /Filter /FlateDecode >>\nstream\n" % len(konten_padat)
+            + konten_padat + b"\nendstream"),
+        7: (b"<< /Length %d /Filter /FlateDecode >>\nstream\n" % len(cmap_padat)
+            + cmap_padat + b"\nendstream"),
+        8: (b"<< /Type /XObject /Subtype /Form /BBox [0 0 595 842] "
+            b"/Resources << /Font << /F1 4 0 R >> >> /Length %d /Filter /FlateDecode >>\nstream\n"
+            % len(form_padat)) + form_padat + b"\nendstream",
+    }
+    keluaran = bytearray(b"%PDF-1.4\n")
+    posisi: dict[int, int] = {}
+    for nomor in sorted(objek):
+        posisi[nomor] = len(keluaran)
+        keluaran += f"{nomor} 0 obj\n".encode() + objek[nomor] + b"\nendobj\n"
+    mulai = len(keluaran)
+    keluaran += f"xref\n0 {len(objek) + 1}\n0000000000 65535 f \n".encode()
+    for nomor in sorted(objek):
+        keluaran += f"{posisi[nomor]:010d} 00000 n \n".encode()
+    keluaran += (f"trailer\n<< /Size {len(objek) + 1} /Root 1 0 R >>\n"
+                 f"startxref\n{mulai}\n%%EOF\n").encode()
+    tujuan.write_bytes(bytes(keluaran))
+    return tujuan
+
+
+def tanpa_pypdf():
+    """Uji seolah pustaka pypdf tidak terpasang — seperti di PC sekolah."""
+    import contextlib
+
+    @contextlib.contextmanager
+    def _kelola():
+        asli = pdf_baca.ada_pembaca_pypdf
+        pdf_baca.ada_pembaca_pypdf = lambda: False
+        try:
+            yield
+        finally:
+            pdf_baca.ada_pembaca_pypdf = asli
+
+    return _kelola()
+
+
+def uji_pdf_bawaan() -> None:
+    """Ronde 59: PDF wajib terbaca **tanpa** pustaka tambahan (permintaan pengguna)."""
+    skenario("16. Pembaca PDF bawaan SM — berkas terbaca walau «pypdf» tidak terpasang")
+    with tempfile.TemporaryDirectory(prefix="tangcer-pdf-") as tmp:
+        biasa = buat_pdf_tabel(Path(tmp) / "sk-tabel.pdf")
+        padat = buat_pdf_padat(Path(tmp) / "sk-padat.pdf")
+        pindai = buat_pdf_pindai(Path(tmp) / "pindai.pdf")
+
+        halaman = tangcer.halaman_pdf(biasa.read_bytes(), mesin=tangcer.MESIN_PDF_BAWAAN)
+        cek("pembaca bawaan SM membaca PDF tabel buatan aplikasi sendiri",
+            bool(halaman) and any(garis.potongan for garis in halaman[0]),
+            f"halaman: {len(halaman)}")
+        catatan: list[str] = []
+        tangcer.halaman_pdf(biasa.read_bytes(), catatan=catatan,
+                            mesin=tangcer.MESIN_PDF_BAWAAN)
+        cek("mesin pembaca disebutkan di catatan (tidak menebak)",
+            any("bawaan" in satu.lower() for satu in catatan), str(catatan[:2]))
+
+        with tanpa_pypdf():
+            cek("pustaka pypdf memang tidak dipakai jalur utama",
+                pdf_baca.ada_pembaca_pypdf() is False)
+            hasil = tangcer.baca_isi("sk-tabel.pdf", biasa.read_bytes())
+            cek("berkas tetap terisi walau pypdf tidak ada",
+                hasil.jumlah_baris >= 2, f"baris: {hasil.jumlah_baris}")
+            saring = tangcer.saring_sekolah(hasil, SEKOLAH_KITA, NPSN_KITA, DAERAH_KITA)
+            cek("baris sekolah kita tetap lolos tanpa pypdf",
+                saring.jumlah_diterima >= 2, f"diterima: {saring.jumlah_diterima}")
+            try:
+                tangcer.baca_isi("pindai.pdf", pindai.read_bytes())
+                pesan_pindai = ""
+            except tangcer.TangcerError as galat:
+                pesan_pindai = str(galat)
+            cek("PDF hasil pindai dilaporkan jujur (bukan dikarang)",
+                "pindai" in pesan_pindai.lower() or "OCR" in pesan_pindai, pesan_pindai[:160])
+            cek("pesan tidak lagi menyuruh «pip install pypdf»",
+                "pip install" not in pesan_pindai, pesan_pindai[:160])
+
+        hasil_padat = tangcer.baca_isi("sk-padat.pdf", padat.read_bytes())
+        cek("PDF terkompresi (FlateDecode) + huruf Identity-H tetap terbaca",
+            hasil_padat.jumlah_baris == 2, f"baris: {hasil_padat.jumlah_baris}")
+        cek("nama sekolah pada judul bagian dikenali dari PDF padat",
+            hasil_padat.sekolah_tanpa_kolom and hasil_padat.sekolah_tanpa_kolom[0] == SEKOLAH_KITA,
+            str(hasil_padat.sekolah_tanpa_kolom))
+        nama = [item.nama for item in hasil_padat.baris]
+        cek("nama siswa pada PDF padat terbaca utuh",
+            "Achmad Fauzi Ramadhan" in nama and "Bella Safitri" in nama, str(nama))
+        saring_padat = tangcer.saring_sekolah(hasil_padat, SEKOLAH_KITA, NPSN_KITA, DAERAH_KITA)
+        cek("sekolah dari judul bagian dipakai untuk menyaring PDF padat",
+            saring_padat.jumlah_diterima == 2, f"diterima: {saring_padat.jumlah_diterima}")
+
+        objstm = buat_pdf_objstm(Path(tmp) / "sk-objstm.pdf")
+        hasil_objstm = tangcer.baca_isi("sk-objstm.pdf", objstm.read_bytes())
+        cek("PDF dengan object stream (PDF 1.5+ seperti Word/Excel) tetap terbaca",
+            hasil_objstm.jumlah_baris == 1
+            and hasil_objstm.baris[0].nama == "Achmad Fauzi Ramadhan",
+            f"baris: {hasil_objstm.jumlah_baris} · "
+            f"{[item.nama for item in hasil_objstm.baris]}")
+
+        try:
+            pdf_baca.baca_pdf(b"bukan pdf sama sekali")
+            galat_bukan_pdf = ""
+        except pdf_baca.PdfBacaError as galat:
+            galat_bukan_pdf = str(galat)
+        cek("berkas bukan PDF ditolak dengan alasan yang jelas",
+            "PDF" in galat_bukan_pdf, galat_bukan_pdf[:120])
+        isi_modul = Path(pdf_baca.__file__).read_text(encoding="utf-8")
+        cek("modul pembaca bawaan berdiri sendiri (tidak mengimpor pypdf)",
+            "import pypdf" not in isi_modul and "from pypdf" not in isi_modul,
+            pdf_baca.__file__)
+        cek("pembaca bawaan memakai modul standar saja (re/zlib/base64)",
+            all(f"import {modul}" in isi_modul for modul in ("re", "zlib", "base64")))
+
+
+def uji_bedah() -> None:
+    """Ronde 59: «Bedah berkas» — isi berkas bisa dilihat & dikirim apa adanya."""
+    skenario("17. Bedah berkas — isi berkas diperlihatkan apa adanya (untuk dilaporkan)")
+    with tempfile.TemporaryDirectory(prefix="tangcer-bedah-") as tmp:
+        padat = buat_pdf_padat(Path(tmp) / "sk-padat.pdf")
+        pindai = buat_pdf_pindai(Path(tmp) / "pindai.pdf")
+        csv = buat_csv(Path(tmp) / "daftar.csv")
+
+        hasil = tangcer.bedah_berkas("sk-padat.pdf", padat.read_bytes())
+        cek("bedah PDF melaporkan mesin pembacanya",
+            any("bawaan SM" in satu for satu in hasil["pembaca"]), str(hasil["pembaca"]))
+        cek("bedah PDF menampilkan baris apa adanya",
+            hasil["jumlah_baris"] >= 3 and "Achmad Fauzi Ramadhan" in hasil["teks"],
+            f"baris: {hasil['jumlah_baris']}")
+        berkas_teks = tangcer.berkas_bedah(hasil["token"])
+        cek("teks hasil bedah bisa diunduh (tersimpan sebagai berkas)",
+            berkas_teks is not None and berkas_teks.read_text(encoding="utf-8").startswith("Berkas :"),
+            hasil["token"])
+
+        hasil_pindai = tangcer.bedah_berkas("pindai.pdf", pindai.read_bytes())
+        cek("bedah PDF pindai menyebut perlunya OCR",
+            "OCR" in hasil_pindai["saran"] and hasil_pindai["jumlah_baris"] == 0,
+            hasil_pindai["saran"][:120])
+
+        hasil_csv = tangcer.bedah_berkas("daftar.csv", csv.read_bytes())
+        cek("bedah berkas tabel menampilkan worksheet & barisnya",
+            hasil_csv["bagian"] and hasil_csv["jumlah_baris"] >= 5,
+            f"bagian: {[b['judul'] for b in hasil_csv['bagian']]}")
+
+        cek("token bedah tidak bisa keluar folder (../ ditolak)",
+            tangcer.berkas_bedah("../../data/sm.sqlite3") is None)
+
+
+def uji_pdf_gaya_dinas() -> None:
+    """Ronde 59: PDF bergaya berkas dinas nyata — Differences, teks terpecah, Form XObject."""
+    skenario("18. PDF gaya berkas dinas (Differences + teks terpecah + Form XObject)")
+    with tempfile.TemporaryDirectory(prefix="tangcer-dinas-") as tmp:
+        berkas = buat_pdf_gaya_dinas(Path(tmp) / "sk-gaya-dinas.pdf")
+        isi = berkas.read_bytes()
+        langsung = pdf_baca.baca_pdf(isi)
+        baris = langsung.baris()
+        cek("kode huruf lewat /Differences tetap terbaca (ToUnicode tidak menutupinya)",
+            "SMP" in baris, str(baris[:4]))
+        cek("huruf lewat penyandi WinAnsi tetap terbaca walau /ToUnicode seadanya",
+            "NEGERI" in baris and "2 TANGERANG" in baris, str(baris[:4]))
+        cek("teks di dalam Form XObject ikut terbaca",
+            any("SMP NEGERI 2 TANGERANG" in satu for satu in baris),
+            str([satu for satu in baris if "SMP" in satu][:3]))
+        cek("potongan yang bersambung erat digabung kembali jadi satu sel",
+            any("0091234501" in satu.replace(" ", "") for satu in baris), str(baris[:6]))
+
+        hasil = tangcer.baca_isi("sk-gaya-dinas.pdf", isi)
+        nama = [item.nama for item in hasil.baris]
+        nisn = [item.nisn for item in hasil.baris]
+        sekolah = [item.sekolah for item in hasil.baris]
+        cek("baris tabel dari Form XObject terbaca sebagai penerima",
+            hasil.jumlah_baris >= 2, f"baris: {hasil.jumlah_baris} · nama: {nama}")
+        cek("NISN tidak terpotong walau dipecah beberapa show-string",
+            "0091234501" in nisn and "0091234502" in nisn, str(nisn))
+        cek("nama siswa utuh dari potongan-potongan teks",
+            "Achmad Fauzi Ramadhan" in nama and "Bella Safitri" in nama, str(nama))
+        cek("nama sekolah utuh di kolom sekolah",
+            all(satu == SEKOLAH_KITA for satu in sekolah if satu), str(sekolah))
+        saring = tangcer.saring_sekolah(hasil, SEKOLAH_KITA, NPSN_KITA, DAERAH_KITA)
+        cek("berkas gaya dinas ikut disaring seperti berkas lain",
+            saring.jumlah_diterima == 2, f"diterima: {saring.jumlah_diterima}")
+
 def uji_urutan_kolom_lain() -> None:
     """Berkas dinas datang dengan urutan & istilah kolom yang berbeda-beda."""
     skenario("14. Berkas dengan urutan & istilah kolom berbeda")
@@ -585,7 +919,8 @@ def uji_halaman() -> None:
         cek("menu TANGCER masuk grup «Data & Laporan»",
             web.NAV_GRUP.get("/tangcer") == "Data & Laporan",
             f"grup: {web.NAV_GRUP.get('/tangcer')}")
-    cek("versi aplikasi ikut naik (≥ 0.1.18)", APP_VERSION >= "0.1.18", APP_VERSION)
+    cek("versi aplikasi ikut naik (≥ 0.1.19)", config_app.APP_VERSION >= "0.1.19",
+        config_app.APP_VERSION)
 
 
 def uji_web(berkas_csv: Path, berkas_pdf: Path) -> int:
@@ -619,6 +954,31 @@ def uji_web(berkas_csv: Path, berkas_pdf: Path) -> int:
                 "atribut accept tidak memuat .pdf")
             cek("Menu samping memuat TANGCER",
                 'href="/tangcer"' in halaman.text and "TANGCER" in halaman.text)
+
+            # «Bedah berkas» — memperlihatkan isi berkas apa adanya (ronde 59).
+            bedah_kosong = await klien.get("/tangcer/bedah")
+            cek("Halaman «Bedah berkas» terbuka & punya formulir",
+                bedah_kosong.status_code == 200 and 'name="berkas"' in bedah_kosong.text,
+                f"status {bedah_kosong.status_code}")
+            bedah_pdf = await klien.post(
+                "/tangcer/bedah",
+                files={"berkas": (berkas_pdf.name, berkas_pdf.read_bytes(), "application/pdf")})
+            cek("Bedah berkas PDF menampilkan mesin pembacanya",
+                "pembaca bawaan SM" in bedah_pdf.text, "mesin pembaca tidak disebut")
+            cek("Bedah berkas menampilkan isi barisnya apa adanya",
+                "SMP NEGERI 2 TANGERANG" in bedah_pdf.text and "Baris terbaca" in bedah_pdf.text)
+            import re as _re
+
+            cocok_token = _re.search(r"bedah\.txt\?token=([^\"&]+)", bedah_pdf.text)
+            cek("Bedah berkas menyediakan unduhan teks lengkap", cocok_token is not None)
+            if cocok_token:
+                unduh = await klien.get(f"/tangcer/bedah.txt?token={cocok_token.group(1)}")
+                cek("Teks hasil bedah bisa diunduh (text/plain)",
+                    unduh.status_code == 200 and "text/plain" in unduh.headers.get("content-type", ""),
+                    f"status {unduh.status_code}")
+                cek("Isi unduhan memuat keterangan berkas & barisnya",
+                    unduh.text.startswith("Berkas :") and "SMP NEGERI 2 TANGERANG" in unduh.text,
+                    unduh.text[:80])
 
             # Berkas jenis lain ditolak dengan pesan (bukan diam-diam gagal).
             salah = await klien.post("/tangcer/unggah",
@@ -737,7 +1097,7 @@ def uji_web(berkas_csv: Path, berkas_pdf: Path) -> int:
                 "cek_tampilan", AKAR / "scripts" / "cek_tampilan.py")
             modul = importlib.util.module_from_spec(spesifikasi)
             spesifikasi.loader.exec_module(modul)
-            for jalur in ("/tangcer", f"/tangcer/impor/{berkas_impor['id']}",
+            for jalur in ("/tangcer", "/tangcer/bedah", f"/tangcer/impor/{berkas_impor['id']}",
                           f"/tangcer/penerima/{jumlah_penerima['id']}"):
                 halaman_uji = await klien.get(jalur)
                 pemeriksa = modul.PeriksaSusunan()
@@ -780,6 +1140,9 @@ def main() -> int:
     uji_urutan_kolom_lain()
     uji_sel_sekolah_bergabung()
     uji_halaman()
+    uji_pdf_bawaan()
+    uji_pdf_gaya_dinas()
+    uji_bedah()
 
     # Berkas contoh untuk uji halaman (dibuat di folder sementara).
     with tempfile.TemporaryDirectory(prefix="tangcer-web-") as tmp:
@@ -797,6 +1160,9 @@ def main() -> int:
         buat_pdf_bagian(tujuan / "sk-definitif-bagian.pdf")
         buat_csv(tujuan / "daftar-tanpa-kolom-sekolah.csv", dengan_sekolah=False)
         buat_pdf_pindai(tujuan / "sk-pindai.pdf")   # PDF tanpa teks → wajib dilaporkan
+        buat_pdf_padat(tujuan / "sk-definitif-padat.pdf")   # FlateDecode + Identity-H
+        buat_pdf_objstm(tujuan / "sk-definitif-objstm.pdf")  # object stream PDF 1.5
+        buat_pdf_gaya_dinas(tujuan / "sk-gaya-dinas.pdf")     # Differences + XObject + terpecah
         (tujuan / "daftar-sel-sekolah-bergabung.csv").write_text(
             "NO;NISN;NAMA PESERTA DIDIK;NAMA SEKOLAH;ROMBEL\r\n"
             "1;0091234501;Achmad Fauzi Ramadhan;SMP NEGERI 2 TANGERANG;7A\r\n"

@@ -43,6 +43,12 @@ def _angka(teks: str | None, bawaan: float = 0.0) -> float:
     return bawaan if nilai is None else nilai
 
 
+def _format_didukung() -> list[tuple[str, str]]:
+    """Daftar (ekstensi, keterangan) untuk ditampilkan di halaman."""
+    return [(ext, format_label(ext)) if ext != ".pdf" else (ext, "PDF (SK definitif)")
+            for ext in EKSTENSI_TANGCER]
+
+
 def _profil_sekolah() -> tuple[str, str, str]:
     profil = services.school_profile()
     return profil["nama"], profil["npsn"], profil.get("kabupaten", "")
@@ -67,8 +73,7 @@ def halaman_tangcer(
             "page_title": "TANGCER",
             "sekolah_kita": nama_sekolah,
             "npsn_kita": npsn,
-            "format_didukung": [(ext, format_label(ext)) if ext != ".pdf" else (ext, "PDF (SK definitif)")
-                                for ext in EKSTENSI_TANGCER],
+            "format_didukung": _format_didukung(),
             "maks_ukuran": config.MAX_UPLOAD_MB,
             "ringkas": ringkas,
             "riwayat": tangcer.daftar_impor(limit=20),
@@ -135,6 +140,84 @@ async def unggah_tangcer(
     services.log_audit(user.username, user.role, "tangcer_unggah", "tangcer_imports", import_id,
                  f"{nama}: {saring.jumlah_diterima} dari {hasil.jumlah_baris} baris")
     return RedirectResponse(f"/tangcer/impor/{import_id}", status_code=303)
+
+
+@router.get("/tangcer/bedah")
+def halaman_bedah(
+    request: Request,
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Halaman «Bedah berkas»: melihat isi berkas mentah apa adanya."""
+    return render(
+        request,
+        "tangcer/bedah.html",
+        {
+            "page_title": "Bedah berkas TANGCER",
+            "hasil": None,
+            "maks_ukuran": config.MAX_UPLOAD_MB,
+            "ekstensi_terima": ",".join(EKSTENSI_TANGCER),
+            "format_didukung": _format_didukung(),
+        },
+    )
+
+
+@router.post("/tangcer/bedah")
+async def bedah_tangcer(
+    request: Request,
+    berkas: UploadFile = File(...),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Periksa isi berkas mentah (Excel/CSV/PDF) tanpa menyimpan apa pun."""
+    nama = berkas.filename or "unggahan"
+    isi = await berkas.read()
+    ext = Path(nama).suffix.lower()
+    if not isi:
+        return _kembali("/tangcer/bedah", "err", "Berkas kosong atau gagal dibaca.")
+    if ext not in EKSTENSI_TANGCER:
+        return _kembali("/tangcer/bedah", "err",
+                        f"Jenis berkas «{ext or 'tanpa ekstensi'}» belum didukung. "
+                        "Yang didukung: " + ", ".join(EKSTENSI_TANGCER))
+    if len(isi) > config.MAX_UPLOAD_BYTES:
+        return _kembali("/tangcer/bedah", "err",
+                        f"Ukuran berkas melebihi {config.MAX_UPLOAD_MB} MB.")
+    try:
+        hasil = tangcer.bedah_berkas(nama, isi)
+    except UnsupportedFormatError as galat:
+        return _kembali("/tangcer/bedah", "err", str(galat))
+    except tangcer.TangcerError as galat:
+        return _kembali("/tangcer/bedah", "err", f"Gagal membedah berkas: {galat}")
+    except Exception as galat:  # noqa: BLE001
+        log.exception("Gagal membedah berkas TANGCER %s", nama)
+        return _kembali("/tangcer/bedah", "err", f"Gagal membedah berkas: {galat}")
+
+    services.log_audit(user.username, user.role, "tangcer_bedah", "berkas", None,
+                       f"{nama}: {hasil['jumlah_baris']} baris terbaca")
+    return render(
+        request,
+        "tangcer/bedah.html",
+        {
+            "page_title": "Bedah berkas TANGCER",
+            "hasil": hasil,
+            "maks_ukuran": config.MAX_UPLOAD_MB,
+            "ekstensi_terima": ",".join(EKSTENSI_TANGCER),
+            "format_didukung": _format_didukung(),
+        },
+    )
+
+
+@router.get("/tangcer/bedah.txt")
+def unduh_bedah(
+    token: str = "",
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Unduh teks hasil bedah (bisa dikirim untuk pemeriksaan lanjutan)."""
+    jalur = tangcer.berkas_bedah(token)
+    if jalur is None:
+        return _kembali("/tangcer/bedah", "err",
+                        "Berkas teks hasil bedah tidak ditemukan (mungkin sudah dibersihkan).")
+    return Response(
+        jalur.read_bytes(), media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{jalur.name}"'})
 
 
 @router.get("/tangcer/impor/{import_id}")

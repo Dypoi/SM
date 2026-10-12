@@ -191,7 +191,7 @@ baru kemudian disimpan. Tidak ada data yang langsung masuk tanpa persetujuan And
 | `.xlsb` | Excel Binary Workbook | pyxlsb |
 | `.ods` | LibreOffice / OpenOffice | odfpy |
 | `.csv`, `.txt`, `.tsv` | Teks berpemisah | `csv` bawaan Python |
-| `.pdf` | **SK definitif** yang memuat teks (khusus menu **TANGCER**) | pypdf |
+| `.pdf` | **SK definitif** yang memuat teks (khusus menu **TANGCER**) — dibaca pembaca PDF **bawaan SM**, tanpa pustaka tambahan; `pypdf` hanya dipakai sebagai cadangan/pembanding bila kebetulan terpasang | `app/pdf_baca.py` |
 
 Pemisah CSV (`,` `;` tab `|`), BOM, dan encoding (UTF-8 / Windows-1252 / Latin-1)
 dideteksi otomatis — berkas hasil ekspor Excel Indonesia yang memakai titik-koma
@@ -264,6 +264,22 @@ akta lahir, kesehatan, sampai koordinat rumah.
 ### TANGCER — siswa penerima bantuan (menu **TANGCER**)
 - Mengolah **berkas mentah dari dinas**: Excel/CSV maupun **PDF SK definitif**
   (yang memuat teks, bukan hasil pindai).
+- PDF dibaca **pembaca bawaan SM** (`app/pdf_baca.py`) yang hanya memakai modul standar
+  Python — jadi SK definitif **tetap terbaca walau komputer sekolah belum memasang
+  pustaka `pypdf`** (dulu di situ muncul pesan «pip install pypdf»). Yang ditangani:
+  aliran terkompresi (FlateDecode) termasuk object stream PDF 1.5+, huruf gabungan
+  (Identity-H) lewat peta `ToUnicode`, `Differences`, Form XObject, dan posisi X setiap
+  sel supaya kolom yang berdempetan tidak salah potong. Pustaka `pypdf`, bila ada, hanya
+  dipakai sebagai **cadangan/pembanding** — dan mesin yang dipakai selalu disebutkan di
+  catatan pembacaan berkas.
+- Pembaca PDF-nya diuji ke **71 berkas PDF nyata** (kumpulan contoh proyek `pypdf`: hasil
+  Word, OpenOffice, PdfLaTeX, reportlab, sampai hasil pindai & berkas terenkripsi), bukan
+  hanya ke PDF buatan SM sendiri; buktinya `pratinjau/ronde59/uji-pdf-nyata.txt`. PDF
+  terenkripsi dilaporkan «terkunci», PDF hasil pindai tetap disebut perlu OCR.
+- **Bedah berkas** (tombol di halaman TANGCER): memperlihatkan isi sebuah berkas mentah
+  **apa adanya** — mesin pembaca yang dipakai, jumlah halaman/baris, teks tiap bagian —
+  dan menyediakan **unduhan `.txt`** supaya isi berkas bisa dilaporkan/diperiksa walau
+  barisnya belum terbaca sebagai penerima. Tidak menyimpan apa pun ke daftar penerima.
 - Dari berkas yang memuat banyak sekolah, **hanya baris yang sekolahnya cocok dengan
   sekolah kita** yang disimpan; baris sekolah lain dihitung dan dilaporkan, tidak masuk.
   Pencocokan mengabaikan perbedaan huruf besar/kecil, titik, spasi berlebih, angka nol di
