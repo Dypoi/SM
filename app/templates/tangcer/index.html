@@ -253,7 +253,9 @@
       <h3>Daftar siswa penerima TANGCER</h3>
       <p>
         {{ penerima | length }} baris ditampilkan{% if penerima | length >= 500 %} (maksimal 500 — persempit dengan filter){% endif %}.
-        Kolom <strong>Kecocokan</strong> menunjukkan apakah penerima ini ada di data siswa aplikasi.
+        Kolom <strong>No. rekening</strong> dipakai untuk SPJ — baris yang belum punya rekening
+        ditandai supaya bisa dilengkapi lebih dulu. Kolom <strong>Kecocokan</strong> menunjukkan
+        apakah penerima ini ada di data siswa aplikasi.
       </p>
     </div>
     <form class="inline-form" method="post" action="/tangcer/cocokkan">
@@ -291,7 +293,7 @@
       <div class="field span-2">
         <label for="filter-cari">Cari</label>
         <input type="search" id="filter-cari" name="cari" value="{{ filter.cari }}"
-               placeholder="Nama, NISN, NIK, atau rombel">
+               placeholder="Nama, NISN, NIK, rekening, atau rombel">
       </div>
       <div class="field">
         <label>&nbsp;</label>
@@ -311,9 +313,9 @@
     <table class="data">
       <thead>
         <tr>
-          <th class="num">No</th><th>Nama penerima</th><th>NISN</th><th>Rombel</th>
-          <th>Jenis</th><th class="num">Nominal</th><th>Periode</th><th>Kecocokan</th>
-          <th class="text-right">Aksi</th>
+          <th class="num">No</th><th>Nama penerima</th><th>NISN</th><th>No. rekening</th>
+          <th>Rombel</th><th>Jenis</th><th class="num">Nominal</th><th>Periode</th>
+          <th>Kecocokan</th><th class="text-right">Aksi</th>
         </tr>
       </thead>
       <tbody>
@@ -325,6 +327,10 @@
             {% if item.sekolah %}<div class="muted">{{ item.sekolah | singkat(42) }}</div>{% endif %}
           </td>
           <td>{{ item.nisn or '-' }}</td>
+          <td class="mono">
+            {% if item.rekening %}{{ item.rekening }}{% else %}<span class="muted">-</span>
+            <span class="badge badge-warning">tanpa rekening</span>{% endif %}
+          </td>
           <td>{{ item.rombel or '-' }}</td>
           <td>{{ item.jenis or '-' }}</td>
           <td class="num">{{ item.nominal | rupiah }}</td>
@@ -344,7 +350,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="9">
+          <td colspan="10">
             <div class="empty">
               Belum ada siswa penerima yang tersimpan. Unggah berkas TANGCER di atas, lalu tekan
               <strong>Simpan</strong> pada halaman pratinjau.

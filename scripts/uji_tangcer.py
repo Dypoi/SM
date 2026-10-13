@@ -1105,6 +1105,62 @@ def uji_web(berkas_csv: Path, berkas_pdf: Path) -> int:
             cek("Tahap yang sama tidak dianggap berbeda («Tahap 1» = «1»)",
                 tangcer_uji_http_sama() is True, "pembanding isian terlalu kaku")
 
+            # Daftar siswa penerima menampilkan nomor rekening (permintaan sekolah, ronde 62):
+            # nomor rekening itulah yang dipakai menyusun SPJ, jadi harus terlihat di daftar.
+            cek("Daftar penerima menampilkan kolom «No. rekening»",
+                "<th>No. rekening</th>" in daftar.text, "kolom rekening tidak ada")
+            cek("Petunjuk kolom rekening dijelaskan pada halaman daftar",
+                "dipakai untuk SPJ" in daftar.text, "keterangan kolom rekening tidak ada")
+            csv_rekening = ("No,Nama,NISN,Kelas,Nama Ayah,Nama Ibu,Sekolah,Nomor Rekening\n"
+                            "1,Rani Ayu Lestari,0091234577,9A,Ayah Rani,Ibu Rani,"
+                            "SMP NEGERI 2 TANGERANG,0123456789012\n")
+            unggah_rek = await klien.post(
+                "/tangcer/unggah",
+                files={"berkas": ("daftar-penerima-rekening.csv", csv_rekening.encode(),
+                                  "text/csv")},
+                data={"tahun": "2026", "semester": "1", "tahap": "1"})
+            berkas_impor["id_rekening"] = int(unggah_rek.url.path.rsplit("/", 1)[-1] or 0)
+            simpan_rek = await klien.post(f"/tangcer/impor/{berkas_impor['id_rekening']}/simpan")
+            cek("Penerima yang punya nomor rekening tersimpan",
+                "siswa penerima disimpan" in simpan_rek.text, "penyimpanan gagal")
+            daftar_rek = await klien.get("/tangcer")
+            cek("Nomor rekening tampil apa adanya di daftar penerima",
+                "0123456789012" in daftar_rek.text, "nomor rekening tidak tampil")
+            cek("Baris yang belum punya rekening ditandai «tanpa rekening»",
+                "tanpa rekening" in daftar_rek.text, "baris tanpa rekening tidak ditandai")
+            cari_rek = await klien.get("/tangcer?cari=0123456789")
+            cek("Pencarian lewat nomor rekening menyaring daftar",
+                "Rani Ayu Lestari" in cari_rek.text
+                and "Achmad Fauzi Ramadhan" not in cari_rek.text,
+                "pencarian rekening tidak menyaring")
+            csv_rek = await klien.get("/tangcer/ekspor.csv")
+            cek("Ekspor CSV memuat kolom & isi nomor rekening",
+                "Nomor Rekening" in csv_rek.text and "0123456789012" in csv_rek.text,
+                "kolom nomor rekening tidak ada di ekspor CSV")
+            pdf_rek = await klien.get("/tangcer/ekspor.pdf")
+            teks_pdf_rek = " ".join(
+                butir[2] for halaman in pdf_baca.baca_pdf(pdf_rek.content).halaman
+                for butir in halaman)
+            cek("Ekspor PDF mencantumkan nomor rekening",
+                "Nomor Rekening" in teks_pdf_rek and "0123456789012" in teks_pdf_rek,
+                "kolom nomor rekening tidak ada di ekspor PDF")
+            import io as _io
+
+            import openpyxl as _openpyxl
+
+            buku_rek = _openpyxl.load_workbook(_io.BytesIO(
+                (await klien.get("/tangcer/ekspor.xlsx")).content))
+            lembar_rek = buku_rek.active
+            kepala_rek = [sel.value for sel in lembar_rek[5]]
+            cek("Ekspor Excel memuat kolom nomor rekening",
+                "Nomor Rekening" in kepala_rek, f"kepala: {kepala_rek}")
+            kolom_rek = kepala_rek.index("Nomor Rekening") if "Nomor Rekening" in kepala_rek else -1
+            nilai_rek = [lembar_rek.cell(row=baris_rek, column=kolom_rek + 1).value
+                         for baris_rek in range(6, lembar_rek.max_row + 1)] if kolom_rek >= 0 else []
+            cek("Ekspor Excel mengisi nomor rekening penerimanya",
+                "0123456789012" in [str(nilai) for nilai in nilai_rek],
+                f"isi kolom rekening: {nilai_rek[:4]}")
+
             # Berkas yang TIDAK memuat sekolah kita (mis. SK tahap lain — ronde 61).
             csv_lain = ("No,Nama,NISN,Kelas,Nama Ayah,Nama Ibu,Sekolah\n"
                         "1,Anak Satu,1111111111,7A,Ayah Satu,Ibu Satu,SMP NEGERI 7 TANGERANG\n"
@@ -1141,6 +1197,29 @@ def uji_web(berkas_csv: Path, berkas_pdf: Path) -> int:
             cek("Tidak satu pun baris tersimpan dari berkas itu",
                 tersimpan_lain == 0, f"ada {tersimpan_lain} baris tersimpan")
 
+            # Berkas dengan BANYAK sekolah lain: jumlahnya harus disebut apa adanya —
+            # dulu daftarnya dipotong 15 sehingga 57 sekolah tampak seolah-olah 15 (ronde 61).
+            baris_banyak = ["No,Nama,NISN,Kelas,Nama Ayah,Nama Ibu,Sekolah"]
+            for nomor in range(30):
+                baris_banyak.append(f"{nomor + 1},Anak {nomor},30300000{nomor:02d},7A,"
+                                    f"Ayah {nomor},Ibu {nomor},SMP CONTOH {nomor:02d} TANGERANG")
+            unggah_banyak = await klien.post(
+                "/tangcer/unggah",
+                files={"berkas": ("daftar-30-sekolah.csv", "\n".join(baris_banyak).encode(),
+                                  "text/csv")},
+                data={"tahun": "2026", "semester": "1", "tahap": "1"})
+            berkas_impor["id_banyak"] = int(unggah_banyak.url.path.rsplit("/", 1)[-1] or 0)
+            rapat_banyak = " ".join(unggah_banyak.text.split())
+            cek("Jumlah sekolah lain pada berkas disebut apa adanya (tidak dipotong)",
+                '<div class="stat-label">Sekolah lain di berkas</div> '
+                '<div class="stat-value">30</div>' in rapat_banyak,
+                "angka sekolah lain tidak 30")
+            cek("Sisa sekolah yang tidak dirinci tetap disebutkan",
+                "dan 5 sekolah lain di berkas ini" in unggah_banyak.text,
+                "sisa sekolah lain tidak disebutkan")
+            cek("Sekolah kita tetap disebut tidak ada di berkas itu",
+                "tidak ada di berkas ini" in unggah_banyak.text)
+
             # Hapus impor PDF beserta penerima hasil impor itu (baris dari CSV tidak ikut hilang).
             sisa_sebelum = db.query_value(
                 "SELECT COUNT(*) FROM tangcer_penerima WHERE import_id = ?", (id_pdf,), default=0)
@@ -1172,7 +1251,7 @@ def uji_web(berkas_csv: Path, berkas_pdf: Path) -> int:
     skenario("13. Halaman & alurnya lewat HTTP (unggah → pratinjau → simpan → kelola → ekspor)")
     asyncio.run(alur())
     # Bersihkan HANYA data yang dibuat uji ini (data lain di basis data tidak diusik).
-    for kunci in ("id", "id_pdf", "id_lain", "id_beda"):
+    for kunci in ("id", "id_pdf", "id_lain", "id_beda", "id_banyak", "id_rekening"):
         if berkas_impor.get(kunci):
             tangcer.hapus_impor(berkas_impor[kunci])
     print(f"   (sisa penerima setelah dibersihkan: {tangcer.ringkas_penerima()['total']})")

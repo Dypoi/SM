@@ -105,13 +105,22 @@
               <td><span class="badge badge-warning">tidak ada di berkas ini</span></td>
               {% endif %}
             </tr>
-            {% for nama, jumlah in sekolah_lain.items() %}
+            {% set batas_sekolah = 25 %}
+            {% for nama, jumlah in (sekolah_lain.items() | list)[:batas_sekolah] %}
             <tr>
               <td>{{ nama }}</td>
               <td class="num">{{ jumlah | angka_id }}</td>
               <td><span class="badge badge-muted">diabaikan</span></td>
             </tr>
             {% endfor %}
+            {% if (sekolah_lain | length) > batas_sekolah %}
+            <tr>
+              <td colspan="3" class="muted">
+                … dan {{ (sekolah_lain | length) - batas_sekolah }} sekolah lain di berkas ini
+                — semuanya diabaikan, tidak ada satu pun yang disimpan.
+              </td>
+            </tr>
+            {% endif %}
           </tbody>
         </table>
       </div>
@@ -207,6 +216,14 @@
             <div class="empty">
               Tidak ada baris milik sekolah kita pada berkas ini. Periksa nama sekolah pada
               berkas dengan nama di halaman <a href="/pengaturan">Pengaturan</a>.
+              {% if sekolah_lain %}
+              Berkas ini memuat <strong>{{ sekolah_lain | length | angka_id }} sekolah lain</strong>
+              (terbanyak: {{ (sekolah_lain.items() | list)[:3] | map(attribute=0) | join(', ') }}).
+              {% if kepala.tahap %}
+              Berkas ini disebut <strong>tahap {{ kepala.tahap }}</strong> — bila sekolah kita
+              belum ada di sini, kemungkinan penerimanya ada di berkas tahap lain.
+              {% endif %}
+              {% endif %}
             </div>
           </td>
         </tr>

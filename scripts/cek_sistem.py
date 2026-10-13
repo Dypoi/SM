@@ -5821,6 +5821,35 @@ def cek_tangcer():
         "halaman TANGCER tidak menjelaskan penyaringan sekolah / tidak punya pilihan " \
         "«berkas sudah khusus sekolah kita»"
 
+    # --- daftar penerima menampilkan nomor rekening (ronde 62) ------------- #'
+    assert "<th>No. rekening</th>" in isi_halaman, \
+        "daftar penerima TANGCER tidak menampilkan kolom nomor rekening"
+    assert "item.rekening" in isi_halaman, \
+        "kolom nomor rekening tidak diisi dari data penerima"
+    assert "tanpa rekening" in isi_halaman, \
+        "baris yang belum punya rekening tidak ditandai di daftar penerima"
+    assert 'placeholder="Nama, NISN, NIK, rekening, atau rombel"' in isi_halaman, \
+        "petunjuk kotak pencarian belum menyebut nomor rekening"
+    isi_modul = (BASE_DIR / "app" / "tangcer.py").read_text(encoding="utf-8")
+    assert "OR p.rekening LIKE ?" in isi_modul, \
+        "pencarian daftar penerima tidak ikut mencari nomor rekening"
+    # Pencarian yang tidak menemukan apa-apa harus mengembalikan daftar kosong —
+    # sekaligus membuktikan jumlah parameter SQL-nya cocok (dulu 4, sekarang 5).
+    assert tangcer.daftar_penerima(cari="zzz-tidak-ada-zzz") == [], \
+        "pencarian daftar penerima tidak mengembalikan daftar kosong"
+    # Ekspor (CSV/Excel/PDF) ikut membawa nomor rekening — berkas inilah yang dipakai
+    # menyusun SPJ di luar aplikasi.
+    kunci_ekspor = [kunci for kunci, _ in tangcer.KOLOM_EKSPOR]
+    assert "rekening" in kunci_ekspor, f"kolom ekspor tidak memuat rekening: {kunci_ekspor}"
+    nilai_contoh = tangcer.nilai_ekspor(1, {"nama": "Anak Uji", "nisn": "1", "nik": "2",
+                                            "rekening": "0123456789012", "rombel": "7A",
+                                            "nominal": 600_000, "cocok": "nisn"})
+    assert nilai_contoh["rekening"] == "0123456789012", nilai_contoh
+    assert [nilai_contoh.get(kunci, "") for kunci, _ in tangcer.KOLOM_EKSPOR][
+        kunci_ekspor.index("rekening")] == "0123456789012", "urutan kolom ekspor meleset"
+    assert "Nomor Rekening" in tangcer.ekspor_csv().decode("utf-8-sig").splitlines()[0], \
+        "kepala ekspor CSV tidak memuat kolom nomor rekening"
+
     return ("menu TANGCER (unggah → pratinjau → simpan) mengolah Excel/CSV & PDF SK definitif "
             "dengan pembaca PDF bawaan SM (tetap terbaca walau «pypdf» tidak terpasang; "
             "pypdf hanya cadangan) · «Bedah berkas» memperlihatkan isi apa adanya & bisa "
@@ -5828,6 +5857,7 @@ def cek_tangcer():
             "hanya baris sekolah kita yang masuk (SMP 1/Swasta/Kabupaten/jenjang lain ditolak "
             "beserta alasannya) · PDF pindai dilaporkan jujur · berkas yang sama tidak "
             "menggandakan (sidik baris) · daftar penerima tersimpan & bisa diekspor · "
+            "daftar penerima menampilkan nomor rekening (bisa dicari & ditandai bila kosong) · "
             "pypdf ada di requirements.txt")
 
 
@@ -6125,9 +6155,25 @@ def cek_sk_bertahap():
                                 f"{hasil_pdf.catatan[:3]}")
         assert "1, 2, 3" in catatan_pindai[0], catatan_pindai
 
+    # 12) Daftar sekolah lain TIDAK dipotong: berkas tahap 2 memuat 57 sekolah, dan halaman
+    #     pratinjau menyebut angkanya dari daftar ini — dulu dipotong 15 sehingga berkas
+    #     yang berisi 57 sekolah tampak hanya 15 (ronde 61).
+    saring_banyak = tangcer.HasilSaring()
+    saring_banyak.sekolah_lain.update({f"SMP CONTOH {nomor:02d}": nomor + 1
+                                       for nomor in range(57)})
+    ringkas_sekolah = tangcer.ringkas_sekolah_lain(saring_banyak)
+    assert len(ringkas_sekolah) == 57, f"daftar sekolah lain dipotong: {len(ringkas_sekolah)}"
+    assert next(iter(ringkas_sekolah)) == "SMP CONTOH 56", "urutan sekolah tidak dari terbanyak"
+    halaman_pratinjau = (BASE_DIR / "app" / "templates" / "tangcer"
+                         / "pratinjau.html").read_text(encoding="utf-8")
+    assert "sekolah lain di berkas ini" in halaman_pratinjau, \
+        "halaman pratinjau belum menyebut sisa sekolah lain yang tidak ditampilkan"
+    assert "tahap " in halaman_pratinjau and "berkas tahap lain" in halaman_pratinjau, \
+        "halaman pratinjau belum mengarahkan ke berkas tahap lain"
+
     from app.config import APP_VERSION
 
-    assert APP_VERSION >= "0.1.21", f"versi aplikasi belum naik: {APP_VERSION}"
+    assert APP_VERSION >= "0.1.22", f"versi aplikasi belum naik: {APP_VERSION}"
     assert (BASE_DIR / "scripts" / "uji_sk_nyata.py").is_file(), \
         "skrip bukti berkas asli sekolah tidak ada"
 

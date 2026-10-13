@@ -1503,13 +1503,28 @@ def sidik_baris(tahun: str, semester: str, tahap: str, item: BarisPenerima) -> s
     return hashlib.sha1(bahan.encode("utf-8")).hexdigest()
 
 
+#: Batas jumlah nama sekolah yang disimpan dari satu berkas mentah. Dipakai halaman
+#: pratinjau untuk menyebut «Sekolah lain di berkas». Dulu hanya 15 teratas sehingga berkas
+#: tahap 2 yang memuat 57 sekolah tampak seolah-olah hanya berisi 15 sekolah (ronde 61).
+BATAS_SEKOLAH_SIMPAN = 500
+
+
+def ringkas_sekolah_lain(saring: HasilSaring) -> dict[str, int]:
+    """Jumlah baris tiap sekolah lain pada berkas — **semuanya**, bukan 15 teratas.
+
+    Dipakai halaman pratinjau: «Sekolah lain di berkas 57», dan daftarnya bisa ditelusuri
+    sekolah demi sekolah. Urutannya dari yang barisnya terbanyak.
+    """
+    urut = sorted(saring.sekolah_lain.items(), key=lambda pasang: (-pasang[1], pasang[0]))
+    return {nama: jumlah for nama, jumlah in urut[:BATAS_SEKOLAH_SIMPAN]}
+
+
 def buat_impor(*, nama_berkas: str, path: Path | None, ext: str, ukuran: int,
                tahun: str, semester: str, tahap: str, hasil: HasilBaca,
                saring: HasilSaring, kolom: dict[int, str], actor: str,
                tanpa_kolom_sekolah: bool) -> int:
     """Catat kepala impor (pratinjau) — belum menyimpan penerimanya."""
-    ringkas_sekolah = {nama: jumlah for nama, jumlah in
-                       sorted(saring.sekolah_lain.items(), key=lambda item: -item[1])[:15]}
+    ringkas_sekolah = ringkas_sekolah_lain(saring)
     with db.transaction() as conn:
         kursor = conn.execute(
             """
@@ -1717,8 +1732,9 @@ def daftar_penerima(*, tahun: str = "", semester: str = "", cari: str = "",
     elif cocok == "belum":
         potongan.append("(p.cocok IS NULL OR p.cocok = 'tidak_ada' OR p.cocok = 'belum_dicek')")
     if cari:
-        potongan.append("(p.nama LIKE ? OR p.nisn LIKE ? OR p.nik LIKE ? OR p.rombel LIKE ?)")
-        nilai.extend([f"%{cari}%"] * 4)
+        potongan.append("(p.nama LIKE ? OR p.nisn LIKE ? OR p.nik LIKE ? OR p.rombel LIKE ?"
+                        " OR p.rekening LIKE ?)")
+        nilai.extend([f"%{cari}%"] * 5)
     where = ("WHERE " + " AND ".join(potongan)) if potongan else ""
     return db.rows_to_dicts(db.query_all(
         f"""
@@ -1794,6 +1810,8 @@ KOLOM_EKSPOR: list[tuple[str, str]] = [
     ("no", "No"),
     ("nama", "Nama Penerima"),
     ("nisn", "NISN"),
+    # Nomor rekening dipakai menyusun SPJ — ikut di daftar & ekspor (ronde 62).
+    ("rekening", "Nomor Rekening"),
     ("nik", "NIK"),
     ("rombel", "Rombel/Kelas"),
     ("jenis", "Jenis Bantuan"),
@@ -1812,25 +1830,36 @@ COCOK_LABEL = {
 }
 
 
+def nilai_ekspor(nomor: int, item: dict[str, Any]) -> dict[str, Any]:
+    """Isi tiap kolom ekspor untuk satu penerima (kuncinya sama dengan :data:`KOLOM_EKSPOR`).
+
+    Disusun per-nama kolom — bukan berurutan menurut posisi — supaya menambah kolom baru
+    (mis. nomor rekening) tidak membuat nilai kolom lain ikut bergeser.
+    """
+    return {
+        "no": nomor,
+        "nama": item.get("nama") or "",
+        "nisn": item.get("nisn") or "",
+        "rekening": item.get("rekening") or "",
+        "nik": item.get("nik") or "",
+        "rombel": item.get("rombel") or "",
+        "jenis": item.get("jenis") or "",
+        "nominal": item.get("nominal") if item.get("nominal") is not None else "",
+        "tahun": item.get("tahun") or "",
+        "semester": item.get("semester") or "",
+        "tahap": item.get("tahap") or "",
+        "sekolah": item.get("sekolah") or "",
+        "cocok": COCOK_LABEL.get(item.get("cocok") or "", item.get("cocok") or ""),
+        "keterangan": item.get("keterangan") or "",
+    }
+
+
 def baris_ekspor(tahun: str = "", semester: str = "") -> list[list[Any]]:
     data = daftar_penerima(tahun=tahun, semester=semester, batas=100_000)
     keluaran: list[list[Any]] = []
     for nomor, item in enumerate(data, start=1):
-        keluaran.append([
-            nomor,
-            item.get("nama") or "",
-            item.get("nisn") or "",
-            item.get("nik") or "",
-            item.get("rombel") or "",
-            item.get("jenis") or "",
-            item.get("nominal") if item.get("nominal") is not None else "",
-            item.get("tahun") or "",
-            item.get("semester") or "",
-            item.get("tahap") or "",
-            item.get("sekolah") or "",
-            COCOK_LABEL.get(item.get("cocok") or "", item.get("cocok") or ""),
-            item.get("keterangan") or "",
-        ])
+        nilai = nilai_ekspor(nomor, item)
+        keluaran.append([nilai.get(kunci, "") for kunci, _ in KOLOM_EKSPOR])
     return keluaran
 
 
@@ -1868,7 +1897,8 @@ def ekspor_xlsx(tahun: str = "", semester: str = "") -> bytes:
             lembar.cell(row=nomor, column=kolom, value=nilai)
     lembar.freeze_panes = "A6"
     lembar.auto_filter.ref = f"A5:{get_column_letter(len(KOLOM_EKSPOR))}{max(5, 5 + len(isi))}"
-    for kolom, lebar in enumerate([5, 30, 14, 20, 12, 22, 14, 8, 10, 8, 34, 22, 24], start=1):
+    for kolom, lebar in enumerate([5, 30, 14, 18, 20, 12, 22, 14, 8, 10, 8, 34, 22, 24],
+                                  start=1):
         lembar.column_dimensions[get_column_letter(kolom)].width = lebar
     aliran = io.BytesIO()
     buku.save(aliran)
@@ -1880,11 +1910,15 @@ def ekspor_pdf(tahun: str = "", semester: str = "") -> bytes:
 
     profil = services.school_profile()
     baris = baris_ekspor(tahun, semester)
-    kolom = [("No", 26), ("Nama Penerima", 190), ("NISN", 82), ("Rombel", 58),
-             ("Nominal", 78), ("Status", 96)]
-    isi = [[item[0], item[1], item[2], item[4],
-            f"{(item[6] or 0):,.0f}".replace(",", ".") if item[6] != "" else "-",
-            item[11]] for item in baris]
+    kolom = [("No", 24), ("Nama Penerima", 150), ("NISN", 78), ("Nomor Rekening", 84),
+             ("Rombel", 50), ("Nominal", 70), ("Status", 62)]
+    letak = {kunci: nomor for nomor, (kunci, _) in enumerate(KOLOM_EKSPOR)}
+    isi = [[item[letak["no"]], item[letak["nama"]], item[letak["nisn"]],
+            item[letak["rekening"]] or "-",
+            item[letak["rombel"]],
+            f"{(item[letak['nominal']] or 0):,.0f}".replace(",", ".")
+            if item[letak["nominal"]] != "" else "-",
+            item[letak["cocok"]]] for item in baris]
     return buat_pdf_tabel(
         "Daftar Penerima TANGCER",
         kolom,
