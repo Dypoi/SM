@@ -6113,6 +6113,18 @@ def cek_sk_bertahap():
         hilang = dipakai - kelas_css
         assert not hilang, f"{templat.name}: kelas lencana tanpa warna di CSS: {hilang}"
 
+    # 11) Halaman PDF tanpa teks (sampul & lampiran hasil pindai) dilaporkan apa adanya —
+    #     buktinya berkas SK sekolah sendiri yang memang berisi 4 halaman seperti itu.
+    berkas_tahap_2 = BASE_DIR / "sk definitif tahap 2 tangcer smt 1 2026.pdf"
+    if berkas_tahap_2.is_file():
+        from app import pdf_baca
+
+        hasil_pdf = pdf_baca.baca_pdf(berkas_tahap_2.read_bytes())
+        catatan_pindai = [pesan for pesan in hasil_pdf.catatan if "tanpa teks" in pesan]
+        assert catatan_pindai, (f"halaman hasil pindai tidak dilaporkan: "
+                                f"{hasil_pdf.catatan[:3]}")
+        assert "1, 2, 3" in catatan_pindai[0], catatan_pindai
+
     from app.config import APP_VERSION
 
     assert APP_VERSION >= "0.1.21", f"versi aplikasi belum naik: {APP_VERSION}"
@@ -6124,7 +6136,8 @@ def cek_sk_bertahap():
             "nama sekolah dikenali dari isinya, TAHAP/SEMESTER/TAHUN ANGGARAN dibaca dari kepala "
             "berkas & dipakai mengisi isian tahap, dan berkas yang tidak memuat sekolah kita "
             "dilaporkan apa adanya (tidak disimpan, sekolah yang ada disebutkan) · catatan "
-            "kembar pada banyak baris diringkas & kelas lencana diperiksa ada di CSS")
+            "kembar pada banyak baris diringkas & kelas lencana diperiksa ada di CSS · "
+            "halaman hasil pindai (sampul & lampiran SK) dilaporkan apa adanya")
 
 
 @cek("48. Daftar desa kosong walau kata kunci masuk → pencarian dipaksa lewat model Ext JS, "

@@ -1229,9 +1229,21 @@ def baca_pdf(isi: bytes, *, batas_halaman: int = 400) -> HasilPdf:
                  "perlu di-OCR lebih dulu" if dokumen.adakah_gambar()
                  else "tidak ada operator teks di dalam halamannya")
         hasil.catatan.append(f"PDF tidak memuat teks yang bisa dibaca: {sebab}.")
-    elif hasil.huruf_tak_terbaca:
-        hasil.catatan.append(f"{hasil.huruf_tak_terbaca} huruf tidak terbaca "
-                             "(font tanpa peta ToUnicode — hasil bisa tidak lengkap)")
+    else:
+        if hasil.huruf_tak_terbaca:
+            hasil.catatan.append(f"{hasil.huruf_tak_terbaca} huruf tidak terbaca "
+                                 "(font tanpa peta ToUnicode — hasil bisa tidak lengkap)")
+        # Sebagian halaman bisa berupa hasil pindai walau halaman lain bertulisan — biasanya
+        # justru sampul & lampiran (tanda tangan, daftar penerima). Dilaporkan apa adanya
+        # supaya berkas yang "kok barisnya kurang" bisa ditelusuri (ronde 61).
+        tanpa_teks = [nomor for nomor, isi_halaman in enumerate(hasil.halaman, start=1)
+                      if not isi_halaman]
+        if tanpa_teks:
+            contoh = ", ".join(str(nomor) for nomor in tanpa_teks[:12])
+            hasil.catatan.append(
+                f"{len(tanpa_teks)} halaman tanpa teks (kemungkinan hasil pindai): {contoh}"
+                + (" …" if len(tanpa_teks) > 12 else "")
+                + " — isinya tidak ikut terbaca, perlu OCR bila halaman itu memuat data.")
     hasil.catatan.append(f"pembaca PDF bawaan SM · {hasil.jumlah_halaman} halaman · "
                          f"{hasil.jumlah_potongan} potongan teks")
     return hasil

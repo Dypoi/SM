@@ -90,6 +90,9 @@ def main() -> int:
     print(f"baris    : {hasil.jumlah_baris}")
     for catatan in hasil.catatan[:4]:
         print(f"catatan  : {catatan}")
+    for catatan in hasil.catatan:
+        if "tanpa teks" in catatan:      # sampul & lampiran biasanya hasil pindai
+            print(f"pindai   : {catatan}")
     saring = tangcer.saring_sekolah(hasil, SEKOLAH, "", "KOTA TANGERANG")
     print(f"diterima : {saring.jumlah_diterima} baris milik {SEKOLAH}")
     print(f"ditolak  : {len(saring.ditolak)} baris (sekolah lain)")
@@ -206,8 +209,11 @@ def main() -> int:
         print(f"kepala   : tahap {hasil2.tahap} · semester {hasil2.semester} "
               f"· tahun {hasil2.tahun}")
         for catatan in hasil2.catatan:
-            if "kepala berkas" in catatan:
+            if "kepala berkas" in catatan or "tanpa teks" in catatan:
                 print(f"catatan  : {catatan}")
+        if not any("tanpa teks" in catatan for catatan in hasil2.catatan):
+            print("[GAGAL] halaman pindai tidak dilaporkan apa adanya")
+            return 1
         bersih2 = [item for item in hasil2.baris if item.sekolah]
         tanpa2 = [item for item in hasil2.baris if not item.sekolah]
         nyasar2 = [item for item in hasil2.baris
