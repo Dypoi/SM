@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bukti ronde 60 — **berkas asli sekolah**: SK definitif TANGCER & daftar penerima.
+"""Bukti ronde 60–61 — **berkas asli sekolah**: SK definitif TANGCER & daftar penerima.
 
 Bukan berkas contoh: yang dibaca di sini adalah berkas yang diunggah sekolah ke repo
 (``SK DEFINITIF TANGCER SMP TAHAP 1 TAHUN 2026 (1).pdf``, 82 halaman) dan
@@ -14,6 +14,12 @@ Yang dicatat apa adanya:
    **tidak ada** di SK (dilaporkan jujur — bukan dikarang);
 4. berkas SPJ yang benar-benar dibuat dari data itu (enam berkas) beserta isi pokoknya.
 
+Sejak ronde 61 ikut diperiksa berkas **tahap 2** (``sk definitif tahap 2 tangcer smt 1
+2026.pdf``, 57 halaman): berkas itu ternyata **tidak memuat sekolah kita** — dan itu dilaporkan
+apa adanya, lengkap dengan sekolah mana saja yang ada di dalamnya. Dua salah baca yang ditemukan
+dari berkas ini (sel yang melimpah ke kolom sebelah menelan nama orang, dan penanda kelas yang
+menempel pada nama ayah) sudah diperbaiki; di sini angkanya dibuktikan **0** pada kedua berkas.
+
 Berkas hasil (berisi data penerima) disimpan di ``pratinjau/ronde60/`` — folder itu
 tidak ikut di-commit.
 
@@ -25,7 +31,9 @@ Jalankan dari akar repo:
 from __future__ import annotations
 
 import io
+import os
 import sys
+import tempfile
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -33,9 +41,15 @@ from xml.etree import ElementTree as ET
 AKAR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(AKAR))
 
-from app import pdf_baca, spj, tangcer  # noqa: E402
+# Basis data SEMENTARA (dibuat di folder sementara): skrip ini menyimpan sendiri 44 penerima
+# hasil bacaan supaya berkas SPJ bisa dibuat apa adanya — tanpa menyentuh basis data sekolah.
+# Dengan begitu hasilnya sama setiap kali dijalankan, juga di komputer yang belum pernah mengisi.
+os.environ["SM_DB_PATH"] = str(Path(tempfile.mkdtemp(prefix="sm-sk-nyata-")) / "bukti.sqlite3")
+
+from app import migrations, pdf_baca, services, spj, tangcer  # noqa: E402
 
 SK = AKAR / "SK DEFINITIF TANGCER SMP TAHAP 1 TAHUN 2026 (1).pdf"
+SK2 = AKAR / "sk definitif tahap 2 tangcer smt 1 2026.pdf"
 XLSX_SEKOLAH = AKAR / "Daftar Penerima Tangcer2026 Ganjil (3).xlsx"
 SEKOLAH = "SMP NEGERI 2 TANGERANG"
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -58,7 +72,7 @@ def teks_docx(isi: bytes) -> str:
 
 def main() -> int:
     print("=" * 76)
-    print("  BUKTI RONDE 60 — BERKAS ASLI SEKOLAH (SK TANGCER & daftar penerima)")
+    print("  BUKTI RONDE 60–61 — BERKAS ASLI SEKOLAH (SK TANGCER tahap 1 & tahap 2)")
     print("=" * 76)
 
     if not SK.is_file():
@@ -141,6 +155,12 @@ def main() -> int:
     # 5. Berkas SPJ yang dibuat dari data SK
     # ------------------------------------------------------------------ #
     baris("5. Berkas SPJ yang dibuat dari data SK asli")
+    migrations.init_database()
+    services.set_setting("school_nama", SEKOLAH)
+    services.set_setting("school_kabupaten", "KOTA TANGERANG")
+    baru, ganda = tangcer.simpan_banyak(0, saring.diterima, tahun="2026", semester="1", tahap="1")
+    print(f"basis data : sementara — {baru} baris penerima disimpan untuk uji ini "
+          f"({ganda} sudah ada)")
     data = spj.data_dari({
         "tahun": "2026", "semester": "1", "tahap": "1",
         "kepala": "(nama kepala sekolah — isi di aplikasi)", "nip": "",
@@ -169,6 +189,48 @@ def main() -> int:
     teks_pdf = " ".join(t for _, _, t, _ in hasil_pdf.halaman[0])
     print(f"PDF daftar penerima: {hasil_pdf.jumlah_halaman} halaman; nama pertama ada :",
           saring.diterima[0].nama in teks_pdf)
+    print()
+    # ------------------------------------------------------------------ #
+    # 6. Berkas tahap 2 — sekolah kita tidak ada di dalamnya (ronde 61)
+    # ------------------------------------------------------------------ #
+    baris("6. Berkas tahap 2 (mutu pembacaan & kejujuran laporan)")
+    if not SK2.is_file():
+        print(f"berkas tahap 2 tidak ditemukan ({SK2.name}) — bagian ini dilewati.")
+    else:
+        isi2 = SK2.read_bytes()
+        hasil2 = tangcer.baca_isi(SK2.name, isi2)
+        saring2 = tangcer.saring_sekolah(hasil2, SEKOLAH, "", "KOTA TANGERANG")
+        print(f"berkas   : {SK2.name} ({len(isi2):,} bita)")
+        print(f"kolom    : {hasil2.kolom}")
+        print(f"baris    : {hasil2.jumlah_baris}")
+        print(f"kepala   : tahap {hasil2.tahap} · semester {hasil2.semester} "
+              f"· tahun {hasil2.tahun}")
+        for catatan in hasil2.catatan:
+            if "kepala berkas" in catatan:
+                print(f"catatan  : {catatan}")
+        bersih2 = [item for item in hasil2.baris if item.sekolah]
+        tanpa2 = [item for item in hasil2.baris if not item.sekolah]
+        nyasar2 = [item for item in hasil2.baris
+                   if any((getattr(item, kolom) or "").startswith("Kelas")
+                          for kolom in ("nama", "nama_ayah", "nama_ibu", "nama_orangtua"))]
+        print(f"mutu     : kolom sekolah terisi {len(bersih2)} · tanpa nama sekolah {len(tanpa2)} "
+              f"· «Kelas …» nyasar {len(nyasar2)}")
+        jumlah_sekolah = {}
+        for item in bersih2:
+            jumlah_sekolah[item.sekolah] = jumlah_sekolah.get(item.sekolah, 0) + 1
+        print(f"sekolah  : {len(jumlah_sekolah)} nama sekolah berbeda di berkas ini")
+        for nama_sekolah, jumlah in sorted(jumlah_sekolah.items(),
+                                           key=lambda pasang: -pasang[1])[:6]:
+            print(f"           {jumlah:>4} baris  {nama_sekolah}")
+        if saring2.jumlah_diterima:
+            print(f"diterima : {saring2.jumlah_diterima} baris milik {SEKOLAH}")
+        else:
+            print(f"diterima : 0 baris — «{SEKOLAH}» memang TIDAK ADA di berkas tahap 2 ini")
+            for catatan in saring2.catatan:
+                print(f"catatan  : {' '.join(catatan.split())[:150]}")
+            print("Keterangan: yang tidak ada di berkas tidak boleh dikarang. Aplikasi "
+                  "menyebutkan sekolah yang ada supaya berkasnya bisa ditelusuri "
+                  "(mungkin penerimanya ada di berkas tahap lain).")
     print()
     baris()
     print("SELESAI — semua angka di atas berasal dari berkas asli sekolah.")

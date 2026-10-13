@@ -393,6 +393,11 @@ class HasilBaca:
     sekolah_tanpa_kolom: list[str] = dataclass_field(default_factory=list)
     catatan: list[str] = dataclass_field(default_factory=list)
     header_ke: int = 0
+    #: TAHAP/SEMESTER/TAHUN ANGGARAN yang **tertulis** di kepala berkas (bila ada) — dipakai
+    #: mengisi isian tahap supaya baris tahap 1 dan tahap 2 tidak tertukar (ronde 61).
+    tahap: str = ""
+    semester: str = ""
+    tahun: str = ""
 
     @property
     def jumlah_baris(self) -> int:
@@ -584,6 +589,172 @@ def _tampak_sekolah(teks: str) -> bool:
                       ("SMP", "SMA", "SMK", "MTS", "MA", "SD", "SMPN", "SMAN", "SMKN"))
     ada_status = any(kata_satu in kata for kata_satu in ("NEGERI", "SWASTA"))
     return ada_jenjang and ada_status
+
+
+#: Awal nama sekolah yang cukup khas untuk dikenali **di tengah** teks yang sudah menempel.
+#: Dipakai ronde 61: teks satu sel yang melimpah ke kolom sebelah bisa menempelkan nama
+#: sekolah pada nama orang tanpa spasi («ERLIN YUSNAWATISMP NEGERI 8 TANGERANG»). Hanya
+#: jenjang tiga huruf ke atas yang dipakai — «MA»/«MI»/«SD» terlalu mudah muncul di dalam
+#: nama orang (mis. «ASMA», «MIRNA»).
+TOKEN_SEKOLAH_TENGAH = ("SMPN", "SMPK", "SMP", "SMKN", "SMK", "SMAN", "SMA",
+                        "MTSN", "MTSS", "MTS", "SLB", "SKH")
+_POLA_AWAL_SEKOLAH = re.compile("|".join(TOKEN_SEKOLAH_TENGAH))
+#: Kata yang menandakan nama sekolah (bukan nama orang) sesudah jenjangnya.
+KATA_STATUS_SEKOLAH = ("NEGERI", "SWASTA", "SWATA", "KOTA", "KABUPATEN")
+#: Jenjang yang hanya boleh dipisah dari teks sebelumnya bila ada kata status sesudahnya —
+#: «SMA RANI» pada nama «DINI ASMA RANI» tidak ikut terbelah.
+TOKEN_SEKOLAH_LEMAH = frozenset({"SMP", "SMPN", "SMA", "SMAN", "SMK", "SMKN"})
+#: Jenjang yang berdiri sendiri sebagai satu potongan («SMP» pada «SMP NEGERI 8 TANGERANG»).
+_POLA_JENJANG_SENDIRI = re.compile(r"^(SMPN|SMPK|SMP|SMKN|SMK|SMAN|SMA|MTSN|MTSS|MTS|SLB|SKH)$")
+#: Penanda kelas yang ditulis apa adanya di dalam sel («Kelas 8.6», «Kelas 7I»).
+_POLA_AWAL_KELAS = re.compile(
+    r"^KELAS\s*(?P<angka>VIII|VII|IX|IV|VI|V|III|II|I|\d{1,2})"
+    r"(?:\s*[.]\s*(?P<sub>\d{1,2}))?"
+    # Huruf bagian kelas («VII A», «7I») hanya diambil kalau memang berdiri sendiri —
+    # «Kelas 8.6AJAT SUDRAJAT» berhenti di «8.6» supaya nama ayahnya utuh.
+    r"(?:\s*(?P<huruf>[A-Z])(?=\s|$))?",
+    re.IGNORECASE)
+
+
+def _nilai_kelas(cocok: re.Match) -> str:
+    """Nilai kelas dari hasil :data:`_POLA_AWAL_KELAS` («Kelas 8.6» → «8.6»).
+
+    Awalan «Kelas » dibuang, spasi di dalamnya dirapikan — nilai yang tersimpan sama
+    bentuknya dengan kelas di dokumen («IX B», «8.6», «7I»).
+    """
+    teks = cocok.group(0).strip()
+    potong = len("KELAS")
+    while potong < len(teks) and teks[potong].isspace():
+        potong += 1
+    return re.sub(r"\s+", " ", teks[potong:]).strip()
+
+
+def _awal_sekolah(teks: str) -> int:
+    """Titik awal nama sekolah di dalam teks yang menempel, atau -1 bila tidak ada.
+
+    Nama sekolah dianggap sah kalau sesudah jenjangnya masih ada kata lain (mis.
+    «… YUSNAWATISMP NEGERI 8 TANGERANG» → titik «SMP»). Satu kata pendek seperti «SMA»
+    saja tidak dianggap sekolah, supaya nama orang seperti «SITI ASMA» tidak terbelah.
+    """
+    bersih = bersih_teks(teks)
+    if not bersih:
+        return -1
+    for cocok in _POLA_AWAL_SEKOLAH.finditer(bersih.upper()):
+        mulai = cocok.start()
+        token = cocok.group(0)
+        if mulai == 0:
+            continue
+        if bersih[mulai:mulai + len(token)] != token:
+            continue                       # hanya jenjang yang memang tertulis HURUF BESAR
+        sisa = bersih[mulai:].strip()
+        if len(sisa.split()) < 2 or len(sisa) < 8:
+            continue
+        if not _ekor_sekolah_yakin(sisa, token, bersih[:mulai]):
+            continue                       # bukan nama sekolah (mis. «SMA RANI» pada nama)
+        return mulai
+    return -1
+
+
+def _ekor_sekolah_yakin(ekor: str, token: str, kepala: str) -> bool:
+    """Yakin ini nama sekolah, bukan bagian nama orang yang kebetulan sepotong.
+
+    Dipakai untuk jenjang yang dipisah spasi — di situ batasnya lebih samar («DINI ASMA RANI»).
+    Jenjang yang khas (MTs/MTSS/SKh/SMPK) langsung diterima; «SMP»/«SMA»/«SMK» baru diterima
+    kalau ada kata status (NEGERI/SWASTA/…) atau kata sebelum jenjangnya jelas panjang —
+    sisa satu huruf seperti «DINI **A**SMA» tidak dihitung.
+    """
+    kata = ekor.upper().split()
+    if any(k in kata for k in KATA_STATUS_SEKOLAH):
+        return True
+    if token not in TOKEN_SEKOLAH_LEMAH:
+        return True
+    bagian_kepala = kepala.split()
+    return bool(bagian_kepala) and len(bagian_kepala[-1]) >= 3
+
+
+def _kembalikan_nama(item: BarisPenerima, nama: str) -> None:
+    """Taruh kembali nama yang tertelan kolom sekolah ke kolom nama yang masih kosong."""
+    for bidang in ("nama_ibu", "nama_ayah", "nama"):
+        if not bersih_teks(getattr(item, bidang, "")):
+            setattr(item, bidang, nama)
+            return
+
+
+#: Awal nama sekolah yang lazim pada berkas dinas (termasuk Sekolah Khusus & Luar Biasa).
+POLA_AWAL_NAMA_SEKOLAH = re.compile(
+    r"^(SMP|SMPN|SMPK|SMP-?IT|SMA|SMAN|SMK|SMKN|MTSS|MTSN|MTS|MA|MAN|MI|MIN|SD|SDN|SKH|SLB"
+    r"|SEKOLAH|PONPES|PESANTREN|PKBM|KB|TK|PAUD)\b", re.IGNORECASE)
+
+
+def _tampak_nama_sekolah(teks: str) -> bool:
+    """Apakah nilai kolom sekolah memang berbentuk nama sekolah (bukan nama orang)."""
+    return bool(POLA_AWAL_NAMA_SEKOLAH.match(bersih_teks(teks)))
+
+
+def _pisah_bocor(item: BarisPenerima) -> list[str]:
+    """Kembalikan isi sel yang tertelan kolom sebelah (ronde 61).
+
+    Dua bentuk yang benar-benar ditemui pada berkas SK dinas:
+
+    * **penanda kelas menempel pada nama** — «Kelas 8.6AJAT SUDRAJAT» pada kolom nama ayah
+      (jarak antar-potongannya nol, jadi tidak bisa dibedakan lewat posisi);
+    * **nama sekolah menempel pada nama orang** — «ERLIN YUSNAWATISMP NEGERI 8 TANGERANG».
+
+    Isinya dipindahkan ke kolom yang benar (kelas → rombel, sekolah → sekolah) dan sisanya
+    tetap di kolom asalnya. Bila nama orang justru yang menempel di kolom sekolah, namanya
+    dikembalikan ke kolom nama yang masih kosong (ibu lebih dulu — sel di sebelah kiri kolom
+    sekolah) dan dicatat supaya bisa diperiksa.
+    """
+    catatan: list[str] = []
+    # 1) «Kelas …» yang menempel di depan teks sebuah kolom.
+    for bidang in ("nama", "nama_ayah", "nama_ibu", "tempat_lahir"):
+        nilai = bersih_teks(getattr(item, bidang, ""))
+        if not nilai:
+            continue
+        cocok = _POLA_AWAL_KELAS.match(nilai)
+        if not cocok:
+            continue
+        sisa = nilai[cocok.end():].strip()
+        if not sisa:
+            continue
+        kelas = _nilai_kelas(cocok)
+        lama = bersih_teks(item.rombel)
+        if not lama or len(lama) <= 2:
+            catatan.append(f"kelas «{kelas}» dipisah dari kolom {bidang}")
+            item.rombel = kelas
+        setattr(item, bidang, sisa)
+    # 1b) Kebalikannya: nama yang tertelan kolom kelas.
+    if bersih_teks(item.rombel):
+        cocok = _POLA_AWAL_KELAS.match(bersih_teks(item.rombel))
+        sisa = bersih_teks(item.rombel)[cocok.end():].strip() if cocok else ""
+        if cocok and sisa and sum(1 for h in sisa if h.isalpha()) >= 3:
+            for bidang_nama in ("nama_ayah", "nama_ibu"):
+                if not bersih_teks(getattr(item, bidang_nama, "")):
+                    catatan.append(f"«{sisa[:28]}» dikembalikan ke kolom {bidang_nama}")
+                    setattr(item, bidang_nama, sisa)
+                    break
+            item.rombel = _nilai_kelas(cocok)
+    # 2) Nama sekolah yang menempel di belakang teks sebuah kolom.
+    for bidang in ("nama_ibu", "nama_ayah", "nama", "tempat_lahir", "kelamin", "rombel",
+                   "sekolah"):
+        nilai = bersih_teks(getattr(item, bidang, ""))
+        if not nilai:
+            continue
+        mulai = _awal_sekolah(nilai)
+        if mulai < 0:
+            continue
+        kepala, ekor = nilai[:mulai].strip(), nilai[mulai:].strip()
+        if bidang == "sekolah":
+            catatan.append(f"nama «{kepala[:32]}» dipisah dari kolom sekolah")
+            item.sekolah = ekor
+            _kembalikan_nama(item, kepala)
+            continue
+        if bersih_teks(item.sekolah):
+            continue
+        catatan.append(f"sekolah «{ekor[:32]}» dipisah dari kolom {bidang}")
+        item.sekolah = ekor
+        setattr(item, bidang, kepala)
+    return catatan
 
 
 #: Pembaca PDF yang dipakai lebih dulu — bawaan SM, tanpa pustaka tambahan.
@@ -863,6 +1034,16 @@ def _pilih_kolom_isi(x: float, x_akhir: float, kolom: Sequence[tuple[float, floa
     sehingga titik tengahnya justru lebih dekat ke kolom nomor. Potongan yang berisi kata
     karena itu hanya dicocokkan ke kolom teks, dan potongan angka hanya ke kolom angka.
     """
+    bersih = teks.strip()
+    bidang_tersedia = {satu[2] for satu in kolom}
+    # Isi yang jelas milik sel lain: potongan nama sekolah berdiri sendiri («SMP» di depan
+    # «NEGERI 8 TANGERANG») sering terukur lebih dekat ke kolom nama ibu karena teksnya
+    # melimpah ke kiri. Dikenali dari isinya (ronde 61), bukan dari posisinya.
+    if "sekolah" in bidang_tersedia and (_tampak_sekolah(bersih)
+                                         or _POLA_JENJANG_SENDIRI.match(bersih)):
+        return "sekolah"
+    if "rombel" in bidang_tersedia and _POLA_AWAL_KELAS.match(bersih):
+        return "rombel"
     awal = _pilih_kolom(x, x_akhir, kolom)
     tipe = _tipe_potongan(teks)
     kandidat = [satu for satu in kolom
@@ -910,13 +1091,36 @@ def _lanjutan_nama(garis: GarisPdf, kolom_x: Sequence[tuple[float, float, str]],
     return teks if "nama" in bidang else ""
 
 
+def _gabung_potongan(butir: Sequence[tuple[float, str, float]]) -> str:
+    """Gabungkan potongan satu kolom: huruf bersambung tidak diberi spasi.
+
+    Jarak antar-potongan di dalam satu sel hampir selalu nol — yang memisahkan kata adalah
+    spasi yang memang tertulis di potongannya. Spasi hanya ditambahkan kalau jaraknya memang
+    selebar lebih dari setengah huruf (kata yang terpisah tanpa spasi di PDF).
+    """
+    hasil = ""
+    akhir: float | None = None
+    for x, teks, luas in butir:
+        if hasil and akhir is not None:
+            jarak = x - akhir
+            lebar_huruf = max(1.0, (luas or len(teks)) / max(1, len(teks.strip()) or 1))
+            # Jarak negatif yang dalam berarti kedua potongan sebenarnya dari sel berbeda yang
+            # tertampung di kolom yang sama — diberi spasi supaya tidak menempel.
+            if ((jarak > max(0.5, 0.35 * lebar_huruf) or jarak < -1.0)
+                    and not hasil.endswith(" ") and not teks.startswith(" ")):
+                hasil += " "
+        hasil += teks
+        akhir = max(akhir or 0.0, x + (luas or 0.0))
+    return re.sub(r"\s+", " ", hasil).strip()
+
+
 def _baris_dari_kolom(garis: GarisPdf, kolom_x: Sequence[tuple[float, float, str]]
                       ) -> tuple[BarisPenerima, list[str]]:
     """Susun calon penerima dari potongan teks satu baris, dibagi menurut kolom.
 
     Kembalikan juga catatan potongan yang dilewati (mis. alamat tak berkolom judul).
     """
-    bagian: dict[str, list[str]] = {}
+    bagian: dict[str, list[tuple[float, str, float]]] = {}
     letak: dict[str, float] = {}
     catatan: list[str] = []
     lebar = list(garis.lebar_potongan)
@@ -929,14 +1133,14 @@ def _baris_dari_kolom(garis: GarisPdf, kolom_x: Sequence[tuple[float, float, str
         if pilih in BIDANG_SEMPIT and pilih in letak and (x - letak[pilih]) > JARAK_DALAM_SEL:
             catatan.append(f"«{bersih}» di luar kolom {pilih} (baris {garis.nomor})")
             continue
-        bagian.setdefault(pilih, []).append(bersih)
+        bagian.setdefault(pilih, []).append((x, teks, luas))
         letak[pilih] = x + luas
 
     item = BarisPenerima()
     for bidang, potongan in bagian.items():
         if bidang.startswith("__"):
             continue
-        teks = " ".join(potongan)
+        teks = _gabung_potongan(potongan)
         if bidang in {"nisn", "nik"}:
             setattr(item, bidang, bersih_nomor(teks))
         elif bidang == "nominal":
@@ -945,7 +1149,41 @@ def _baris_dari_kolom(garis: GarisPdf, kolom_x: Sequence[tuple[float, float, str
             item.no = bersih_teks(teks)
         else:
             setattr(item, bidang, bersih_teks(teks))
+    for satu in _pisah_bocor(item):
+        if satu not in catatan:
+            catatan.append(satu)
+    if bersih_teks(item.rombel):
+        cocok_kelas = _POLA_AWAL_KELAS.match(bersih_teks(item.rombel))
+        if cocok_kelas:
+            nilai = _nilai_kelas(cocok_kelas)
+            sisa = bersih_teks(item.rombel)[cocok_kelas.end():].strip()
+            item.rombel = f"{nilai} {sisa}".strip() if sisa else nilai
     return item, catatan
+
+
+#: «… SEMESTER 1 TAHUN ANGGARAN 2026 TAHAP 2» pada kepala SK dinas.
+_POLA_KEPALA = (
+    ("tahap", re.compile(r"\bTAHAP\s+([0-9]{1,2}|[IVX]{1,4})\b")),
+    ("semester", re.compile(r"\bSEMESTER\s+([0-9]{1,2}|GANJIL|GENAP|[IVX]{1,4})\b")),
+    ("tahun", re.compile(r"\bTAHUN\s+ANGGARAN\s+([0-9]{4})\b")),
+)
+
+
+def kepala_berkas(datar: Sequence[GarisPdf], batas: int = 40) -> dict[str, str]:
+    """TAHAP/SEMESTER/TAHUN ANGGARAN yang tertulis di kepala berkas (bila ada).
+
+    Judul SK dinas menyebutkannya («… SEMESTER 1 TAHUN ANGGARAN 2026 TAHAP 2»), dan judul itu
+    yang dipakai mengisi isian tahap di halaman TANGCER — supaya baris tahap 1 dan tahap 2
+    tidak tercampur tanpa sengaja.
+    """
+    teks = " ".join(garis.teks() for garis in datar[:batas] if garis.teks())
+    teks = re.sub(r"\s+", " ", teks).upper()
+    temuan: dict[str, str] = {}
+    for nama, pola in _POLA_KEPALA:
+        cocok = pola.search(teks)
+        if cocok:
+            temuan[nama] = cocok.group(1).strip()
+    return temuan
 
 
 def baca_baris_pdf(halaman: Sequence[str] | Sequence[list[GarisPdf]],
@@ -971,6 +1209,16 @@ def baca_baris_pdf(halaman: Sequence[str] | Sequence[list[GarisPdf]],
 
     datar: list[GarisPdf] = [garis for satu_halaman in halaman_garis for garis in satu_halaman]
     hasil = HasilBaca(format=sumber)
+    kepala = kepala_berkas(datar)
+    if kepala:
+        hasil.tahap = kepala.get("tahap", "")
+        hasil.semester = kepala.get("semester", "")
+        hasil.tahun = kepala.get("tahun", "")
+        rincian = " · ".join(f"{nama.upper()} {nilai}"
+                             for nama, nilai in (("semester", hasil.semester),
+                                                 ("tahun anggaran", hasil.tahun),
+                                                 ("tahap", hasil.tahap)) if nilai)
+        hasil.catatan.append(f"kepala berkas menyebut: {rincian}")
     if not datar:
         raise TangcerError(
             "Tidak ada baris yang terbaca dari PDF ini. Bila PDF-nya hasil pindai (scan), "
@@ -1157,6 +1405,9 @@ class HasilSaring:
     ditolak: list[BarisPenerima] = dataclass_field(default_factory=list)
     sekolah_lain: Counter = dataclass_field(default_factory=Counter)
     tanpa_sekolah: list[BarisPenerima] = dataclass_field(default_factory=list)
+    #: Baris yang kolom sekolahnya **tidak berbentuk nama sekolah** (mis. masih menempel pada
+    #: nama orang) — dipisahkan supaya laporannya jujur, bukan disebut «sekolah lain» (ronde 61).
+    sekolah_aneh: list[BarisPenerima] = dataclass_field(default_factory=list)
     #: Baris yang cocok **setelah kata wilayah dibuang** — diambil, tapi perlu diperiksa manusia.
     diragukan: list[BarisPenerima] = dataclass_field(default_factory=list)
     catatan: list[str] = dataclass_field(default_factory=list)
@@ -1192,6 +1443,10 @@ def saring_sekolah(hasil: HasilBaca, nama_kita: str, npsn_kita: str = "",
         if not item.sekolah:
             hasil_saring.tanpa_sekolah.append(item)
             continue
+        if not _tampak_nama_sekolah(item.sekolah):
+            hasil_saring.sekolah_aneh.append(item)
+            item.alasan = f"kolom sekolah tidak berbentuk nama sekolah: «{item.sekolah[:40]}»"
+            continue
         cocok, alasan = cocok_sekolah(item.sekolah, nama_kita, npsn_kita, daerah_kita)
         item.cocok = cocok
         item.alasan = alasan
@@ -1210,10 +1465,24 @@ def saring_sekolah(hasil: HasilBaca, nama_kita: str, npsn_kita: str = "",
                if tanpa_kolom_sekolah else " — tidak diambil (centang «Berkas sudah khusus sekolah kita» bila memang cocok)."))
         if tanpa_kolom_sekolah:
             hasil_saring.diterima.extend(hasil_saring.tanpa_sekolah)
+    if hasil_saring.sekolah_aneh:
+        contoh = "; ".join(sorted({item.sekolah for item in hasil_saring.sekolah_aneh})[:3])
+        hasil_saring.catatan.append(
+            f"{len(hasil_saring.sekolah_aneh)} baris kolom sekolahnya tidak berbentuk nama "
+            f"sekolah ({contoh}) — tidak diambil, mohon diperiksa pada daftar di bawah.")
     if hasil_saring.sekolah_lain:
         hasil_saring.catatan.append(
             f"{sum(hasil_saring.sekolah_lain.values())} baris milik {len(hasil_saring.sekolah_lain)} "
             "sekolah lain — tidak disimpan.")
+        if not hasil_saring.diterima:
+            terbanyak = ", ".join(f"{nama} ({jumlah} baris)" for nama, jumlah
+                                  in hasil_saring.sekolah_lain.most_common(6))
+            hasil_saring.catatan.append(
+                f"Tidak ada satu baris pun untuk «{nama_kita}» di berkas ini. Sekolah yang ada "
+                f"di dalamnya: {terbanyak}"
+                + (" …" if len(hasil_saring.sekolah_lain) > 6 else "")
+                + ". SK TANGCER dicetak bertahap — periksa berkas tahap lain bila sekolah kita "
+                  "belum ada di sini.")
     if hasil_saring.diragukan:
         nama_contoh = "; ".join(sorted({item.sekolah for item in hasil_saring.diragukan})[:3])
         hasil_saring.catatan.append(
@@ -1264,12 +1533,48 @@ def buat_impor(*, nama_berkas: str, path: Path | None, ext: str, ukuran: int,
         return int(kursor.lastrowid or 0)
 
 
+_POLA_CATATAN_BARIS = re.compile(r"^(?P<inti>.*?)\s*\(baris (?P<nomor>\d+)\)\s*$")
+
+
+def ringkas_catatan(catatan: Sequence[str], batas_contoh: int = 4) -> list[str]:
+    """Gabungkan catatan yang sama pada banyak baris menjadi satu kalimat.
+
+    Berkas SK yang panjang sempat menghasilkan belasan baris catatan kembar (««0» di luar kolom
+    rombel (baris 11)» … «(baris 26)») sehingga catatan penting seperti «sekolah … dipisah dari
+    kolom nama_ibu» tenggelam. Catatan yang hanya berbeda nomor barisnya diringkas jadi satu —
+    jumlah barisnya tetap disebut apa adanya (ronde 61).
+    """
+    keluaran: list[str] = []
+    kelompok: dict[str, list[int]] = {}
+    urutan: list[tuple[str, str]] = []
+    for pesan in catatan:
+        cocok = _POLA_CATATAN_BARIS.match(str(pesan).strip())
+        if not cocok:
+            keluaran.append(str(pesan))
+            continue
+        inti = cocok.group("inti").strip()
+        nomor = int(cocok.group("nomor"))
+        if inti not in kelompok:
+            kelompok[inti] = []
+            urutan.append(("kelompok", inti))
+        kelompok[inti].append(nomor)
+    for jenis, kunci in urutan:
+        nomor_list = sorted(set(kelompok[kunci]))
+        if len(nomor_list) == 1:
+            keluaran.append(f"{kunci} (baris {nomor_list[0]})")
+            continue
+        contoh = ", ".join(str(n) for n in nomor_list[:batas_contoh])
+        keluaran.append(f"{kunci} ({len(nomor_list)} baris: {contoh}"
+                        + (" …" if len(nomor_list) > batas_contoh else "") + ")")
+    return keluaran
+
+
 def catatan_impor(hasil: HasilBaca, saring: HasilSaring) -> list[str]:
     catatan = list(hasil.catatan) + list(saring.catatan)
     if hasil.kolom:
         urut = [f"{bidang}" for _, bidang in sorted(hasil.kolom.items())]
         catatan.insert(0, f"kolom terbaca: {', '.join(urut)}")
-    return catatan
+    return ringkas_catatan(catatan)
 
 
 def get_impor(import_id: int) -> dict[str, Any] | None:

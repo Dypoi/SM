@@ -934,6 +934,12 @@ def uji_web(berkas_csv: Path, berkas_pdf: Path) -> int:
     jumlah_penerima = {"id": 0}
     berkas_impor = {"id": 0}
 
+    def tangcer_uji_http_sama() -> bool:
+        """«Tahap 1» dan «1» dianggap sama (pembanding isian milik rute unggah)."""
+        from app.routers.tangcer_routes import _inti_isian
+
+        return _inti_isian("Tahap 1") == _inti_isian("1")
+
     async def alur() -> None:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://uji",
@@ -1081,6 +1087,60 @@ def uji_web(berkas_csv: Path, berkas_pdf: Path) -> int:
             cek("Baris PDF milik sekolah kita ikut masuk daftar",
                 "Zulfa Aulia Nabilah" in (await klien.get("/tangcer?cari=Zulfa")).text)
 
+            # Isian yang bertentangan dengan kepala berkas diberitahukan (bukan didiamkan).
+            unggah_beda = await klien.post(
+                "/tangcer/unggah",
+                files={"berkas": (berkas_pdf.name, berkas_pdf.read_bytes(), "application/pdf")},
+                data={"tahun": "2026", "semester": "Ganjil", "tahap": "Tahap 9"})
+            cek("Isian tahap yang berbeda dari kepala berkas diberitahukan",
+                "PERHATIAN — isian berbeda dari kepala berkas" in unggah_beda.text
+                and "Tahap 9" in unggah_beda.text,
+                "peringatan isian berbeda tidak muncul")
+            id_beda = int(unggah_beda.url.path.rsplit("/", 1)[-1] or 0)
+            berkas_impor["id_beda"] = id_beda
+            kepala_beda = tangcer.get_impor(id_beda) or {}
+            cek("Isian yang dipakai tetap isian petugas (bukan berkas)",
+                (kepala_beda.get("tahap") or "") == "Tahap 9",
+                f"tahap tersimpan: {kepala_beda.get('tahap')!r}")
+            cek("Tahap yang sama tidak dianggap berbeda («Tahap 1» = «1»)",
+                tangcer_uji_http_sama() is True, "pembanding isian terlalu kaku")
+
+            # Berkas yang TIDAK memuat sekolah kita (mis. SK tahap lain — ronde 61).
+            csv_lain = ("No,Nama,NISN,Kelas,Nama Ayah,Nama Ibu,Sekolah\n"
+                        "1,Anak Satu,1111111111,7A,Ayah Satu,Ibu Satu,SMP NEGERI 7 TANGERANG\n"
+                        "2,Anak Dua,2222222222,8B,Ayah Dua,Ibu Dua,SMP NEGERI 8 TANGERANG\n")
+            unggah_lain = await klien.post(
+                "/tangcer/unggah",
+                files={"berkas": ("daftar-sekolah-lain.csv", csv_lain.encode(), "text/csv")},
+                data={"tahun": "2026", "semester": "1", "tahap": "Tahap 2"})
+            cek("Unggah berkas tanpa sekolah kita tetap dipratinjau (tidak diam-diam gagal)",
+                unggah_lain.status_code == 200 and "Baris yang akan disimpan" in unggah_lain.text,
+                f"status {unggah_lain.status_code}")
+            cek("Pratinjau menyebut sekolah kita TIDAK ADA di berkas itu",
+                "Tidak ada satu baris pun untuk" in unggah_lain.text,
+                "peringatan kejujuran tidak muncul")
+            cek("Pratinjau menyebut sekolah yang ADA di berkas itu",
+                "SMP NEGERI 7 TANGERANG" in unggah_lain.text
+                and "SMP NEGERI 8 TANGERANG" in unggah_lain.text,
+                "daftar sekolah yang ada tidak ditampilkan")
+            cek("Isian tahap dipakai apa adanya bila berkas tidak menyebut tahapnya",
+                "Tahap 2" in unggah_lain.text, "tahap isian tidak terbawa")
+            id_lain = int(unggah_lain.url.path.rsplit("/", 1)[-1] or 0)
+            berkas_impor["id_lain"] = id_lain
+            cek("Tombol Simpan tidak ditawarkan bila tidak ada baris sekolah kita",
+                "Simpan 0 baris" not in unggah_lain.text
+                and "belum ada baris milik sekolah kita" not in unggah_lain.text.lower(),
+                "tombol simpan masih muncul")
+            simpan_lain = await klien.post(f"/tangcer/impor/{id_lain}/simpan")
+            cek("«Simpan» ditolak dengan pesan jelas (bukan menandai tersimpan)",
+                "Tidak ada baris milik sekolah kita pada berkas ini" in simpan_lain.text
+                and "sudah disimpan" not in simpan_lain.text,
+                "penolakan penyimpanan tidak bekerja")
+            tersimpan_lain = db.query_value(
+                "SELECT COUNT(*) FROM tangcer_penerima WHERE import_id = ?", (id_lain,), default=0)
+            cek("Tidak satu pun baris tersimpan dari berkas itu",
+                tersimpan_lain == 0, f"ada {tersimpan_lain} baris tersimpan")
+
             # Hapus impor PDF beserta penerima hasil impor itu (baris dari CSV tidak ikut hilang).
             sisa_sebelum = db.query_value(
                 "SELECT COUNT(*) FROM tangcer_penerima WHERE import_id = ?", (id_pdf,), default=0)
@@ -1112,7 +1172,7 @@ def uji_web(berkas_csv: Path, berkas_pdf: Path) -> int:
     skenario("13. Halaman & alurnya lewat HTTP (unggah → pratinjau → simpan → kelola → ekspor)")
     asyncio.run(alur())
     # Bersihkan HANYA data yang dibuat uji ini (data lain di basis data tidak diusik).
-    for kunci in ("id", "id_pdf"):
+    for kunci in ("id", "id_pdf", "id_lain", "id_beda"):
         if berkas_impor.get(kunci):
             tangcer.hapus_impor(berkas_impor[kunci])
     print(f"   (sisa penerima setelah dibersihkan: {tangcer.ringkas_penerima()['total']})")

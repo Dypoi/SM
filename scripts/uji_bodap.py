@@ -95,7 +95,7 @@ def uji_payload() -> dict:
                  if n.startswith(("data/", "sample-data/", ".venv/", "pemasang/payload/",
                                   "pratinjau/"))
                  or n.endswith((".sqlite3", ".pyc"))
-                 or (n.endswith((".xlsx", ".xls", ".ods"))
+                 or (n.endswith((".xlsx", ".xls", ".ods", ".pdf", ".docx", ".doc"))
                      and "template-import/" not in n)]
     cek("app.zip bersih dari data siswa & sisa pengembangan", not terlarang,
         f"terlarang: {terlarang[:4]}")

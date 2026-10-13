@@ -16,6 +16,7 @@ Berkas yang didukung: semua format spreadsheet aplikasi (``.xlsx .xlsm .xltx .xl
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
@@ -95,6 +96,22 @@ def halaman_tangcer(
     )
 
 
+def _inti_isian(nilai: str) -> str:
+    """Inti isian tahun/semester/tahap — supaya «Tahap 1» tidak dianggap beda dari «1».
+
+    Berkas dinas menuliskannya pendek («TAHAP 2», «SEMESTER 1»), sedangkan isian di halaman
+    memakai kalimat («Tahap 2», «Ganjil», «2026/2027»). Yang dibandingkan hanya angkanya.
+    """
+    teks = str(nilai or "").strip().lower()
+    for kata, ganti in (("ganjil", "1"), ("genap", "2"), ("semester", " "), ("tahap", " "),
+                        ("tahun", " "), ("anggaran", " ")):
+        teks = teks.replace(kata, ganti)
+    angka = re.findall(r"\d+", teks)
+    # Angka pertama yang menentukan: «2026» dan «2026/2027» sama-sama tahun 2026,
+    # sedangkan «1» dan «12» tetap dianggap berbeda.
+    return angka[0] if angka else teks.strip()
+
+
 @router.post("/tangcer/unggah")
 async def unggah_tangcer(
     request: Request,
@@ -140,9 +157,34 @@ async def unggah_tangcer(
         log.exception("Gagal menyimpan unggahan TANGCER")
         return _kembali("/tangcer", "err", f"Berkas tidak bisa disimpan: {galat}")
 
+    # TAHAP/SEMESTER/TAHUN di kepala berkas dipakai bila isiannya dikosongkan — supaya baris
+    # tahap 1 dan tahap 2 tidak tercampur tanpa sengaja (ronde 61).
+    tahun_pakai = tahun.strip() or hasil.tahun
+    semester_pakai = semester.strip() or hasil.semester
+    tahap_pakai = tahap.strip() or hasil.tahap
+    if tahun_pakai != tahun.strip() or semester_pakai != semester.strip() or tahap_pakai != tahap.strip():
+        hasil.catatan.append(
+            "tahap/semester/tahun diisi dari kepala berkas: "
+            + " · ".join(rincian for rincian in (
+                f"semester {semester_pakai}" if semester_pakai else "",
+                f"tahun {tahun_pakai}" if tahun_pakai else "",
+                f"tahap {tahap_pakai}" if tahap_pakai else "") if rincian))
+    # Isian yang berbeda dari kepala berkas diberitahukan (dipakai isian, bukan didiamkan) —
+    # baris tahap 1 dan tahap 2 sering mirip, jadi salah tahap baru ketahuan di akhir.
+    beda = [(nama, isi, dari_berkas) for nama, isi, dari_berkas in (
+        ("tahap", tahap.strip(), hasil.tahap),
+        ("semester", semester.strip(), hasil.semester),
+        ("tahun", tahun.strip(), hasil.tahun))
+        if isi and dari_berkas and _inti_isian(isi) != _inti_isian(dari_berkas)]
+    if beda:
+        hasil.catatan.append(
+            "PERHATIAN — isian berbeda dari kepala berkas: "
+            + " · ".join(f"{nama} isian «{isi}» vs berkas «{dari}»"
+                         for nama, isi, dari in beda)
+            + " (yang dipakai isian)")
     import_id = tangcer.buat_impor(
         nama_berkas=nama, path=tersimpan.path, ext=tersimpan.extension, ukuran=tersimpan.size,
-        tahun=tahun.strip(), semester=semester.strip(), tahap=tahap.strip(),
+        tahun=tahun_pakai, semester=semester_pakai, tahap=tahap_pakai,
         hasil=hasil, saring=saring, kolom=hasil.kolom, actor=user.username,
         tanpa_kolom_sekolah=tanpa_kolom)
     services.log_audit(user.username, user.role, "tangcer_unggah", "tangcer_imports", import_id,
@@ -426,6 +468,14 @@ def simpan_tangcer(
             tanpa_kolom_sekolah=bool(kepala.get("tanpa_kolom_sekolah")))
     except tangcer.TangcerError as galat:
         return _kembali(f"/tangcer/impor/{import_id}", "err", str(galat))
+
+    if not saring.diterima:
+        # Jangan menandai impor «tersimpan» kalau tidak ada satu baris pun milik sekolah kita —
+        # berkas SK sering dicetak bertahap (ronde 61).
+        return _kembali(f"/tangcer/impor/{import_id}", "warn",
+                        "Tidak ada baris milik sekolah kita pada berkas ini, jadi tidak ada yang "
+                        "disimpan. Bila berkasnya memuat beberapa tahap, periksa berkas tahap "
+                        "yang memuat sekolah kita.")
 
     tahun = kepala.get("tahun") or ""
     semester = kepala.get("semester") or ""

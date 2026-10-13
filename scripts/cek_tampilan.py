@@ -157,6 +157,28 @@ def periksa_css(teks_css: str) -> list[str]:
     return masalah
 
 
+def periksa_kelas_lencana() -> list[str]:
+    """Kelas lencana yang dipakai templat harus ada di CSS (ronde 61).
+
+    Ditemukan saat menambah lencana «tidak ada di berkas ini»: kelasnya sempat ditulis
+    ``badge-warn`` — tidak ada di CSS, jadi lencananya tampil polos tanpa warna dan
+    kesalahannya tidak ketahuan kecuali ada yang memeriksa. Pemeriksaan ini menutup celah itu.
+    """
+    masalah: list[str] = []
+    css = "\n".join((BASE / nama).read_text(encoding="utf-8")
+                    for nama in ("app/static/css/app.css", "app/static/css/portal.css"))
+    terdaftar = {
+        m.group(1) for m in re.finditer(r"\.([a-zA-Z][\w-]*)\s*[,{]", css)
+    }
+    for berkas in sorted((BASE / "app" / "templates").rglob("*.html")):
+        isi = berkas.read_text(encoding="utf-8")
+        for kelas in set(re.findall(r'class="[^"]*?\b(badge-[\w-]+)', isi)):
+            if kelas not in terdaftar:
+                masalah.append(f"{berkas.relative_to(BASE)}: kelas «{kelas}» tidak ada di CSS "
+                               "(lencananya tampil polos tanpa warna)")
+    return masalah
+
+
 def periksa_kerapian(teks: str, jalur: str) -> list[str]:
     """Gaya sebaris & keterangan panjang (ronde 56).
 
@@ -245,7 +267,8 @@ def main() -> int:
         masalah_css += periksa_css((BASE / nama).read_text(encoding="utf-8"))
 
     masalah_html, jumlah = asyncio.run(periksa_halaman())
-    semua = masalah_css + masalah_html
+    masalah_lencana = periksa_kelas_lencana()
+    semua = masalah_css + masalah_html + masalah_lencana
     print(f"Diperiksa {jumlah} halaman (masuk + ruang siswa + halaman petugas "
           + " + ".join(f"«{p.strip('/') or 'beranda'}»" for p in HALAMAN_PETUGAS) + ").")
     if semua:
@@ -255,7 +278,7 @@ def main() -> int:
     print("  Susunan rapi: tidak ada tag blok di dalam tag sebaris, tidak ada kartu baris "
           "yang berisi blok, kartu kegiatan bertumpuk (column), wadah teks panjang "
           "memakai pembungkus, serta «Pembaruan» & «Bot Dapodik» bebas gaya sebaris dan "
-          "keterangan panjang di luar <details>.")
+          "keterangan panjang di luar <details> · semua kelas lencana ada di CSS.")
     return 0
 
 

@@ -589,13 +589,19 @@ def rapatkan_potongan_lebar(potongan: Sequence[Sequence[Any]]) -> list[tuple[flo
         # jaraknya masih sepanjang satu spasi. Tanpa syarat itu, dua judul kolom berjauhan
         # («NOMOR KARTU» dan «TANGGAL») ikut menyatu karena potongan pertama berakhir spasi.
         jarak = x - sel[-1][2]
-        # Potongan baru yang mulai jauh di sebelah KIRI potongan sebelumnya jelas sel lain.
-        dekat = -1.5 <= jarak <= max(0.6 * (rata or 1.0), 1.5)
+        # Tumpang-tindih (jarak negatif) hanya boleh sebesar derau pembulatan PDF: sekitar
+        # sepersepuluh lebar huruf, paling banyak 0,35 pt. Nilai yang tumpang-tindih lebih
+        # dalam daripada itu berarti potongan ini milik SEL LAIN yang teksnya melimpah ke
+        # kolom sebelahnya — mis. «Kelas 8.6» yang bersambung dengan nama ayah, atau nama ibu
+        # yang menyentuh kolom nama sekolah (ronde 61). Dulu batasnya -1,5 pt sehingga nama
+        # ayah/ibu dan nama sekolah ikut tertelan jadi satu sel.
+        tumpang = -min(0.35, max(0.12, 0.10 * (rata or 1.0)))
+        dekat = tumpang <= jarak <= max(0.6 * (rata or 1.0), 1.5)
         rapat = dekat and (teks[:1] == " " or sel[-1][1].endswith(" "))
         batas = 0.22 * (rata or (lebar / huruf) or 0.0)
         # Spasi tidak dibuang saat menggabung: banyak PDF menaruh spasi di ujung show-string
         # («…a » + «Nu»), dan kalau di-strip nama seperti «Adelia Nur Barokah» jadi menempel.
-        if rapat or (batas > 0 and -1.5 <= jarak <= batas):
+        if rapat or (batas > 0 and tumpang <= jarak <= batas):
             sel[-1][1] += teks                  # satu sel dipecah show-string bertetangga
         else:
             sel.append([x, teks, x + lebar])

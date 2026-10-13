@@ -3339,7 +3339,7 @@ def cek_bodap():
         terlarang = [n for n in nama_di_zip
                      if n.startswith(("data/", "sample-data/", ".venv/", "pemasang/payload/"))
                      or n.endswith((".sqlite3", ".pyc"))
-                     or (n.endswith((".xlsx", ".xls", ".ods"))
+                     or (n.endswith((".xlsx", ".xls", ".ods", ".pdf", ".docx", ".doc"))
                          and "template-import/" not in n)]
         assert not terlarang, f"app.zip memuat berkas yang tidak boleh dibagikan: {terlarang[:4]}"
         assert "pemasang/pencabut_sm.py" in nama_di_zip, \
@@ -5984,6 +5984,149 @@ def cek_spj():
             "scripts/uji_sk_nyata.py (SK definitif + daftar penerima sekolah)")
 
 
+@cek("51. SK bertahap (TAHAP 1 & TAHAP 2): sel yang melimpah ke kolom sebelah tidak lagi "
+      "menelan nama orang, dan berkas yang tidak memuat sekolah kita dilaporkan apa adanya")
+def cek_sk_bertahap():
+    """Ronde 61 — berkas kedua dari sekolah: «sk definitif tahap 2 tangcer smt 1 2026.pdf».
+
+    Berkas itu tidak memuat SMP NEGERI 2 TANGERANG (hanya 19 SMP negeri lain + MTs/swasta),
+    dan saat diuji pembacaan tahap 1 & 2 menunjukkan dua kesalahan nyata:
+
+    * teks satu sel yang **melimpah** ke kolom sebelah menempelkan nama sekolah pada nama orang
+      («ERLIN YUSNAWATISMP NEGERI 8 TANGERANG») dan penanda kelas pada nama ayah
+      («Kelas 8.6AJAT SUDRAJAT») — dulu 768 baris (tahap 1) & 523 baris (tahap 2);
+    * nama sekolah yang berdiri sebagai potongan sendiri («SMP» + «NEGERI 8 TANGERANG») jatuh
+      ke kolom nama ibu karena titik tengahnya lebih dekat ke sana.
+
+    Pemeriksaan ini menjaga: pemisahan nada (penggabungan potongan sadar-tumpang-tindih),
+    penggabungan per kolom yang sadar-jarak, pengenalan nama sekolah & penanda kelas dari isi,
+    pendeteksian tahap dari kepala berkas, serta laporan jujur bila sekolah kita tidak ada.
+    """
+    from app import tangcer
+
+    # 1) Nama sekolah yang menempel pada nama orang dipisah, tanpa mengorbankan nama aslinya.
+    for teks, harap in (("ERLIN YUSNAWATISMP NEGERI 8 TANGERANG", 15),
+                        ("NENA ARNAWATI SMP NEGERI 12 TANGERANG", 14),
+                        ("ELAH NOPITASARIMTSS AL MANSHURIYAH CIPETE", 15),
+                        ("YUSTRI NURYANTISMP BANGUN NUSANTARA", 15),
+                        ("DINI ASMA RANI", -1),          # nama orang: JANGAN dipisah
+                        ("SITI ASMA", -1),
+                        ("SMP NEGERI 2 TANGERANG", -1)):  # sudah awal sel: tidak perlu dipisah
+        assert tangcer._awal_sekolah(teks) == harap, \
+            f"«{teks}» dibaca salah (harusnya dipisah di {harap}): {tangcer._awal_sekolah(teks)}"
+
+    # 2) Penanda kelas: angka, angka titik, dan angka romawi — nilai kelasnya apa adanya.
+    for teks, kelas, sisa in (("Kelas 8.6AJAT SUDRAJAT", "8.6", "AJAT SUDRAJAT"),
+                              ("Kelas 7I Abdul Rokib", "7I", "Abdul Rokib"),
+                              ("Kelas VII A", "VII A", ""),
+                              ("Kelas IX B CUNG KHIN NEN", "IX B", "CUNG KHIN NEN"),
+                              ("Kelas VII Relianus Gulo", "VII", "Relianus Gulo")):
+        cocok = tangcer._POLA_AWAL_KELAS.match(teks)
+        assert cocok, f"penanda kelas «{teks}» tidak dikenali"
+        assert tangcer._nilai_kelas(cocok) == kelas, \
+            f"nilai kelas «{teks}» → {tangcer._nilai_kelas(cocok)!r}, harusnya {kelas!r}"
+        assert teks[cocok.end():].strip() == sisa, \
+            f"sisa «{teks}» → {teks[cocok.end():].strip()!r}, harusnya {sisa!r}"
+
+    # 3) Nama sekolah yang masih menempel dipisahkan lagi saat baris disusun.
+    item = tangcer.BarisPenerima(no="1", nama="Bunga Latifah", nama_ibu="ERLIN YUSNAWATISMP NEGERI 8 TANGERANG")
+    catatan = tangcer._pisah_bocor(item)
+    assert item.sekolah == "SMP NEGERI 8 TANGERANG" and item.nama_ibu == "ERLIN YUSNAWATI", \
+        f"pemisahan gagal: sekolah={item.sekolah!r} ibu={item.nama_ibu!r}"
+    assert catatan, "pemisahan tidak dicatat"
+    item2 = tangcer.BarisPenerima(no="2", nama_ayah="Kelas 8.6AJAT SUDRAJAT")
+    tangcer._pisah_bocor(item2)
+    assert item2.rombel == "8.6" and item2.nama_ayah == "AJAT SUDRAJAT", \
+        f"kelas bocor tidak dipisah: rombel={item2.rombel!r} ayah={item2.nama_ayah!r}"
+
+    # 4) Sebuah sel yang isinya melimpah tidak lagi digabung jadi satu (pdf_baca).
+    from app import pdf_baca
+
+    gabung = pdf_baca.rapatkan_potongan_lebar([
+        (700.0, 10.0, "ERLIN YUSNAWATI", 73.0),
+        (771.9, 10.0, "SMP", 13.0),                  # sel sebelah yang menumpuk 1,1 pt
+        (784.9, 10.0, " NEGERI 8 TANGERANG", 66.9),  # lanjutan sel yang sama (menyentuh)
+    ])
+    assert [teks for _, teks, _ in gabung] == ["ERLIN YUSNAWATI", "SMP NEGERI 8 TANGERANG"], \
+        f"penggabungan potongan masih menelan sel sebelah: {gabung}"
+
+    # 5) Kepala berkas: TAHAP/SEMESTER/TAHUN ANGGARAN dibaca, dan mengisi isian tahap.
+    kepala = tangcer.kepala_berkas([
+        tangcer.GarisPdf(nomor=1, y=1.0, potongan=[(0.0, "TENTANG : DAFTAR DEFINITIF PENERIMA "
+                                                        "BANTUAN BIAYA PENDIDIKAN MELALUI PROGRAM "
+                                                        "TANGERANG CERDAS SEMESTER 1 TAHUN ANGGARAN "
+                                                        "2026 TAHAP 2")])])
+    assert kepala == {"tahap": "2", "semester": "1", "tahun": "2026"}, kepala
+
+    # 6) Laporan jujur: sekolah kita tidak ada di berkas.
+    hasil = tangcer.HasilBaca(format="PDF", kolom={0: "no", 1: "nama", 13: "sekolah"})
+    hasil.baris = [
+        tangcer.BarisPenerima(no="1", nama="A", sekolah="SMP NEGERI 7 TANGERANG"),
+        tangcer.BarisPenerima(no="2", nama="B", sekolah="SMP NEGERI 8 TANGERANG"),
+        tangcer.BarisPenerima(no="3", nama="C", sekolah="SMP NEGERI 8 TANGERANG"),
+    ]
+    saring = tangcer.saring_sekolah(hasil, "SMP NEGERI 2 TANGERANG", "", "KOTA TANGERANG")
+    assert saring.jumlah_diterima == 0 and not saring.tanpa_sekolah
+    pesan = " ".join(saring.catatan)
+    assert "Tidak ada satu baris pun untuk «SMP NEGERI 2 TANGERANG»" in pesan, pesan
+    assert "tahap lain" in pesan, "catatan tidak menyebut kemungkinan berkas tahap lain"
+
+    # 7) Baris yang kolom sekolahnya bukan nama sekolah tidak disebut «sekolah lain».
+    hasil_aneh = tangcer.HasilBaca(format="PDF", kolom={0: "no", 1: "nama", 13: "sekolah"})
+    hasil_aneh.baris = [tangcer.BarisPenerima(no="1", nama="A", sekolah="YAYAH SUTARYAHSMP NEGERI 11")]
+    aneh = tangcer.saring_sekolah(hasil_aneh, "SMP NEGERI 2 TANGERANG", "", "KOTA TANGERANG")
+    assert len(aneh.sekolah_aneh) == 1 and not aneh.sekolah_lain, \
+        "baris dengan kolom sekolah aneh tidak dipisahkan dari «sekolah lain»"
+    assert "tidak berbentuk nama sekolah" in " ".join(aneh.catatan)
+
+    # 8) Berkas yang tidak memuat sekolah kita tidak boleh ditandai «tersimpan».
+    isi_router = (BASE_DIR / "app" / "routers" / "tangcer_routes.py").read_text(encoding="utf-8")
+    assert "Tidak ada baris milik sekolah kita pada berkas ini" in isi_router, \
+        "penyimpanan impor tanpa baris sekolah kita tidak dicegah"
+    isi_pratinjau = (BASE_DIR / "app" / "templates" / "tangcer" / "pratinjau.html").read_text(
+        encoding="utf-8")
+    assert "not galat and diterima" in isi_pratinjau, \
+        "tombol Simpan masih muncul walaupun tidak ada baris sekolah kita"
+    isi_index = (BASE_DIR / "app" / "templates" / "tangcer" / "index.html").read_text(encoding="utf-8")
+    assert "kepala berkas" in isi_index, "petunjuk isian tahap belum menyebut kepala berkas"
+
+    # 9) Catatan kembar diringkas supaya catatan penting tidak tenggelam.
+    ringkas = tangcer.ringkas_catatan([
+        "kelompok pertama",
+        "«0» di luar kolom rombel (baris 5)",
+        "«0» di luar kolom rombel (baris 6)",
+        "«0» di luar kolom rombel (baris 7)",
+        "nama «A» dikembalikan ke kolom nama_ayah",
+    ])
+    assert ringkas[0] == "kelompok pertama" and ringkas[1] == "nama «A» dikembalikan ke kolom nama_ayah", ringkas
+    assert ringkas[2] == "«0» di luar kolom rombel (3 baris: 5, 6, 7)", ringkas
+    assert tangcer.ringkas_catatan(["satu (baris 9)"]) == ["satu (baris 9)"], "catatan tunggal berubah"
+
+    # 10) Kelas lencana yang dipakai templat harus ada di CSS (ronde 61).
+    import re as _re
+
+    css_lencana = "\n".join((BASE_DIR / "app" / "static" / "css" / nama).read_text(encoding="utf-8")
+                            for nama in ("app.css", "portal.css"))
+    kelas_css = {m.group(1) for m in _re.finditer(r"\.([a-zA-Z][\w-]*)\s*[,{]", css_lencana)}
+    for templat in sorted((BASE_DIR / "app" / "templates").rglob("*.html")):
+        dipakai = set(_re.findall(r'class="[^"]*?\b(badge-[\w-]+)', templat.read_text(encoding="utf-8")))
+        hilang = dipakai - kelas_css
+        assert not hilang, f"{templat.name}: kelas lencana tanpa warna di CSS: {hilang}"
+
+    from app.config import APP_VERSION
+
+    assert APP_VERSION >= "0.1.21", f"versi aplikasi belum naik: {APP_VERSION}"
+    assert (BASE_DIR / "scripts" / "uji_sk_nyata.py").is_file(), \
+        "skrip bukti berkas asli sekolah tidak ada"
+
+    return ("berkas SK bertahap dibaca benar: sel yang melimpah ke kolom sebelah tidak menelan "
+            "nama orang atau penanda kelas (tahap 1: 768 → 0 baris, tahap 2: 523 → 0 baris), "
+            "nama sekolah dikenali dari isinya, TAHAP/SEMESTER/TAHUN ANGGARAN dibaca dari kepala "
+            "berkas & dipakai mengisi isian tahap, dan berkas yang tidak memuat sekolah kita "
+            "dilaporkan apa adanya (tidak disimpan, sekolah yang ada disebutkan) · catatan "
+            "kembar pada banyak baris diringkas & kelas lencana diperiksa ada di CSS")
+
+
 @cek("48. Daftar desa kosong walau kata kunci masuk → pencarian dipaksa lewat model Ext JS, "
       "lalu keadaan kolom wilayahnya dibedah; daftar dua tahap (kecamatan → desa) ikut ditangani")
 def cek_pencarian_desa_dipaksa():
@@ -6091,6 +6234,7 @@ def main() -> int:
     cek_pencarian_desa_dipaksa()
     cek_tangcer()
     cek_spj()
+    cek_sk_bertahap()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()

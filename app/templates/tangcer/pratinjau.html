@@ -21,7 +21,7 @@
             onsubmit="return confirm('Hapus pratinjau ini beserta penerima hasil impornya?')">
         <button class="btn btn-danger btn-sm" type="submit">{{ icon('trash') }} Hapus</button>
       </form>
-      {% if kepala.status != 'tersimpan' and not galat %}
+      {% if kepala.status != 'tersimpan' and not galat and diterima %}
       <form class="inline-form" method="post" action="/tangcer/impor/{{ kepala.id }}/simpan">
         <button class="btn btn-primary btn-sm" type="submit">{{ icon('check') }} Simpan ke daftar penerima</button>
       </form>
@@ -99,7 +99,11 @@
             <tr>
               <td><strong>{{ kepala.sekolah_kita }}</strong></td>
               <td class="num">{{ diterima | length | angka_id }}</td>
+              {% if diterima %}
               <td><span class="badge badge-success">diambil</span></td>
+              {% else %}
+              <td><span class="badge badge-warning">tidak ada di berkas ini</span></td>
+              {% endif %}
             </tr>
             {% for nama, jumlah in sekolah_lain.items() %}
             <tr>

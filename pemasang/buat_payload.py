@@ -47,6 +47,10 @@ ABAIKAN_FOLDER = {
 ABAIKAN_POLA = (
     "*.pyc", "*.pyo", "*.sqlite3*", "*.log", ".env", "secrets.env",
     "*.xlsx", "*.xls", "*.xlsb", "*.ods",
+    # Berkas dinas sekolah (SK TANGCER, daftar penerima, pakta integritas, buku tabungan)
+    # yang dikirim ke repo untuk diuji: isinya **data siswa** (NISN, NIK, nomor rekening)
+    # dan tidak boleh ikut ke pemasangan sekolah mana pun (ronde 61).
+    "*.pdf", "*.docx", "*.doc",
     "laporan-python.txt", "SM-*-paket.zip", "bodap.exe",
 )
 PENGECUALIAN_POLA = ("template-import/*",)
