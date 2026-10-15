@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, nilai %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <div class="flex between flex-wrap" style="gap:1rem">
+      <div style="min-width:min(260px,100%)">
+        <h2 style="margin-bottom:.2rem">{{ impor.filename | singkat(60) }}</h2>
+        <div class="flex flex-wrap gap-1">
+          <span class="chip chip-muted">{{ impor.file_format or impor.file_ext }}</span>
+          <span class="chip chip-muted">{{ impor.sheet_name or '-' }}</span>
+          <span class="badge badge-{{ impor.status | badge }} badge-lg">{{ impor.status }}</span>
+          {% if parsed and parsed.kind == 'daftar_peserta_didik' %}
+            <span class="badge badge-success badge-lg">Format Dapodik terdeteksi</span>
+          {% elif parsed %}
+            <span class="badge badge-warning badge-lg">Format umum</span>
+          {% endif %}
+        </div>
+        <p class="muted mt-1" style="font-size:.82rem">
+          Diunggah {{ impor.created_at | tanggal_waktu }} oleh {{ impor.created_by or 'sistem' }}
+          · {{ impor.file_size | angka_id }} byte · mode {{ impor.mode }}
+        </p>
+      </div>
+      <div class="btn-group">
+        <a class="btn btn-outline btn-sm" href="/impor">{{ icon('upload') }} Impor lain</a>
+        <a class="btn btn-outline btn-sm" href="/impor/{{ impor.id }}/laporan.csv">{{ icon('download') }} Laporan masalah</a>
+        {% if parsed and parsed.kind == 'daftar_peserta_didik' %}
+        <form method="post" action="/impor/{{ impor.id }}/jalankan">
+          <input type="hidden" name="mode" value="upsert">
+          <input type="hidden" name="only_valid" value="1">
+          <button class="btn btn-primary btn-sm" type="submit">{{ icon('check') }} Impor Ulang (upsert)</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if error_baca %}
+<div class="alert alert-err mt-2">
+  {{ icon('warning') }}
+  <span>{{ error_baca }}</span>
+</div>
+{% endif %}
+
+<div class="grid grid-4 mt-2">
+  <div class="stat-card stat-primary">
+    <div class="stat-icon">{{ icon('file') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Baris terdeteksi</div>
+      <div class="stat-value">{{ (parsed.records | length if parsed else impor.rows_total) | angka_id }}</div>
+      <div class="stat-note">Mulai baris {{ parsed.data_start_row if parsed else '-' }}</div>
+    </div>
+  </div>
+  <div class="stat-card stat-info">
+    <div class="stat-icon">{{ icon('check') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Kolom terpetakan</div>
+      <div class="stat-value">{{ parsed.mapped_field_count if parsed else '-' }}</div>
+      <div class="stat-note">dari {{ parsed.total_columns if parsed else '-' }} kolom berkas</div>
+    </div>
+  </div>
+  <div class="stat-card stat-danger">
+    <div class="stat-icon">{{ icon('warning') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Error</div>
+      <div class="stat-value">{{ issue_ringkas.error | angka_id }}</div>
+      <div class="stat-note">Baris tidak akan diimpor</div>
+    </div>
+  </div>
+  <div class="stat-card stat-warning">
+    <div class="stat-icon">{{ icon('info') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Peringatan</div>
+      <div class="stat-value">{{ issue_ringkas.warning | angka_id }}</div>
+      <div class="stat-note">{{ issue_ringkas.info | angka_id }} informasi</div>
+    </div>
+  </div>
+</div>
+
+{% if parsed %}
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Pratinjau {{ preview | length }} baris pertama</h3>
+      <p>Menampilkan kolom inti. Klik "Jalankan Impor" untuk menyimpan seluruh {{ parsed.records | length }} baris.</p>
+    </div>
+  </div>
+  <div class="card-body p-0 table-wrap">
+    <table class="data preview-table">
+      <thead>
+        <tr>
+          <th style="width:64px">Baris</th><th>NISN</th><th>Nama</th><th>JK</th>
+          <th>Rombel</th><th>Tanggal lahir</th><th class="num">Field terisi</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in preview %}
+        <tr class="{{ 'row-error' if row.error }}">
+          <td class="muted">{{ row.row_number }}</td>
+          <td class="mono">{{ row.nisn or '—' }}</td>
+          <td><strong>{{ row.nama }}</strong></td>
+          <td>{{ row.jk or '—' }}</td>
+          <td>{% if row.rombel %}<span class="badge badge-primary">{{ row.rombel }}</span>{% else %}—{% endif %}</td>
+          <td>{{ row.tanggal_lahir | tanggal_id }}</td>
+          <td class="num">{{ row.jumlah_field }}</td>
+          <td>
+            {% if row.error %}<span class="badge badge-danger">error</span>
+            {% else %}<span class="badge badge-success">siap</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="empty">Tidak ada baris data yang terbaca.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="split mt-2">
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3>Pemetaan Kolom Berkas → Data Aplikasi</h3>
+          <p>{{ parsed.mapping | length }} kolom dikenali otomatis. Kolom yang tidak terpetakan diabaikan.</p>
+        </div>
+      </div>
+      {% if kolom_dihapus %}
+      <div class="card-body pb-0">
+        <div class="note">
+          <strong>{{ kolom_dihapus | length }} kolom pada berkas ini tidak lagi dipakai</strong>
+          sehingga tidak disimpan: {{ kolom_dihapus | join(', ') }}.
+          Kolom tersebut sudah dihapus dari aplikasi agar data yang dikelola lebih ringkas.
+        </div>
+      </div>
+      {% endif %}
+      <div class="card-body p-0 table-wrap compact">
+        <table class="data tabel-kecil">
+          <thead><tr><th>Kolom pada berkas</th><th>Disimpan sebagai</th><th>Grup data</th></tr></thead>
+          <tbody>
+            {% for key, kolom in parsed.mapping.items() %}
+            <tr>
+              <td>{{ kolom }}</td>
+              <td><strong>{{ field_by_key[key].label if key in field_by_key else key }}</strong></td>
+              <td class="muted">{{ field_by_key[key].group if key in field_by_key else '-' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Temuan Validasi</h3>
+          <p>Daftar masalah yang ditemukan saat membaca berkas (maksimal 200 ditampilkan).</p>
+        </div>
+      </div>
+      <div class="card-body p-0 table-wrap compact">
+        <table class="data tabel-kecil">
+          <thead><tr><th style="width:70px">Baris</th><th style="width:100px">Level</th><th>Pesan</th></tr></thead>
+          <tbody>
+            {% for issue in issues %}
+            <tr>
+              <td class="muted">{{ issue.row_number or '-' }}</td>
+              <td>
+                <span class="badge badge-{{ 'danger' if issue.level == 'error' else ('warning' if issue.level == 'warning' else 'muted') }}">
+                  {{ issue.level }}
+                </span>
+              </td>
+              <td>{{ issue.message }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="empty">Tidak ada temuan. Data terlihat bersih.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <aside>
+    <div class="card">
+      <div class="card-head"><h3>Jalankan Impor</h3></div>
+      <div class="card-body">
+        <form method="post" action="/impor/{{ impor.id }}/jalankan">
+          <div class="field">
+            <label for="mode">Mode penyimpanan</label>
+            <select id="mode" name="mode">
+              <option value="upsert">Perbarui (upsert) — aman, disarankan</option>
+              <option value="insert">Hanya tambah siswa baru</option>
+              <option value="replace">Timpa semua kolom dari berkas</option>
+              <option value="dry">Uji coba (tidak menyimpan)</option>
+            </select>
+            <span class="hint">
+              <strong>Upsert</strong> memperbarui data yang kosong/berbeda tanpa menimpa
+              nama, NIK, dan No. KK yang sudah terisi.
+            </span>
+          </div>
+          <div class="field mt-2">
+            <label class="check">
+              <input type="checkbox" name="only_valid" value="1" checked>
+              Lewati baris yang masih error
+            </label>
+          </div>
+          <button class="btn btn-primary btn-block mt-2" type="submit">{{ icon('check') }} Jalankan Impor</button>
+        </form>
+
+        <dl class="kv mt-3" style="grid-template-columns:1fr">
+          <dt>Baris judul</dt><dd>{{ parsed.header_row }}{% if parsed.sub_header_row %} + sub-header {{ parsed.sub_header_row }}{% endif %}</dd>
+          <dt>Data mulai</dt><dd>baris {{ parsed.data_start_row }}</dd>
+          <dt>Worksheet</dt><dd>{{ parsed.sheet_name }}</dd>
+          <dt>Siswa di aplikasi</dt><dd>{{ jumlah_siswa_db | angka_id }}</dd>
+        </dl>
+      </div>
+    </div>
+
+    {% if parsed.metadata %}
+    <div class="card mt-2">
+      <div class="card-head"><h3>Informasi Berkas</h3></div>
+      <div class="card-body">
+        <dl class="kv" style="grid-template-columns:1fr">
+          {% if parsed.metadata.sekolah %}<dt>Sekolah</dt><dd>{{ parsed.metadata.sekolah }}</dd>{% endif %}
+          {% if parsed.metadata.kecamatan %}<dt>Kecamatan</dt><dd>{{ parsed.metadata.kecamatan }}</dd>{% endif %}
+          {% if parsed.metadata.kabupaten %}<dt>Kabupaten/Kota</dt><dd>{{ parsed.metadata.kabupaten }}</dd>{% endif %}
+          {% if parsed.metadata.provinsi %}<dt>Provinsi</dt><dd>{{ parsed.metadata.provinsi }}</dd>{% endif %}
+          {% if parsed.metadata.tanggal_unduh %}<dt>Tanggal unduh</dt><dd>{{ parsed.metadata.tanggal_unduh }}</dd>{% endif %}
+          {% if parsed.metadata.pengunduh %}<dt>Pengunduh</dt><dd>{{ parsed.metadata.pengunduh }}</dd>{% endif %}
+        </dl>
+      </div>
+    </div>
+    {% endif %}
+  </aside>
+</div>
+{% endif %}
+{% endblock %}
