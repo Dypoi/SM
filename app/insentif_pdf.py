@@ -97,7 +97,7 @@ def _kepala_absensi(isi: list[str], grid: Mapping[str, list],
                     y: float) -> float:
     x = _sumbu_x(ABS_LEBAR)
     # Baris NO | NAMA/NIP | PANGKAT/GOL.RUANG | JABATAN | HARI/TANGGAL | JUMLAH
-    judul = ["NO", "NAMA / NIP", "PANGKAT /\nGOL.RUANG", "JABATAN"]
+    judul = ["NO", "NAMA/NIP", "PANGKAT /\nGOL.RUANG", "JABATAN"]
     for i, label in enumerate(judul):
         kotak(isi, x[i], y, ABS_LEBAR[i], 18, label.replace("\n", " "),
               8.5, True, "tengah", WARNA_ABU, 0.6)
@@ -364,7 +364,9 @@ def _kaki_spj(isi: list[str], ringkas: Mapping[str, int], ttd: Mapping[str, str]
                                SPJ_LEBAR[i] - 4, True)
         kotak(isi, x[i], y, SPJ_LEBAR[i], h, angka, uk_angka, True, "tengah")
     kotak(isi, x[16], y, SPJ_LEBAR[16] + SPJ_LEBAR[17], h, "", 7.0)
-    y -= h + 10
+    # Satu baris kosong sebelum titi mangsa — persis berkas (R52 kosong
+    # antara JUMLAH R51 dan judul kaki R53).
+    y -= h + 19
     nama_bulan = insentif.NAMA_BULAN_KECIL[bulan]
     x_kiri = x[1] + 2
     x_tengah = ML + 420

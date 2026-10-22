@@ -188,6 +188,9 @@ code, pre { font-family: var(--mono); font-size: .86em; }
 /* --------------------------------------------------------------- Tombol --- */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: .4rem;
+  /* Tombol sebaris (mis. ▲▼✕ atau Simpan+Kembali) tetap sejajar walau
+     isinya campur teks polos dan ikon. */
+  vertical-align: middle;
   padding: .55rem .9rem; border-radius: var(--radius-sm);
   border: 1px solid transparent; background: var(--primary); color: #fff;
   font: inherit; font-weight: 600; font-size: .875rem; cursor: pointer;
@@ -593,7 +596,15 @@ table.tabel-kecil th, table.tabel-kecil td { padding: .4rem .55rem; font-size: .
 .wali-fields { margin-top: .2rem; }
 
 /* --- Tombol aksi sebaris dengan tautan (mis. Rapikan data wali) ---------- */
-.inline-form { display: inline-flex; margin: 0; }
+.inline-form { display: inline-flex; margin: 0; vertical-align: middle; }
+/* Tombol aksi yang bersebelahan diberi napas (.35rem) supaya tidak mepet —
+   mis. ▲▼✕ di sel tabel atau Simpan + Kembali di kaki formulir. Wadah yang
+   sudah punya gap sendiri (btn-group, form-actions, card-head, table-tools)
+   dikecualikan agar jaraknya tidak dobel. */
+.btn + .btn, .inline-form + .inline-form,
+.btn + .inline-form, .inline-form + .btn { margin-left: .35rem; }
+.btn-group > * + *, .form-actions > * + *,
+.card-head > * + *, .table-tools > * + * { margin-left: 0; }
 
 /* ==========================================================================
    Penyempurnaan UX & aksesibilitas

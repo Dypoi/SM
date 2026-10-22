@@ -408,6 +408,8 @@ pdf_pns = insentif_pdf.pdf_absensi("pns", per, insentif.roster_periode(pid, "pns
 cek("PDF diawali %PDF", pdf_pns.startswith(b"%PDF-1.4"))
 cek("MediaBox Legal landscape", b"[0 0 1008 612]" in pdf_pns)
 cek("judul absensi PNS", b"DAFTAR HADIR TENAGA PENDIDIK \\( PNS \\)" in pdf_pns)
+cek("kepala NAMA/NIP tanpa spasi (persis berkas)",
+    b"NAMA/NIP" in pdf_pns and b"NAMA / NIP" not in pdf_pns)
 cek("nama + NIP spasi", b"MUHAMMAD" in pdf_pns and b"19740520 200501 1 007" in pdf_pns)
 cek("tanggal merah diisi", b"1 0 0 rg" in pdf_pns)
 cek("keterangan libur", b"Cuti Bersama Hari Suci Nyepi" in pdf_pns)
@@ -425,6 +427,14 @@ total = insentif.ringkas_spj(insentif.roster_periode(pid, "spj"))["total"]
 cek("total tercetak", insentif.rupiah(total).encode() in pdf_spj, insentif.rupiah(total))
 cek("TTD zigzag", b"1." in pdf_spj and b"2." in pdf_spj)
 cek("penandatangan", b"Bendahara Pengeluaran" in pdf_spj and b"Pengawas" in pdf_spj)
+import re as _re
+_kaki_ops: list[str] = []
+insentif_pdf._kaki_spj(_kaki_ops, {"total": 0, "pph": 0, "terima": 0}, {}, 31, 3,
+                       2026, "KOTA TANGERANG", 500.0)
+_titi = _re.search(r"1 0 0 1 [\d.]+ ([\d.]+) Tm \(Tangerang", "\n".join(_kaki_ops))
+cek("1 baris kosong sebelum titi mangsa (alas JUMLAH 478 → dasar 459)",
+    _titi is not None and _titi.group(1) == "459.00",
+    _titi.group(1) if _titi else "tak ketemu")
 
 # Roster besar → multi-halaman dengan kepala berulang
 with db.transaction() as conn:
