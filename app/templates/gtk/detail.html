@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{#- Detail pegawai GTK: seluruh isi berkas apa adanya, dikelompokkan. -#}
+<div class="card">
+  <div class="card-head">
+    <div>
+      <h3>{{ item.nama or '(tanpa nama)' }}</h3>
+      <p>
+        {% if item.jenis_ptk %}<span class="badge badge-primary">{{ item.jenis_ptk }}</span>{% endif %}
+        {% if item.status_kepegawaian %}<span class="badge badge-muted">{{ item.status_kepegawaian }}</span>{% endif %}
+        {% if item.nuptk %}<span class="mono muted">NUPTK {{ item.nuptk }}</span>{% endif %}
+      </p>
+    </div>
+    <div class="btn-group">
+      <a class="btn btn-ghost btn-sm" href="/gtk">{{ icon('x') }} Tutup</a>
+      <form class="inline-form" method="post" action="/gtk/pegawai/{{ item.id }}/hapus"
+            onsubmit="return confirm('Hapus «{{ item.nama }}» dari daftar pegawai?')">
+        <button class="btn btn-danger btn-sm" type="submit">{{ icon('trash') }} Hapus</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% for kode, daftar in grup.items() %}
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>{{ label_grup.get(kode, kode) }}</h3>
+    </div>
+  </div>
+  <div class="card-body">
+    <dl class="kv">
+      {% for spec in daftar %}
+      <dt>{{ spec.label }}</dt>
+      <dd>
+        {% set nilai = item.get(spec.key) %}
+        {% if nilai is none or nilai == '' %}<span class="muted">-</span>
+        {% else %}{{ nilai }}{% endif %}
+      </dd>
+      {% endfor %}
+    </dl>
+  </div>
+</div>
+{% endfor %}
+
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Asal data</h3>
+    </div>
+  </div>
+  <div class="card-body">
+    <dl class="kv">
+      <dt>Berkas sumber</dt>
+      <dd>{{ item.source_file or '-' }}</dd>
+      <dt>Disimpan</dt>
+      <dd>{{ item.dibuat or '-' }}{% if item.diubah %} · diperbarui {{ item.diubah }}{% endif %}</dd>
+    </dl>
+  </div>
+</div>
+{% endblock %}

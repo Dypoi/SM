@@ -904,7 +904,7 @@ def cek_http():
 
     halaman_admin = ["/", "/data-siswa", "/data-siswa/1", "/data-siswa/baru", "/statistik",
                      "/kualitas-data", "/ekstrakurikuler", "/ekstrakurikuler/1", "/impor",
-                     "/impor/1", "/impor/panduan", "/pengaturan",
+                     "/impor/1", "/impor/panduan", "/gtk", "/pengaturan",
                      "/pengaturan/dokumentasi-api", "/profil-akun", "/pembaruan", "/bot-dapodik",
                      "/bot-dapodik/catatan", "/bot-dapodik/catatan.txt", "/online"]
 
@@ -6240,6 +6240,95 @@ def cek_pencarian_desa_dipaksa():
             "(uji tiruan 63–65, merah pada bot ronde 54)")
 
 
+@cek("52. Menu Guru & Tendik — berkas mentah Dapodik (daftar guru/tendik) terbaca "
+      "apa adanya lalu tersimpan sebagai pegawai")
+def cek_gtk():
+    """Ronde 63 — permintaan sekolah: unggahan berkas «daftar guru» & «daftar tendik».
+
+    Berkas mentah dari Dapodik (kop 4 baris + judul kolom + data) harus terbaca
+    otomatis tanpa disunting dulu, dipratinjau, lalu tersimpan sebagai daftar
+    pegawai. Yang diperiksa di sini benar-benar dijalankan: tabel basis data,
+    judul kolom yang ditemukan sendiri, 50 kolom terpetakan, penyimpanan anti
+    ganda (kunci NUPTK → NIP → NIK), pencarian, ekspor, serta menu, route, dan
+    template halamannya.
+    """
+    from app import db, gtk, migrations
+    from app.routers import gtk_routes
+
+    migrations.run_migrations(verbose=False)
+
+    kolom_impor = set(db.table_columns("gtk_imports"))
+    assert {"berkas", "total_baris", "kolom", "catatan", "status", "jenis_berkas",
+           "disimpan_baru", "diperbarui", "dilewati", "gagal"} <= kolom_impor, \
+        f"tabel gtk_imports kurang kolom: {sorted(kolom_impor)}"
+    kolom_pegawai = set(db.table_columns("gtk_pegawai"))
+    assert {spec.key for spec in gtk.GTK_FIELDS} | {"kunci", "source_file"} <= kolom_pegawai, \
+        "tabel gtk_pegawai tidak memuat seluruh kolom GTK"
+    assert len(gtk.GTK_FIELDS) == 50, f"field GTK harus 50, dapat {len(gtk.GTK_FIELDS)}"
+
+    # Berkas contoh mirip Dapodik: kop 4 baris, judul, 2 baris data.
+    import openpyxl
+
+    buku = openpyxl.Workbook()
+    lembar = buku.active
+    lembar.append(["Daftar Guru"])
+    lembar.append(["SMP NEGERI 2 TANGERANG"])
+    lembar.append(["Kecamatan Kec. Tangerang, Kabupaten Kota Tangerang, Provinsi Prov. Banten"])
+    lembar.append(["Tanggal Unduh: 2026-10-22 10:05:18"])
+    lembar.append([spec.label for spec in gtk.GTK_FIELDS])
+    baris = {spec.label: None for spec in gtk.GTK_FIELDS}
+    baris.update({"Nama": "Guru Contoh", "NUPTK": "9990001112223333", "JK": "L",
+                  "Tanggal Lahir": "1990-05-06", "NIP": "199005062020121001",
+                  "Jenis PTK": "Guru", "Status Kepegawaian": "PPPK",
+                  "NIK": "3671999000000001", "HP": "081000000001"})
+    lembar.append([baris[label] for label in [spec.label for spec in gtk.GTK_FIELDS]])
+    baris2 = dict(baris)
+    baris2.update({"Nama": "Tendik Contoh", "NUPTK": "9990004445556666",
+                   "NIP": "199105072021122002", "Jenis PTK": "Tenaga Kependidikan",
+                   "NIK": "3671999000000002", "HP": "081000000002"})
+    lembar.append([baris2[label] for label in [spec.label for spec in gtk.GTK_FIELDS]])
+    contoh = _SEMENTARA / "cek-gtk.xlsx"
+    buku.save(contoh)
+
+    sheet, hasil, _ = gtk.baca_berkas(contoh)
+    assert hasil.header_row == 5, f"judul tidak di baris 5: {hasil.header_row}"
+    assert hasil.mapped_field_count == 50, f"kolom terpetakan: {hasil.mapped_field_count}"
+    assert hasil.jenis_berkas == "guru", f"jenis berkas: {hasil.jenis_berkas}"
+    assert len(hasil.records) == 2 and not hasil.issues, \
+        f"baris {len(hasil.records)}, temuan {hasil.issues!r}"
+
+    import_id = gtk.buat_impor(nama_berkas="cek-gtk.xlsx", path=contoh, ext=".xlsx",
+                               ukuran=contoh.stat().st_size, sheet=sheet, hasil=hasil,
+                               fmt="Excel", actor="cek")
+    simpan = gtk.simpan_banyak(import_id, hasil.records, source_file="cek-gtk.xlsx")
+    assert (simpan["baru"], simpan["gagal"]) == (2, 0), repr(simpan)
+    ulang = gtk.simpan_banyak(import_id, hasil.records, source_file="cek-gtk.xlsx")
+    assert (ulang["baru"], ulang["dilewati"]) == (0, 2), f"unggah ulang menggandakan: {ulang!r}"
+    assert len(gtk.daftar_pegawai(cari="9990001112223333")) == 1, "pencarian NUPTK gagal"
+    assert len(gtk.daftar_pegawai(jenis="Tenaga Kependidikan")) == 1, "filter jenis gagal"
+    assert gtk.ringkas_pegawai()["total"] == 2
+    assert "Nomor Rekening Bank" in gtk.ekspor_csv().decode("utf-8-sig").splitlines()[0], \
+        "ekspor CSV kehilangan kolom"
+    assert len(gtk.ekspor_xlsx()) > 1000, "ekspor XLSX kosong"
+
+    # Route, template, dan menu samping.
+    rute = {r.path for r in gtk_routes.router.routes if hasattr(r, "path")}
+    assert {"/gtk", "/gtk/unggah", "/gtk/impor/{import_id}",
+            "/gtk/impor/{import_id}/simpan", "/gtk/impor/{import_id}/hapus",
+            "/gtk/pegawai/{pegawai_id}", "/gtk/ekspor.csv", "/gtk/ekspor.xlsx"} <= rute, \
+        f"route GTK kurang: {sorted(rute)}"
+    for nama in ("index.html", "pratinjau.html", "detail.html"):
+        assert (BASE_DIR / "app/templates/gtk" / nama).exists(), f"template gtk/{nama} hilang"
+    assert '"/gtk"' in (BASE_DIR / "app/web.py").read_text(encoding="utf-8"), \
+        "menu samping tidak memuat /gtk"
+
+    gtk.hapus_impor(import_id)
+    assert db.query_value("SELECT COUNT(*) FROM gtk_pegawai") == 0
+    return ("berkas GTK 50 kolom terbaca (judul baris 5, jenis guru), 2 pegawai tersimpan, "
+            "unggah ulang tidak menggandakan, cari/filter/ekspor jalan, route + template + "
+            "menu lengkap")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -6294,6 +6383,7 @@ def main() -> int:
     cek_tangcer()
     cek_spj()
     cek_sk_bertahap()
+    cek_gtk()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()

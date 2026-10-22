@@ -1,0 +1,293 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{#- Menu GTK: berkas «daftar guru» / «daftar tendik» dari Dapodik dibaca apa adanya
+    lalu disimpan sebagai daftar pegawai. Alur: unggah → pratinjau → simpan. -#}
+<div class="grid grid-4 mb-2">
+  <div class="stat-card stat-primary">
+    <div class="stat-icon">{{ icon('book') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Pegawai tersimpan</div>
+      <div class="stat-value">{{ ringkas.total | angka_id }}</div>
+      <div class="stat-note">Guru &amp; tendik di aplikasi ini</div>
+    </div>
+  </div>
+  <div class="stat-card stat-success">
+    <div class="stat-icon">{{ icon('users') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Guru</div>
+      <div class="stat-value">{{ ringkas.guru | angka_id }}</div>
+      <div class="stat-note">Jenis PTK «Guru»</div>
+    </div>
+  </div>
+  <div class="stat-card stat-info">
+    <div class="stat-icon">{{ icon('user') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Tendik</div>
+      <div class="stat-value">{{ (ringkas.tendik + ringkas.kepala_sekolah) | angka_id }}</div>
+      <div class="stat-note">Termasuk kepala sekolah</div>
+    </div>
+  </div>
+  <div class="stat-card stat-warning">
+    <div class="stat-icon">{{ icon('warning') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Tanpa NUPTK</div>
+      <div class="stat-value">{{ ringkas.tanpa_nuptk | angka_id }}</div>
+      <div class="stat-note">Perlu dilengkapi di Dapodik</div>
+    </div>
+  </div>
+</div>
+
+<div class="split">
+  <div>
+    <form class="card" method="post" action="/gtk/unggah" enctype="multipart/form-data">
+      <div class="card-head">
+        <div>
+          <h3>Unggah berkas mentah GTK</h3>
+          <p>
+            Berkas <strong>daftar guru</strong> / <strong>daftar tendik</strong> hasil unduhan
+            Dapodik langsung terbaca apa adanya — kop baris 1-4 dilewati, judul kolom
+            ditemukan sendiri. Data belum masuk sebelum Anda menekan
+            <em>Simpan</em> pada pratinjau.
+          </p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="upload-zone" data-upload-zone>
+          <input type="file" name="berkas" id="berkas-gtk" hidden
+                 accept=".xlsx,.xlsm,.xltx,.xltm,.xls,.xlsb,.ods,.csv,.txt,.tsv">
+          {{ icon('upload') }}
+          <h3>Letakkan berkas Excel atau CSV di sini</h3>
+          <p>
+            Mendukung
+            {% for ext, label in format_didukung %}<code>{{ ext }}</code>{{ ', ' if not loop.last }}{% endfor %}
+            — maksimal {{ maks_ukuran }} MB
+          </p>
+          <span class="chip" data-file-name></span>
+        </div>
+        <div class="form-actions mt-2">
+          <button class="btn btn-primary" type="submit">{{ icon('upload') }} Baca &amp; Pratinjau</button>
+          <span class="muted">Unggah ulang berkas yang sama tidak menggandakan data.</span>
+        </div>
+      </div>
+    </form>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Riwayat impor GTK</h3>
+          <p>Berkas yang sudah dibaca dan hasil penyimpanannya.</p>
+        </div>
+      </div>
+      <div class="card-body p-0 table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Berkas</th><th>Jenis</th><th class="num">Terbaca</th>
+              <th class="num">Baru</th><th class="num">Diperbarui</th><th>Status</th>
+              <th class="text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in riwayat %}
+            <tr>
+              <td>
+                <a href="/gtk/impor/{{ item.id }}"><strong>{{ item.berkas | singkat(38) }}</strong></a>
+                <div class="muted">{{ item.dibuat }} · {{ item.ext or '' }} ·
+                  {{ (item.ukuran or 0) // 1024 }} KB</div>
+              </td>
+              <td>
+                {% if item.jenis_berkas == 'guru' %}<span class="badge badge-success">guru</span>
+                {% elif item.jenis_berkas == 'tendik' %}<span class="badge badge-info">tendik</span>
+                {% elif item.jenis_berkas == 'campuran' %}<span class="badge badge-warning">campuran</span>
+                {% else %}-{% endif %}
+              </td>
+              <td class="num">{{ item.total_baris | angka_id }}</td>
+              <td class="num">{{ item.disimpan_baru | angka_id }}</td>
+              <td class="num">{{ item.diperbarui | angka_id }}</td>
+              <td>
+                {% if item.status == 'tersimpan' %}
+                <span class="badge badge-primary">tersimpan</span>
+                {% else %}
+                <span class="badge badge-warning">pratinjau</span>
+                {% endif %}
+              </td>
+              <td class="text-right">
+                <a class="btn btn-outline btn-sm" href="/gtk/impor/{{ item.id }}">{{ icon('search') }} Pratinjau</a>
+                <form class="inline-form" method="post" action="/gtk/impor/{{ item.id }}/hapus"
+                      onsubmit="return confirm('Hapus riwayat impor «{{ item.berkas }}» beserta pegawai hasil impor itu?')">
+                  <button class="btn btn-danger btn-sm" type="submit">{{ icon('trash') }} Hapus</button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7"><div class="empty">Belum ada berkas GTK yang diunggah.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3>Pegawai per jenis PTK</h3>
+          <p>Jumlah pegawai tersimpan per jenis.</p>
+        </div>
+      </div>
+      <div class="card-body p-0 table-wrap">
+        <table class="data">
+          <thead><tr><th>Jenis PTK</th><th class="num">Jumlah</th></tr></thead>
+          <tbody>
+            {% for item in ringkas.per_jenis %}
+            <tr><td>{{ item.jenis or '(tanpa jenis)' }}</td><td class="num">{{ item.jumlah | angka_id }}</td></tr>
+            {% else %}
+            <tr><td colspan="2"><div class="empty">Belum ada data pegawai tersimpan.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Pegawai per status</h3>
+          <p>Jumlah pegawai tersimpan per status kepegawaian.</p>
+        </div>
+      </div>
+      <div class="card-body p-0 table-wrap">
+        <table class="data">
+          <thead><tr><th>Status</th><th class="num">Jumlah</th></tr></thead>
+          <tbody>
+            {% for item in ringkas.per_status %}
+            <tr><td>{{ item.status or '(tanpa status)' }}</td><td class="num">{{ item.jumlah | angka_id }}</td></tr>
+            {% else %}
+            <tr><td colspan="2"><div class="empty">Belum ada data pegawai tersimpan.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Ekspor daftar pegawai</h3>
+          <p>Hasil ekspor mengikuti filter pada daftar di bawah.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="btn-group">
+          <a class="btn btn-outline btn-sm" href="/gtk/ekspor.xlsx?jenis={{ filter.jenis }}&status={{ filter.status }}&cari={{ filter.cari }}">{{ icon('download') }} Excel</a>
+          <a class="btn btn-outline btn-sm" href="/gtk/ekspor.csv?jenis={{ filter.jenis }}&status={{ filter.status }}&cari={{ filter.cari }}">{{ icon('download') }} CSV</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Daftar guru &amp; tendik</h3>
+      <p>
+        {{ pegawai | length }} baris ditampilkan{% if pegawai | length >= 500 %} (maksimal 500 — persempit dengan filter){% endif %}.
+        Klik nama untuk melihat seluruh isi berkas pegawai itu apa adanya.
+      </p>
+    </div>
+  </div>
+  <div class="card-body">
+    <form class="filter-bar" method="get" action="/gtk">
+      <div class="field">
+        <label for="filter-jenis">Jenis PTK</label>
+        <select id="filter-jenis" name="jenis">
+          <option value="">Semua jenis</option>
+          {% for pilihan in daftar_jenis %}
+          <option value="{{ pilihan }}" {% if pilihan == filter.jenis %}selected{% endif %}>{{ pilihan }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="filter-status">Status</label>
+        <select id="filter-status" name="status">
+          <option value="">Semua status</option>
+          {% for pilihan in daftar_status %}
+          <option value="{{ pilihan }}" {% if pilihan == filter.status %}selected{% endif %}>{{ pilihan }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field span-2">
+        <label for="filter-cari">Cari</label>
+        <input type="search" id="filter-cari" name="cari" value="{{ filter.cari }}"
+               placeholder="Nama, NUPTK, NIP, NIK, atau HP">
+      </div>
+      <div class="field">
+        <label>&nbsp;</label>
+        <button class="btn btn-primary" type="submit">{{ icon('search') }} Tampilkan</button>
+      </div>
+    </form>
+    {% if filter.jenis or filter.status or filter.cari %}
+    <div class="filter-chips">
+      <span class="filter-chip">
+        {{ icon('search') }} Filter aktif
+        <a href="/gtk" title="Hapus semua filter">&times;</a>
+      </span>
+    </div>
+    {% endif %}
+  </div>
+  <div class="card-body p-0 table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th class="num">No</th><th>Nama</th><th>NUPTK</th><th>NIP</th>
+          <th>Jenis PTK</th><th>Status kepegawaian</th><th>HP</th>
+          <th class="text-right">Aksi</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in pegawai %}
+        <tr>
+          <td class="num">{{ loop.index }}</td>
+          <td>
+            <a href="/gtk/pegawai/{{ item.id }}"><strong>{{ item.nama or '(tanpa nama)' }}</strong></a>
+            {% if item.tugas_tambahan %}<div class="muted">{{ item.tugas_tambahan }}</div>{% endif %}
+          </td>
+          <td class="mono">{{ item.nuptk or '-' }}</td>
+          <td class="mono">{{ item.nip or '-' }}</td>
+          <td>{{ item.jenis_ptk or '-' }}</td>
+          <td>{{ item.status_kepegawaian or '-' }}</td>
+          <td>{{ item.hp or '-' }}</td>
+          <td class="text-right">
+            <a class="btn btn-outline btn-sm" href="/gtk/pegawai/{{ item.id }}">{{ icon('search') }} Detail</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8">
+            <div class="empty">
+              Belum ada guru &amp; tendik yang tersimpan. Unggah berkas Dapodik di atas, lalu tekan
+              <strong>Simpan</strong> pada halaman pratinjau.
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if ringkas.total %}
+  <div class="card-foot">
+    <form class="inline-form" method="post" action="/gtk/hapus"
+          onsubmit="return confirm('Hapus {{ ringkas.total }} data pegawai{{ ' pada filter ini' if filter.jenis or filter.status }}? Tindakan ini tidak bisa dibatalkan.')">
+      <input type="hidden" name="jenis" value="{{ filter.jenis }}">
+      <input type="hidden" name="status" value="{{ filter.status }}">
+      <input type="hidden" name="cari" value="{{ filter.cari }}">
+      <button class="btn btn-danger btn-sm" type="submit">{{ icon('trash') }} Hapus daftar pegawai{{ ' (filter ini)' if filter.jenis or filter.status or filter.cari }}</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

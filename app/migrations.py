@@ -437,6 +437,112 @@ def _migrasi_009(conn: sqlite3.Connection) -> None:
     log.info("Kolom SPJ TANGCER siap (rekening, orang tua, kelamin, KK).")
 
 
+def _migrasi_010(conn: sqlite3.Connection) -> None:
+    """Guru & Tendik (GTK) — impor berkas mentah Dapodik & daftar pegawai.
+
+    ``gtk_imports`` menyimpan **kepala impor** (berkas apa, lembar apa, judul
+    kolom di baris berapa, catatan pembacaan) sehingga pratinjau bisa dibuka
+    ulang tanpa mengunggah berkasnya lagi.
+
+    ``gtk_pegawai`` menyimpan baris pegawai yang sudah dibaca (50 kolom sesuai
+    ekspor Dapodik). Kolom ``kunci`` (NUPTK → NIP → NIK → nama+tanggal lahir)
+    dipakai untuk mencegah data ganda ketika berkas yang sama diunggah ulang.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS gtk_imports (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            berkas        TEXT NOT NULL,
+            ext           TEXT,
+            ukuran        INTEGER DEFAULT 0,
+            sumber_path   TEXT,
+            sekolah       TEXT,
+            judul         TEXT,
+            tanggal_unduh TEXT,
+            jenis_berkas  TEXT,
+            sheet         TEXT,
+            baris_judul   INTEGER DEFAULT 0,
+            total_baris   INTEGER DEFAULT 0,
+            disimpan_baru INTEGER DEFAULT 0,
+            diperbarui    INTEGER DEFAULT 0,
+            dilewati      INTEGER DEFAULT 0,
+            gagal         INTEGER DEFAULT 0,
+            kolom         TEXT,
+            catatan       TEXT,
+            status        TEXT NOT NULL DEFAULT 'pratinjau',
+            actor         TEXT,
+            dibuat        TEXT DEFAULT (datetime('now','localtime')),
+            disimpan      TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_gtk_imports_dibuat ON gtk_imports(dibuat);
+
+        CREATE TABLE IF NOT EXISTS gtk_pegawai (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            import_id  INTEGER,
+            kunci      TEXT,
+            nama TEXT,
+            nuptk TEXT,
+            jk TEXT,
+            tempat_lahir TEXT,
+            tanggal_lahir TEXT,
+            nip TEXT,
+            agama TEXT,
+            nik TEXT,
+            no_kk TEXT,
+            kewarganegaraan TEXT,
+            status_kepegawaian TEXT,
+            jenis_ptk TEXT,
+            tugas_tambahan TEXT,
+            sk_cpns TEXT,
+            tanggal_cpns TEXT,
+            sk_pengangkatan TEXT,
+            tmt_pengangkatan TEXT,
+            lembaga_pengangkatan TEXT,
+            pangkat_golongan TEXT,
+            sumber_gaji TEXT,
+            tmt_pns TEXT,
+            lisensi_kepala_sekolah TEXT,
+            pernah_diklat TEXT,
+            braille TEXT,
+            isyarat TEXT,
+            nuks TEXT,
+            alamat TEXT,
+            rt TEXT,
+            rw TEXT,
+            dusun TEXT,
+            kelurahan TEXT,
+            kecamatan TEXT,
+            kode_pos TEXT,
+            telepon TEXT,
+            hp TEXT,
+            email TEXT,
+            lintang REAL,
+            bujur REAL,
+            ibu_kandung TEXT,
+            status_perkawinan TEXT,
+            pasangan_nama TEXT,
+            pasangan_nip TEXT,
+            pasangan_pekerjaan TEXT,
+            npwp TEXT,
+            nama_wp TEXT,
+            bank TEXT,
+            rekening TEXT,
+            rekening_nama TEXT,
+            karpeg TEXT,
+            karis_karsu TEXT,
+            source_file TEXT,
+            dibuat     TEXT DEFAULT (datetime('now','localtime')),
+            diubah     TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_gtk_pegawai_kunci ON gtk_pegawai(kunci);
+        CREATE INDEX IF NOT EXISTS idx_gtk_pegawai_nama ON gtk_pegawai(nama);
+        CREATE INDEX IF NOT EXISTS idx_gtk_pegawai_jenis ON gtk_pegawai(jenis_ptk);
+        CREATE INDEX IF NOT EXISTS idx_gtk_pegawai_impor ON gtk_pegawai(import_id);
+        """
+    )
+    log.info("Tabel GTK siap (gtk_imports, gtk_pegawai).")
+
+
 #: Setiap entri: (id_migrasi, skrip SQL) atau (id_migrasi, fungsi(conn)).
 Migrasi: Callable[[sqlite3.Connection], None]
 
@@ -729,6 +835,10 @@ MIGRATIONS: list[tuple[str, str | Callable[[sqlite3.Connection], None]]] = [
     (
         "009_tangcer_spj",
         _migrasi_009,
+    ),
+    (
+        "010_gtk",
+        _migrasi_010,
     ),
 ]
 

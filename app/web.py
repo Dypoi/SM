@@ -397,6 +397,8 @@ def nav_items(user: auth.SessionUser | None) -> list[dict[str, str]]:
     items = [
         {"href": "/", "label": "Dasbor", "icon": "home"},
         {"href": "/data-siswa", "label": "Data Siswa", "icon": "users"},
+        {"href": "/gtk", "label": "Guru & Tendik", "icon": "book",
+         "badge": services.hitung_pegawai_gtk()},
         {"href": "/pengajuan", "label": "Persetujuan Data", "icon": "check",
          "badge": services.hitung_pengajuan("menunggu")},
         {"href": "/impor", "label": "Impor Excel/CSV", "icon": "upload"},
@@ -422,6 +424,7 @@ def nav_items(user: auth.SessionUser | None) -> list[dict[str, str]]:
 NAV_GRUP = {
     "/": "Utama",
     "/data-siswa": "Utama",
+    "/gtk": "Utama",
     "/pengajuan": "Utama",
     "/impor": "Data & Laporan",
     "/kualitas-data": "Data & Laporan",
@@ -454,6 +457,7 @@ def nav_grup(user: auth.SessionUser | None) -> list[dict[str, Any]]:
 PAGE_TITLES = {
     "/": "Dasbor",
     "/data-siswa": "Data Siswa",
+    "/gtk": "Guru & Tendik",
     "/impor": "Impor Berkas",
     "/ekstrakurikuler": "Ekstrakurikuler",
     "/statistik": "Statistik",
