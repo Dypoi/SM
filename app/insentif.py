@@ -412,6 +412,9 @@ PENGATURAN_BAWAAN = {
     "pengawas_nip": "",
     "ks_nama": "",
     "ks_nip": "",
+    # Impor rekening awal (modul insentif_impor): draf + hasil terakhir.
+    "impor_rekening_draf": "",
+    "impor_rekening_terakhir": "",
 }
 
 

@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+from pathlib import Path
 from urllib.parse import quote_plus
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
-from .. import auth, gtk, insentif, insentif_pdf, services
+from .. import auth, config, gtk, insentif, insentif_impor, insentif_pdf, services
 from ..web import render
 
 log = logging.getLogger("sm.insentif.web")
@@ -46,6 +47,7 @@ def halaman_insentif(
             "periode": insentif.daftar_periode(),
             "pengaturan": insentif.baca_pengaturan(),
             "ringkas_gtk": gtk.ringkas_pegawai(),
+            "impor_rekening": insentif_impor.status(),
         },
     )
 
@@ -443,3 +445,89 @@ def simpan_satu_profil(
                                       "ikut_spj": ikut_spj == "1"})
     return _kembali("/insentif/profil", "ok",
                     "Profil disimpan; dipakai mulai draf berikutnya.")
+
+
+@router.get("/insentif/impor-rekening")
+def halaman_impor_rekening(
+    request: Request,
+    pratinjau: int = 0,
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Impor rekening awal: unggah berkas lama sekali, cocokkan, terapkan."""
+    cocok = tak_gtk = tak_berkas = None
+    draf = insentif_impor.baca_draf()
+    if pratinjau and draf is not None:
+        try:
+            hasil = insentif_impor.cocokan(
+                insentif_impor.baca_berkas_rekening(draf["path"]))
+        except ValueError as galat:
+            return _kembali("/insentif/impor-rekening", "err", str(galat))
+        cocok = hasil["cocok"]
+        tak_gtk = hasil["tak_di_gtk"]
+        tak_berkas = hasil["tak_di_berkas"]
+    return render(
+        request,
+        "insentif/impor.html",
+        {
+            "page_title": "Impor Rekening Awal",
+            "status_impor": insentif_impor.status(),
+            "draf": draf,
+            "cocok": cocok,
+            "tak_di_gtk": tak_gtk,
+            "tak_di_berkas": tak_berkas,
+        },
+    )
+
+
+@router.post("/insentif/impor-rekening")
+async def unggah_rekening(
+    request: Request,
+    berkas: UploadFile = File(...),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Terima berkas lama lalu tampilkan pratinjau pencocokan."""
+    nama = berkas.filename or "unggahan.xls"
+    isi = await berkas.read()
+    ekstensi = Path(nama).suffix.lower()
+    if not isi:
+        return _kembali("/insentif/impor-rekening", "err",
+                        "Berkas kosong atau gagal dibaca.")
+    if ekstensi not in insentif_impor.EKSTENSI:
+        return _kembali("/insentif/impor-rekening", "err",
+                        "Jenis berkas «%s» belum didukung menu ini. Yang "
+                        "didukung: %s." % (ekstensi or "tanpa ekstensi",
+                                           ", ".join(insentif_impor.EKSTENSI)))
+    if len(isi) > config.MAX_UPLOAD_BYTES:
+        return _kembali("/insentif/impor-rekening", "err",
+                        f"Ukuran berkas melebihi {config.MAX_UPLOAD_MB} MB.")
+    try:
+        simpan = services.save_upload(nama, isi)
+        daftar = insentif_impor.baca_berkas_rekening(simpan.path, simpan.extension)
+    except ValueError as galat:
+        return _kembali("/insentif/impor-rekening", "err", str(galat))
+    if not daftar:
+        simpan.path.unlink(missing_ok=True)
+        return _kembali("/insentif/impor-rekening", "err",
+                        "Tidak ada baris penerima yang terbaca. Pastikan "
+                        "berkasnya memuat kolom NO REKENING.")
+    insentif_impor.simpan_draf(simpan.path, nama)
+    return RedirectResponse("/insentif/impor-rekening?pratinjau=1", status_code=303)
+
+
+@router.post("/insentif/impor-rekening/terapkan")
+def terapkan_rekening(
+    request: Request,
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Isi rekening GTK yang kosong dari draf impor."""
+    try:
+        ringkas = insentif_impor.terapkan()
+    except ValueError as galat:
+        return _kembali("/insentif/impor-rekening", "err", str(galat))
+    services.log_audit(user.username, user.role, "insentif_impor_rekening", "-",
+                 None, f"{ringkas['berkas']}: {ringkas['terisi']} rekening "
+                       f"terisi ({ringkas['cocok']} cocok, {ringkas['beda']} beda)")
+    return _kembali("/insentif", "ok",
+                    f"{ringkas['terisi']} nomor rekening terisi dari "
+                    f"«{ringkas['berkas']}» ({ringkas['cocok']} cocok, "
+                    f"{ringkas['beda']} beda dipertahankan).")

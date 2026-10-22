@@ -57,11 +57,13 @@ HALAMAN_SISWA = ("/portal", "/portal/profil", "/portal/ekstrakurikuler", "/porta
 #: Halaman petugas yang diperiksa susunannya (login admin).
 HALAMAN_PETUGAS = ("/online", "/bot-dapodik/catatan", "/pembaruan", "/bot-dapodik", "/tangcer",
                   "/tangcer/spj", "/tangcer/bedah", "/gtk", "/insentif",
-                  "/insentif/pengaturan", "/insentif/libur", "/insentif/profil")
+                  "/insentif/pengaturan", "/insentif/libur", "/insentif/profil",
+                  "/insentif/impor-rekening")
 
 #: Halaman yang wajib bebas gaya sebaris & keterangan panjang (ronde 56 & 58).
 HALAMAN_RAPI = ("/pembaruan", "/bot-dapodik", "/tangcer", "/tangcer/spj", "/tangcer/bedah", "/gtk",
-                "/insentif", "/insentif/pengaturan", "/insentif/libur", "/insentif/profil")
+                "/insentif", "/insentif/pengaturan", "/insentif/libur", "/insentif/profil",
+                "/insentif/impor-rekening")
 BATAS_KETERANGAN = 160
 
 

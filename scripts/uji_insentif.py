@@ -38,7 +38,7 @@ os.environ["SM_DATA_DIR"] = str(_SEMENTARA / "data")
 os.environ["SM_DB_PATH"] = str(_SEMENTARA / "uji.sqlite3")
 os.environ["SM_AUTO_SEED"] = "0"
 
-from app import db, insentif, insentif_pdf, migrations  # noqa: E402
+from app import db, insentif, insentif_impor, insentif_pdf, migrations  # noqa: E402
 
 migrations.init_database()
 
@@ -616,6 +616,120 @@ async def alur_http() -> None:
 
 
 asyncio.run(alur_http())
+
+# --------------------------------------------------------------------------- #
+# 10. Impor rekening awal
+# --------------------------------------------------------------------------- #
+skenario("10. Impor rekening: HTML-.xls, .xlsx, cocok vs GTK, terapkan")
+
+_HTML_UJI = """<div><table border="1">
+<tr><td>NO</td><td>Nama</td><td>NIP</td><td>NPWP</td><td>NO REKENING</td><td>NIK</td>
+<td colspan="2">STATUS</td><td>GOLONGAN RUANG</td><td>JABATAN</td></tr>
+<tr><td>PNS</td><td>NON PNS</td><td></td></tr>
+<tr><td>1</td><td>Ary Setyowati</td><td>197503312006042004</td><td>24.458.256.5-416.000</td>
+<td>0009567461100</td><td>3671016303750002</td><td>ASN</td><td></td>
+<td>III/d</td><td>Guru</td></tr>
+<tr><td>2</td><td>NURBIANTI</td><td>196505161990032006</td><td></td>
+<td>0009567000111</td><td></td><td>ASN</td><td></td><td>IV/b</td><td>Guru</td></tr>
+<tr><td>3</td><td>Ulfa Rahmah</td><td></td><td></td><td>0111222333444</td><td></td>
+<td></td><td>NON ASN</td><td></td><td>Tenaga Kependidikan</td></tr>
+<tr><td>4</td><td>Orang Asing</td><td>999999999999999999</td><td></td><td>0999888777</td>
+<td></td><td></td><td>NON ASN</td><td></td><td>Guru</td></tr>
+<tr><td>JUMLAH</td><td></td><td></td><td></td><td></td></tr>
+</table></div>"""
+_contoh_xls = _SEMENTARA / "contoh-rekening.xls"
+_contoh_xls.write_text(_HTML_UJI, encoding="utf-8")
+contoh = insentif_impor.baca_berkas_rekening(_contoh_xls)
+cek("HTML-.xls: 4 baris (kepala/JUMLAH dilewati)", len(contoh) == 4)
+cek("kolom rekening & gol benar",
+    contoh[0]["rekening"] == "0009567461100" and contoh[0]["gol"] == "III/d"
+    and contoh[0]["jabatan"] == "Guru")
+
+import openpyxl as _oxl
+_wb = _oxl.Workbook()
+_ws = _wb.active
+for _r, _baris in enumerate(
+        [["NO", "Nama", "NIP", "NPWP", "NO REKENING", "NIK", "STATUS", "GOLONGAN",
+          "JABATAN"],
+         [1, "Ary Setyowati", "197503312006042004", "", "0009567461100", "",
+          "ASN", "III/d", "Guru"],
+         [2, "NURBIANTI", "196505161990032006", "", "0009567000111", "",
+          "ASN", "IV/b", "Guru"],
+         [3, "Ulfa Rahmah", "", "", "0111222333444", "", "", "", ""],
+         [4, "Orang Asing", "999999999999999999", "", "0999888777", "", "", "", ""],
+         ["JUMLAH", "", "", "", "", "", "", "", ""]], start=1):
+    for _c, _v in enumerate(_baris, start=1):
+        _ws.cell(_r, _c, _v)
+_contoh_xlsx = _SEMENTARA / "contoh-rekening.xlsx"
+_wb.save(_contoh_xlsx)
+contoh_x = insentif_impor.baca_berkas_rekening(_contoh_xlsx)
+cek(".xlsx bentuk sama terbaca sama",
+    [r["nama"] for r in contoh_x] == [r["nama"] for r in contoh]
+    and contoh_x[2]["rekening"] == "0111222333444")
+
+nyata = insentif_impor.baca_berkas_rekening(
+    AKAR / "DAFTAR-PENERIMA-DANA-INSENTIF (11).xls")
+cek("berkas nyata 41 baris", len(nyata) == 41
+    and nyata[0]["nama"] == "Ary Setyowati"
+    and nyata[-1]["nama"] == "Damar Setya Pambudi")
+
+db.execute("UPDATE gtk_pegawai SET rekening = '' WHERE nama = 'ULFA RAHMAH'")
+hasil = insentif_impor.cocokan(contoh)
+aksi = {b["gtk_nama"]: b["aksi"] for b in hasil["cocok"]}
+cek("ARY cocok NIP → BEDA (tak ditimpa)", aksi.get("ARY SETYOWATI") == "BEDA")
+cek("NURBIANTI → SAMA", aksi.get("NURBIANTI") == "SAMA")
+cek("ULFA cocok nama → ISI", aksi.get("ULFA RAHMAH") == "ISI")
+cek("Orang Asing → tak di GTK",
+    [b["nama"] for b in hasil["tak_di_gtk"]] == ["Orang Asing"])
+cek("tak di berkas = sisa GTK",
+    len(hasil["tak_di_berkas"]) == len(insentif_impor._gtk_semua()) - 3)
+
+kurang_sebelum = insentif_impor.status()["kurang"]
+insentif_impor.simpan_draf(_contoh_xls, "contoh-rekening.xls")
+cek("draf tersimpan", insentif_impor.baca_draf()["nama"] == "contoh-rekening.xls")
+ringkas = insentif_impor.terapkan()
+cek("terapkan mengisi ULFA",
+    db.query_value("SELECT rekening FROM gtk_pegawai WHERE nama = 'ULFA RAHMAH'")
+    == "0111222333444" and ringkas["terisi"] == 1)
+cek("ARY dipertahankan (BEDA)",
+    db.query_value("SELECT rekening FROM gtk_pegawai WHERE nama = 'ARY SETYOWATI'")
+    == "0009567000111" and ringkas["beda"] == 1)
+cek("kurang berkurang 1 + hasil tercatat",
+    insentif_impor.status()["kurang"] == kurang_sebelum - 1
+    and insentif_impor.status()["terakhir"]["terisi"] == 1)
+try:
+    insentif_impor.terapkan()
+    cek("terapkan tanpa draf ditolak", False)
+except ValueError:
+    cek("terapkan tanpa draf ditolak", True)
+
+
+async def alur_impor_http() -> None:
+    import httpx
+
+    from app.main import app
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://uji",
+                                 follow_redirects=True) as klien:
+        await klien.post("/login", data={"mode": "staff", "username": "admin",
+                                         "password": "admin123"})
+        halaman = await klien.get("/insentif/impor-rekening")
+        cek("GET impor 200 + formulir",
+            halaman.status_code == 200 and "Unggah &amp; cocokkan" in halaman.text)
+        beranda = await klien.get("/insentif")
+        cek("spanduk impor di beranda", "/insentif/impor-rekening" in beranda.text)
+        _contoh_xls.write_text(_HTML_UJI, encoding="utf-8")
+        unggah = await klien.post(
+            "/insentif/impor-rekening",
+            files={"berkas": ("contoh.xls", _HTML_UJI.encode(), "application/vnd.ms-excel")})
+        cek("unggah → pratinjau", "Hasil pencocokan" in unggah.text
+            and "ARY SETYOWATI" in unggah.text and "Orang Asing" in unggah.text)
+        terapkan = await klien.post("/insentif/impor-rekening/terapkan")
+        cek("terapkan via HTTP", "nomor rekening terisi" in terapkan.text)
+
+
+asyncio.run(alur_impor_http())
 
 # --------------------------------------------------------------------------- #
 # Laporan

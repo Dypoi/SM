@@ -107,6 +107,9 @@
   </div>
 </div>
 
+<p class="muted mt-2">Punya berkas insentif lama? <a href="/insentif/impor-rekening">Impor Rekening Awal</a>
+(sekali saja — nomor rekening terisi + tercocokkan dengan GTK).</p>
+
 {% if not ringkas_gtk.total %}
 <div class="alert alert-warn mt-2" role="alert">
   <span class="alert-icon">{{ icon('warning') }}</span>
@@ -119,6 +122,15 @@
   <span class="alert-icon">{{ icon('warning') }}</span>
   <div><strong>Penandatangan belum lengkap.</strong> Isi bendahara &amp; pengawas sekali saja di
   <a href="/insentif/pengaturan">Pengaturan Insentif</a> supaya tidak mengetik tiap bulan.</div>
+</div>
+{% endif %}
+{% if impor_rekening.kurang %}
+<div class="alert alert-warn mt-2" role="alert">
+  <span class="alert-icon">{{ icon('warning') }}</span>
+  <div><strong>{{ impor_rekening.kurang }} rekening pegawai masih kosong.</strong>
+  Unggah sekali berkas lama di
+  <a href="/insentif/impor-rekening">Impor Rekening Awal</a> supaya terisi
+  sendiri + datanya tercocokkan dengan GTK.</div>
 </div>
 {% endif %}
 {% endblock %}
