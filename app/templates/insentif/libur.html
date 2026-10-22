@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{#- Kelola kalender libur: bawaan SKB + aturan manual per tanggal. -#}
+<div class="card mb-2">
+  <div class="card-head">
+    <div>
+      <h3>Kalender libur {{ tahun }}</h3>
+      <p>Kalender bawaan berisi libur nasional + cuti bersama sesuai SKB 3 Menteri.
+      Yang berwarna merah di absensi hanya hari <strong>Senin–Jumat</strong>.
+      Berlaku mulai draf berikutnya.</p>
+    </div>
+    <form class="inline-form" method="get" action="/insentif/libur">
+      <select name="tahun" onchange="this.form.submit()">
+        {% for pilihan in [2024, 2025, 2026, 2027, 2028] %}
+        <option value="{{ pilihan }}"{% if pilihan == tahun %} selected{% endif %}>{{ pilihan }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+  <div class="card-body">
+    <table class="data">
+      <thead><tr><th>Tanggal</th><th>Hari</th><th>Keterangan</th><th>Jenis</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for item in daftar %}
+        <tr>
+          <td class="mono">{{ item.tanggal }}</td>
+          <td>{{ item.hari }}</td>
+          <td>{{ item.nama }}</td>
+          <td>{{ item.jenis }}</td>
+          <td>
+            {% if item.aktif %}
+            <span class="chip">Aktif</span>
+            {% else %}
+            <span class="chip">Nonaktif</span>
+            {% endif %}
+            <span class="muted">({{ item.sumber }})</span>
+          </td>
+          <td class="text-right">
+            {% if item.sumber == 'manual' or not item.aktif %}
+            <form class="inline-form" method="post" action="/insentif/libur/hapus">
+              <input type="hidden" name="tahun" value="{{ tahun }}">
+              <input type="hidden" name="tanggal" value="{{ item.tanggal }}">
+              <button class="btn btn-sm" type="submit" title="Hapus aturan manual">{{ icon('x') }}</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6"><div class="empty">Belum ada data libur tahun {{ tahun }} — tambahkan manual di bawah.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<form class="card" method="post" action="/insentif/libur/simpan">
+  <div class="card-head">
+    <div>
+      <h3>Tambah / ubah / nonaktifkan tanggal</h3>
+      <p>Untuk hari libur sekolah, penambahan SKB, atau menonaktifkan tanggal
+      bawaan yang ternyata masuk.</p>
+    </div>
+  </div>
+  <div class="card-body">
+    <input type="hidden" name="tahun" value="{{ tahun }}">
+    <div class="form-grid">
+      <label class="field">Tanggal
+        <input type="date" name="tanggal" value="{{ tahun }}-01-01" required>
+      </label>
+      <label class="field">Keterangan
+        <input type="text" name="nama" placeholder="mis. Libur awal puasa" required>
+      </label>
+      <label class="field">Jenis
+        <select name="jenis">
+          <option value="kustom">Libur sekolah/kustom</option>
+          <option value="nasional">Libur nasional</option>
+          <option value="cuti">Cuti bersama</option>
+        </select>
+      </label>
+      <label class="field">Status
+        <select name="aktif">
+          <option value="1">Aktif (merah bila Sen–Jum)</option>
+          <option value="0">Nonaktif (tetap masuk)</option>
+        </select>
+      </label>
+    </div>
+    <p><button class="btn btn-primary" type="submit">{{ icon('check') }} Simpan</button>
+    <a class="btn" href="/insentif">← Kembali</a></p>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{#- Pratinjau GTK: apa yang terbaca dari berkas, temuan pemeriksaannya, dan
+    catatan pembacaan apa adanya — sebelum ada satu baris pun yang disimpan. -#}
+<div class="card">
+  <div class="card-head">
+    <div>
+      <h3>Pratinjau: {{ kepala.berkas }}</h3>
+      <p>
+        Dibaca {{ kepala.dibuat }} · {{ kepala.ext or '?' }} ·
+        {{ (kepala.ukuran or 0) // 1024 }} KB ·
+        lembar «{{ kepala.sheet or '-' }}» · judul kolom baris {{ kepala.baris_judul or '-' }}
+      </p>
+    </div>
+    <div class="btn-group">
+      <a class="btn btn-ghost btn-sm" href="/gtk">{{ icon('x') }} Tutup</a>
+      <form class="inline-form" method="post" action="/gtk/impor/{{ kepala.id }}/hapus"
+            onsubmit="return confirm('Hapus pratinjau ini beserta pegawai hasil impornya?')">
+        <button class="btn btn-danger btn-sm" type="submit">{{ icon('trash') }} Hapus</button>
+      </form>
+      {% if kepala.status != 'tersimpan' and not galat and daftar %}
+      <form class="inline-form" method="post" action="/gtk/impor/{{ kepala.id }}/simpan">
+        <button class="btn btn-primary btn-sm" type="submit">{{ icon('check') }} Simpan ke daftar pegawai</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card-body">
+    {% if galat %}
+    <div class="alert alert-err" role="status">
+      <span class="alert-icon">{{ icon('warning') }}</span>
+      <div>{{ galat }}</div>
+    </div>
+    {% endif %}
+
+    {% if kepala.status == 'tersimpan' %}
+    <div class="alert alert-ok" role="status">
+      <span class="alert-icon">{{ icon('check') }}</span>
+      <div>
+        Impor ini <strong>sudah disimpan</strong> pada {{ kepala.disimpan or '-' }}:
+        {{ kepala.disimpan_baru | angka_id }} baru, {{ kepala.diperbarui | angka_id }} diperbarui,
+        {{ kepala.dilewati | angka_id }} sudah sama, {{ kepala.gagal | angka_id }} gagal.
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="grid grid-4 mt-1">
+      <div class="stat-card stat-primary">
+        <div class="stat-icon">{{ icon('file') }}</div>
+        <div class="stat-body">
+          <div class="stat-label">Baris terbaca</div>
+          <div class="stat-value">{{ daftar | length | angka_id }}</div>
+          <div class="stat-note">
+            {% if kepala.jenis_berkas == 'guru' %}Berkas daftar guru
+            {% elif kepala.jenis_berkas == 'tendik' %}Berkas daftar tendik
+            {% elif kepala.jenis_berkas == 'campuran' %}Campuran guru &amp; tendik
+            {% else %}Jenis berkas tidak dikenali{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="stat-card stat-success">
+        <div class="stat-icon">{{ icon('check') }}</div>
+        <div class="stat-body">
+          <div class="stat-label">Siap disimpan</div>
+          <div class="stat-value">{{ (daftar | rejectattr('error') | list | length) | angka_id }}</div>
+          <div class="stat-note">Tanpa galat pemeriksaan</div>
+        </div>
+      </div>
+      <div class="stat-card stat-warning">
+        <div class="stat-icon">{{ icon('warning') }}</div>
+        <div class="stat-body">
+          <div class="stat-label">Peringatan</div>
+          <div class="stat-value">{{ ringkas.warning | angka_id }}</div>
+          <div class="stat-note">Tetap bisa disimpan</div>
+        </div>
+      </div>
+      <div class="stat-card stat-info">
+        <div class="stat-icon">{{ icon('x') }}</div>
+        <div class="stat-body">
+          <div class="stat-label">Galat</div>
+          <div class="stat-value">{{ ringkas.error | angka_id }}</div>
+          <div class="stat-note">Baris bergalat tidak disimpan</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Catatan pembacaan berkas</h3>
+      <p>Apa yang dikenali, dilewati, dan mengapa — bukan disamarkan.</p>
+    </div>
+  </div>
+  <div class="card-body">
+    {% if catatan %}
+    <ul class="langkah-bot">
+      {% for baris in catatan %}<li>{{ baris }}</li>{% endfor %}
+    </ul>
+    {% else %}
+    <div class="empty">Tidak ada catatan khusus.</div>
+    {% endif %}
+    {% if kolom %}
+    <div class="note mt-2">
+      <strong>Kolom yang dikenali ({{ kolom | length }}):</strong>
+      {% for bidang in kolom.values() %}<span class="chip chip-muted">{{ bidang }}</span> {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Baris yang akan disimpan ({{ daftar | length | angka_id }})</h3>
+      <p>
+        Kunci pengenal tiap baris: NUPTK → NIP → NIK — baris yang kuncinya sudah ada
+        diperbarui, bukan digandakan.
+        {% if daftar | length > batas_tampil %}(ditampilkan {{ batas_tampil }} pertama){% endif %}
+      </p>
+    </div>
+    {% if kepala.status != 'tersimpan' and daftar and not galat %}
+    <form class="inline-form" method="post" action="/gtk/impor/{{ kepala.id }}/simpan">
+      <button class="btn btn-primary btn-sm" type="submit">{{ icon('check') }} Simpan {{ daftar | length | angka_id }} baris</button>
+    </form>
+    {% endif %}
+  </div>
+  <div class="card-body p-0 table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th class="num">Baris</th><th>Nama</th><th>NUPTK</th><th>NIP</th>
+          <th>Jenis PTK</th><th>Status</th><th>Temuan</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in daftar[:batas_tampil] %}
+        <tr>
+          <td class="num">{{ item.row_number }}</td>
+          <td>
+            {% if item.error %}<span class="badge badge-danger">galat</span>{% endif %}
+            {{ item.nama }}
+          </td>
+          <td class="mono">{{ item.nuptk or '-' }}</td>
+          <td class="mono">{{ item.nip or '-' }}</td>
+          <td>{{ item.jenis_ptk or '-' }}</td>
+          <td>{{ item.status or '-' }}</td>
+          <td class="muted">{% if item.temuan %}{{ item.temuan | join('; ') }}{% else %}-{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7">
+            <div class="empty">
+              Tidak ada baris data yang terbaca. Pastikan berkasnya adalah hasil unduhan
+              Dapodik (daftar guru / daftar tendik).
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{#- Beranda Insentif: buat draf bulan + arsip periode + prasyarat. -#}
+<div class="grid grid-4 mb-2">
+  <div class="stat-card stat-primary">
+    <div class="stat-icon">{{ icon('file') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Draf periode</div>
+      <div class="stat-value">{{ periode | length }}</div>
+      <div class="stat-note">Bulan yang sudah disiapkan</div>
+    </div>
+  </div>
+  <div class="stat-card stat-success">
+    <div class="stat-icon">{{ icon('users') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Pegawai GTK</div>
+      <div class="stat-value">{{ ringkas_gtk.total | angka_id }}</div>
+      <div class="stat-note"><a href="/gtk">Kelola di Guru &amp; Tendik</a></div>
+    </div>
+  </div>
+  <div class="stat-card stat-info">
+    <div class="stat-icon">{{ icon('check') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Tarif Guru</div>
+      <div class="stat-value">{{ pengaturan.tarif_guru | int | rupiah }}</div>
+      <div class="stat-note"><a href="/insentif/pengaturan">Ubah tarif &amp; PPh</a></div>
+    </div>
+  </div>
+  <div class="stat-card stat-warning">
+    <div class="stat-icon">{{ icon('clock') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Tanggal merah</div>
+      <div class="stat-value">Otomatis</div>
+      <div class="stat-note"><a href="/insentif/libur">Kelola kalender libur</a></div>
+    </div>
+  </div>
+</div>
+
+<div class="split">
+  <form class="card" method="post" action="/insentif/periode/buat">
+    <div class="card-head">
+      <div>
+        <h3>Buat draf bulan</h3>
+        <p>Daftar orang, tarif, PPh, tanggal merah, dan penandatangan terisi
+        sendiri. Draf bisa diubah sebelum PDF diunduh.</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="form-grid">
+        <label class="field">Bulan
+          <select name="bulan">
+            {% for nomor, nama in daftar_bulan %}
+            <option value="{{ nomor }}"{% if nomor == bulan_ini %} selected{% endif %}>{{ nama }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field">Tahun
+          <input type="number" name="tahun" value="{{ tahun_ini }}" min="2024" max="2030">
+        </label>
+      </div>
+      <label class="field">Salin daftar dari bulan (opsional — urutan &amp; ubahan ikut tersalin)
+        <select name="salin_dari">
+          <option value="0">— Susun baru dari data GTK —</option>
+          {% for item in periode %}
+          <option value="{{ item.id }}">{{ "%02d" | format(item.bulan) }}/{{ item.tahun }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p><button class="btn btn-primary" type="submit">{{ icon('plus') }} Buat draf</button></p>
+    </div>
+  </form>
+
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h3>Arsip periode</h3>
+        <p>Draf tersimpan tidak berubah walau tarif/pengaturan diganti —
+        cetak ulang kapan saja hasilnya sama.</p>
+      </div>
+    </div>
+    <div class="card-body">
+      {% if periode %}
+      <table class="data">
+        <thead><tr><th>Bulan</th><th class="num">PNS</th><th class="num">PPPK</th>
+        <th class="num">SPJ</th><th></th></tr></thead>
+        <tbody>
+          {% for item in periode %}
+          <tr>
+            <td><a href="/insentif/periode/{{ item.id }}"><strong>{{ "%02d" | format(item.bulan) }}/{{ item.tahun }}</strong></a></td>
+            <td class="num">{{ item.jumlah.get('pns', 0) }}</td>
+            <td class="num">{{ item.jumlah.get('pppk', 0) }}</td>
+            <td class="num">{{ item.jumlah.get('spj', 0) }}</td>
+            <td class="text-right">
+              <a class="btn btn-sm" href="/insentif/periode/{{ item.id }}">{{ icon('edit') }} Buka</a>
+              <a class="btn btn-sm" href="/insentif/periode/{{ item.id }}/pdf/gabungan">{{ icon('printer') }} PDF</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty">Belum ada draf. Pilih bulan di samping lalu tekan <em>Buat draf</em>.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if not ringkas_gtk.total %}
+<div class="alert alert-warn mt-2" role="alert">
+  <span class="alert-icon">{{ icon('warning') }}</span>
+  <div><strong>Data GTK masih kosong.</strong> Isi dulu dari menu
+  <a href="/gtk">Guru &amp; Tendik</a> supaya daftar insentif bisa disusun otomatis.</div>
+</div>
+{% endif %}
+{% if not pengaturan.pengawas_nama or not pengaturan.bendahara_gtk_id %}
+<div class="alert alert-warn mt-2" role="alert">
+  <span class="alert-icon">{{ icon('warning') }}</span>
+  <div><strong>Penandatangan belum lengkap.</strong> Isi bendahara &amp; pengawas sekali saja di
+  <a href="/insentif/pengaturan">Pengaturan Insentif</a> supaya tidak mengetik tiap bulan.</div>
+</div>
+{% endif %}
+{% endblock %}

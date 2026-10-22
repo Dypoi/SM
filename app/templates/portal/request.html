@@ -1,0 +1,239 @@
+{% extends "portal/_base.html" %}
+{% from "_macros.html" import icon, input_medan, pengajuan_badge, bagian_wali, petunjuk as jelaskan %}
+
+{% block content %}
+<div class="pl-card pl-ringkas">
+  <h3 class="pl-kartu-judul">
+    {{ icon('edit') }} Minta perbaikan data
+    {{ jelaskan(
+       '<strong>1.</strong> Buka bagian yang salah, isi kolom yang perlu diperbaiki.<br>'
+       ~ '<strong>2.</strong> Lampirkan foto <strong>akta kelahiran</strong>, '
+       ~ '<strong>kartu keluarga</strong>, dan <strong>ijazah</strong>.<br>'
+       ~ '<strong>3.</strong> Tekan <em>Kirim pengajuan</em>. Perubahan baru dipakai setelah '
+       ~ 'disetujui admin. <strong>NISN tidak bisa diubah</strong>; begitu juga rombel & tingkat '
+       ~ '(ditetapkan sekolah).<br>Bingung? Minta wali kelas atau tata usaha menemani.',
+       kelas='pop-kanan') }}
+  </h3>
+  <p class="pl-card-ket" style="margin:.35rem 0 0">
+    Isi kolom yang salah, lampirkan foto berkas, lalu kirim.
+  </p>
+</div>
+
+{% if not pengajuan_aktif %}
+<div class="alert alert-warn mt-2">
+  {{ icon('warning') }}
+  <span>Pengajuan perubahan data sedang dinonaktifkan sekolah. Hubungi tata usaha.</span>
+</div>
+{% endif %}
+
+{% if pengajuan and pengajuan[0].status == 'menunggu' %}
+<div class="alert alert-info mt-2">
+  {{ icon('info') }}
+  <span>
+    Pengajuan #{{ pengajuan[0].id }} ({{ pengajuan[0].item_count }} kolom) masih
+    <strong>menunggu persetujuan admin</strong>. Anda tetap bisa mengirim pengajuan baru
+    bila ada data lain yang perlu diperbaiki.
+  </span>
+</div>
+{% endif %}
+
+<form method="post" action="/portal/pengajuan" enctype="multipart/form-data">
+  <div class="split mt-2">
+    <div>
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h3>Kolom yang diperbaiki</h3>
+            <p>Biarkan kolom yang tidak berubah.</p>
+          </div>
+        </div>
+        <div class="card-body">
+          <p class="pl-mini-baris" style="margin:0 0 .6rem">
+            <span class="pl-mini-label">NISN</span>
+            <strong class="mono">{{ siswa.nisn or '-' }}</strong>
+            {{ jelaskan(
+               'NISN, <strong>Rombel Saat Ini</strong>, dan <strong>Tingkat</strong> tidak bisa '
+               ~ 'diubah lewat pengajuan karena ditetapkan sekolah. Bila NISN salah, hubungi '
+               ~ 'tata usaha untuk diperbaiki di Dapodik.') }}
+          </p>
+
+          {% for grup, daftar in grup_field.items() %}
+            {% if grup == 'wali' %}
+              <details class="pl-lipat">
+                <summary>
+                  {{ GROUP_LABELS.get(grup, grup) }}
+                  <span class="pl-lipat-jumlah">{{ daftar | length }} isian</span>
+                </summary>
+                {{ bagian_wali(daftar, siswa) }}
+              </details>
+            {% else %}
+              <details class="pl-lipat" {{ 'open' if loop.first else '' }}>
+                <summary>
+                  {{ GROUP_LABELS.get(grup, grup) }}
+                  <span class="pl-lipat-jumlah">{{ daftar | length }} isian</span>
+                </summary>
+                <div class="form-grid">
+                  {% for spec in daftar %}
+                    {% if spec.key == 'nisn' %}
+                      {# NISN terkunci: tidak dapat diajukan perubahannya. #}
+                      <div class="field">
+                        <label for="nisn">NISN</label>
+                        <input type="text" id="nisn" value="{{ siswa.nisn or '' }}" disabled>
+                        <span class="hint">Tidak dapat diubah (lihat catatan di atas).</span>
+                      </div>
+                    {% else %}
+                      {{ input_medan(spec, siswa.get(spec.key), agama_options,
+                          nonaktif=spec.key in FIELD_TERKUNCI) }}
+                    {% endif %}
+                  {% endfor %}
+                </div>
+              </details>
+            {% endif %}
+          {% endfor %}
+
+          <div class="field span-2 mt-2">
+            <label for="catatan_siswa">Keterangan singkat</label>
+            <textarea id="catatan_siswa" name="catatan_siswa" rows="2"
+                      placeholder="Contoh: nama ibu salah tulis, alamat sudah pindah sejak Juli."></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h3 class="pl-kartu-judul">
+              {{ icon('folder') }} Berkas pendukung
+              {{ jelaskan(
+                 'Ambil foto tegak, tidak terpotong, dan tulisannya terbaca. '
+                 ~ 'Berkas disimpan di server sekolah; hanya Anda dan admin yang bisa membuka.',
+                 kelas='pop-kanan') }}
+            </h3>
+            <p>Akta kelahiran, kartu keluarga, dan ijazah &middot; maks. {{ dokumen_max_mb }} MB/berkas.</p>
+          </div>
+          {% if dokumen_lengkap %}
+            <span class="badge badge-success">lengkap</span>
+          {% else %}
+            <span class="badge badge-warning">kurang {{ dokumen_kurang | length }}</span>
+          {% endif %}
+        </div>
+        <div class="card-body">
+          {% if dokumen_lengkap %}
+            <p class="muted">Ketiga berkas sudah ada. Unggah ulang hanya bila ingin diganti.</p>
+          {% else %}
+            <div class="note note-warning">
+              Unggah berkas berikut agar pengajuan dapat dikirim:
+              <strong>{{ dokumen_kurang | join(', ') }}</strong>.
+            </div>
+          {% endif %}
+
+          {% for jenis, label, petunjuk in dokumen_jenis %}
+            <div class="pl-unggah" data-berkas>
+              <div class="pl-unggah-kepala">
+                <strong>{{ label }}</strong>
+                {% if dokumen.get(jenis) %}
+                  <span class="badge badge-success">sudah ada</span>
+                {% else %}
+                  <span class="badge badge-warning">belum ada</span>
+                {% endif %}
+              </div>
+
+              {% if dokumen.get(jenis) %}
+                <div class="pl-unggah-berkas">
+                  <a href="/portal/dokumen/{{ dokumen[jenis].id }}" target="_blank" rel="noopener">
+                    {{ dokumen[jenis].nama_asli | singkat(28) }}
+                  </a>
+                  <span class="muted">diunggah {{ dokumen[jenis].diunggah_at | tanggal_waktu }}</span>
+                </div>
+              {% endif %}
+
+              {# Isian berkas bawaan peramban menyisakan tulisan «Choose File / No file chosen»
+                 (bahasa Inggris) di halaman siswa. Isiannya tetap ada — hanya tak tampak —
+                 dan yang diklik siswa adalah label bergaya tombol di bawah ini. #}
+              <div class="pl-unggah-pilih">
+                <input class="pl-berkas" type="file" id="dokumen_{{ jenis }}"
+                       name="dokumen_{{ jenis }}" accept="image/*,.pdf" data-berkas-masuk>
+                <label class="btn btn-outline btn-sm" for="dokumen_{{ jenis }}">
+                  {{ icon('camera') }}
+                  {% if dokumen.get(jenis) %}Ganti berkas{% else %}Pilih foto / PDF{% endif %}
+                </label>
+                <span class="pl-berkas-nama" data-berkas-nama="dokumen_{{ jenis }}">Belum ada berkas dipilih</span>
+              </div>
+              <span class="hint">{{ petunjuk }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# Tombol kirim ditaruh di AKHIR halaman, di luar kedua kartu: dulu ia lengket di
+     dalam kartu sehingga di ponsel tertutup bilah menu bawah dan muncul sebelum
+     bagian unggah berkas. Urutannya sekarang mengikuti tata cara: isi kolom →
+     lampirkan foto → kirim. #}
+  <div class="pl-kirim mt-2">
+    <div class="pl-kirim-teks">
+      <strong>Sudah lengkap?</strong>
+      <span>Perubahan baru dipakai setelah admin menyetujui. NISN, rombel, dan tingkat
+      ditetapkan sekolah sehingga tidak ikut berubah.</span>
+    </div>
+    <div class="pl-kirim-tombol">
+      <a class="btn btn-outline" href="/portal/profil">Batal</a>
+      <button class="btn btn-primary" type="submit" {{ '' if pengajuan_aktif else 'disabled' }}>
+        {{ icon('upload') }} Kirim Pengajuan
+      </button>
+    </div>
+  </div>
+</form>
+
+{% if pengajuan %}
+<div class="pl-card mt-2">
+  <h3 class="pl-kartu-judul">{{ icon('history') }} Riwayat pengajuan</h3>
+  <details class="pl-lipat pl-riwayat">
+    <summary>
+      {{ pengajuan | length }} pengajuan terakhir
+      {% set menunggu = pengajuan | selectattr('status', 'equalto', 'menunggu') | list | length %}
+      {% if menunggu %}<span class="pl-lipat-jumlah">menunggu: {{ menunggu }}</span>{% endif %}
+    </summary>
+    {% for item in pengajuan %}
+    <div class="pl-riwayat-item">
+      <div class="pl-riwayat-kepala">
+        <strong>#{{ item.id }}</strong>
+        <span class="muted">{{ item.diajukan_at | tanggal_waktu }}</span>
+        {{ pengajuan_badge(item.status) }}
+        {% if item.dokumen_lengkap %}
+          <span class="badge badge-success">berkas lengkap</span>
+        {% else %}
+          <span class="badge badge-warning">berkas kurang</span>
+        {% endif %}
+      </div>
+      <div class="pl-riwayat-isi">
+        {% if item["items"] %}
+          <details>
+            <summary>{{ item.item_count }} kolom diusulkan</summary>
+            <ul class="mt-1">
+              {% for it in item["items"] %}
+              <li><strong>{{ it.label }}</strong>: {{ it.nilai_lama or '—' }} → {{ it.nilai_baru or '—' }}</li>
+              {% endfor %}
+            </ul>
+          </details>
+        {% else %}
+          <span class="muted">{{ item.item_count }} kolom diusulkan</span>
+        {% endif %}
+        {% if item.catatan_admin %}
+          <p class="muted mb-0">Catatan admin: {{ item.catatan_admin }}</p>
+        {% endif %}
+        {% if item.status == 'menunggu' %}
+          <form method="post" action="/portal/pengajuan/{{ item.id }}/batalkan" class="mt-1">
+            <button class="btn btn-ghost btn-sm" type="submit">Batalkan</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </details>
+</div>
+{% endif %}
+{% endblock %}

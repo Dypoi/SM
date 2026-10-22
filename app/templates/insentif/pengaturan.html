@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{#- Pengaturan insentif: tarif, PPh, kop SPJ, penandatangan bawaan. -#}
+<form class="card" method="post" action="/insentif/pengaturan">
+  <div class="card-head">
+    <div>
+      <h3>Pengaturan Insentif</h3>
+      <p>Diisi sekali — dipakai setiap membuat draf bulan baru. Draf yang sudah
+      ada tidak ikut berubah.</p>
+    </div>
+  </div>
+  <div class="card-body">
+    <h4>Tarif per jabatan (Rp/bulan)</h4>
+    <div class="form-grid">
+      <label class="field">Kepala Sekolah
+        <input type="number" name="tarif_ks" value="{{ pengaturan.tarif_ks }}" min="0" step="50000">
+      </label>
+      <label class="field">Wakil Kepala Sekolah
+        <input type="number" name="tarif_waka" value="{{ pengaturan.tarif_waka }}" min="0" step="50000">
+      </label>
+      <label class="field">Guru
+        <input type="number" name="tarif_guru" value="{{ pengaturan.tarif_guru }}" min="0" step="5000">
+      </label>
+      <label class="field">Pelatih / Tendik
+        <input type="number" name="tarif_pelatih" value="{{ pengaturan.tarif_pelatih }}" min="0" step="5000">
+      </label>
+    </div>
+    <h4>PPh 21 (%)</h4>
+    <div class="form-grid">
+      <label class="field">Golongan IV
+        <input type="number" name="pph_4" value="{{ pengaturan.pph_4 }}" min="0" max="100">
+      </label>
+      <label class="field">ASN lain (gol III, IX, …)
+        <input type="number" name="pph_3" value="{{ pengaturan.pph_3 }}" min="0" max="100">
+      </label>
+      <label class="field">Tanpa NIP (non-ASN)
+        <input type="number" name="pph_nonasn" value="{{ pengaturan.pph_nonasn }}" min="0" max="100">
+      </label>
+    </div>
+    <h4>Kop SPJ</h4>
+    <div class="form-grid">
+      <label class="field">Unit kerja
+        <input type="text" name="unit_kerja" value="{{ pengaturan.unit_kerja }}">
+      </label>
+      <label class="field">Kecamatan
+        <input type="text" name="kecamatan" value="{{ pengaturan.kecamatan }}">
+      </label>
+      <label class="field">Kota (baris judul ke-3)
+        <input type="text" name="kota" value="{{ pengaturan.kota }}">
+      </label>
+    </div>
+    <h4>Penandatangan bawaan</h4>
+    <div class="form-grid">
+      <label class="field">Bendahara pengeluaran
+        <select name="bendahara_gtk_id">
+          <option value="">— Pilih dari GTK —</option>
+          {% for orang in pegawai %}
+          <option value="{{ orang.id }}"{% if pengaturan.bendahara_gtk_id == orang.id | string %} selected{% endif %}>{{ orang.nama }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">Pengawas (nama, boleh luar sekolah)
+        <input type="text" name="pengawas_nama" value="{{ pengaturan.pengawas_nama }}">
+      </label>
+      <label class="field">NIP pengawas
+        <input type="text" name="pengawas_nip" value="{{ pengaturan.pengawas_nip }}">
+      </label>
+      <label class="field">Kepala Sekolah cadangan (bila GTK tak punya KS)
+        <input type="text" name="ks_nama" value="{{ pengaturan.ks_nama }}" placeholder="Nama + gelar">
+      </label>
+      <label class="field">NIP KS cadangan
+        <input type="text" name="ks_nip" value="{{ pengaturan.ks_nip }}">
+      </label>
+    </div>
+    <p><button class="btn btn-primary" type="submit">{{ icon('check') }} Simpan pengaturan</button>
+    <a class="btn" href="/insentif">← Kembali</a></p>
+  </div>
+</form>
+{% endblock %}

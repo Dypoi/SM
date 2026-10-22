@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{#- Editor draf insentif: roster 3 dokumen + libur + tanda tangan + unduh. -#}
+<div class="card mb-2">
+  <div class="card-head">
+    <div>
+      <h3>Draf {{ nama_bulan_kecil }} {{ periode.tahun }}</h3>
+      <p>Ubah daftar, urutan, tarif, atau penandatangan — lalu unduh PDF siap cetak.</p>
+    </div>
+    <div class="btn-group">
+      <a class="btn btn-sm" href="/insentif/periode/{{ periode.id }}/pdf/pns">{{ icon('printer') }} Absensi PNS</a>
+      <a class="btn btn-sm" href="/insentif/periode/{{ periode.id }}/pdf/pppk">{{ icon('printer') }} Absensi PPPK</a>
+      <a class="btn btn-sm" href="/insentif/periode/{{ periode.id }}/pdf/spj">{{ icon('printer') }} SPJ</a>
+      <a class="btn btn-sm btn-primary" href="/insentif/periode/{{ periode.id }}/pdf/gabungan">{{ icon('download') }} Gabungan</a>
+    </div>
+  </div>
+</div>
+
+<div class="filter-bar mb-2" role="tablist">
+  <a class="filter-chip{% if dokumen == 'spj' %} active{% endif %}" href="/insentif/periode/{{ periode.id }}?dokumen=spj">SPJ Insentif ({{ roster.spj | length }})</a>
+  <a class="filter-chip{% if dokumen == 'pns' %} active{% endif %}" href="/insentif/periode/{{ periode.id }}?dokumen=pns">Absensi PNS ({{ roster.pns | length }})</a>
+  <a class="filter-chip{% if dokumen == 'pppk' %} active{% endif %}" href="/insentif/periode/{{ periode.id }}?dokumen=pppk">Absensi PPPK ({{ roster.pppk | length }})</a>
+</div>
+
+<div class="card mb-2">
+  <div class="card-head">
+    <div>
+      <h3>Daftar {{ 'SPJ Insentif' if dokumen == 'spj' else ('Absensi Guru PNS' if dokumen == 'pns' else 'Absensi Guru PPPK') }}</h3>
+      {% if dokumen == 'spj' %}
+      <p>Total <strong>{{ ringkas.total | rupiah }}</strong> · PPh
+      <strong>{{ ringkas.pph | rupiah }}</strong> · Diterima
+      <strong>{{ ringkas.terima | rupiah }}</strong> ({{ ringkas.jumlah_orang }} orang)</p>
+      {% else %}
+      <p>{{ roster[dokumen] | length }} orang · kolom kehadiran dikosongkan untuk diisi tangan.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card-body">
+    <table class="data">
+      <thead><tr>
+        <th>No</th><th>Nama</th><th>NIP</th><th>Jabatan</th>
+        {% if dokumen == 'spj' %}<th class="num">Tarif</th><th class="num">PPh</th>{% endif %}
+        <th></th>
+      </tr></thead>
+      <tbody>
+        {% for orang in roster[dokumen] %}
+        <tr>
+          <td class="num">{{ loop.index }}</td>
+          <td><strong>{{ orang.nama_tampil }}</strong>
+            {% if orang.gol %}<br><span class="muted">{{ orang.pangkat or orang.gol }}</span>{% endif %}</td>
+          <td class="mono">{{ orang.nip or '—' }}</td>
+          <td>{{ orang.jabatan }}</td>
+          {% if dokumen == 'spj' %}
+          <td class="num">{{ orang.tarif | rupiah }}</td>
+          <td class="num">{{ orang.pph_nominal | rupiah }} ({{ orang.pph_persen }}%)</td>
+          {% endif %}
+          <td class="text-right">
+            <form class="inline-form" method="post" action="/insentif/roster/{{ orang.id }}/geser">
+              <input type="hidden" name="dokumen" value="{{ dokumen }}">
+              <input type="hidden" name="arah" value="-1">
+              <button class="btn btn-sm" type="submit" title="Naik" {% if loop.first %}disabled{% endif %}>▲</button>
+            </form>
+            <form class="inline-form" method="post" action="/insentif/roster/{{ orang.id }}/geser">
+              <input type="hidden" name="dokumen" value="{{ dokumen }}">
+              <input type="hidden" name="arah" value="1">
+              <button class="btn btn-sm" type="submit" title="Turun" {% if loop.last %}disabled{% endif %}>▼</button>
+            </form>
+            <form class="inline-form" method="post" action="/insentif/roster/{{ orang.id }}/hapus"
+                  onsubmit="return confirm('Keluarkan «{{ orang.nama_tampil }}» dari daftar ini?')">
+              <input type="hidden" name="dokumen" value="{{ dokumen }}">
+              <button class="btn btn-sm" type="submit" title="Keluarkan">{{ icon('x') }}</button>
+            </form>
+          </td>
+        </tr>
+        <tr>
+          <td></td>
+          <td colspan="{% if dokumen == 'spj' %}6{% else %}4{% endif %}">
+            <details>
+              <summary class="muted">Ubah {{ orang.nama_tampil }}</summary>
+              <form method="post" action="/insentif/roster/{{ orang.id }}/ubah">
+                <input type="hidden" name="dokumen" value="{{ dokumen }}">
+                <div class="form-grid">
+                  <label class="field">Nama tampil
+                    <input type="text" name="nama_tampil" value="{{ orang.nama_tampil }}">
+                  </label>
+                  <label class="field">Jabatan
+                    <input type="text" name="jabatan" value="{{ orang.jabatan }}" list="daftar-jabatan">
+                  </label>
+                  <label class="field">NIP
+                    <input type="text" name="nip" value="{{ orang.nip }}">
+                  </label>
+                  <label class="field">Golongan
+                    <input type="text" name="gol" value="{{ orang.gol }}" size="8">
+                  </label>
+                  {% if dokumen == 'spj' %}
+                  <label class="field">NPWP
+                    <input type="text" name="npwp" value="{{ orang.npwp }}">
+                  </label>
+                  <label class="field">No. rekening
+                    <input type="text" name="rekening" value="{{ orang.rekening }}">
+                  </label>
+                  <label class="field">NIK
+                    <input type="text" name="nik" value="{{ orang.nik }}">
+                  </label>
+                  <label class="field">Tarif (Rp)
+                    <input type="number" name="tarif" value="{{ orang.tarif }}" min="0" step="5000">
+                  </label>
+                  <label class="field">PPh % (kosongkan = otomatis)
+                    <input type="number" name="pph_persen" value="" placeholder="{{ orang.pph_persen }}" min="0" max="100">
+                  </label>
+                  {% else %}
+                  <input type="hidden" name="npwp" value="{{ orang.npwp }}">
+                  <input type="hidden" name="rekening" value="{{ orang.rekening }}">
+                  <input type="hidden" name="nik" value="{{ orang.nik }}">
+                  <input type="hidden" name="tarif" value="{{ orang.tarif }}">
+                  <input type="hidden" name="pph_persen" value="{{ orang.pph_persen }}">
+                  {% endif %}
+                </div>
+                <p>
+                  <button class="btn btn-sm btn-primary" type="submit">{{ icon('check') }} Simpan</button>
+                </p>
+              </form>
+              {% if orang.gtk_id %}
+              <form class="inline-form" method="post" action="/insentif/roster/{{ orang.id }}/bawaan">
+                <input type="hidden" name="dokumen" value="{{ dokumen }}">
+                <button class="btn btn-sm" type="submit">Jadikan bawaan bulan berikut</button>
+              </form>
+              {% endif %}
+            </details>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7"><div class="empty">Daftar masih kosong — tambahkan orang dari data GTK di bawah.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <datalist id="daftar-jabatan">
+      <option value="Kepala Sekolah"></option>
+      <option value="Wakil Kepala Sekolah"></option>
+      <option value="Guru"></option>
+      <option value="Tenaga Kependidikan"></option>
+      <option value="Pelatih"></option>
+    </datalist>
+
+    <form class="mt-2" method="post" action="/insentif/periode/{{ periode.id }}/tambah">
+      <input type="hidden" name="dokumen" value="{{ dokumen }}">
+      <label class="field">Tambah orang dari data GTK
+        <select name="gtk_id">
+          {% for calon in luar[dokumen] %}
+          <option value="{{ calon.id }}">{{ calon.nama }} — {{ calon.jenis_ptk or '?' }} / {{ calon.status_kepegawaian or '?' }}</option>
+          {% else %}
+          <option value="0">— Semua pegawai sudah masuk daftar —</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p><button class="btn btn-sm" type="submit">{{ icon('plus') }} Tambah</button></p>
+    </form>
+  </div>
+</div>
+
+<div class="split">
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h3>Tanggal merah {{ nama_bulan_kecil }} {{ periode.tahun }}</h3>
+        <p>Otomatis dari kalender libur — merah di grid absensi + masuk keterangan.</p>
+      </div>
+    </div>
+    <div class="card-body">
+      {% if merah %}
+      <table class="data">
+        <thead><tr><th>Tgl</th><th>Keterangan</th></tr></thead>
+        <tbody>
+          {% for tgl, nama in merah %}
+          <tr><td class="num"><strong>{{ tgl }}</strong></td><td>{{ nama }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty">Tidak ada tanggal merah hari kerja bulan ini.</div>
+      {% endif %}
+      <p class="muted">Kurang pas? Betulkan di <a href="/insentif/libur?tahun={{ periode.tahun }}">Kelola Libur</a>,
+      lalu buat ulang draf bulan ini (draf yang sudah ada tidak ikut berubah).</p>
+    </div>
+  </div>
+
+  <form class="card" method="post" action="/insentif/periode/{{ periode.id }}/ttd">
+    <div class="card-head">
+      <div>
+        <h3>Tanggal &amp; penandatangan</h3>
+        <p>Tersimpan per bulan — cetak ulang kapan saja tetap sama.</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="form-grid">
+        <label class="field">Tgl. absensi
+          <input type="number" name="tgl_absensi" value="{{ periode.tgl_absensi }}" min="1" max="31">
+        </label>
+        <label class="field">Tgl. SPJ
+          <input type="number" name="tgl_spj" value="{{ periode.tgl_spj }}" min="1" max="31">
+        </label>
+      </div>
+      <div class="form-grid">
+        <label class="field">Kepala Sekolah
+          <input type="text" name="ks_nama" value="{{ ttd.ks_nama }}">
+        </label>
+        <label class="field">NIP KS
+          <input type="text" name="ks_nip" value="{{ ttd.ks_nip }}">
+        </label>
+        <label class="field">Bendahara
+          <input type="text" name="bendahara_nama" value="{{ ttd.bendahara_nama }}">
+        </label>
+        <label class="field">NIP bendahara
+          <input type="text" name="bendahara_nip" value="{{ ttd.bendahara_nip }}">
+        </label>
+        <label class="field">Pengawas
+          <input type="text" name="pengawas_nama" value="{{ ttd.pengawas_nama }}">
+        </label>
+        <label class="field">NIP pengawas
+          <input type="text" name="pengawas_nip" value="{{ ttd.pengawas_nip }}">
+        </label>
+      </div>
+      <label class="field">Catatan draf (tidak ikut tercetak)
+        <input type="text" name="catatan" value="{{ periode.catatan or '' }}">
+      </label>
+      <p><button class="btn btn-sm btn-primary" type="submit">{{ icon('check') }} Simpan</button></p>
+    </div>
+  </form>
+</div>
+
+<form class="mt-2" method="post" action="/insentif/periode/{{ periode.id }}/hapus"
+      onsubmit="return confirm('Hapus draf {{ nama_bulan_kecil }} {{ periode.tahun }}?')">
+  <button class="btn btn-sm" type="submit">{{ icon('trash') }} Hapus draf ini</button>
+  <a class="btn btn-sm" href="/insentif">← Kembali</a>
+</form>
+{% endblock %}

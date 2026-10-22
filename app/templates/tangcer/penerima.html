@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{#- Detail satu penerima TANGCER: bisa diperbaiki & dihapus, plus keterangan
+    apakah datanya sudah cocok dengan data siswa aplikasi. -#}
+<div class="card">
+  <div class="card-head">
+    <div>
+      <h3>{{ item.nama or '(tanpa nama)' }}</h3>
+      <p>
+        Penerima TANGCER {{ item.tahun or '-' }} {{ item.semester or '-' }}
+        {%- if item.tahap %} · {{ item.tahap }}{% endif %}
+        {%- if item.sekolah %} · sekolah pada berkas: {{ item.sekolah }}{% endif %}
+      </p>
+    </div>
+    <div class="btn-group">
+      <a class="btn btn-ghost btn-sm" href="/tangcer">{{ icon('x') }} Kembali</a>
+      <form class="inline-form" method="post" action="/tangcer/penerima/{{ item.id }}/hapus"
+            onsubmit="return confirm('Hapus «{{ item.nama }}» dari daftar penerima TANGCER?')">
+        <button class="btn btn-danger btn-sm" type="submit">{{ icon('trash') }} Hapus dari daftar</button>
+      </form>
+    </div>
+  </div>
+  <div class="card-body">
+    <div class="grid grid-2">
+      <div class="card card-tight">
+        <div class="card-head"><h3>Data siswa pada aplikasi</h3></div>
+        <div class="card-body">
+          {% if item.cocok in ['nisn', 'nik', 'nama'] %}
+          <p>
+            <span class="badge badge-success">dikenali lewat {{ item.cocok }}</span>
+          </p>
+          <dl class="kv">
+            <dt>Nama</dt><dd>{{ item.nama_siswa or '-' }}</dd>
+            <dt>NISN</dt><dd class="mono">{{ item.nisn_siswa or '-' }}</dd>
+            <dt>Rombel</dt><dd>{{ item.rombel_siswa or '-' }}</dd>
+            <dt>Status</dt><dd>{{ item.status_siswa or '-' }}</dd>
+          </dl>
+          {% if item.student_id %}
+          <a class="btn btn-outline btn-sm mt-1" href="/data-siswa/{{ item.student_id }}">
+            {{ icon('user') }} Buka data siswa
+          </a>
+          {% endif %}
+          {% else %}
+          <p class="pesan-rapat">
+            <span class="badge badge-warning">belum dikenali</span>
+          </p>
+          <p class="soft kecil">
+            NISN/NIK/nama pada baris ini belum cocok dengan data siswa aplikasi. Bila datanya
+            memang siswa sekolah ini, periksa ejaan nama/NISN di bawah lalu tekan
+            <strong>Cocokkan ulang</strong> pada halaman TANGCER.
+          </p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card card-tight">
+        <div class="card-head"><h3>Data penerima dari berkas</h3></div>
+        <div class="card-body">
+          <dl class="kv">
+            <dt>Jenis bantuan</dt><dd>{{ item.jenis or '-' }}</dd>
+            <dt>Nominal</dt><dd>{{ item.nominal | rupiah }}</dd>
+            <dt>Masuk dari impor</dt><dd>#{{ item.import_id or '-' }}</dd>
+            <dt>Dicatat</dt><dd>{{ item.dibuat or '-' }}</dd>
+          </dl>
+          {% if item.import_id %}
+          <a class="btn btn-outline btn-sm mt-1" href="/tangcer/impor/{{ item.import_id }}">
+            {{ icon('file') }} Lihat pratinjau impor
+          </a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Perbaiki data penerima</h3>
+      <p>
+        Kolom yang diperbaiki akan dicocokkan ulang dengan data siswa setelah disimpan.
+        Perubahan di sini <strong>tidak</strong> mengubah data siswa.
+      </p>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="post" action="/tangcer/penerima/{{ item.id }}/ubah">
+      <div class="form-grid">
+        <div class="field span-2">
+          <label for="ubah-nama">Nama penerima</label>
+          <input type="text" id="ubah-nama" name="nama" value="{{ item.nama or '' }}">
+        </div>
+        <div class="field">
+          <label for="ubah-nisn">NISN</label>
+          <input type="text" id="ubah-nisn" name="nisn" value="{{ item.nisn or '' }}" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label for="ubah-nik">NIK</label>
+          <input type="text" id="ubah-nik" name="nik" value="{{ item.nik or '' }}" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label for="ubah-rombel">Rombel / kelas</label>
+          <input type="text" id="ubah-rombel" name="rombel" value="{{ item.rombel or '' }}">
+        </div>
+        <div class="field">
+          <label for="ubah-jenis">Jenis bantuan</label>
+          <input type="text" id="ubah-jenis" name="jenis" value="{{ item.jenis or '' }}">
+        </div>
+        <div class="field">
+          <label for="ubah-nominal">Nominal</label>
+          <input type="text" id="ubah-nominal" name="nominal"
+                 value="{{ ('%d' % item.nominal) if item.nominal is not none else '' }}"
+                 inputmode="numeric">
+          <span class="hint">Contoh: 1000000</span>
+        </div>
+        <div class="field span-2">
+          <label for="ubah-keterangan">Keterangan</label>
+          <input type="text" id="ubah-keterangan" name="keterangan" value="{{ item.keterangan or '' }}">
+        </div>
+      </div>
+      <div class="form-actions mt-2">
+        <button class="btn btn-primary" type="submit">{{ icon('check') }} Simpan perubahan</button>
+        <a class="btn btn-ghost" href="/tangcer">Batal</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
