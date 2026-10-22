@@ -23,7 +23,7 @@ Pemakaian::
 from __future__ import annotations
 
 import datetime as dt
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 # --------------------------------------------------------------------------- #
 # Ukuran halaman & huruf
@@ -198,27 +198,54 @@ def buat_pdf_tabel(
     return _rakit_pdf(halaman)
 
 
+def gambar(isi: list[str], x: float, y_atas: float, lebar_gambar: float,
+           tinggi_gambar: float, nama: str) -> None:
+    """Tampilkan gambar XObject ``nama`` (harus didaftarkan ke _rakit_pdf).
+
+    ``y_atas`` sisi atas gambar; gambar diskalakan pas ke kotak yang
+    diminta (pemberi kerja menyiapkan rasio yang benar).
+    """
+    bawah = y_atas - tinggi_gambar
+    isi.append(f"q {lebar_gambar:.2f} 0 0 {tinggi_gambar:.2f} {x:.2f} {bawah:.2f} "
+               f"cm /{nama} Do Q")
+
+
 def _rakit_pdf(halaman: Sequence[bytes], lebar: float = A4_LEBAR,
-               tinggi: float = A4_TINGGI) -> bytes:
-    """Rakit objek PDF lengkap dengan tabel xref yang benar."""
+               tinggi: float = A4_TINGGI,
+               gambar_daftar: Mapping[str, tuple[int, int, bytes]] | None = None,
+               ) -> bytes:
+    """Rakit objek PDF lengkap dengan tabel xref yang benar.
+
+    ``gambar_daftar``: nama → (lebar_px, tinggi_px, RGB-terkompresi-zlib);
+    dipakai mis. untuk logo kop absensi.
+    """
     objek: list[bytes] = []
 
     def tambah(isi: bytes) -> int:
         objek.append(isi)
         return len(objek)
 
-    # 1 katalog, 2 daftar halaman, 3-4 huruf
+    # 1 katalog, 2 daftar halaman, 3-4 huruf, lanjut: gambar XObject
     id_katalog = tambah(b"")     # diisi setelah nomor halaman diketahui
     id_pages = tambah(b"")
     id_f1 = tambah(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>")
     id_f2 = tambah(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>")
+    id_gambar: dict[str, int] = {}
+    for nama_gambar, (lebar_px, tinggi_px, data) in (gambar_daftar or {}).items():
+        id_gambar[nama_gambar] = tambah(
+            b"<< /Type /XObject /Subtype /Image /Width %d /Height %d "
+            b"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode "
+            b"/Length %d >>\nstream\n" % (lebar_px, tinggi_px, len(data))
+            + data + b"endstream")
+    sumber_gambar = "".join(f"/{nama} {nomor} 0 R " for nama, nomor in id_gambar.items())
 
     id_halaman: list[int] = []
     for isi in halaman:
         id_isi = tambah(b"<< /Length %d >>\nstream\n" % len(isi) + isi + b"endstream")
         halaman_obj = (
             f"<< /Type /Page /Parent {id_pages} 0 R /MediaBox [0 0 {lebar:g} {tinggi:g}] "
-            f"/Resources << /Font << /F1 {id_f1} 0 R /F2 {id_f2} 0 R >> >> "
+            f"/Resources << /Font << /F1 {id_f1} 0 R /F2 {id_f2} 0 R >> "
+            f"/XObject << {sumber_gambar}>> >> "
             f"/Contents {id_isi} 0 R >>"
         ).encode("latin-1")
         id_halaman.append(tambah(halaman_obj))

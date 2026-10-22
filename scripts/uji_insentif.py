@@ -410,6 +410,15 @@ cek("MediaBox Legal landscape", b"[0 0 1008 612]" in pdf_pns)
 cek("judul absensi PNS", b"DAFTAR HADIR TENAGA PENDIDIK \\( PNS \\)" in pdf_pns)
 cek("kepala NAMA/NIP tanpa spasi (persis berkas)",
     b"NAMA/NIP" in pdf_pns and b"NAMA / NIP" not in pdf_pns)
+cek("kop 3 baris",
+    b"PEMERINTAH KOTA TANGERANG" in pdf_pns
+    and b"DINAS PENDIDIKAN" in pdf_pns
+    and b"UPT SMP NEGERI 2 TANGERANG" in pdf_pns)
+cek("logo kop tertanam (2 gambar)",
+    b"/LogoPemda Do" in pdf_pns and b"/LogoSekolah Do" in pdf_pns
+    and pdf_pns.count(b"/Subtype /Image") == 2)
+cek("kolom identitas digabung setinggi kepala (5 kotak 70pt/halaman)",
+    pdf_pns.count(b"70.00 re S") == 5 * pdf_pns.count(b"/Type /Page "))
 cek("nama + NIP spasi", b"MUHAMMAD" in pdf_pns and b"19740520 200501 1 007" in pdf_pns)
 cek("tanggal merah diisi", b"1 0 0 rg" in pdf_pns)
 cek("keterangan libur", b"Cuti Bersama Hari Suci Nyepi" in pdf_pns)
@@ -459,6 +468,8 @@ gabung = insentif_pdf.pdf_gabungan(insentif.get_periode(pid))
 cek("gabungan memuat 3 dokumen",
     b"\\( PNS \\)" in gabung and b"\\( PPPK \\)" in gabung
     and b"DANA INSENTIF" in gabung)
+cek("gabungan memuat logo kop",
+    b"/LogoPemda Do" in gabung and b"/LogoSekolah Do" in gabung)
 
 # --------------------------------------------------------------------------- #
 # 8. Kebenaran vs berkas asli sekolah (Jan–Des 2025)

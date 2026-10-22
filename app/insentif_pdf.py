@@ -9,6 +9,7 @@ ke halaman berikut dengan kepala grid diulang.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from . import insentif
@@ -20,6 +21,7 @@ from .pdf import (
     WARNA_MERAH,
     _rakit_pdf,
     bungkus,
+    gambar,
     kotak,
     muat,
     teks_bebas,
@@ -38,6 +40,23 @@ BAWAH = 30.0       # garis bawah isi
 ABS_LEBAR = [30.0, 164.0, 110.0, 94.0] + [34.0] * 15 + [40.0]
 ABS_TINGGI_ORANG = 52.0
 ABS_SUB = 26.0
+
+#: Kop absensi: logo pemda (kiri) + logo sekolah (kanan) + 3 baris teks.
+#: Berkas logo diekstrak dari «ABSENSI GURU PNS.xlsx» lalu dikecilkan ke
+#: tinggi 120px + RGB + zlib (lihat pratinjau/ronde67/CATATAN.md).
+KOP_TINGGI = 78.0
+KOP_LOGO_T = 56.0
+_ASET = Path(__file__).resolve().parent / "assets"
+_KOP_BERKAS = (("LogoPemda", "kop-pemda.dat", 105, 120),
+               ("LogoSekolah", "kop-sekolah.dat", 120, 120))
+
+
+def gambar_kop() -> dict[str, tuple[int, int, bytes]]:
+    """Logo kop absensi siap daftar ke _rakit_pdf (nama → w, h, data)."""
+    hasil = {}
+    for nama, berkas, lebar, tinggi in _KOP_BERKAS:
+        hasil[nama] = (lebar, tinggi, (_ASET / berkas).read_bytes())
+    return hasil
 
 
 def _sumbu_x(lebar: Sequence[float]) -> list[float]:
@@ -96,14 +115,16 @@ def bagi_halaman(jumlah_baris: int, tinggi_baris: float, ruang_1: float,
 def _kepala_absensi(isi: list[str], grid: Mapping[str, list],
                     y: float) -> float:
     x = _sumbu_x(ABS_LEBAR)
-    # Baris NO | NAMA/NIP | PANGKAT/GOL.RUANG | JABATAN | HARI/TANGGAL | JUMLAH
+    # Kolom identitas + JUMLAH digabung setinggi kepala (70): di berkas
+    # A16:A20, B16:B20, C16:C20, D16:D20, T16:T20 memang sel gabung.
+    tinggi_penuh = 18 + 15 + 11 + 15 + 11
     judul = ["NO", "NAMA/NIP", "PANGKAT /\nGOL.RUANG", "JABATAN"]
     for i, label in enumerate(judul):
-        kotak(isi, x[i], y, ABS_LEBAR[i], 18, label.replace("\n", " "),
+        kotak(isi, x[i], y, ABS_LEBAR[i], tinggi_penuh, label.replace("\n", " "),
               8.5, True, "tengah", WARNA_ABU, 0.6)
     kotak(isi, x[4], y, sum(ABS_LEBAR[4:19]), 18, "HARI / TANGGAL",
           9.5, True, "tengah", WARNA_ABU, 0.6)
-    kotak(isi, x[19], y, ABS_LEBAR[19], 18, "JUMLAH HADIR",
+    kotak(isi, x[19], y, ABS_LEBAR[19], tinggi_penuh, "JUMLAH HADIR",
           7.0, True, "tengah", WARNA_ABU, 0.6)
     y -= 18
     for lajur in ("band1", "band2"):
@@ -203,6 +224,30 @@ def _kaki_absensi(isi: list[str], merah: Mapping[int, str], ttd: Mapping[str, st
     return min(y, y_kanan - 124)
 
 
+def _kop_absensi(isi: list[str], y: float) -> float:
+    """Kop sekolah di halaman pertama absensi (logo + 3 baris + garis ganda).
+
+    Teks kop mengikuti data milik sekolah: «PEMERINTAH {kota}» dari
+    Pengaturan, «UPT {unit kerja}» dari Pengaturan + kaki berkas 2025.
+    """
+    try:
+        atur = insentif.baca_pengaturan()
+    except Exception:
+        atur = {}
+    baris1 = f"PEMERINTAH {str(atur.get('kota') or 'KOTA TANGERANG').strip()}"
+    baris3 = f"UPT {str(atur.get('unit_kerja') or 'SMP NEGERI 2 TANGERANG').strip()}"
+    lebar_logo = KOP_LOGO_T * 105 / 120
+    gambar(isi, ML + 6, y - 4, lebar_logo, KOP_LOGO_T, "LogoPemda")
+    gambar(isi, MR - 6 - KOP_LOGO_T, y - 4, KOP_LOGO_T, KOP_LOGO_T, "LogoSekolah")
+    teks_bebas(isi, ML, y - 20, baris1, 12.0, True, "tengah", MR)
+    teks_bebas(isi, ML, y - 38, "DINAS PENDIDIKAN", 12.0, True, "tengah", MR)
+    teks_bebas(isi, ML, y - 58, baris3, 14.0, True, "tengah", MR)
+    garis = y - KOP_TINGGI + 8
+    isi.append(f"0 0 0 RG 1.6 w {ML:.2f} {garis:.2f} m {MR:.2f} {garis:.2f} l S")
+    isi.append(f"0 0 0 RG 0.6 w {ML:.2f} {garis - 3:.2f} m {MR:.2f} {garis - 3:.2f} l S")
+    return y - KOP_TINGGI
+
+
 def halaman_absensi(dokumen: str, periode: Mapping[str, Any],
                     roster: Sequence[Mapping[str, Any]]) -> list[bytes]:
     """Susun halaman-halaman PDF absensi (PNS/PPPK)."""
@@ -223,7 +268,7 @@ def halaman_absensi(dokumen: str, periode: Mapping[str, Any],
     tinggi_kaki = max(tinggi_kaki, 140.0)
     ruang = ATAS - BAWAH
     kelompok = bagi_halaman(len(roster), ABS_TINGGI_ORANG,
-                            ruang - tinggi_judul - tinggi_kepala,
+                            ruang - KOP_TINGGI - tinggi_judul - tinggi_kepala,
                             ruang - tinggi_kepala, tinggi_kaki)
 
     halaman: list[bytes] = []
@@ -232,6 +277,7 @@ def halaman_absensi(dokumen: str, periode: Mapping[str, Any],
         isi: list[str] = []
         y = ATAS
         if urutan == 0:
+            y = _kop_absensi(isi, y)
             judul = f"DAFTAR HADIR TENAGA PENDIDIK ( {label} )"
             teks_bebas(isi, ML, y - 13, judul, 13.0, True, "tengah", MR)
             teks_bebas(isi, ML, y - 30, f"TAHUN ANGGARAN {tahun}", 11.0, True,
@@ -253,7 +299,7 @@ def pdf_absensi(dokumen: str, periode: Mapping[str, Any],
                roster: Sequence[Mapping[str, Any]]) -> bytes:
     """PDF absensi PNS/PPPK siap cetak."""
     return _rakit_pdf(halaman_absensi(dokumen, periode, roster),
-                      LEGAL_LEBAR, LEGAL_TINGGI)
+                      LEGAL_LEBAR, LEGAL_TINGGI, gambar_kop())
 
 
 # --------------------------------------------------------------------------- #
@@ -453,4 +499,4 @@ def pdf_gabungan(periode: Mapping[str, Any]) -> bytes:
     halaman = halaman_absensi("pns", periode, insentif.roster_periode(pid, "pns"))
     halaman += halaman_absensi("pppk", periode, insentif.roster_periode(pid, "pppk"))
     halaman += halaman_spj(periode, insentif.roster_periode(pid, "spj"))
-    return _rakit_pdf(halaman, LEGAL_LEBAR, LEGAL_TINGGI)
+    return _rakit_pdf(halaman, LEGAL_LEBAR, LEGAL_TINGGI, gambar_kop())

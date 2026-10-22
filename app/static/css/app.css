@@ -297,8 +297,12 @@ code, pre { font-family: var(--mono); font-size: .86em; }
   gap: .9rem;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr));
+  /* Napas ke tombol/paragraf di bawahnya (mis. tombol Simpan/Tambah). */
+  margin-bottom: .9rem;
 }
-.field { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+.field { display: flex; flex-direction: column; gap: .3rem; min-width: 0; margin-bottom: .9rem; }
+/* Isian di dalam kisi/filter tak perlu margin (kisi sudah punya gap). */
+.form-grid > .field, .filter-bar > .field { margin-bottom: 0; }
 .field label { font-size: .82rem; font-weight: 600; color: var(--text-soft); }
 .field .hint { font-size: .74rem; color: var(--muted); }
 /* Isian bawaan peramban punya lebar tersendiri (dari atribut size) sehingga bisa
@@ -597,12 +601,12 @@ table.tabel-kecil th, table.tabel-kecil td { padding: .4rem .55rem; font-size: .
 
 /* --- Tombol aksi sebaris dengan tautan (mis. Rapikan data wali) ---------- */
 .inline-form { display: inline-flex; margin: 0; vertical-align: middle; }
-/* Tombol aksi yang bersebelahan diberi napas (.35rem) supaya tidak mepet —
-   mis. ▲▼✕ di sel tabel atau Simpan + Kembali di kaki formulir. Wadah yang
-   sudah punya gap sendiri (btn-group, form-actions, card-head, table-tools)
-   dikecualikan agar jaraknya tidak dobel. */
+/* Tombol aksi yang bersebelahan diberi napas (.5rem) supaya tidak mepet —
+   mis. ▲▼✕ di sel tabel, Buka + PDF di arsip, atau Simpan + Kembali di
+   kaki formulir. Wadah yang sudah punya gap sendiri (btn-group,
+   form-actions, card-head, table-tools) dikecualikan agar tidak dobel. */
 .btn + .btn, .inline-form + .inline-form,
-.btn + .inline-form, .inline-form + .btn { margin-left: .35rem; }
+.btn + .inline-form, .inline-form + .btn { margin-left: .5rem; }
 .btn-group > * + *, .form-actions > * + *,
 .card-head > * + *, .table-tools > * + * { margin-left: 0; }
 
