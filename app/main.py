@@ -39,6 +39,7 @@ from .routers import (
     update_routes,
     tangcer_routes,
     gtk_routes,
+    insentif_routes,
 )
 from .web import render
 
@@ -170,6 +171,7 @@ app.include_router(api_routes.router)
 app.include_router(bot_routes.router)
 app.include_router(tangcer_routes.router)
 app.include_router(gtk_routes.router)
+app.include_router(insentif_routes.router)
 
 
 # --------------------------------------------------------------------------- #

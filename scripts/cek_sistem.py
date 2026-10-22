@@ -6329,6 +6329,83 @@ def cek_gtk():
             "menu lengkap")
 
 
+@cek("53. Menu Insentif — SPJ + absensi PNS/PPPK bulanan otomatis dari GTK")
+def cek_insentif():
+    """Ronde 64 — permintaan sekolah: SPJ insentif & absensi bulanan otomatis.
+
+    Daftar penerima, tarif, PPh, tanggal merah, dan penandatangan terisi
+    sendiri dari data GTK + kalender libur bawaan; keluarannya PDF Legal
+    landscape siap cetak. Yang diperiksa di sini benar-benar dijalankan:
+    tabel, kalender, roster awal, draf periode, PDF, serta route, template,
+    dan menunya.
+    """
+    from app import db, insentif, insentif_pdf, migrations
+    from app.routers import insentif_routes
+
+    migrations.run_migrations(verbose=False)
+
+    assert {"key", "value"} <= set(db.table_columns("insentif_setting"))
+    assert {"gtk_id", "nama_tampil", "jabatan", "tarif_override", "ikut_pns",
+            "ikut_pppk", "ikut_spj"} <= set(db.table_columns("insentif_profil"))
+    assert {"tanggal", "nama", "jenis", "aktif"} <= set(db.table_columns("insentif_libur"))
+    assert {"tahun", "bulan", "libur_json", "ttd_json", "tgl_absensi",
+            "tgl_spj"} <= set(db.table_columns("insentif_periode"))
+    assert {"periode_id", "dokumen", "gtk_id", "nama_tampil", "nip", "gol",
+            "jabatan", "tarif", "pph_persen", "pph_nominal",
+            "urutan"} <= set(db.table_columns("insentif_roster"))
+    atur = insentif.baca_pengaturan()
+    assert atur["tarif_guru"] == "1350000", f"tarif bawaan: {atur['tarif_guru']!r}"
+
+    assert set(insentif.tanggal_merah(2025, 1)) == {1, 27, 28, 29}
+    grid = insentif.grid_absensi(2025, 1, insentif.tanggal_merah(2025, 1))
+    sel1 = [s["tgl"] if s else None for s in grid["band1"]]
+    assert sel1[:5] == [None, None, 1, 2, 3], sel1
+    assert all(len(grid[b]) == 15 for b in ("band1", "band2"))
+
+    with db.transaction() as conn:
+        for i, o in enumerate([
+                ("KS CEK", "Kepala Sekolah", "PNS", "197405202005011007", "IV/a"),
+                ("GURU CEK", "Guru", "PNS", "196505161990032006", "IV/b"),
+                ("PPPK CEK", "Guru", "PPPK", "197201292024212001", "IX")]):
+            conn.execute(
+                "INSERT INTO gtk_pegawai(kunci, nama, jenis_ptk, status_kepegawaian,"
+                " nip, pangkat_golongan) VALUES(?,?,?,?,?,?)", (f"cek{i}", *o))
+    assert len(insentif.calon_roster("pns")) == 2
+    assert len(insentif.calon_roster("pppk")) == 1
+    assert len(insentif.calon_roster("spj")) == 3
+
+    pid = insentif.buat_periode(2026, 3, actor="cek")
+    per = insentif.get_periode(pid)
+    assert insentif.baca_libur_periode(per)[19] == "Hari Suci Nyepi 1948"
+    assert insentif.baca_ttd(per)["ks_nama"] == "KS CEK"
+    pdf = insentif_pdf.pdf_spj(per, insentif.roster_periode(pid, "spj"))
+    assert pdf.startswith(b"%PDF") and b"[0 0 1008 612]" in pdf
+    assert b"DANA INSENTIF" in pdf and b"JUMLAH" in pdf
+    pdf_abs = insentif_pdf.pdf_absensi("pns", per, insentif.roster_periode(pid, "pns"))
+    assert b"DAFTAR HADIR" in pdf_abs and b"1 0 0 rg" in pdf_abs
+
+    rute = {r.path for r in insentif_routes.router.routes if hasattr(r, "path")}
+    assert {"/insentif", "/insentif/periode/buat",
+            "/insentif/periode/{periode_id}",
+            "/insentif/periode/{periode_id}/pdf/{dokumen}",
+            "/insentif/pengaturan", "/insentif/libur",
+            "/insentif/profil"} <= rute, f"route insentif kurang: {sorted(rute)}"
+    for nama in ("index.html", "periode.html", "pengaturan.html", "libur.html",
+                 "profil.html"):
+        assert (BASE_DIR / "app/templates/insentif" / nama).exists(), \
+            f"template insentif/{nama} hilang"
+    assert '"/insentif"' in (BASE_DIR / "app/web.py").read_text(encoding="utf-8"), \
+        "menu samping tidak memuat /insentif"
+
+    insentif.hapus_periode(pid)
+    db.execute("DELETE FROM gtk_pegawai WHERE nama LIKE '% CEK'")
+    db.execute("DELETE FROM insentif_profil")
+    assert db.query_value("SELECT COUNT(*) FROM insentif_periode") == 0
+    assert db.query_value("SELECT COUNT(*) FROM insentif_roster") == 0
+    return ("tabel + tarif bawaan siap, merah Jan 2025 tepat, roster PNS/PPPK/SPJ "
+            "2/1/3 dari 3 GTK, draf + PDF Legal + route + template + menu lengkap")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pemeriksaan mandiri SM")
     parser.add_argument("--http", action="store_true", help="Sertakan pengujian halaman HTTP")
@@ -6384,6 +6461,7 @@ def main() -> int:
     cek_spj()
     cek_sk_bertahap()
     cek_gtk()
+    cek_insentif()
     cek_halaman_pengajuan_siswa()
     cek_isian_tak_terpotong()
     cek_ekskul_ponsel()

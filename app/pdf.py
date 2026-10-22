@@ -30,6 +30,9 @@ from typing import Iterable, Sequence
 # --------------------------------------------------------------------------- #
 A4_LEBAR = 595.28
 A4_TINGGI = 841.89
+#: Legal landscape (dipakai absensi & SPJ insentif): 14 × 8,5 inci.
+LEGAL_LEBAR = 1008.0
+LEGAL_TINGGI = 612.0
 MARGIN = 36.0
 TINGGI_BARIS = 16.0
 UKURAN_TEKS = 9.0
@@ -195,7 +198,8 @@ def buat_pdf_tabel(
     return _rakit_pdf(halaman)
 
 
-def _rakit_pdf(halaman: Sequence[bytes]) -> bytes:
+def _rakit_pdf(halaman: Sequence[bytes], lebar: float = A4_LEBAR,
+               tinggi: float = A4_TINGGI) -> bytes:
     """Rakit objek PDF lengkap dengan tabel xref yang benar."""
     objek: list[bytes] = []
 
@@ -213,7 +217,7 @@ def _rakit_pdf(halaman: Sequence[bytes]) -> bytes:
     for isi in halaman:
         id_isi = tambah(b"<< /Length %d >>\nstream\n" % len(isi) + isi + b"endstream")
         halaman_obj = (
-            f"<< /Type /Page /Parent {id_pages} 0 R /MediaBox [0 0 {A4_LEBAR:g} {A4_TINGGI:g}] "
+            f"<< /Type /Page /Parent {id_pages} 0 R /MediaBox [0 0 {lebar:g} {tinggi:g}] "
             f"/Resources << /Font << /F1 {id_f1} 0 R /F2 {id_f2} 0 R >> >> "
             f"/Contents {id_isi} 0 R >>"
         ).encode("latin-1")
@@ -239,3 +243,112 @@ def _rakit_pdf(halaman: Sequence[bytes]) -> bytes:
         f"startxref\n{mulai_xref}\n%%EOF\n"
     ).encode("latin-1")
     return bytes(keluaran)
+
+
+# --------------------------------------------------------------------------- #
+# Mesin grid Legal landscape (absensi & SPJ insentif)
+# --------------------------------------------------------------------------- #
+#: Warna isi sel (RGB 0-1): merah libur, abu nama hari, abu sel tanpa tanggal.
+WARNA_MERAH = (1.0, 0.0, 0.0)
+WARNA_ABU = (0.851, 0.851, 0.851)
+WARNA_ABU_TUA = (0.75, 0.75, 0.75)
+
+
+def _warna(isi: list[str], rgb: tuple[float, float, float]) -> None:
+    isi.append(f"{rgb[0]:g} {rgb[1]:g} {rgb[2]:g} rg")
+
+
+def muat(teks: str, ukuran: float, maks: float, tebal: bool = False,
+         terkecil: float = 6.0) -> tuple[str, float]:
+    """Kecilkan huruf sampai teks muat (minimal ``terkecil`` lalu dipotong)."""
+    teks = _bersihkan(teks)
+    ukuran_kini = ukuran
+    while ukuran_kini > terkecil and _lebar(teks, ukuran_kini, tebal) > maks:
+        ukuran_kini -= 0.5
+    return _potong(teks, ukuran_kini, maks, tebal), ukuran_kini
+
+
+def bungkus(teks: str, ukuran: float, maks: float, tebal: bool = False,
+            maksimal_baris: int = 4) -> list[str]:
+    """Bagi teks menjadi beberapa baris agar muat pada lebar ``maks``."""
+    teks = _bersihkan(teks).strip()
+    if not teks:
+        return []
+    if _lebar(teks, ukuran, tebal) <= maks:
+        return [teks]
+    kata = teks.split()
+    baris: list[str] = []
+    kini = ""
+    for potong in kata:
+        usul = f"{kini} {potong}".strip()
+        if _lebar(usul, ukuran, tebal) <= maks or not kini:
+            kini = usul
+        else:
+            baris.append(kini)
+            kini = potong
+    if kini:
+        baris.append(kini)
+    # Kata raksasa (NIP dsb.) yang tetap kepanjangan: potong paksa.
+    pecah: list[str] = []
+    for satu in baris:
+        while _lebar(satu, ukuran, tebal) > maks and len(satu) > 1:
+            pecah.append(_potong(satu, ukuran, maks, tebal).rstrip("."))
+            satu = satu[len(pecah[-1]):].lstrip()
+        if satu:
+            pecah.append(satu)
+    if len(pecah) > maksimal_baris:
+        pecah = pecah[:maksimal_baris - 1] + [
+            _potong(" ".join(pecah[maksimal_baris - 1:]), ukuran, maks, tebal)]
+    return pecah
+
+
+def kotak(isi: list[str], x: float, y_atas: float, lebar_kotak: float,
+          tinggi_kotak: float, teks: str = "", ukuran: float = 9.0,
+          tebal: bool = False, rata: str = "kiri",
+          isi_warna: tuple[float, float, float] | None = None,
+          garis: float = 0.5, bingkai: bool = True,
+          maksimal_baris: int = 4) -> None:
+    """Gambar satu sel: isi warna + bingkai + teks rata & terbungkus.
+
+    ``y_atas`` adalah sisi ATAS sel (gaya koordinat modul ini: y membesar
+    ke atas, teks halaman disusun dari atas ke bawah).
+    """
+    bawah = y_atas - tinggi_kotak
+    if isi_warna is not None:
+        _warna(isi, isi_warna)
+        isi.append(f"{x:.2f} {bawah:.2f} {lebar_kotak:.2f} {tinggi_kotak:.2f} re f")
+    if bingkai:
+        isi.append(f"0 0 0 RG {garis:g} w "
+                   f"{x:.2f} {bawah:.2f} {lebar_kotak:.2f} {tinggi_kotak:.2f} re S")
+    baris = bungkus(teks, ukuran, lebar_kotak - 4, tebal, maksimal_baris)
+    if not baris:
+        return
+    tinggi_baris = ukuran * 1.2
+    total = tinggi_baris * len(baris)
+    # Baris pertama: teks seluruhnya di tengah vertikal sel.
+    y = y_atas - (tinggi_kotak - total) / 2 - ukuran * 0.85
+    huruf = "/F2" if tebal else "/F1"
+    for satu in baris:
+        if rata == "tengah":
+            tx = x + (lebar_kotak - _lebar(satu, ukuran, tebal)) / 2
+        elif rata == "kanan":
+            tx = x + lebar_kotak - 2 - _lebar(satu, ukuran, tebal)
+        else:
+            tx = x + 2
+        isi.append(f"0 0 0 rg BT {huruf} {ukuran:g} Tf 1 0 0 1 {tx:.2f} {y:.2f} "
+                   f"Tm ({_esc(satu)}) Tj ET")
+        y -= tinggi_baris
+
+
+def teks_bebas(isi: list[str], x: float, y_dasar: float, teks: str,
+               ukuran: float = 10.0, tebal: bool = False,
+               rata: str = "kiri", batas_kanan: float = 0.0) -> None:
+    """Teks tanpa sel (judul, kaki, tanda tangan)."""
+    bersih = _bersihkan(teks)
+    if rata == "tengah" and batas_kanan > x:
+        x = x + (batas_kanan - x - _lebar(bersih, ukuran, tebal)) / 2
+    elif rata == "kanan" and batas_kanan > x:
+        x = batas_kanan - _lebar(bersih, ukuran, tebal)
+    huruf = "/F2" if tebal else "/F1"
+    isi.append(f"0 0 0 rg BT {huruf} {ukuran:g} Tf 1 0 0 1 {x:.2f} {y_dasar:.2f} "
+               f"Tm ({_esc(bersih)}) Tj ET")

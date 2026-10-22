@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{#- Profil bawaan per pegawai: nama tampil + jabatan + tarif + keikutsertaan. -#}
+<div class="card">
+  <div class="card-head">
+    <div>
+      <h3>Profil Insentif Pegawai</h3>
+      <p>Nama bertitel &amp; jabatan bawaan — diisi sekali, dipakai setiap membuat
+      draf bulan baru. Kolom PNS/PPPK/SPJ menandai daftar bawaan tiap dokumen
+      (tetap bisa diubah per bulan).</p>
+    </div>
+  </div>
+  <div class="card-body">
+    {% if daftar %}
+    <table class="data">
+      <thead><tr><th>Pegawai (GTK)</th><th>Nama tampil</th><th>Jabatan</th>
+      <th class="num">Tarif khusus</th><th>PNS</th><th>PPPK</th><th>SPJ</th><th></th></tr></thead>
+      <tbody>
+        {% for item in daftar %}
+        <tr>
+          <td><strong>{{ item.nama_gtk or item.nama_kunci or '-' }}</strong>
+            <br><span class="muted">{{ item.jenis_ptk or '' }} / {{ item.status_kepegawaian or '' }}</span></td>
+          <td><input type="text" name="nama_tampil" value="{{ item.nama_tampil or '' }}"
+                     placeholder="{{ item.nama_gtk or '' }}" size="24" form="f-profil-{{ item.id }}"></td>
+          <td><input type="text" name="jabatan" value="{{ item.jabatan or '' }}" size="16"
+                     list="daftar-jabatan" form="f-profil-{{ item.id }}"></td>
+          <td><input type="number" name="tarif_override" value="{{ item.tarif_override or '' }}"
+                     placeholder="otomatis" min="0" step="5000" size="10" form="f-profil-{{ item.id }}"></td>
+          <td><input type="checkbox" name="ikut_pns" value="1"{% if item.ikut_pns %} checked{% endif %} form="f-profil-{{ item.id }}"></td>
+          <td><input type="checkbox" name="ikut_pppk" value="1"{% if item.ikut_pppk %} checked{% endif %} form="f-profil-{{ item.id }}"></td>
+          <td><input type="checkbox" name="ikut_spj" value="1"{% if item.ikut_spj %} checked{% endif %} form="f-profil-{{ item.id }}"></td>
+          <td><form id="f-profil-{{ item.id }}" method="post" action="/insentif/profil/{{ item.id }}"><button class="btn btn-sm" type="submit" title="Simpan baris ini">{{ icon('check') }}</button></form></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <datalist id="daftar-jabatan">
+      <option value="Kepala Sekolah"></option>
+      <option value="Wakil Kepala Sekolah"></option>
+      <option value="Guru"></option>
+      <option value="Tenaga Kependidikan"></option>
+      <option value="Pelatih"></option>
+    </datalist>
+    {% else %}
+    <div class="empty">Belum ada profil. Profil terbentuk otomatis saat draf pertama dibuat,
+    atau isi <a href="/gtk">data GTK</a> dulu bila masih kosong.</div>
+    {% endif %}
+    <p class="mt-2"><a class="btn" href="/insentif">← Kembali</a></p>
+  </div>
+</div>
+{% endblock %}

@@ -543,6 +543,93 @@ def _migrasi_010(conn: sqlite3.Connection) -> None:
     log.info("Tabel GTK siap (gtk_imports, gtk_pegawai).")
 
 
+def _migrasi_011(conn: sqlite3.Connection) -> None:
+    """Insentif — SPJ + absensi bulanan otomatis dari data GTK.
+
+    ``insentif_setting`` menyimpan tarif, persen PPh, kop SPJ, dan
+    penandatangan bawaan. ``insentif_profil`` menyimpan nama tampil,
+    jabatan & tarif bawaan per pegawai (diisi sekali, dipakai tiap bulan).
+    ``insentif_libur`` menimpa kalender bawaan (tambah / nonaktifkan).
+    ``insentif_periode`` + ``insentif_roster`` adalah jepretan per bulan
+    (roster, tanggal merah, penandatangan) sehingga cetak ulang stabil.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS insentif_setting (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS insentif_profil (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            gtk_id         INTEGER UNIQUE REFERENCES gtk_pegawai(id) ON DELETE SET NULL,
+            nama_kunci     TEXT DEFAULT '',
+            nama_tampil    TEXT,
+            jabatan        TEXT,
+            tarif_override INTEGER,
+            ikut_pns       INTEGER NOT NULL DEFAULT 0,
+            ikut_pppk      INTEGER NOT NULL DEFAULT 0,
+            ikut_spj       INTEGER NOT NULL DEFAULT 0,
+            dibuat         TEXT DEFAULT (datetime('now','localtime')),
+            diubah         TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_insentif_profil_gtk ON insentif_profil(gtk_id);
+
+        CREATE TABLE IF NOT EXISTS insentif_libur (
+            tanggal TEXT PRIMARY KEY,
+            nama    TEXT NOT NULL DEFAULT '',
+            jenis   TEXT NOT NULL DEFAULT 'kustom',
+            aktif   INTEGER NOT NULL DEFAULT 1
+        );
+
+        CREATE TABLE IF NOT EXISTS insentif_periode (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            tahun       INTEGER NOT NULL,
+            bulan       INTEGER NOT NULL,
+            libur_json  TEXT NOT NULL DEFAULT '{}',
+            ttd_json    TEXT NOT NULL DEFAULT '{}',
+            tgl_absensi INTEGER NOT NULL DEFAULT 31,
+            tgl_spj     INTEGER NOT NULL DEFAULT 31,
+            catatan     TEXT,
+            actor       TEXT,
+            dibuat      TEXT DEFAULT (datetime('now','localtime')),
+            diubah      TEXT,
+            UNIQUE (tahun, bulan)
+        );
+
+        CREATE TABLE IF NOT EXISTS insentif_roster (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            periode_id  INTEGER NOT NULL REFERENCES insentif_periode(id) ON DELETE CASCADE,
+            dokumen     TEXT NOT NULL,
+            gtk_id      INTEGER REFERENCES gtk_pegawai(id) ON DELETE SET NULL,
+            nama_tampil TEXT NOT NULL DEFAULT '',
+            nip         TEXT NOT NULL DEFAULT '',
+            npwp        TEXT NOT NULL DEFAULT '',
+            rekening    TEXT NOT NULL DEFAULT '',
+            nik         TEXT NOT NULL DEFAULT '',
+            gol         TEXT NOT NULL DEFAULT '',
+            pangkat     TEXT NOT NULL DEFAULT '',
+            jabatan     TEXT NOT NULL DEFAULT 'Guru',
+            tarif       INTEGER NOT NULL DEFAULT 0,
+            pph_persen  INTEGER NOT NULL DEFAULT 0,
+            pph_nominal INTEGER NOT NULL DEFAULT 0,
+            urutan      INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_insentif_roster_periode
+            ON insentif_roster(periode_id, dokumen, urutan);
+        """
+    )
+    bawaan = {"tarif_ks": "7000000", "tarif_waka": "2700000",
+              "tarif_guru": "1350000", "tarif_pelatih": "650000",
+              "pph_4": "15", "pph_3": "5", "pph_nonasn": "0",
+              "unit_kerja": "SMP NEGERI 2 TANGERANG",
+              "kecamatan": "Kec. Tangerang", "kota": "KOTA TANGERANG"}
+    for kunci, nilai in bawaan.items():
+        conn.execute("INSERT INTO insentif_setting(key, value) VALUES(?, ?) "
+                     "ON CONFLICT(key) DO NOTHING", (kunci, nilai))
+    log.info("Tabel insentif siap (setting, profil, libur, periode, roster).")
+
+
 #: Setiap entri: (id_migrasi, skrip SQL) atau (id_migrasi, fungsi(conn)).
 Migrasi: Callable[[sqlite3.Connection], None]
 
@@ -839,6 +926,10 @@ MIGRATIONS: list[tuple[str, str | Callable[[sqlite3.Connection], None]]] = [
     (
         "010_gtk",
         _migrasi_010,
+    ),
+    (
+        "011_insentif",
+        _migrasi_011,
     ),
 ]
 
