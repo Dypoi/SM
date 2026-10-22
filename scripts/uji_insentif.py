@@ -149,11 +149,44 @@ cek("tarif Pelatih 650rb", insentif.tarif_untuk("Pelatih", atur) == 650_000)
 cek("override menang", insentif.tarif_untuk("Guru", atur, 2_700_000) == 2_700_000)
 cek("override etalase titik", insentif.tarif_untuk("Guru", atur, "2.700.000") == 2_700_000)
 
-cek("PPh IV = 15", insentif.persen_pph("197405202005011007", "IV/a", atur) == 15)
-cek("PPh III = 5", insentif.persen_pph("197503312006042004", "III/d", atur) == 5)
-cek("PPh IX = 5", insentif.persen_pph("197201292024212001", "IX", atur) == 5)
-cek("PPh tanpa NIP = 0", insentif.persen_pph("", "IX", atur) == 0)
-cek("PPh tanpa gol = 5", insentif.persen_pph("197201292024212001", "", atur) == 5)
+cek("PPh Guru III = 67.500",
+    insentif.nominal_pph("Guru", "197503312006042004", "III/d", atur) == 67_500)
+cek("PPh Guru IX = 67.500",
+    insentif.nominal_pph("Guru", "197201292024212001", "IX", atur) == 67_500)
+cek("PPh Guru IV = 202.500",
+    insentif.nominal_pph("Guru", "196505161990032006", "IV/b", atur) == 202_500)
+cek("PPh Waka III = 135.000",
+    insentif.nominal_pph("Wakil Kepala Sekolah", "197503312006042004", "III/d", atur)
+    == 135_000)
+cek("PPh Waka IV = 405.000",
+    insentif.nominal_pph("Wakil Kepala Sekolah", "196505161990032006", "IV/b", atur)
+    == 405_000)
+cek("PPh KS III = 350.000",
+    insentif.nominal_pph("Kepala Sekolah", "197503312006042004", "III/d", atur)
+    == 350_000)
+cek("PPh KS IV = 1.050.000",
+    insentif.nominal_pph("Kepala Sekolah", "197405202005011007", "IV/a", atur)
+    == 1_050_000)
+cek("PPh tanpa NIP = 0", insentif.nominal_pph("Guru", "", "IX", atur) == 0)
+cek("PPh Tendik IV ikut Guru = 202.500",
+    insentif.nominal_pph("Tenaga Kependidikan", "197410102022211001", "IV/a", atur)
+    == 202_500)
+cek("PPh Pelatih IX ikut Guru = 67.500",
+    insentif.nominal_pph("Pelatih", "197410102022211001", "IX", atur) == 67_500)
+cek("PPh jabatan asing ikut Guru",
+    insentif.nominal_pph("Instruktur", "197410102022211001", "IV/a", atur) == 202_500)
+cek("kelas jabatan", insentif.kelas_jabatan("Kepala Sekolah") == "ks"
+    and insentif.kelas_jabatan("Wakil Kepala Sekolah Humas") == "waka"
+    and insentif.kelas_jabatan("Guru") == "guru"
+    and insentif.kelas_jabatan("Tenaga Kependidikan") == "guru"
+    and insentif.kelas_jabatan("") == "guru")
+cek("kelas golongan", insentif.kelas_golongan("IV/a") == "4"
+    and insentif.kelas_golongan("III/d") == "3"
+    and insentif.kelas_golongan("IX") == "3"
+    and insentif.kelas_golongan("") == "3")
+cek("persen turunan 202.500/1.350.000 = 15",
+    insentif.persen_turunan(202_500, 1_350_000) == 15)
+cek("persen turunan tarif 0 = 0", insentif.persen_turunan(100, 0) == 0)
 
 cek("pangkat IV/b", insentif.teks_pangkat("IV/b") == "Pembina TK.I - IV/b")
 cek("pangkat IX", insentif.teks_pangkat("IX") == "Ahli Pertama - IX")
@@ -218,9 +251,25 @@ cek("SPJ urut KS, Waka, Guru, honor",
                                        "WIDA SYAIDATUL WAFA", "ULFA RAHMAH"],
     str([c["nama_tampil"] for c in spj]))
 cek("SPJ honor: tarif 650rb PPh 0",
-    spj[-1]["tarif"] == 650_000 and spj[-1]["pph_persen"] == 0)
-cek("SPJ NURBIANTI: PPh 15% = 202.500",
+    spj[-1]["tarif"] == 650_000 and spj[-1]["pph_nominal"] == 0)
+cek("SPJ NURBIANTI: Guru IV PPh 202.500",
     [c for c in spj if c["nama_tampil"] == "NURBIANTI"][0]["pph_nominal"] == 202_500)
+cek("SPJ ARY: Waka III PPh 135.000",
+    [c for c in spj if c["nama_tampil"] == "ARY SETYOWATI"][0]["pph_nominal"]
+    == 135_000)
+cek("SPJ KS: PPh 1.050.000", spj[0]["pph_nominal"] == 1_050_000)
+
+info_ks = insentif.info_insentif_pegawai(1)
+cek("info GTK KS: jabatan + tarif 7jt + PPh 1.050.000",
+    info_ks["jabatan"] == "Kepala Sekolah" and info_ks["tarif"] == 7_000_000
+    and info_ks["pph"] == 1_050_000 and not info_ks["manual"])
+cek("jabatan efektif otomatis dari tugas tambahan",
+    insentif.jabatan_efektif(
+        {"jenis_ptk": "Guru", "tugas_tambahan": "Wakil Kepala Sekolah Kesiswaan"})
+    == ("Wakil Kepala Sekolah", False))
+cek("jabatan manual menang atas otomatis",
+    insentif.jabatan_efektif({"jenis_ptk": "Guru"}, "Pelatih") == ("Pelatih", True))
+cek("belum ada jabatan manual", insentif.daftar_jabatan_set() == {})
 
 # --------------------------------------------------------------------------- #
 # 5. Draf periode
@@ -269,6 +318,38 @@ insentif.jadikan_bawaan(id_pertama)
 cek("jadikan bawaan tersimpan di profil",
     db.query_value("SELECT nama_tampil FROM insentif_profil WHERE gtk_id = 1")
     == "Muhammad, S.Pd., M.Pd")
+id_baijuri = [r for r in baris if r["nama_tampil"] == "AHMAD BAIJURI"][0]["id"]
+cek("Baijuri Guru III = 67.500",
+    db.query_value("SELECT pph_nominal FROM insentif_roster WHERE id = ?",
+                   (id_baijuri,)) == 67_500)
+insentif.ubah_roster(id_baijuri, {"tarif": "2000000"})
+cek("tarif dioverride → PPh tetap 67.500",
+    db.query_value("SELECT pph_nominal FROM insentif_roster WHERE id = ?",
+                   (id_baijuri,)) == 67_500)
+insentif.ubah_roster(id_baijuri, {"pph_nominal": "100000"})
+cek("override PPh per baris",
+    db.query_value("SELECT pph_nominal FROM insentif_roster WHERE id = ?",
+                   (id_baijuri,)) == 100_000)
+insentif.ubah_roster(id_baijuri, {"tarif": "1350000", "pph_nominal": ""})
+cek("PPh kosong → kembali otomatis 67.500",
+    db.query_value("SELECT pph_nominal FROM insentif_roster WHERE id = ?",
+                   (id_baijuri,)) == 67_500)
+id_baijuri_gtk = db.query_value(
+    "SELECT id FROM gtk_pegawai WHERE nama = 'AHMAD BAIJURI'")
+db.execute("UPDATE insentif_profil SET jabatan = 'Wakil Kepala Sekolah' "
+           "WHERE gtk_id = ?", (id_baijuri_gtk,))
+calon_baijuri = [c for c in insentif.calon_roster("spj")
+                 if c["nama_tampil"] == "AHMAD BAIJURI"][0]
+cek("jabatan manual dipakai calon baru",
+    calon_baijuri["jabatan"] == "Wakil Kepala Sekolah"
+    and calon_baijuri["pph_nominal"] == 135_000)
+cek("draf lama tak ikut berubah (tetap Guru 67.500)",
+    db.query_value("SELECT jabatan FROM insentif_roster WHERE id = ?",
+                   (id_baijuri,)) == "Guru"
+    and db.query_value("SELECT pph_nominal FROM insentif_roster WHERE id = ?",
+                       (id_baijuri,)) == 67_500)
+db.execute("UPDATE insentif_profil SET jabatan = NULL WHERE gtk_id = ?",
+           (id_baijuri_gtk,))
 insentif.hapus_roster(baris[-1]["id"])
 cek("hapus baris → 6", len(insentif.roster_periode(pid, "spj")) == 6)
 id_tu = db.query_value("SELECT id FROM gtk_pegawai WHERE nama = 'ADEN SUDRAJAT'")
@@ -444,7 +525,7 @@ async def alur_http() -> None:
             f"/insentif/roster/{insentif.roster_periode(int(pid_http), 'spj')[0]['id']}/ubah",
             data={"dokumen": "spj", "nama_tampil": "NAMA UBAH HTTP", "nip": "",
                   "npwp": "", "rekening": "", "nik": "", "gol": "IV/a",
-                  "jabatan": "Kepala Sekolah", "tarif": "7000000", "pph_persen": ""})
+                  "jabatan": "Kepala Sekolah", "tarif": "7000000", "pph_nominal": ""})
         cek("ubah roster via HTTP", "NAMA UBAH HTTP" in ubah.text)
 
         for dokumen in ("pns", "pppk", "spj", "gabungan"):
@@ -459,7 +540,9 @@ async def alur_http() -> None:
             "/insentif/pengaturan",
             data={"tarif_ks": "7000000", "tarif_waka": "2700000",
                   "tarif_guru": "1400000", "tarif_pelatih": "650000",
-                  "pph_4": "15", "pph_3": "5", "pph_nonasn": "0",
+                  "pph_guru_3": "67500", "pph_guru_4": "202500",
+                  "pph_waka_3": "135000", "pph_waka_4": "405000",
+                  "pph_ks_3": "350000", "pph_ks_4": "1050000", "pph_nonasn": "0",
                   "unit_kerja": "SMP NEGERI 2 TANGERANG", "kecamatan": "Kec. Tangerang",
                   "kota": "KOTA TANGERANG", "bendahara_gtk_id": "2",
                   "pengawas_nama": "Ta'ani", "pengawas_nip": "196903051995121004",
@@ -480,6 +563,32 @@ async def alur_http() -> None:
 
         profil_get = await klien.get("/insentif/profil")
         cek("profil 200", profil_get.status_code == 200 and "MUHAMMAD" in profil_get.text)
+
+        gtk_daftar = await klien.get("/gtk")
+        cek("kolom jabatan di daftar GTK",
+            "Jabatan insentif" in gtk_daftar.text
+            and "Kepala Sekolah" in gtk_daftar.text)
+        gtk_detail = await klien.get("/gtk/pegawai/1")
+        cek("Detail KS: kartu PPh + manual dari jadikan-bawaan",
+            "PPh insentif" in gtk_detail.text and "1.050.000" in gtk_detail.text
+            and "diset manual" in gtk_detail.text)
+        gtk_guru = await klien.get("/gtk/pegawai/3")
+        cek("Detail guru: otomatis + PPh 202.500",
+            "otomatis dari data GTK" in gtk_guru.text
+            and "202.500" in gtk_guru.text)
+        set_jab = await klien.post("/gtk/pegawai/2/jabatan-insentif",
+                                   data={"jabatan": "Pelatih"})
+        cek("set jabatan via GTK", "Jabatan insentif disimpan" in set_jab.text)
+        cek("detail menandai manual",
+            "diset manual" in (await klien.get("/gtk/pegawai/2")).text)
+        set_salah = await klien.post("/gtk/pegawai/2/jabatan-insentif",
+                                     data={"jabatan": "Menteri"})
+        cek("jabatan asing ditolak", "tidak dikenal" in set_salah.text)
+        set_auto = await klien.post("/gtk/pegawai/2/jabatan-insentif",
+                                    data={"jabatan": ""})
+        cek("kembali otomatis",
+            "otomatis dari data GTK" in set_auto.text
+            and "Wakil Kepala Sekolah" in set_auto.text)
 
         hapus = await klien.post(f"/insentif/periode/{pid_http}/hapus")
         cek("hapus draf", "dihapus" in hapus.text)

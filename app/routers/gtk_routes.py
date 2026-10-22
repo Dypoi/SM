@@ -15,7 +15,7 @@ from urllib.parse import quote_plus
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
-from .. import auth, config, db, gtk, services
+from .. import auth, config, db, gtk, insentif, services
 from ..readers import UnsupportedFormatError, format_label, supported_extensions
 from ..web import render
 
@@ -37,6 +37,12 @@ def halaman_gtk(
     user: auth.SessionUser = Depends(auth.require_staff),
 ):
     """Halaman utama GTK: unggah berkas, riwayat impor, daftar pegawai."""
+    pegawai = gtk.daftar_pegawai(jenis=jenis, status=status, cari=cari, batas=500)
+    manual = insentif.daftar_jabatan_set()
+    for baris in pegawai:
+        jabatan, diset = insentif.jabatan_efektif(baris, manual.get(int(baris["id"])))
+        baris["jabatan_insentif"] = jabatan
+        baris["jabatan_manual"] = diset
     return render(
         request,
         "gtk/index.html",
@@ -46,7 +52,7 @@ def halaman_gtk(
             "maks_ukuran": config.MAX_UPLOAD_MB,
             "ringkas": gtk.ringkas_pegawai(),
             "riwayat": gtk.daftar_impor(limit=20),
-            "pegawai": gtk.daftar_pegawai(jenis=jenis, status=status, cari=cari, batas=500),
+            "pegawai": pegawai,
             "daftar_jenis": gtk.daftar_jenis(),
             "daftar_status": gtk.daftar_status(),
             "filter": {"jenis": jenis, "status": status, "cari": cari},
@@ -225,10 +231,40 @@ def detail_pegawai(
         {
             "page_title": baris.get("nama") or "Detail Pegawai",
             "item": baris,
+            "insentif_info": insentif.info_insentif_pegawai(pegawai_id),
             "grup": gtk.fields_by_group(),
             "label_grup": gtk.GROUP_LABELS,
         },
     )
+
+
+@router.post("/gtk/pegawai/{pegawai_id}/jabatan-insentif")
+def set_jabatan_insentif(
+    request: Request,
+    pegawai_id: int,
+    jabatan: str = Form(""),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Set jabatan insentif pegawai (kosong = otomatis dari data GTK)."""
+    baris = gtk.get_pegawai(pegawai_id)
+    if baris is None:
+        return _kembali("/gtk", "err", "Data pegawai itu tidak ditemukan.")
+    jabatan = jabatan.strip()
+    if jabatan and jabatan not in ("Kepala Sekolah", "Wakil Kepala Sekolah",
+                                   "Guru", "Tenaga Kependidikan", "Pelatih"):
+        return _kembali(f"/gtk/pegawai/{pegawai_id}", "err",
+                        "Jabatan itu tidak dikenal.")
+    profil = insentif.profil_untuk_gtk(pegawai_id)
+    insentif.db.execute(
+        "UPDATE insentif_profil SET jabatan = ?, diubah = datetime('now','localtime') "
+        "WHERE id = ?",
+        (jabatan or None, profil["id"]),
+    )
+    services.log_audit(user.username, user.role, "gtk_jabatan_insentif", "gtk_pegawai",
+                 pegawai_id,
+                 f"{baris['nama']}: jabatan insentif → «{jabatan or 'otomatis'}»")
+    return _kembali(f"/gtk/pegawai/{pegawai_id}", "ok",
+                    "Jabatan insentif disimpan; dipakai mulai draf bulan berikutnya.")
 
 
 @router.post("/gtk/pegawai/{pegawai_id}/hapus")

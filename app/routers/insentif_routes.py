@@ -155,7 +155,7 @@ def ubah_orang(
     gol: str = Form(""),
     jabatan: str = Form(""),
     tarif: str = Form(""),
-    pph_persen: str = Form(""),
+    pph_nominal: str = Form(""),
     user: auth.SessionUser = Depends(auth.require_staff),
 ):
     from .. import db as _db
@@ -167,7 +167,7 @@ def ubah_orang(
         insentif.ubah_roster(baris_id, {"nama_tampil": nama_tampil, "nip": nip,
                                        "npwp": npwp, "rekening": rekening,
                                        "nik": nik, "gol": gol, "jabatan": jabatan,
-                                       "tarif": tarif, "pph_persen": pph_persen})
+                                       "tarif": tarif, "pph_nominal": pph_nominal})
     except ValueError as galat:
         return _kembali(f"/insentif/periode/{kini['periode_id']}?dokumen={dokumen}",
                         "err", str(galat))
@@ -321,8 +321,12 @@ def simpan_pengaturan(
     tarif_waka: str = Form("2700000"),
     tarif_guru: str = Form("1350000"),
     tarif_pelatih: str = Form("650000"),
-    pph_4: str = Form("15"),
-    pph_3: str = Form("5"),
+    pph_guru_3: str = Form("67500"),
+    pph_guru_4: str = Form("202500"),
+    pph_waka_3: str = Form("135000"),
+    pph_waka_4: str = Form("405000"),
+    pph_ks_3: str = Form("350000"),
+    pph_ks_4: str = Form("1050000"),
     pph_nonasn: str = Form("0"),
     unit_kerja: str = Form(""),
     kecamatan: str = Form(""),
@@ -337,7 +341,9 @@ def simpan_pengaturan(
     insentif.simpan_pengaturan({
         "tarif_ks": tarif_ks, "tarif_waka": tarif_waka,
         "tarif_guru": tarif_guru, "tarif_pelatih": tarif_pelatih,
-        "pph_4": pph_4, "pph_3": pph_3, "pph_nonasn": pph_nonasn,
+        "pph_guru_3": pph_guru_3, "pph_guru_4": pph_guru_4,
+        "pph_waka_3": pph_waka_3, "pph_waka_4": pph_waka_4,
+        "pph_ks_3": pph_ks_3, "pph_ks_4": pph_ks_4, "pph_nonasn": pph_nonasn,
         "unit_kerja": unit_kerja, "kecamatan": kecamatan, "kota": kota,
         "bendahara_gtk_id": bendahara_gtk_id, "pengawas_nama": pengawas_nama,
         "pengawas_nip": pengawas_nip, "ks_nama": ks_nama, "ks_nip": ks_nip,

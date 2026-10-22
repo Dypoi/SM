@@ -308,20 +308,51 @@ def tarif_untuk(jabatan: Any, pengaturan: Mapping[str, Any],
         return 0
 
 
-def persen_pph(nip: Any, gol: Any, pengaturan: Mapping[str, Any]) -> int:
-    """PPh 21: 15% gol IV, 5% ASN lain, 0% tanpa NIP (mengikuti berkas 2025)."""
-    if not str(nip or "").strip():
-        return _angka_pengaturan(pengaturan, "pph_nonasn", 0)
+def kelas_jabatan(jabatan: Any) -> str:
+    """Kelompok jabatan untuk tarif & PPh: 'ks' | 'waka' | 'guru'.
+
+    'guru' adalah keranjang umum: Guru, Tendik, Pelatih, Instruktur, dan
+    jabatan lain yang ber-NIP (kecuali KS/Wakasek).
+    """
+    jab = str(jabatan or "").strip().lower()
+    if "kepala sekolah" in jab and "wakil" not in jab:
+        return "ks"
+    if "wakil" in jab:
+        return "waka"
+    return "guru"
+
+
+def kelas_golongan(gol: Any) -> str:
+    """Kelompok golongan untuk PPh: '4' (gol IV) atau '3' (III/IX/lain)."""
     if str(gol or "").strip().upper().startswith("IV"):
-        return _angka_pengaturan(pengaturan, "pph_4", 15)
-    return _angka_pengaturan(pengaturan, "pph_3", 5)
+        return "4"
+    return "3"
 
 
-def _angka_pengaturan(pengaturan: Mapping[str, Any], kunci: str, bawaan: int) -> int:
+def nominal_pph(jabatan: Any, nip: Any, gol: Any,
+               pengaturan: Mapping[str, Any]) -> int:
+    """PPh 21 baku (Rupiah) per jabatan × golongan — mengikuti berkas 2025.
+
+    Guru III/IX 67.500, Guru IV 202.500, Wakasek III/IX 135.000, Wakasek IV
+    405.000, KS III 350.000, KS IV 1.050.000, tanpa NIP 0. Nominalnya tetap
+    (tidak ikut berubah bila tarif per orang dioverride), tetapi tiap sel
+    bisa diubah dari Pengaturan dan tiap baris bisa dioverride per bulan.
+    """
+    if not str(nip or "").strip():
+        kunci = "pph_nonasn"
+    else:
+        kunci = f"pph_{kelas_jabatan(jabatan)}_{kelas_golongan(gol)}"
     try:
-        return int(pengaturan.get(kunci, bawaan) or 0)
+        return max(0, int(pengaturan.get(kunci, 0) or 0))
     except (ValueError, TypeError):
-        return bawaan
+        return 0
+
+
+def persen_turunan(nominal: int, tarif: int) -> int:
+    """Persen setara nominal terhadap tarif (info tampilan saja)."""
+    if tarif <= 0:
+        return 0
+    return round(nominal * 100 / tarif)
 
 
 # --------------------------------------------------------------------------- #
@@ -366,8 +397,12 @@ PENGATURAN_BAWAAN = {
     "tarif_waka": "2700000",
     "tarif_guru": "1350000",
     "tarif_pelatih": "650000",
-    "pph_4": "15",
-    "pph_3": "5",
+    "pph_guru_3": "67500",
+    "pph_guru_4": "202500",
+    "pph_waka_3": "135000",
+    "pph_waka_4": "405000",
+    "pph_ks_3": "350000",
+    "pph_ks_4": "1050000",
     "pph_nonasn": "0",
     "unit_kerja": "SMP NEGERI 2 TANGERANG",
     "kecamatan": "Kec. Tangerang",
@@ -463,6 +498,45 @@ def _angka_atau_none(nilai: Any) -> int | None:
         return max(0, int(float(str(nilai).replace(".", "").replace(",", "."))))
     except (ValueError, TypeError):
         return None
+
+
+def daftar_jabatan_set() -> dict[int, str]:
+    """Jabatan insentif yang diset manual: ``{gtk_id: jabatan}``."""
+    hasil: dict[int, str] = {}
+    for baris in db.query_all(
+            "SELECT gtk_id, jabatan FROM insentif_profil "
+            "WHERE gtk_id IS NOT NULL AND jabatan IS NOT NULL AND TRIM(jabatan) <> ''"):
+        hasil[int(baris["gtk_id"])] = str(baris["jabatan"]).strip()
+    return hasil
+
+
+def jabatan_efektif(orang: Mapping[str, Any], jabatan_set: str | None = None) -> tuple[str, bool]:
+    """Jabatan insentif pegawai + apakah diset manual (True) atau otomatis."""
+    if jabatan_set and str(jabatan_set).strip():
+        return str(jabatan_set).strip(), True
+    profil = {"jabatan": None}
+    return _jabatan_spj(orang, profil), False
+
+
+def info_insentif_pegawai(gtk_id: int) -> dict[str, Any] | None:
+    """Ringkasan insentif satu pegawai untuk halaman GTK: jabatan, tarif, PPh."""
+    orang = db.row_to_dict(db.query_one(
+        "SELECT * FROM gtk_pegawai WHERE id = ?", (gtk_id,)))
+    if orang is None:
+        return None
+    profil = profil_untuk_gtk(gtk_id)
+    pengaturan = baca_pengaturan()
+    jabatan, manual = jabatan_efektif(orang, profil.get("jabatan"))
+    tarif = tarif_untuk(jabatan, pengaturan, profil.get("tarif_override"))
+    pph = nominal_pph(jabatan, orang.get("nip"), orang.get("pangkat_golongan"),
+                      pengaturan)
+    return {"jabatan": jabatan, "manual": manual,
+            "jabatan_otomatis": _jabatan_spj(orang, {"jabatan": None}),
+            "nama_tampil": _nama_tampil(orang, profil),
+            "tarif": tarif, "tarif_override": profil.get("tarif_override"),
+            "pph": pph, "pph_persen": persen_turunan(pph, tarif),
+            "gol": str(orang.get("pangkat_golongan") or "").strip(),
+            "ada_nip": bool(str(orang.get("nip") or "").strip())}
 
 
 # --------------------------------------------------------------------------- #
@@ -711,7 +785,8 @@ def _baris_calon(orang: Mapping[str, Any], pengaturan: Mapping[str, Any]) -> dic
     profil = profil_untuk_gtk(int(orang["id"]))
     jabatan = _jabatan_spj(orang, profil)
     tarif = tarif_untuk(jabatan, pengaturan, profil.get("tarif_override"))
-    persen = persen_pph(orang.get("nip"), orang.get("pangkat_golongan"), pengaturan)
+    pph = nominal_pph(jabatan, orang.get("nip"), orang.get("pangkat_golongan"),
+                      pengaturan)
     return {"gtk_id": orang["id"], "nama_tampil": _nama_tampil(orang, profil),
             "nip": str(orang.get("nip") or "").strip(),
             "npwp": str(orang.get("npwp") or "").strip(),
@@ -719,8 +794,8 @@ def _baris_calon(orang: Mapping[str, Any], pengaturan: Mapping[str, Any]) -> dic
             "nik": str(orang.get("nik") or "").strip(),
             "gol": str(orang.get("pangkat_golongan") or "").strip(),
             "pangkat": teks_pangkat(orang.get("pangkat_golongan")),
-            "jabatan": jabatan, "tarif": tarif, "pph_persen": persen,
-            "pph_nominal": tarif * persen // 100}
+            "jabatan": jabatan, "tarif": tarif, "pph_persen": persen_turunan(pph, tarif),
+            "pph_nominal": pph}
 
 
 def _semua_pegawai() -> list[dict[str, Any]]:
@@ -836,10 +911,11 @@ def ubah_roster(baris_id: int, nilai: Mapping[str, Any]) -> None:
     tarif = _angka_atau_none(nilai.get("tarif"))
     if tarif is None:
         tarif = int(kini.get("tarif") or 0)
-    persen = _angka_atau_none(nilai.get("pph_persen"))
-    if persen is None:
-        persen = persen_pph(nilai.get("nip", kini.get("nip")),
-                            nilai.get("gol", kini.get("gol")), baca_pengaturan())
+    pph = _angka_atau_none(nilai.get("pph_nominal"))
+    if pph is None:
+        pph = nominal_pph(nilai.get("jabatan", kini.get("jabatan")),
+                          nilai.get("nip", kini.get("nip")),
+                          nilai.get("gol", kini.get("gol")), baca_pengaturan())
     gol = str(nilai.get("gol", kini.get("gol") or "")).strip()
     pangkat = str(nilai.get("pangkat", "") or "").strip() or teks_pangkat(gol)
     db.execute(
@@ -856,7 +932,7 @@ def ubah_roster(baris_id: int, nilai: Mapping[str, Any]) -> None:
          str(nilai.get("rekening", kini.get("rekening") or "")).strip(),
          str(nilai.get("nik", kini.get("nik") or "")).strip(),
          gol, pangkat, str(nilai.get("jabatan", kini.get("jabatan") or "Guru")).strip(),
-         tarif, persen, tarif * persen // 100, baris_id),
+         tarif, persen_turunan(pph, tarif), pph, baris_id),
     )
 
 

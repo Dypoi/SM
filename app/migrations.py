@@ -630,6 +630,27 @@ def _migrasi_011(conn: sqlite3.Connection) -> None:
     log.info("Tabel insentif siap (setting, profil, libur, periode, roster).")
 
 
+def _migrasi_012(conn: sqlite3.Connection) -> None:
+    """Insentif — PPh 21 nominal baku per jabatan × golongan.
+
+    Menggantikan persen (15% gol IV / 5% lain / 0% non-ASN) dengan tujuh
+    nominal tetap: Guru III/IX 67.500, Guru IV 202.500, Wakasek III/IX
+    135.000, Wakasek IV 405.000, KS III 350.000, KS IV 1.050.000, tanpa
+    NIP 0 — persis angka berkas SPJ 2025. Draf lama tidak terpengaruh
+    (nominalnya sudah dijepret per baris roster).
+    """
+    for kunci in ("pph_4", "pph_3"):
+        conn.execute("DELETE FROM insentif_setting WHERE key = ?", (kunci,))
+    baku = {"pph_guru_3": "67500", "pph_guru_4": "202500",
+            "pph_waka_3": "135000", "pph_waka_4": "405000",
+            "pph_ks_3": "350000", "pph_ks_4": "1050000",
+            "pph_nonasn": "0"}
+    for kunci, nilai in baku.items():
+        conn.execute("INSERT INTO insentif_setting(key, value) VALUES(?, ?) "
+                     "ON CONFLICT(key) DO NOTHING", (kunci, nilai))
+    log.info("PPh nominal baku insentif siap (7 sel jabatan x golongan).")
+
+
 #: Setiap entri: (id_migrasi, skrip SQL) atau (id_migrasi, fungsi(conn)).
 Migrasi: Callable[[sqlite3.Connection], None]
 
@@ -930,6 +951,10 @@ MIGRATIONS: list[tuple[str, str | Callable[[sqlite3.Connection], None]]] = [
     (
         "011_insentif",
         _migrasi_011,
+    ),
+    (
+        "012_insentif_pph_nominal",
+        _migrasi_012,
     ),
 ]
 

@@ -27,16 +27,31 @@
         <input type="number" name="tarif_pelatih" value="{{ pengaturan.tarif_pelatih }}" min="0" step="5000">
       </label>
     </div>
-    <h4>PPh 21 (%)</h4>
+    <h4>PPh 21 baku (Rp) per jabatan × golongan</h4>
+    <p class="muted">Nominal tetap mengikuti berkas SPJ 2025 — tidak ikut berubah
+    bila tarif per orang dioverride. Golongan III, IX, dan lainnya memakai
+    kolom kiri; golongan IV memakai kolom kanan.</p>
     <div class="form-grid">
-      <label class="field">Golongan IV
-        <input type="number" name="pph_4" value="{{ pengaturan.pph_4 }}" min="0" max="100">
+      <label class="field">Guru · gol III/IX/dll
+        <input type="number" name="pph_guru_3" value="{{ pengaturan.pph_guru_3 }}" min="0" step="500">
       </label>
-      <label class="field">ASN lain (gol III, IX, …)
-        <input type="number" name="pph_3" value="{{ pengaturan.pph_3 }}" min="0" max="100">
+      <label class="field">Guru · gol IV
+        <input type="number" name="pph_guru_4" value="{{ pengaturan.pph_guru_4 }}" min="0" step="500">
+      </label>
+      <label class="field">Wakasek · gol III/IX/dll
+        <input type="number" name="pph_waka_3" value="{{ pengaturan.pph_waka_3 }}" min="0" step="500">
+      </label>
+      <label class="field">Wakasek · gol IV
+        <input type="number" name="pph_waka_4" value="{{ pengaturan.pph_waka_4 }}" min="0" step="500">
+      </label>
+      <label class="field">Kepala Sekolah · gol III/IX/dll
+        <input type="number" name="pph_ks_3" value="{{ pengaturan.pph_ks_3 }}" min="0" step="500">
+      </label>
+      <label class="field">Kepala Sekolah · gol IV
+        <input type="number" name="pph_ks_4" value="{{ pengaturan.pph_ks_4 }}" min="0" step="500">
       </label>
       <label class="field">Tanpa NIP (non-ASN)
-        <input type="number" name="pph_nonasn" value="{{ pengaturan.pph_nonasn }}" min="0" max="100">
+        <input type="number" name="pph_nonasn" value="{{ pengaturan.pph_nonasn }}" min="0" step="500">
       </label>
     </div>
     <h4>Kop SPJ</h4>

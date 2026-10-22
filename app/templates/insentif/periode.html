@@ -54,7 +54,7 @@
           <td>{{ orang.jabatan }}</td>
           {% if dokumen == 'spj' %}
           <td class="num">{{ orang.tarif | rupiah }}</td>
-          <td class="num">{{ orang.pph_nominal | rupiah }} ({{ orang.pph_persen }}%)</td>
+          <td class="num">{{ orang.pph_nominal | rupiah }}</td>
           {% endif %}
           <td class="text-right">
             <form class="inline-form" method="post" action="/insentif/roster/{{ orang.id }}/geser">
@@ -107,15 +107,15 @@
                   <label class="field">Tarif (Rp)
                     <input type="number" name="tarif" value="{{ orang.tarif }}" min="0" step="5000">
                   </label>
-                  <label class="field">PPh % (kosongkan = otomatis)
-                    <input type="number" name="pph_persen" value="" placeholder="{{ orang.pph_persen }}" min="0" max="100">
+                  <label class="field">PPh Rp (kosongkan = otomatis)
+                    <input type="number" name="pph_nominal" value="" placeholder="{{ orang.pph_nominal }}" min="0" step="500">
                   </label>
                   {% else %}
                   <input type="hidden" name="npwp" value="{{ orang.npwp }}">
                   <input type="hidden" name="rekening" value="{{ orang.rekening }}">
                   <input type="hidden" name="nik" value="{{ orang.nik }}">
                   <input type="hidden" name="tarif" value="{{ orang.tarif }}">
-                  <input type="hidden" name="pph_persen" value="{{ orang.pph_persen }}">
+                  <input type="hidden" name="pph_nominal" value="{{ orang.pph_nominal }}">
                   {% endif %}
                 </div>
                 <p>

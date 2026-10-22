@@ -48,6 +48,40 @@
 <div class="card mt-2">
   <div class="card-head">
     <div>
+      <h3>Jabatan &amp; PPh insentif</h3>
+      <p>Jabatan ini menentukan tarif dan PPh 21 pada SPJ — dibaca dari sini,
+      bisa diubah di sini.</p>
+    </div>
+  </div>
+  <div class="card-body">
+    <dl class="kv">
+      <dt>Jabatan insentif</dt>
+      <dd><strong>{{ insentif_info.jabatan }}</strong>
+        <span class="muted">({{ 'diset manual' if insentif_info.manual else 'otomatis dari data GTK' }})</span></dd>
+      <dt>Tarif bawaan</dt>
+      <dd>{{ insentif_info.tarif | rupiah }}{% if insentif_info.tarif_override %} <span class="muted">(khusus)</span>{% endif %}</dd>
+      <dt>PPh 21</dt>
+      <dd><strong>{{ insentif_info.pph | rupiah }}</strong>
+        <span class="muted">({{ insentif_info.gol or 'tanpa gol' }}{% if not insentif_info.ada_nip %}, tanpa NIP{% endif %}{% if insentif_info.tarif %} · ±{{ insentif_info.pph_persen }}%{% endif %})</span></dd>
+    </dl>
+    <form class="mt-2" method="post" action="/gtk/pegawai/{{ item.id }}/jabatan-insentif">
+      <label class="field">Ubah jabatan insentif
+        <select name="jabatan">
+          <option value="">— Otomatis ({{ insentif_info.jabatan_otomatis }}) —</option>
+          {% for pilihan in ['Kepala Sekolah', 'Wakil Kepala Sekolah', 'Guru', 'Tenaga Kependidikan', 'Pelatih'] %}
+          <option value="{{ pilihan }}"{% if insentif_info.manual and insentif_info.jabatan == pilihan %} selected{% endif %}>{{ pilihan }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p><button class="btn btn-sm btn-primary" type="submit">{{ icon('check') }} Simpan jabatan</button>
+      <span class="muted">Berlaku mulai draf bulan berikutnya; draf yang sudah ada tidak berubah.</span></p>
+    </form>
+  </div>
+</div>
+
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
       <h3>Asal data</h3>
     </div>
   </div>

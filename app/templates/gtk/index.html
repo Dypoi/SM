@@ -244,7 +244,7 @@
       <thead>
         <tr>
           <th class="num">No</th><th>Nama</th><th>NUPTK</th><th>NIP</th>
-          <th>Jenis PTK</th><th>Status kepegawaian</th><th>HP</th>
+          <th>Jenis PTK</th><th>Status kepegawaian</th><th>Jabatan insentif</th><th>HP</th>
           <th class="text-right">Aksi</th>
         </tr>
       </thead>
@@ -260,6 +260,7 @@
           <td class="mono">{{ item.nip or '-' }}</td>
           <td>{{ item.jenis_ptk or '-' }}</td>
           <td>{{ item.status_kepegawaian or '-' }}</td>
+          <td>{{ item.jabatan_insentif or '-' }}{% if item.jabatan_manual %} <span class="muted">*</span>{% endif %}</td>
           <td>{{ item.hp or '-' }}</td>
           <td class="text-right">
             <a class="btn btn-outline btn-sm" href="/gtk/pegawai/{{ item.id }}">{{ icon('search') }} Detail</a>
@@ -267,7 +268,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="8">
+          <td colspan="9">
             <div class="empty">
               Belum ada guru &amp; tendik yang tersimpan. Unggah berkas Dapodik di atas, lalu tekan
               <strong>Simpan</strong> pada halaman pratinjau.
