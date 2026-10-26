@@ -58,12 +58,12 @@ HALAMAN_SISWA = ("/portal", "/portal/profil", "/portal/ekstrakurikuler", "/porta
 HALAMAN_PETUGAS = ("/online", "/bot-dapodik/catatan", "/pembaruan", "/bot-dapodik", "/tangcer",
                   "/tangcer/spj", "/tangcer/bedah", "/gtk", "/insentif",
                   "/insentif/pengaturan", "/insentif/libur", "/insentif/profil",
-                  "/insentif/impor-rekening")
+                  "/insentif/impor-rekening", "/insentif/cetak-berkas")
 
 #: Halaman yang wajib bebas gaya sebaris & keterangan panjang (ronde 56 & 58).
 HALAMAN_RAPI = ("/pembaruan", "/bot-dapodik", "/tangcer", "/tangcer/spj", "/tangcer/bedah", "/gtk",
                 "/insentif", "/insentif/pengaturan", "/insentif/libur", "/insentif/profil",
-                "/insentif/impor-rekening")
+                "/insentif/impor-rekening", "/insentif/cetak-berkas")
 BATAS_KETERANGAN = 160
 
 

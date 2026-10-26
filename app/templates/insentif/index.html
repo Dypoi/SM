@@ -39,7 +39,7 @@
 </div>
 
 <div class="split">
-  <form class="card" method="post" action="/insentif/periode/buat">
+  <form class="card" id="buat-draf" method="post" action="/insentif/periode/buat">
     <div class="card-head">
       <div>
         <h3>Buat draf bulan</h3>
@@ -107,8 +107,31 @@
   </div>
 </div>
 
-<p class="muted mt-2">Punya berkas insentif lama? <a href="/insentif/impor-rekening">Impor Rekening Awal</a>
-(sekali saja — nomor rekening terisi + tercocokkan dengan GTK).</p>
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Mulai dari mana?</h3>
+      <p>Dua cara membuat SPJ — pilih yang paling cepat untuk bulan ini.</p>
+    </div>
+  </div>
+  <div class="card-body">
+    <div class="grid grid-2">
+      <div>
+        <h4>1 · Susun draf bulanan</h4>
+        <p class="muted">Dari data GTK sekolah — cocokkan roster, atur tanggal
+        &amp; penanda tangan, lalu cetak absensi + SPJ.</p>
+        <p><a class="btn btn-sm btn-primary" href="#buat-draf">Buat draf bulan ↑</a>
+        <a class="btn btn-sm" href="/insentif/impor-rekening">Impor rekening awal</a></p>
+      </div>
+      <div>
+        <h4>2 · Cetak SPJ dari berkas</h4>
+        <p class="muted">Berkas mentah dari Dinas langsung jadi PDF SPJ —
+        tanpa menyusun draf. Urutan &amp; nominal mengikuti berkas.</p>
+        <p><a class="btn btn-sm btn-primary" href="/insentif/cetak-berkas">Cetak dari berkas →</a></p>
+      </div>
+    </div>
+  </div>
+</div>
 
 {% if not ringkas_gtk.total %}
 <div class="alert alert-warn mt-2" role="alert">

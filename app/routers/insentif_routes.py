@@ -8,6 +8,7 @@ data GTK + kalender bawaan; semuanya tetap bisa diubah per bulan.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -531,3 +532,117 @@ def terapkan_rekening(
                     f"{ringkas['terisi']} nomor rekening terisi dari "
                     f"«{ringkas['berkas']}» ({ringkas['cocok']} cocok, "
                     f"{ringkas['beda']} beda dipertahankan).")
+
+
+# --------------------------------------------------------------------------- #
+# Cetak SPJ langsung dari berkas mentah
+# --------------------------------------------------------------------------- #
+
+_KUNCI_TTD = ("ks_nama", "ks_nip", "bendahara_nama", "bendahara_nip",
+              "pengawas_nama", "pengawas_nip")
+
+
+@router.get("/insentif/cetak-berkas")
+def cetak_berkas_form(
+    request: Request,
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Cetak SPJ dari berkas: unggah berkas Dinas → pratinjau → PDF."""
+    draf = insentif_impor.baca_draf(insentif_impor.KUNCI_CETAK)
+    pratinjau = None
+    if draf:
+        try:
+            baris = insentif_impor.baca_berkas_rekening(draf["path"])
+            bln, thn = insentif_impor.bulan_tahun_judul(draf["path"])
+            roster = insentif_impor.roster_dari_berkas(baris)
+            pratinjau = {"nama": draf["nama"], "jumlah": len(roster),
+                         "total": sum(r["tarif"] for r in roster),
+                         "pph": sum(r["pph_nominal"] for r in roster),
+                         "bulan": bln, "tahun": thn, "orang": roster[:5],
+                         "tgl": (insentif.tanggal_terakhir(thn, bln)
+                                 if bln and thn else dt.date.today().day)}
+        except ValueError as galat:
+            insentif_impor.hapus_draf(insentif_impor.KUNCI_CETAK)
+            return _kembali("/insentif/cetak-berkas", "err", str(galat))
+    return render(
+        request,
+        "insentif/cetak.html",
+        {"page_title": "Cetak SPJ dari berkas", "draf": draf,
+         "pratinjau": pratinjau, "ttd": insentif_impor.ttd_bawaan()})
+
+
+@router.post("/insentif/cetak-berkas")
+async def cetak_berkas_unggah(
+    request: Request,
+    berkas: UploadFile = File(...),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Terima berkas Dinas lalu tampilkan pratinjau cetak."""
+    nama = berkas.filename or "unggahan.xls"
+    isi = await berkas.read()
+    ekstensi = Path(nama).suffix.lower()
+    if not isi:
+        return _kembali("/insentif/cetak-berkas", "err",
+                        "Berkas kosong atau gagal dibaca.")
+    if ekstensi not in insentif_impor.EKSTENSI:
+        return _kembali("/insentif/cetak-berkas", "err",
+                        "Jenis berkas «%s» belum didukung menu ini. Yang "
+                        "didukung: %s." % (ekstensi or "tanpa ekstensi",
+                                           ", ".join(insentif_impor.EKSTENSI)))
+    if len(isi) > config.MAX_UPLOAD_BYTES:
+        return _kembali("/insentif/cetak-berkas", "err",
+                        f"Ukuran berkas melebihi {config.MAX_UPLOAD_MB} MB.")
+    try:
+        simpan = services.save_upload(nama, isi)
+        daftar = insentif_impor.baca_berkas_rekening(simpan.path,
+                                                     simpan.extension)
+    except ValueError as galat:
+        return _kembali("/insentif/cetak-berkas", "err", str(galat))
+    if not daftar:
+        simpan.path.unlink(missing_ok=True)
+        return _kembali("/insentif/cetak-berkas", "err",
+                        "Tidak ada baris penerima yang terbaca. Pastikan "
+                        "berkasnya memuat kolom NO REKENING.")
+    insentif_impor.simpan_draf(simpan.path, nama, insentif_impor.KUNCI_CETAK)
+    return RedirectResponse("/insentif/cetak-berkas", status_code=303)
+
+
+@router.post("/insentif/cetak-berkas/buang")
+def cetak_berkas_buang(
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    insentif_impor.hapus_draf(insentif_impor.KUNCI_CETAK)
+    return RedirectResponse("/insentif/cetak-berkas", status_code=303)
+
+
+@router.post("/insentif/cetak-berkas/pdf")
+async def cetak_berkas_pdf(
+    request: Request,
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    form = await request.form()
+    draf = insentif_impor.baca_draf(insentif_impor.KUNCI_CETAK)
+    if not draf:
+        return RedirectResponse("/insentif/cetak-berkas", status_code=303)
+    try:
+        baris = insentif_impor.baca_berkas_rekening(draf["path"])
+    except ValueError as galat:
+        return _kembali("/insentif/cetak-berkas", "err", str(galat))
+    bln, thn = insentif_impor.bulan_tahun_judul(draf["path"])
+    ttd = {kunci: (form.get(kunci) or "").strip() for kunci in _KUNCI_TTD}
+    tahun = thn or dt.date.today().year
+    bulan = bln or dt.date.today().month
+    try:
+        tgl = int(form.get("tgl_spj") or 0)
+    except ValueError:
+        tgl = 0
+    if not 1 <= tgl <= 31:
+        tgl = insentif.tanggal_terakhir(tahun, bulan)
+    periode = {"tahun": tahun, "bulan": bulan, "tgl_spj": tgl,
+               "ttd_json": json.dumps(ttd, ensure_ascii=False)}
+    roster = insentif_impor.roster_dari_berkas(baris)
+    isi = insentif_pdf.pdf_spj(periode, roster)
+    nama = f"spj-insentif-{tahun:04d}{bulan:02d}.pdf"
+    services.log_audit(user.username, user.role, "insentif_pdf",
+                       "cetak_berkas", 0, f"unduh spj berkas {nama}")
+    return _pdf_response(isi, nama)

@@ -31,6 +31,7 @@ EKSTENSI = (".xls", ".xlsx")
 #: Kunci pengaturan: draf unggahan + hasil impor terakhir.
 KUNCI_DRAF = "impor_rekening_draf"
 KUNCI_HASIL = "impor_rekening_terakhir"
+KUNCI_CETAK = "cetak_berkas_draf"
 
 #: Token gelar (tanpa titik, huruf kecil) yang diabaikan saat
 #: mencocokkan nama berkas («Ary Setyowati») vs GTK («... , S.Pd»).
@@ -108,21 +109,33 @@ def _peta_kolom(kepala: list[str]) -> dict[str, int] | None:
     """Peta nama kolom baku → indeks; None bila bukan tabel penerima."""
     peta: dict[str, int] = {}
     for i, sel in enumerate(kepala):
-        Dublin = _sel_teks(sel).lower().replace(".", "")
-        if Dublin in ("nama", "nama lengkap", "nama pegawai"):
+        bersih = _sel_teks(sel).lower().replace(".", "")
+        if bersih in ("nama", "nama lengkap", "nama pegawai"):
             peta.setdefault("nama", i)
-        elif Dublin == "nip":
+        elif bersih == "nip":
             peta.setdefault("nip", i)
-        elif Dublin == "npwp":
+        elif bersih == "npwp":
             peta.setdefault("npwp", i)
-        elif Dublin in ("no rekening", "nomor rekening", "nom rekening", "rekening",
+        elif bersih in ("no rekening", "nomor rekening", "nom rekening", "rekening",
                        "no rek", "nomor rek"):
             peta.setdefault("rekening", i)
-        elif Dublin == "nik":
+        elif bersih == "nik":
             peta.setdefault("nik", i)
-        elif Dublin.startswith("gol"):
+        elif bersih in ("jumlah yang di bayar", "jumlah yg dibayar",
+                        "jumlah dibayar", "di bayar", "dibayar"):
+            peta.setdefault("bayar", i)
+        elif bersih in ("pph", "pph 21", "potongan pph"):
+            peta.setdefault("pph", i)
+        elif bersih in ("jumlah yang di terima", "jumlah yg diterima",
+                        "jumlah diterima", "di terima", "diterima"):
+            peta.setdefault("terima", i)
+        elif bersih in ("unit kerja", "unit"):
+            peta.setdefault("unit", i)
+        elif bersih.startswith("kecamatan"):
+            peta.setdefault("kecamatan", i)
+        elif bersih.startswith("gol"):
             peta.setdefault("gol", i)
-        elif Dublin == "jabatan":
+        elif bersih == "jabatan":
             peta.setdefault("jabatan", i)
     if "nama" in peta and "rekening" in peta:
         return peta
@@ -141,8 +154,8 @@ def baris_dari_tabel(basis: list[list[Any]]) -> list[dict[str, str]]:
             continue
         hasil: list[dict[str, str]] = []
         for baris in basis[awal + 1:]:
-            ambil = lambda kunci: _sel_teks(baris[peta[kunci]]) \
-                if peta[kunci] < len(baris) else ""
+            ambil = lambda kunci: (_sel_teks(baris[peta[kunci]])
+                if peta.get(kunci) is not None and peta[kunci] < len(baris) else "")
             pertama = _sel_teks(baris[0]) if baris else ""
             if pertama.lower() == "jumlah":
                 break
@@ -151,7 +164,10 @@ def baris_dari_tabel(basis: list[list[Any]]) -> list[dict[str, str]]:
                 continue  # sub-kepala / baris kosong
             hasil.append({"nama": nama, "nip": nip, "npwp": ambil("npwp"),
                           "rekening": rek, "nik": ambil("nik"),
-                          "gol": ambil("gol"), "jabatan": ambil("jabatan")})
+                          "gol": ambil("gol"), "jabatan": ambil("jabatan"),
+                          "bayar": ambil("bayar"), "pph": ambil("pph"),
+                          "terima": ambil("terima"), "unit": ambil("unit"),
+                          "kecamatan": ambil("kecamatan")})
         return hasil
     return []
 
@@ -247,15 +263,15 @@ def cocokan(daftar: list[Mapping[str, str]]) -> dict[str, Any]:
             "tak_di_berkas": tak_di_berkas, "aksi": jumlah_aksi}
 
 
-def simpan_draf(path: Path, nama_berkas: str) -> None:
-    insentif.simpan_pengaturan({KUNCI_DRAF: json.dumps(
+def simpan_draf(path: Path, nama_berkas: str, kunci: str = KUNCI_DRAF) -> None:
+    insentif.simpan_pengaturan({kunci: json.dumps(
         {"path": str(path), "nama": nama_berkas,
          "waktu": _dt.datetime.now().strftime("%Y-%m-%d %H:%M")})})
 
 
-def baca_draf() -> dict[str, str] | None:
+def baca_draf(kunci: str = KUNCI_DRAF) -> dict[str, str] | None:
     try:
-        draf = json.loads(insentif.baca_pengaturan().get(KUNCI_DRAF) or "")
+        draf = json.loads(insentif.baca_pengaturan().get(kunci) or "")
         if isinstance(draf, dict) and Path(draf.get("path", "")).exists():
             return draf
     except (ValueError, TypeError):
@@ -263,8 +279,8 @@ def baca_draf() -> dict[str, str] | None:
     return None
 
 
-def hapus_draf() -> None:
-    db.execute("DELETE FROM insentif_setting WHERE key = ?", (KUNCI_DRAF,))
+def hapus_draf(kunci: str = KUNCI_DRAF) -> None:
+    db.execute("DELETE FROM insentif_setting WHERE key = ?", (kunci,))
 
 
 def terapkan() -> dict[str, Any]:
@@ -307,3 +323,68 @@ def status() -> dict[str, Any]:
     except (ValueError, TypeError):
         terakhir = None
     return {"kurang": kurang, "terakhir": terakhir, "draf": baca_draf()}
+
+
+# --------------------------------------------------------------------------- #
+# Cetak SPJ langsung dari berkas mentah
+# --------------------------------------------------------------------------- #
+
+def _uang(teks: Any) -> int:
+    """"2.700.000" → 2700000; kosong/rusak → 0."""
+    try:
+        return int(re.sub(r"\D", "", _sel_teks(teks)) or 0)
+    except (ValueError, TypeError):
+        return 0
+
+
+def bulan_tahun_judul(lokasi: str | Path) -> tuple[int | None, int | None]:
+    """Ambil (bulan, tahun) dari judul berkas («BULAN : X TAHUN ANGGARAN»)."""
+    lokasi = Path(lokasi)
+    mentah = lokasi.read_bytes()
+    teks = ""
+    if b"<table" in mentah[:2000].lower():
+        teks = mentah.decode("utf-8", errors="replace")
+    else:
+        from .readers import read_spreadsheet
+        try:
+            for sheet in read_spreadsheet(lokasi):
+                for baris in sheet.rows[:12]:
+                    teks += " ".join(_sel_teks(sel) for sel in baris) + "\n"
+        except Exception:
+            return None, None
+    cari = re.search(r"BULAN\s*:?\s*([A-Z]+)\s+TAHUN\s+ANGGARAN\s+(\d{4})",
+                     teks.upper())
+    if not cari:
+        return None, None
+    peta = {nama.lower(): i for i, nama in enumerate(insentif.NAMA_BULAN)
+            if nama}
+    return peta.get(cari.group(1).lower()), int(cari.group(2))
+
+
+def roster_dari_berkas(daftar: list[Mapping[str, str]]) -> list[dict[str, Any]]:
+    """Ubah baris berkas → baris SPJ (urutan berkas dipertahankan)."""
+    hasil = []
+    for baris in daftar:
+        hasil.append({
+            "nama_tampil": str(baris.get("nama") or "").strip(),
+            "nip": str(baris.get("nip") or "").strip(),
+            "npwp": str(baris.get("npwp") or "").strip(),
+            "rekening": str(baris.get("rekening") or "").strip(),
+            "nik": str(baris.get("nik") or "").strip(),
+            "gol": str(baris.get("gol") or "").strip(),
+            "jabatan": str(baris.get("jabatan") or "Guru").strip() or "Guru",
+            "tarif": _uang(baris.get("bayar")),
+            "pph_nominal": _uang(baris.get("pph"))})
+    return hasil
+
+
+def ttd_bawaan() -> dict[str, str]:
+    """Penandatangan bawaan (KS + bendahara + pengawas) untuk cetak berkas."""
+    kosong = {"ks_nama": "", "ks_nip": "", "bendahara_nama": "",
+              "bendahara_nip": "", "pengawas_nama": "", "pengawas_nip": ""}
+    try:
+        awal = insentif._ttd_awal(insentif.baca_pengaturan())
+    except Exception:
+        return kosong
+    kosong.update({k: str(v or "") for k, v in awal.items() if k in kosong})
+    return kosong

@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{#- Cetak SPJ langsung dari berkas mentah Dinas: unggah → pratinjau → PDF. -#}
+<div class="card mb-2">
+  <div class="card-head">
+    <div>
+      <h3>Cetak SPJ dari berkas</h3>
+      <p>Unggah berkas mentah dari Dinas (HTML-«.xls» / .xls / .xlsx) —
+      periksa ringkasannya, lengkapi penanda tangan, lalu unduh PDF SPJ.
+      Urutan nama mengikuti berkas; nominal mengikuti kolom
+      «DIBAYAR» dan «PPH».</p>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="post" action="/insentif/cetak-berkas" enctype="multipart/form-data">
+      <label class="field">Berkas dari Dinas (.xls / .xlsx)
+        <input type="file" name="berkas" accept=".xls,.xlsx" required>
+      </label>
+      <p><button class="btn btn-primary" type="submit">{{ icon('upload') }} Unggah &amp; pratinjau</button>
+      <a class="btn" href="/insentif">← Kembali</a></p>
+    </form>
+  </div>
+</div>
+
+{% if pratinjau %}
+<div class="card mb-2">
+  <div class="card-head">
+    <div>
+      <h3>Pratinjau: {{ pratinjau.nama }}</h3>
+      <p>
+        {% if pratinjau.bulan and pratinjau.tahun %}
+        <span class="badge badge-info">{{ "%02d" | format(pratinjau.bulan) }}/{{ pratinjau.tahun }}</span>
+        {% endif %}
+        <span class="badge badge-success">{{ pratinjau.jumlah }} orang</span>
+        <span class="badge badge-muted">Total {{ pratinjau.total | int | rupiah }}</span>
+        <span class="badge badge-warning">PPh {{ pratinjau.pph | int | rupiah }}</span>
+      </p>
+    </div>
+  </div>
+  <div class="card-body">
+    <h4>5 nama pertama (dari {{ pratinjau.jumlah }})</h4>
+    <table class="data">
+      <thead><tr><th>Nama</th><th>NIP</th><th>Dibayar</th><th>PPh</th></tr></thead>
+      <tbody>
+        {% for orang in pratinjau.orang %}
+        <tr>
+          <td><strong>{{ orang.nama_tampil }}</strong></td>
+          <td class="mono">{{ orang.nip or '—' }}</td>
+          <td class="mono">{{ orang.tarif | int | rupiah }}</td>
+          <td class="mono">{{ orang.pph_nominal | int | rupiah }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card mb-2">
+  <form method="post" action="/insentif/cetak-berkas/pdf">
+    <div class="card-head">
+      <div>
+        <h3>Tanggal &amp; penandatangan</h3>
+        <p>Sudah terisi dari data sekolah — koreksi bila perlu sebelum mengunduh.</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="form-grid">
+        <label class="field">Tgl. SPJ
+          <input type="number" name="tgl_spj" value="{{ pratinjau.tgl }}" min="1" max="31">
+        </label>
+      </div>
+      <div class="form-grid">
+        <label class="field">Kepala Sekolah
+          <input type="text" name="ks_nama" value="{{ ttd.ks_nama }}">
+        </label>
+        <label class="field">NIP KS
+          <input type="text" name="ks_nip" value="{{ ttd.ks_nip }}">
+        </label>
+        <label class="field">Bendahara
+          <input type="text" name="bendahara_nama" value="{{ ttd.bendahara_nama }}">
+        </label>
+        <label class="field">NIP bendahara
+          <input type="text" name="bendahara_nip" value="{{ ttd.bendahara_nip }}">
+        </label>
+        <label class="field">Pengawas
+          <input type="text" name="pengawas_nama" value="{{ ttd.pengawas_nama }}">
+        </label>
+        <label class="field">NIP pengawas
+          <input type="text" name="pengawas_nip" value="{{ ttd.pengawas_nip }}">
+        </label>
+      </div>
+      <p><button class="btn btn-primary" type="submit">{{ icon('download') }} Unduh PDF SPJ</button></p>
+    </div>
+  </form>
+</div>
+
+<form class="mt-2" method="post" action="/insentif/cetak-berkas/buang"
+      onsubmit="return confirm('Buang berkas ini dan mulai dari awal?')">
+  <button class="btn btn-sm" type="submit">{{ icon('trash') }} Buang berkas ini</button>
+  <a class="btn btn-sm" href="/insentif">← Kembali</a>
+</form>
+{% endif %}
+{% endblock %}

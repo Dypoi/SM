@@ -415,6 +415,7 @@ PENGATURAN_BAWAAN = {
     # Impor rekening awal (modul insentif_impor): draf + hasil terakhir.
     "impor_rekening_draf": "",
     "impor_rekening_terakhir": "",
+    "cetak_berkas_draf": "",
 }
 
 

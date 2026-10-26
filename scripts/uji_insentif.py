@@ -731,6 +731,108 @@ async def alur_impor_http() -> None:
 
 asyncio.run(alur_impor_http())
 
+skenario("11. Cetak SPJ dari berkas: judul, roster, draf ganda, PDF")
+
+cek("_uang ribuan Indonesia", insentif_impor._uang("2.700.000") == 2700000)
+cek("_uang kosong/rusak → 0",
+    insentif_impor._uang("") == 0 and insentif_impor._uang("Rp -") == 0
+    and insentif_impor._uang("Rp 1.000") == 1000)
+
+_HTML_CETAK = """<div><table border="1">
+<tr><td colspan="14">REKAPITULASI INSENTIF BULAN : SEPTEMBER TAHUN ANGGARAN 2026</td></tr>
+<tr><td>NO</td><td>Nama</td><td>NIP</td><td>NPWP</td><td>NO REKENING</td><td>NIK</td>
+<td colspan="2">STATUS</td><td>GOLONGAN RUANG</td><td>JABATAN</td><td>JUMLAH DITERIMA</td><td>PPH</td><td>JUMLAH DIBAYAR</td><td>UNIT KERJA</td></tr>
+<tr><td>PNS</td><td>NON PNS</td></tr>
+<tr><td>1</td><td>Ary Setyowati</td><td>197503312006042004</td><td></td><td>0009567461100</td><td></td><td>ASN</td><td></td><td>III/d</td><td>Wakil Kepala Sekolah</td><td>2.835.000</td><td>135.000</td><td>2.700.000</td><td>SMP NEGERI 2 TANGERANG</td></tr>
+<tr><td>2</td><td>ULFA RAHMAH</td><td></td><td></td><td>0111222333444</td><td></td><td></td><td>NON ASN</td><td></td><td>Tenaga Kependidikan</td><td>650.000</td><td>0</td><td>650.000</td><td>SMP NEGERI 2 TANGERANG</td></tr>
+<tr><td>JUMLAH</td><td></td><td></td><td></td><td></td></tr>
+</table></div>"""
+_contoh_cetak = _SEMENTARA / "contoh-cetak.xls"
+_contoh_cetak.write_text(_HTML_CETAK, encoding="utf-8")
+mini = insentif_impor.baca_berkas_rekening(_contoh_cetak)
+cek("mini: 2 baris + kolom uang",
+    len(mini) == 2 and mini[0]["bayar"] == "2.700.000"
+    and mini[0]["pph"] == "135.000"
+    and mini[0]["unit"] == "SMP NEGERI 2 TANGERANG")
+cek("judul mini → Sep 2026",
+    insentif_impor.bulan_tahun_judul(_contoh_cetak) == (9, 2026))
+roster_mini = insentif_impor.roster_dari_berkas(mini)
+cek("roster mini: tarif/PPh/urutan",
+    [r["tarif"] for r in roster_mini] == [2700000, 650000]
+    and roster_mini[0]["pph_nominal"] == 135000
+    and roster_mini[0]["nama_tampil"] == "Ary Setyowati")
+cek("ringkas mini cocok",
+    insentif.ringkas_spj(roster_mini) == {"jumlah_orang": 2, "total": 3350000,
+                                          "pph": 135000, "terima": 3215000})
+
+cek("nyata: judul Sep 2026",
+    insentif_impor.bulan_tahun_judul(
+        AKAR / "DAFTAR-PENERIMA-DANA-INSENTIF (11).xls") == (9, 2026))
+nyata11 = insentif_impor.baca_berkas_rekening(
+    AKAR / "DAFTAR-PENERIMA-DANA-INSENTIF (11).xls")
+ringkas11 = insentif.ringkas_spj(insentif_impor.roster_dari_berkas(nyata11))
+cek("nyata: total = baris JUMLAH",
+    (ringkas11["total"], ringkas11["pph"], ringkas11["jumlah_orang"])
+    == (64300000, 4762500, 41), str(ringkas11))
+
+insentif_impor.simpan_draf(_contoh_xls, "impor.xls")
+insentif_impor.simpan_draf(_contoh_cetak, "cetak.xls",
+                           insentif_impor.KUNCI_CETAK)
+cek("dua slot hidup berdampingan",
+    insentif_impor.baca_draf()["nama"] == "impor.xls"
+    and insentif_impor.baca_draf(insentif_impor.KUNCI_CETAK)["nama"] == "cetak.xls")
+insentif_impor.hapus_draf(insentif_impor.KUNCI_CETAK)
+cek("buang cetak tak sentuh impor",
+    insentif_impor.baca_draf()["nama"] == "impor.xls"
+    and insentif_impor.baca_draf(insentif_impor.KUNCI_CETAK) is None)
+
+import json as _json
+_pdf11 = insentif_pdf.pdf_spj(
+    {"tahun": 2026, "bulan": 9, "tgl_spj": 30,
+     "ttd_json": _json.dumps({"ks_nama": "KS UJI"})},
+    insentif_impor.roster_dari_berkas(nyata11))
+cek("PDF SPJ berkas sah + total",
+    _pdf11.startswith(b"%PDF") and b"64.300.000" in _pdf11
+    and b"SEPTEMBER" in _pdf11 and b"KS UJI" in _pdf11)
+
+
+async def alur_cetak_http() -> None:
+    import httpx
+
+    from app.main import app
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://uji",
+                                 follow_redirects=True) as klien:
+        await klien.post("/login", data={"mode": "staff", "username": "admin",
+                                         "password": "admin123"})
+        halaman = await klien.get("/insentif/cetak-berkas")
+        cek("GET cetak 200 + formulir",
+            halaman.status_code == 200 and "Unggah &amp; pratinjau" in halaman.text)
+        beranda = await klien.get("/insentif")
+        cek("kartu pilihan di beranda",
+            "/insentif/cetak-berkas" in beranda.text
+            and "Mulai dari mana?" in beranda.text)
+        unggah = await klien.post(
+            "/insentif/cetak-berkas",
+            files={"berkas": ("contoh.xls", _HTML_CETAK.encode(),
+                              "application/vnd.ms-excel")})
+        cek("unggah → pratinjau mini",
+            "2 orang" in unggah.text and "3.350.000" in unggah.text
+            and "09/2026" in unggah.text, unggah.text[-300:])
+        pdf = await klien.post("/insentif/cetak-berkas/pdf",
+                               data={"tgl_spj": "30", "ks_nama": "KS HTTP"})
+        cek("PDF via HTTP",
+            pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
+            and pdf.headers["content-type"] == "application/pdf"
+            and b"KS HTTP" in pdf.content, f"status {pdf.status_code}")
+        buang = await klien.post("/insentif/cetak-berkas/buang")
+        cek("buang → kembali ke formulir",
+            "Cetak SPJ dari berkas" in buang.text and "2 orang" not in buang.text)
+
+
+asyncio.run(alur_cetak_http())
+
 # --------------------------------------------------------------------------- #
 # Laporan
 # --------------------------------------------------------------------------- #
