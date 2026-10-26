@@ -388,3 +388,39 @@ def ttd_bawaan() -> dict[str, str]:
         return kosong
     kosong.update({k: str(v or "") for k, v in awal.items() if k in kosong})
     return kosong
+
+
+_ROMawi = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+
+
+def _angka_romawi(token: str) -> int | None:
+    """"IX" → 9; bukan angka romawi murni → None."""
+    token = re.sub(r"[^IVXLCDM]", "", (token or "").upper())
+    if not token:
+        return None
+    total = sebelum = 0
+    for huruf in reversed(token):
+        nilai = _ROMawi[huruf]
+        total += -nilai if nilai < sebelum else nilai
+        sebelum = nilai
+    return total or None
+
+
+def bagi_absensi(daftar: list[Mapping[str, str]]) -> dict[str, list[Mapping[str, str]]]:
+    """Bagi baris berkas → absensi PNS (gol I–IV) vs PPPK (gol V+).
+
+    Hanya Guru & Kepala Sekolah; tanpa golongan (honor/tendik) tidak
+    ikut absensi. Urutan berkas dipertahankan di tiap kelompok.
+    """
+    pns: list[Mapping[str, str]] = []
+    pppk: list[Mapping[str, str]] = []
+    for baris in daftar:
+        jabatan = str(baris.get("jabatan") or "").lower()
+        if "guru" not in jabatan and "kepala sekolah" not in jabatan:
+            continue
+        token = re.split(r"[\s/]", str(baris.get("gol") or "").strip(), 1)[0]
+        angka = _angka_romawi(token)
+        if angka is None:
+            continue
+        (pns if angka <= 4 else pppk).append(baris)
+    return {"pns": pns, "pppk": pppk}

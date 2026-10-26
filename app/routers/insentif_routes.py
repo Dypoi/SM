@@ -555,7 +555,10 @@ def cetak_berkas_form(
             baris = insentif_impor.baca_berkas_rekening(draf["path"])
             bln, thn = insentif_impor.bulan_tahun_judul(draf["path"])
             roster = insentif_impor.roster_dari_berkas(baris)
+            grup = insentif_impor.bagi_absensi(baris)
             pratinjau = {"nama": draf["nama"], "jumlah": len(roster),
+                         "pns": len(grup["pns"]), "pppk": len(grup["pppk"]),
+                         "luar": len(roster) - len(grup["pns"]) - len(grup["pppk"]),
                          "total": sum(r["tarif"] for r in roster),
                          "pph": sum(r["pph_nominal"] for r in roster),
                          "bulan": bln, "tahun": thn, "orang": roster[:5],
@@ -624,6 +627,10 @@ async def cetak_berkas_pdf(
     draf = insentif_impor.baca_draf(insentif_impor.KUNCI_CETAK)
     if not draf:
         return RedirectResponse("/insentif/cetak-berkas", status_code=303)
+    dokumen = (form.get("dokumen") or "spj").strip().lower()
+    if dokumen not in ("spj", "pns", "pppk"):
+        return _kembali("/insentif/cetak-berkas", "err",
+                        "Dokumen tidak dikenal.")
     try:
         baris = insentif_impor.baca_berkas_rekening(draf["path"])
     except ValueError as galat:
@@ -632,17 +639,33 @@ async def cetak_berkas_pdf(
     ttd = {kunci: (form.get(kunci) or "").strip() for kunci in _KUNCI_TTD}
     tahun = thn or dt.date.today().year
     bulan = bln or dt.date.today().month
+    akhir = insentif.tanggal_terakhir(tahun, bulan)
     try:
-        tgl = int(form.get("tgl_spj") or 0)
+        tgl = int(form.get("tgl_spj" if dokumen == "spj" else "tgl_absensi")
+                  or 0)
     except ValueError:
         tgl = 0
     if not 1 <= tgl <= 31:
-        tgl = insentif.tanggal_terakhir(tahun, bulan)
-    periode = {"tahun": tahun, "bulan": bulan, "tgl_spj": tgl,
-               "ttd_json": json.dumps(ttd, ensure_ascii=False)}
-    roster = insentif_impor.roster_dari_berkas(baris)
-    isi = insentif_pdf.pdf_spj(periode, roster)
-    nama = f"spj-insentif-{tahun:04d}{bulan:02d}.pdf"
+        tgl = akhir
+    ttd_json = json.dumps(ttd, ensure_ascii=False)
+    if dokumen == "spj":
+        periode = {"tahun": tahun, "bulan": bulan, "tgl_spj": tgl,
+                   "ttd_json": ttd_json}
+        roster = insentif_impor.roster_dari_berkas(baris)
+        isi = insentif_pdf.pdf_spj(periode, roster)
+        nama = f"spj-insentif-{tahun:04d}{bulan:02d}.pdf"
+    else:
+        merah = insentif.tanggal_merah(tahun, bulan,
+                                       insentif.tambahan_libur())
+        periode = {"tahun": tahun, "bulan": bulan, "tgl_absensi": tgl,
+                   "libur_json": json.dumps({str(k): v for k, v in
+                                             sorted(merah.items())},
+                                            ensure_ascii=False),
+                   "ttd_json": ttd_json}
+        grup = insentif_impor.bagi_absensi(baris)
+        roster = insentif_impor.roster_dari_berkas(grup[dokumen])
+        isi = insentif_pdf.pdf_absensi(dokumen, periode, roster)
+        nama = f"absensi-{dokumen}-{tahun:04d}{bulan:02d}.pdf"
     services.log_audit(user.username, user.role, "insentif_pdf",
-                       "cetak_berkas", 0, f"unduh spj berkas {nama}")
+                       "cetak_berkas", 0, f"unduh {dokumen} berkas {nama}")
     return _pdf_response(isi, nama)

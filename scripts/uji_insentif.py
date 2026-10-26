@@ -833,6 +833,105 @@ async def alur_cetak_http() -> None:
 
 asyncio.run(alur_cetak_http())
 
+skenario("12. Absensi dari berkas: bagi PNS/PPPK, libur, 3 tombol PDF")
+
+cek("romawi IX/IV/III", (insentif_impor._angka_romawi("IX"),
+    insentif_impor._angka_romawi("IV"), insentif_impor._angka_romawi("III"))
+    == (9, 4, 3))
+cek("romawi kosong/bukan → None",
+    insentif_impor._angka_romawi("") is None
+    and insentif_impor._angka_romawi("honor") is None)
+
+_HTML_ABS = """<div><table border="1">
+<tr><td colspan="12">REKAPITULASI BULAN : SEPTEMBER TAHUN ANGGARAN 2026</td></tr>
+<tr><td>NO</td><td>Nama</td><td>NIP</td><td>NPWP</td><td>NO REKENING</td><td>NIK</td>
+<td colspan="2">STATUS</td><td>GOLONGAN RUANG</td><td>JABATAN</td><td>PPH</td><td>JUMLAH DIBAYAR</td></tr>
+<tr><td>PNS</td><td>NON PNS</td></tr>
+<tr><td>1</td><td>Guru PNS</td><td>1</td><td></td><td>111</td><td></td><td>ASN</td><td></td><td>IV/a</td><td>Guru</td><td>0</td><td>100</td></tr>
+<tr><td>2</td><td>Guru PPPK</td><td>2</td><td></td><td>222</td><td></td><td>ASN</td><td></td><td>IX</td><td>Guru</td><td>0</td><td>100</td></tr>
+<tr><td>3</td><td>Pak KS</td><td>3</td><td></td><td>333</td><td></td><td>ASN</td><td></td><td>IV/b</td><td>Kepala Sekolah</td><td>0</td><td>100</td></tr>
+<tr><td>4</td><td>Tendik Honor</td><td></td><td></td><td>444</td><td></td><td></td><td>NON ASN</td><td></td><td>Tenaga Kependidikan</td><td>0</td><td>100</td></tr>
+<tr><td>JUMLAH</td><td></td><td></td><td></td><td></td></tr>
+</table></div>"""
+_contoh_abs = _SEMENTARA / "contoh-abs.xls"
+_contoh_abs.write_text(_HTML_ABS, encoding="utf-8")
+grup_mini = insentif_impor.bagi_absensi(
+    insentif_impor.baca_berkas_rekening(_contoh_abs))
+cek("mini: PNS 2 (guru+KS), PPPK 1, tendik tersisih",
+    [b["nama"] for b in grup_mini["pns"]] == ["Guru PNS", "Pak KS"]
+    and [b["nama"] for b in grup_mini["pppk"]] == ["Guru PPPK"])
+
+nyata12 = insentif_impor.baca_berkas_rekening(
+    AKAR / "DAFTAR-PENERIMA-DANA-INSENTIF (11).xls")
+grup12 = insentif_impor.bagi_absensi(nyata12)
+cek("nyata: 14 PNS + 24 PPPK + 3 luar",
+    len(grup12["pns"]) == 14 and len(grup12["pppk"]) == 24
+    and len(nyata12) - 38 == 3)
+cek("nyata: urutan berkas + KS di PNS",
+    grup12["pns"][0]["nama"] == "Ary Setyowati"
+    and grup12["pppk"][0]["nama"] == "Mohammad Yunan Syahrizal Syarif"
+    and any("MUHAMMAD" in b["nama"] for b in grup12["pns"]))
+luar12 = [b["nama"] for b in nyata12
+          if b not in grup12["pns"] and b not in grup12["pppk"]]
+cek("nyata: luar = 3 tendik", sorted(luar12) == ["Lukman", "Muntahar Rahman",
+                                                "Ulfa Rahmah"], str(luar12))
+
+merah12 = insentif.tanggal_merah(2026, 9, insentif.tambahan_libur())
+per12 = {"tahun": 2026, "bulan": 9, "tgl_absensi": 30,
+         "libur_json": _json.dumps({str(k): v for k, v in
+                                    sorted(merah12.items())}),
+         "ttd_json": _json.dumps({"ks_nama": "KS ABS"})}
+_pdf_pns = insentif_pdf.pdf_absensi(
+    "pns", per12, insentif_impor.roster_dari_berkas(grup12["pns"]))
+_pdf_pppk = insentif_pdf.pdf_absensi(
+    "pppk", per12, insentif_impor.roster_dari_berkas(grup12["pppk"]))
+cek("PDF absensi PNS sah + label",
+    _pdf_pns.startswith(b"%PDF") and b"\\( PNS \\)" in _pdf_pns
+    and b"Ary Setyowati" in _pdf_pns and b"SEPTEMBER" in _pdf_pns)
+cek("PDF absensi PPPK sah + label",
+    _pdf_pppk.startswith(b"%PDF") and b"\\( PPPK \\)" in _pdf_pppk
+    and b"Yunan" in _pdf_pppk and b"Ulfa" not in _pdf_pppk)
+
+
+async def alur_absensi_http() -> None:
+    import httpx
+
+    from app.main import app
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://uji",
+                                 follow_redirects=True) as klien:
+        await klien.post("/login", data={"mode": "staff", "username": "admin",
+                                         "password": "admin123"})
+        asli = (AKAR / "DAFTAR-PENERIMA-DANA-INSENTIF (11).xls").read_bytes()
+        unggah = await klien.post(
+            "/insentif/cetak-berkas",
+            files={"berkas": ("dinas.xls", asli, "application/vnd.ms-excel")})
+        cek("pratinjau 3 kelompok",
+            "Absensi PNS 14" in unggah.text
+            and "Absensi PPPK 24" in unggah.text
+            and "3 hanya SPJ" in unggah.text, unggah.text[-300:])
+        pns = await klien.post("/insentif/cetak-berkas/pdf",
+                               data={"dokumen": "pns", "tgl_absensi": "30"})
+        cek("PDF PNS via HTTP",
+            pns.status_code == 200 and pns.content.startswith(b"%PDF")
+            and b"\\( PNS \\)" in pns.content, f"status {pns.status_code}")
+        pppk = await klien.post("/insentif/cetak-berkas/pdf",
+                                data={"dokumen": "pppk", "tgl_absensi": "30"})
+        cek("PDF PPPK via HTTP",
+            pppk.status_code == 200 and b"\\( PPPK \\)" in pppk.content,
+            f"status {pppk.status_code}")
+        baku = await klien.post("/insentif/cetak-berkas/pdf",
+                                data={"tgl_spj": "30"})
+        cek("tanpa dokumen → SPJ (bawaan)",
+            baku.content.startswith(b"%PDF") and b"64.300.000" in baku.content)
+        salah = await klien.post("/insentif/cetak-berkas/pdf",
+                                 data={"dokumen": "xyz"})
+        cek("dokumen asing ditolak", "Dokumen tidak dikenal" in salah.text)
+
+
+asyncio.run(alur_absensi_http())
+
 # --------------------------------------------------------------------------- #
 # Laporan
 # --------------------------------------------------------------------------- #

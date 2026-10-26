@@ -8,7 +8,8 @@
     <div>
       <h3>Cetak SPJ dari berkas</h3>
       <p>Unggah berkas mentah dari Dinas (HTML-«.xls» / .xls / .xlsx) —
-      periksa ringkasannya, lengkapi penanda tangan, lalu unduh PDF SPJ.
+      periksa ringkasannya, lengkapi penanda tangan, lalu unduh PDF SPJ
+      dan absensi (PNS + PPPK).
       Urutan nama mengikuti berkas; nominal mengikuti kolom
       «DIBAYAR» dan «PPH».</p>
     </div>
@@ -33,7 +34,10 @@
         {% if pratinjau.bulan and pratinjau.tahun %}
         <span class="badge badge-info">{{ "%02d" | format(pratinjau.bulan) }}/{{ pratinjau.tahun }}</span>
         {% endif %}
-        <span class="badge badge-success">{{ pratinjau.jumlah }} orang</span>
+        <span class="badge badge-success">SPJ {{ pratinjau.jumlah }} orang</span>
+        <span class="badge badge-info">Absensi PNS {{ pratinjau.pns }}</span>
+        <span class="badge badge-info">Absensi PPPK {{ pratinjau.pppk }}</span>
+        {% if pratinjau.luar %}<span class="badge badge-muted">{{ pratinjau.luar }} hanya SPJ (tanpa golongan)</span>{% endif %}
         <span class="badge badge-muted">Total {{ pratinjau.total | int | rupiah }}</span>
         <span class="badge badge-warning">PPh {{ pratinjau.pph | int | rupiah }}</span>
       </p>
@@ -70,6 +74,9 @@
         <label class="field">Tgl. SPJ
           <input type="number" name="tgl_spj" value="{{ pratinjau.tgl }}" min="1" max="31">
         </label>
+        <label class="field">Tgl. absensi
+          <input type="number" name="tgl_absensi" value="{{ pratinjau.tgl }}" min="1" max="31">
+        </label>
       </div>
       <div class="form-grid">
         <label class="field">Kepala Sekolah
@@ -91,7 +98,11 @@
           <input type="text" name="pengawas_nip" value="{{ ttd.pengawas_nip }}">
         </label>
       </div>
-      <p><button class="btn btn-primary" type="submit">{{ icon('download') }} Unduh PDF SPJ</button></p>
+      <div class="btn-group">
+        <button class="btn btn-primary" type="submit" name="dokumen" value="spj">{{ icon('download') }} SPJ</button>
+        <button class="btn btn-primary" type="submit" name="dokumen" value="pns">{{ icon('download') }} Absensi PNS</button>
+        <button class="btn btn-primary" type="submit" name="dokumen" value="pppk">{{ icon('download') }} Absensi PPPK</button>
+      </div>
     </div>
   </form>
 </div>
