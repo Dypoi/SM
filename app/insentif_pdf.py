@@ -181,16 +181,21 @@ def _baris_absensi(isi: list[str], grid: Mapping[str, list], nomor: int,
     kotak(isi, x[19], y, ABS_LEBAR[19], ABS_TINGGI_ORANG, "",
           9.0, False, "tengah", None, 0.5)
     # Dua sub-baris tanda kehadiran (dibiarkan kosong untuk diisi tangan).
-    # Tanggal «DL» dari berkas e-gov diwarnai merah pula (sama seperti libur).
+    # Tanggal «DL» dari berkas e-gov diisi teks «DL» — TIDAK diwarnai merah
+    # (merah hanya untuk tanggal libur nasional/cuti).
     dl = dl or {}
     for lajur in ("band1", "band2"):
         for i, sel in enumerate(grid[lajur]):
             warna = None
+            teks = ""
             if sel is None:
                 warna = WARNA_ABU_TUA
-            elif sel["libur"] or dl.get(sel["tgl"]):
-                warna = WARNA_MERAH
-            kotak(isi, x[4 + i], y, 34.0, ABS_SUB, "", 10.0, False,
+            else:
+                if sel["libur"]:
+                    warna = WARNA_MERAH
+                if dl.get(sel["tgl"]):
+                    teks = "DL"   # DL tidak membuat sel merah
+            kotak(isi, x[4 + i], y, 34.0, ABS_SUB, teks, 10.0, False,
                   "tengah", warna, 0.5)
         y -= ABS_SUB
     return y

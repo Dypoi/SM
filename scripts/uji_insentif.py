@@ -943,7 +943,7 @@ async def alur_absensi_http() -> None:
 asyncio.run(alur_absensi_http())
 
 # --------------------------------------------------------------------------- #
-skenario("13. Absensi e-gov: tanggal DL diwarnai merah di PDF")
+skenario("13. Absensi e-gov: tanggal DL berisi teks «DL» (bukan merah)")
 # --------------------------------------------------------------------------- #
 _EGov_NYATA = AKAR / ("daftar_hadir_bulanan_2025_10_UPT_Sekolah_Menengah_"
                       "Pertama_Negeri_2_Tangerang.xlsx")
@@ -983,15 +983,39 @@ _pdf13_pns = insentif_pdf.pdf_absensi(
     "pns", _per13, insentif_impor.roster_dari_berkas(grup12["pns"]))
 _pdf13_pppk = insentif_pdf.pdf_absensi(
     "pppk", _per13, insentif_impor.roster_dari_berkas(grup12["pppk"]))
-# PNS: Ary 6 + Yeye 4 + Rustini 4 = 14 sel merah; PPPK: Wafa 3 sel merah.
-cek("PDF PNS: 14 sel merah dari DL", _pdf13_pns.count(b"1 0 0 rg") == 14,
-    str(_pdf13_pns.count(b"1 0 0 rg")))
-cek("PDF PPPK: 3 sel merah dari DL", _pdf13_pppk.count(b"1 0 0 rg") == 3,
-    str(_pdf13_pppk.count(b"1 0 0 rg")))
-cek("PDF: tanpa DL → 0 sel merah",
+# PNS: Ary 6 + Yeye 4 + Rustini 4 = 14 sel berisi «DL»; PPPK: Wafa 3 sel.
+cek("PDF PNS: 14 sel berisi teks «DL»", _pdf13_pns.count(b"(DL) Tj") == 14,
+    str(_pdf13_pns.count(b"(DL) Tj")))
+cek("PDF PPPK: 3 sel berisi teks «DL»", _pdf13_pppk.count(b"(DL) Tj") == 3,
+    str(_pdf13_pppk.count(b"(DL) Tj")))
+cek("PDF: sel DL TIDAK berwarna merah",
+    _pdf13_pns.count(b"1 0 0 rg") == 0, str(_pdf13_pns.count(b"1 0 0 rg")))
+cek("PDF: tanpa DL → 0 teks «DL»",
     insentif_pdf.pdf_absensi("pns", {**_per13, "dl_json": "{}"},
                              insentif_impor.roster_dari_berkas(grup12["pns"])
-                             ).count(b"1 0 0 rg") == 0)
+                             ).count(b"(DL) Tj") == 0)
+
+# Tanggal libur nasional tetap merah — DL tidak menggantikannya.
+_merah13 = insentif.tanggal_merah(2026, 12, insentif.tambahan_libur())
+_per13_libur = {"tahun": 2026, "bulan": 12, "tgl_absensi": 31,
+                "libur_json": _json.dumps({str(k): v for k, v in
+                                           sorted(_merah13.items())}),
+                "dl_json": _json.dumps(_dl_nyata), "ttd_json": "{}"}
+_pdf13_libur = insentif_pdf.pdf_absensi(
+    "pns", _per13_libur, insentif_impor.roster_dari_berkas(grup12["pns"]))
+# Hitung dinamis: tanggal DL orang PNS yang jatuh hari kerja di Desember.
+_grid_des = insentif.grid_absensi(2026, 12, {})
+_ada_des = {sel["tgl"] for lajur in ("band1", "band2")
+            for sel in _grid_des[lajur] if sel}
+_kunci_pns = {insentif_impor.kunci_orang(r)
+              for r in insentif_impor.roster_dari_berkas(grup12["pns"])}
+_dl_pns_des = sum(1 for k, v in _dl_roster.items()
+                  if k in _kunci_pns for t in v if t in _ada_des)
+cek("PDF Des 2026: libur tetap merah + teks DL",
+    _pdf13_libur.count(b"1 0 0 rg") > 0
+    and _pdf13_libur.count(b"(DL) Tj") == _dl_pns_des,
+    f"merah {_pdf13_libur.count(b'1 0 0 rg')} dl "
+    f"{_pdf13_libur.count(b'(DL) Tj')} (harapkan {_dl_pns_des})")
 
 # unggahan tanpa absensi e-gov ditolak
 async def alur_egov_http() -> None:
@@ -1022,9 +1046,11 @@ async def alur_egov_http() -> None:
             "tanggal DL" in ok.text and "27" in ok.text, ok.text[-300:])
         pns = await klien.post("/insentif/cetak-berkas/pdf",
                                data={"dokumen": "pns", "tgl_absensi": "30"})
-        cek("HTTP: PDF PNS dengan DL merah",
-            pns.status_code == 200 and pns.content.count(b"1 0 0 rg") == 14,
-            f"status {pns.status_code} merah {pns.content.count(b'1 0 0 rg')}")
+        cek("HTTP: PDF PNS dengan teks DL",
+            pns.status_code == 200 and pns.content.count(b"(DL) Tj") == 14
+            and pns.content.count(b"1 0 0 rg") == 0,
+            f"status {pns.status_code} dl {pns.content.count(b'(DL) Tj')} "
+            f"merah {pns.content.count(b'1 0 0 rg')}")
 
 
 asyncio.run(alur_egov_http())
