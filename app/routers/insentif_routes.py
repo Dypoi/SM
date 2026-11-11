@@ -11,6 +11,7 @@ import datetime as dt
 import json
 import logging
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -28,6 +29,18 @@ NAMA_BERKAS = {"pns": "absensi-pns", "pppk": "absensi-pppk", "spj": "spj-insenti
 
 def _kembali(alamat: str, level: str, pesan: str) -> RedirectResponse:
     return RedirectResponse(f"{alamat}?level={level}&msg={quote_plus(pesan)}", status_code=303)
+
+
+def _orang_egov() -> list[dict[str, Any]]:
+    """Orang + tanggal DL dari draf unggahan absensi e-gov (bisa kosong)."""
+    draf = insentif_impor.baca_draf(insentif_impor.KUNCI_CETAK_EGov)
+    if not draf:
+        return []
+    try:
+        return insentif_impor.baca_absensi_egov(draf["path"])
+    except ValueError as galat:
+        log.warning("Absensi e-gov tak terbaca: %s", galat)
+        return []
 
 
 @router.get("/insentif")
@@ -556,6 +569,12 @@ def cetak_berkas_form(
             bln, thn = insentif_impor.bulan_tahun_judul(draf["path"])
             roster = insentif_impor.roster_dari_berkas(baris)
             grup = insentif_impor.bagi_absensi(baris)
+            _dl_map = insentif_impor.tanda_dl(_orang_egov())
+            orang_e = _orang_egov()
+            by_kunci = {insentif_impor.kunci_orang(o): o for o in orang_e}
+            dl = [{"nama": by_kunci.get(k, {}).get("nama", k),
+                   "nip": by_kunci.get(k, {}).get("nip", ""),
+                   "tanggal": v} for k, v in sorted(_dl_map.items())]
             pratinjau = {"nama": draf["nama"], "jumlah": len(roster),
                          "pns": len(grup["pns"]), "pppk": len(grup["pppk"]),
                          "luar": len(roster) - len(grup["pns"]) - len(grup["pppk"]),
@@ -563,7 +582,10 @@ def cetak_berkas_form(
                          "pph": sum(r["pph_nominal"] for r in roster),
                          "bulan": bln, "tahun": thn, "orang": roster[:5],
                          "tgl": (insentif.tanggal_terakhir(thn, bln)
-                                 if bln and thn else dt.date.today().day)}
+                                 if bln and thn else dt.date.today().day),
+                         "dl": dl,
+                         "dl_jumlah": sum(len(v["tanggal"]) for v in dl),
+                         "dl_orang": len(dl)}
         except ValueError as galat:
             insentif_impor.hapus_draf(insentif_impor.KUNCI_CETAK)
             return _kembali("/insentif/cetak-berkas", "err", str(galat))
@@ -578,9 +600,14 @@ def cetak_berkas_form(
 async def cetak_berkas_unggah(
     request: Request,
     berkas: UploadFile = File(...),
+    absensi: UploadFile | None = File(None),
     user: auth.SessionUser = Depends(auth.require_staff),
 ):
-    """Terima berkas Dinas lalu tampilkan pratinjau cetak."""
+    """Terima berkas Dinas + absensi e-gov, lalu tampilkan pratinjau."""
+    if absensi is None or not (absensi.filename or "").strip():
+        return _kembali("/insentif/cetak-berkas", "err",
+                        "Unggah juga berkas absensi e-gov (.xls / .xlsx) — "
+                        " Tanggal «DL» di situ yang diwarnai merah di PDF.")
     nama = berkas.filename or "unggahan.xls"
     isi = await berkas.read()
     ekstensi = Path(nama).suffix.lower()
@@ -607,6 +634,36 @@ async def cetak_berkas_unggah(
                         "Tidak ada baris penerima yang terbaca. Pastikan "
                         "berkasnya memuat kolom NO REKENING.")
     insentif_impor.simpan_draf(simpan.path, nama, insentif_impor.KUNCI_CETAK)
+    # --- Absensi e-gov: dibaca sendiri, gagal tak memblokir cetak SPJ. ---
+    isi_e = await absensi.read()
+    nama_e = absensi.filename or "absensi.xlsx"
+    ekstensi_e = Path(nama_e).suffix.lower()
+    if not isi_e:
+        return _kembali("/insentif/cetak-berkas", "err",
+                        "Berkas absensi e-gov kosong atau gagal dibaca.")
+    if ekstensi_e not in insentif_impor.EGov_EKSTENSI:
+        return _kembali("/insentif/cetak-berkas", "err",
+                        "Jenis berkas «%s» belum didukung untuk absensi. "
+                        "Yang didukung: %s." % (ekstensi_e or "tanpa ekstensi",
+                                               ", ".join(insentif_impor.EGov_EKSTENSI)))
+    if len(isi_e) > config.MAX_UPLOAD_BYTES:
+        return _kembali("/insentif/cetak-berkas", "err",
+                        f"Ukuran berkas melebihi {config.MAX_UPLOAD_MB} MB.")
+    try:
+        simpan_e = services.save_upload(nama_e, isi_e)
+        orang_e = insentif_impor.baca_absensi_egov(simpan_e.path,
+                                                  simpan_e.extension)
+    except ValueError as galat:
+        simpan_e.path.unlink(missing_ok=True)
+        return _kembali("/insentif/cetak-berkas", "err",
+                        f"Absensi e-gov tak terbaca: {galat}")
+    if not orang_e:
+        simpan_e.path.unlink(missing_ok=True)
+        return _kembali("/insentif/cetak-berkas", "err",
+                        "Tidak ada baris kehadiran yang terbaca dari "
+                        "berkas absensi e-gov.")
+    insentif_impor.simpan_draf(simpan_e.path, nama_e,
+                               insentif_impor.KUNCI_CETAK_EGov)
     return RedirectResponse("/insentif/cetak-berkas", status_code=303)
 
 
@@ -615,6 +672,7 @@ def cetak_berkas_buang(
     user: auth.SessionUser = Depends(auth.require_staff),
 ):
     insentif_impor.hapus_draf(insentif_impor.KUNCI_CETAK)
+    insentif_impor.hapus_draf(insentif_impor.KUNCI_CETAK_EGov)
     return RedirectResponse("/insentif/cetak-berkas", status_code=303)
 
 
@@ -657,10 +715,13 @@ async def cetak_berkas_pdf(
     else:
         merah = insentif.tanggal_merah(tahun, bulan,
                                        insentif.tambahan_libur())
+        dl = insentif_impor.tanda_dl(_orang_egov())
         periode = {"tahun": tahun, "bulan": bulan, "tgl_absensi": tgl,
                    "libur_json": json.dumps({str(k): v for k, v in
                                              sorted(merah.items())},
                                             ensure_ascii=False),
+                   "dl_json": json.dumps({k: v for k, v in sorted(dl.items())},
+                                         ensure_ascii=False),
                    "ttd_json": ttd_json}
         grup = insentif_impor.bagi_absensi(baris)
         roster = insentif_impor.roster_dari_berkas(grup[dokumen])

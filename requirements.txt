@@ -18,3 +18,8 @@ odfpy==1.4.1        # .ods                    (LibreOffice/OpenOffice)
 
 # --- Pembaca berkas PDF (SK definitif TANGCER) ---
 pypdf==6.20.0        # membaca PDF berbasis teks (bukan hasil pindai)
+
+# --- Uji otomatis (skrip scripts/uji_*.py) ---
+# httpx dipakai oleh skrip uji untuk menelusuri ASGI secara in-process;
+# aplikasi SM sendiri tidak membutuhkannya.
+httpx==0.28.1

@@ -416,6 +416,8 @@ PENGATURAN_BAWAAN = {
     "impor_rekening_draf": "",
     "impor_rekening_terakhir": "",
     "cetak_berkas_draf": "",
+    # Absensi e-gov (modul insentif_impor): draf unggahan daftar hadir.
+    "cetak_berkas_absensi_egov_draf": "",
 }
 
 
@@ -744,6 +746,31 @@ def baca_ttd(periode: Mapping[str, Any]) -> dict[str, str]:
              "pengawas_nama": "", "pengawas_nip": ""}
     hasil.update({kunci: str(nilai or "") for kunci, nilai in ttd.items()
                   if kunci in hasil})
+    return hasil
+
+
+def baca_dl_periode(periode: Mapping[str, Any]) -> dict[str, set[int]]:
+    """Tanggal «DL» per kunci orang (hasil unggah absensi e-gov).
+
+    ``dl_json`` = ``{"<NIP atau nama>": [8, 9, 10], ...}``; kunci
+    dibandingkan sama persis dengan ``insentif_impor.kunci_orang``.
+    """
+    import json
+
+    try:
+        mentah = json.loads(periode.get("dl_json") or "{}")
+    except ValueError:
+        return {}
+    if not isinstance(mentah, dict):
+        return {}
+    from .insentif_impor import kunci_orang
+
+    hasil: dict[str, set[int]] = {}
+    for kunci, nilai in mentah.items():
+        try:
+            hasil[str(kunci)] = {int(t) for t in nilai}
+        except (ValueError, TypeError):
+            continue
     return hasil
 
 

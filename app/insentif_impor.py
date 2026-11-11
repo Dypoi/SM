@@ -424,3 +424,123 @@ def bagi_absensi(daftar: list[Mapping[str, str]]) -> dict[str, list[Mapping[str,
             continue
         (pns if angka <= 4 else pppk).append(baris)
     return {"pns": pns, "pppk": pppk}
+
+
+# --------------------------------------------------------------------------- #
+# Absensi e-gov (daftar hadir bulanan UPT)
+# --------------------------------------------------------------------------- #
+#: Ekstensi yang diterima halaman cetak berkas untuk absensi e-gov.
+EGov_EKSTENSI = (".xlsx", ".xls", ".xlsb", ".ods")
+
+#: Kunci pengaturan: draf unggahan absensi e-gov.
+KUNCI_CETAK_EGov = "cetak_berkas_absensi_egov_draf"
+
+
+def _cari_baris_hari(bar: list[list[Any]]) -> tuple[int, dict[int, int]]:
+    """Baris yang memuat angka tanggal «01..31» berurutan → (indeks, peta).
+
+    Peta: ``{tanggal: indeks kolom}``. Baris kepala absensi e-gov selalu
+    memiliki 31 lajur angka tanggal berurutan; bila tidak ada → (-1, {}).
+    """
+    for i, baris in enumerate(bar[:20]):
+        peta: dict[int, int] = {}
+        for j, sel in enumerate(baris):
+            teks = _sel_teks(sel)
+            if re.fullmatch(r"0?[1-9]|[12]\d|3[01]", teks):
+                peta.setdefault(int(teks), j)
+        if not peta:
+            continue
+        hari = sorted(peta)
+        if len(hari) < 25:
+            continue
+        if hari != list(range(hari[0], hari[0] + len(hari))):
+            continue
+        if all(peta[h] == peta[hari[0]] + h - hari[0] for h in hari):
+            return i, peta
+    return -1, {}
+
+
+def _orang_dari_egov(bar: list[list[Any]], hdr: int,
+                     peta: Mapping[int, int]) -> list[dict[str, Any]]:
+    """Uraikan blok orang dari grid absensi e-gov.
+
+    Tiap orang menempati 4 baris: nama + kode kehadiran, NIP, jabatan,
+    kosong. Yang diambil: nama, NIP, jabatan dan tanggal yang berkode
+    «DL» (Dinas Luar) — kode itu yang nanti diwarnai merah di PDF.
+    """
+    hasil: list[dict[str, Any]] = []
+    for i in range(hdr + 1, len(bar)):
+        sel = bar[i]
+        if len(sel) < 2:
+            continue
+        nomor = _sel_teks(sel[0])
+        if not re.fullmatch(r"\d{1,3}", nomor):
+            continue  # sub-baris (NIP / jabatan / kosong)
+        nama = _sel_teks(sel[1])
+        if not nama:
+            continue
+        nip = ""
+        jabatan = ""
+        for jeda in (1, 2, 3):
+            if i + jeda >= len(bar):
+                break
+            isi = _sel_teks(bar[i + jeda][1]) if len(bar[i + jeda]) > 1 else ""
+            if not isi:
+                continue
+            digit = insentif.hanya_digit(isi)
+            if not nip and len(digit) >= 16:
+                nip = digit          # baris berikutnya: NIP 18 digit
+            elif not jabatan and not re.search(r"\d", isi):
+                jabatan = isi        # baris berikutnya: jabatan/pangkat
+        dl = []
+        for tanggal in sorted(peta):
+            j = peta[tanggal]
+            if j < len(sel) and _sel_teks(sel[j]).upper() == "DL":
+                dl.append(tanggal)
+        hasil.append({"nama": nama, "nip": nip, "jabatan": jabatan,
+                      "dl": dl, "no": int(nomor)})
+    return hasil
+
+
+def baca_absensi_egov(lokasi: str | Path, ekstensi: str = ""
+                      ) -> list[dict[str, Any]]:
+    """Baca berkas absensi e-gov → daftar orang + tanggal «DL»-nya."""
+    lokasi = Path(lokasi)
+    ekstensi = (ekstensi or lokasi.suffix).lower()
+    if ekstensi not in EGov_EKSTENSI:
+        raise ValueError(
+            f"Jenis berkas «{ekstensi}» tak didukung; pakai "
+            + "/".join(EGov_EKSTENSI) + ".")
+    from .readers import read_spreadsheet
+    try:
+        lembar = read_spreadsheet(lokasi, ekstensi)
+    except Exception as galat:
+        raise ValueError(f"Gagal membaca berkas: {galat}") from galat
+    for sheet in lembar:
+        bar = [list(baris) for baris in sheet.rows]
+        hdr, peta = _cari_baris_hari(bar)
+        if hdr < 0:
+            continue
+        hasil = _orang_dari_egov(bar, hdr, peta)
+        if hasil:
+            return hasil
+    raise ValueError("Berkas absensi e-gov ini tidak memuat grid tanggal 01–31.")
+
+
+def kunci_orang(orang: Mapping[str, Any]) -> str:
+    """Kunci pembanding orang: NIP 18 digit bila ada, nama tanpa gelar."""
+    digit = insentif.hanya_digit(orang.get("nip"))
+    if len(digit) == 18:
+        return digit
+    return nama_kunci(orang.get("nama"))
+
+
+def tanda_dl(orang_egov: Sequence[Mapping[str, Any]]) -> dict[str, list[int]]:
+    """``{kunci orang: [tanggal DL]}`` — untuk warna merah di grid PDF."""
+    hasil: dict[str, list[int]] = {}
+    for orang in orang_egov:
+        kunci = kunci_orang(orang)
+        dl = sorted({int(t) for t in orang.get("dl") or []})
+        if kunci and dl:
+            hasil[kunci] = dl
+    return hasil

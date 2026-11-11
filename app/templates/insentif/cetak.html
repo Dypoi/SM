@@ -16,9 +16,17 @@
   </div>
   <div class="card-body">
     <form method="post" action="/insentif/cetak-berkas" enctype="multipart/form-data">
-      <label class="field">Berkas dari Dinas (.xls / .xlsx)
-        <input type="file" name="berkas" accept=".xls,.xlsx" required>
-      </label>
+      <div class="form-grid">
+        <label class="field">Berkas dari Dinas (.xls / .xlsx)
+          <input type="file" name="berkas" accept=".xls,.xlsx" required>
+        </label>
+        <label class="field">Absensi e-gov (.xls / .xlsx / .xlsb / .ods)
+          <input type="file" name="absensi" accept=".xls,.xlsx,.xlsb,.ods" required>
+        </label>
+      </div>
+      <p class="hint">Absensi e-gov dipakai untuk warna merah tanggal «DL»
+      (Dinas Luar) di PDF. Tanggal merah libur nasional tetap otomatis
+      dari kalender bawaan.</p>
       <p><button class="btn btn-primary" type="submit">{{ icon('upload') }} Unggah &amp; pratinjau</button>
       <a class="btn" href="/insentif">← Kembali</a></p>
     </form>
@@ -38,12 +46,29 @@
         <span class="badge badge-info">Absensi PNS {{ pratinjau.pns }}</span>
         <span class="badge badge-info">Absensi PPPK {{ pratinjau.pppk }}</span>
         {% if pratinjau.luar %}<span class="badge badge-muted">{{ pratinjau.luar }} hanya SPJ (tanpa golongan)</span>{% endif %}
+        {% if pratinjau.dl_orang %}<span class="badge badge-warning">{{ pratinjau.dl_orang }} orang · {{ pratinjau.dl_jumlah }} tanggal DL</span>
+        {% else %}<span class="badge badge-muted">Tanpa tanggal DL</span>{% endif %}
         <span class="badge badge-muted">Total {{ pratinjau.total | int | rupiah }}</span>
         <span class="badge badge-warning">PPh {{ pratinjau.pph | int | rupiah }}</span>
       </p>
     </div>
   </div>
   <div class="card-body">
+    {% if pratinjau.dl_orang %}
+    <h4>Tanggal «DL» dari absensi e-gov ({{ pratinjau.dl_orang }} orang)</h4>
+    <table class="data">
+      <thead><tr><th>Nama</th><th>NIP</th><th>Tanggal DL</th></tr></thead>
+      <tbody>
+        {% for baris in pratinjau.dl %}
+        <tr>
+          <td><strong>{{ baris.nama }}</strong></td>
+          <td class="mono">{{ baris.nip or '—' }}</td>
+          <td class="mono">{{ baris.tanggal | join(', ') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
     <h4>5 nama pertama (dari {{ pratinjau.jumlah }})</h4>
     <table class="data">
       <thead><tr><th>Nama</th><th>NIP</th><th>Dibayar</th><th>PPh</th></tr></thead>

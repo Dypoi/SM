@@ -813,10 +813,15 @@ async def alur_cetak_http() -> None:
         cek("kartu pilihan di beranda",
             "/insentif/cetak-berkas" in beranda.text
             and "Mulai dari mana?" in beranda.text)
+        egov = (AKAR / "daftar_hadir_bulanan_2025_10_UPT_Sekolah_Menengah_"
+                "Pertama_Negeri_2_Tangerang.xlsx").read_bytes()
         unggah = await klien.post(
             "/insentif/cetak-berkas",
             files={"berkas": ("contoh.xls", _HTML_CETAK.encode(),
-                              "application/vnd.ms-excel")})
+                              "application/vnd.ms-excel"),
+                   "absensi": ("egov.xlsx", egov,
+                               "application/vnd.openxmlformats-officedocument."
+                               "spreadsheetml.sheet")})
         cek("unggah → pratinjau mini",
             "2 orang" in unggah.text and "3.350.000" in unggah.text
             and "09/2026" in unggah.text, unggah.text[-300:])
@@ -904,9 +909,14 @@ async def alur_absensi_http() -> None:
         await klien.post("/login", data={"mode": "staff", "username": "admin",
                                          "password": "admin123"})
         asli = (AKAR / "DAFTAR-PENERIMA-DANA-INSENTIF (11).xls").read_bytes()
+        egov = (AKAR / "daftar_hadir_bulanan_2025_10_UPT_Sekolah_Menengah_Pertama_"
+                "Negeri_2_Tangerang.xlsx").read_bytes()
         unggah = await klien.post(
             "/insentif/cetak-berkas",
-            files={"berkas": ("dinas.xls", asli, "application/vnd.ms-excel")})
+            files={"berkas": ("dinas.xls", asli, "application/vnd.ms-excel"),
+                   "absensi": ("egov.xlsx", egov,
+                               "application/vnd.openxmlformats-officedocument."
+                               "spreadsheetml.sheet")})
         cek("pratinjau 3 kelompok",
             "Absensi PNS 14" in unggah.text
             and "Absensi PPPK 24" in unggah.text
@@ -931,6 +941,93 @@ async def alur_absensi_http() -> None:
 
 
 asyncio.run(alur_absensi_http())
+
+# --------------------------------------------------------------------------- #
+skenario("13. Absensi e-gov: tanggal DL diwarnai merah di PDF")
+# --------------------------------------------------------------------------- #
+_EGov_NYATA = AKAR / ("daftar_hadir_bulanan_2025_10_UPT_Sekolah_Menengah_"
+                      "Pertama_Negeri_2_Tangerang.xlsx")
+_egov_orang = insentif_impor.baca_absensi_egov(_EGov_NYATA)
+cek("e-gov: 45 orang terbaca", len(_egov_orang) == 45, str(len(_egov_orang)))
+cek("e-gov: NIP 18 digit + jabatan terbaca",
+    all(len(insentif.hanya_digit(o["nip"])) == 18 for o in _egov_orang)
+    and any(o["jabatan"] for o in _egov_orang))
+cek("e-gov: 6 orang punya tanggal DL",
+    len(insentif_impor.tanda_dl(_egov_orang)) == 6,
+    str(len(insentif_impor.tanda_dl(_egov_orang))))
+_dl_nyata = insentif_impor.tanda_dl(_egov_orang)
+cek("e-gov: 27 tanggal DL total",
+    sum(len(v) for v in _dl_nyata.values()) == 27,
+    str(sum(len(v) for v in _dl_nyata.values())))
+cek("e-gov: DL hanya di baris nama (bukan baris NIP/jabatan)",
+    all(set(o["dl"]) <= set(range(1, 32)) for o in _egov_orang))
+
+# DL yang jatuh Sabtu/Minggu memang tak ada di grid (grid hanya Sen–Jum).
+_grid13 = insentif.grid_absensi(2026, 9, {})
+_ada13 = {sel["tgl"] for lajur in ("band1", "band2") for sel in _grid13[lajur]
+          if sel}
+_terima = sum(1 for t in _dl_nyata.values() for x in t if x in _ada13)
+cek("e-gov: 23 tanggal DL jatuh hari kerja (Sen–Jum)", _terima == 23,
+    str(_terima))
+# Yang masuk roster: PNS 14 (Ary 6 + Yeye 4 + Rustini 4), PPPK 3 (Wafa).
+_dl_roster = {k: v for k, v in _dl_nyata.items()
+              if k in {insentif_impor.kunci_orang(r)
+                       for r in insentif_impor.roster_dari_berkas(grup12["pns"])
+                       + insentif_impor.roster_dari_berkas(grup12["pppk"])}}
+cek("e-gov: 4 orang DL masuk roster", len(_dl_roster) == 4, str(len(_dl_roster)))
+
+_per13 = {"tahun": 2026, "bulan": 9, "tgl_absensi": 30,
+          "libur_json": "{}",
+          "dl_json": _json.dumps(_dl_nyata), "ttd_json": "{}"}
+_pdf13_pns = insentif_pdf.pdf_absensi(
+    "pns", _per13, insentif_impor.roster_dari_berkas(grup12["pns"]))
+_pdf13_pppk = insentif_pdf.pdf_absensi(
+    "pppk", _per13, insentif_impor.roster_dari_berkas(grup12["pppk"]))
+# PNS: Ary 6 + Yeye 4 + Rustini 4 = 14 sel merah; PPPK: Wafa 3 sel merah.
+cek("PDF PNS: 14 sel merah dari DL", _pdf13_pns.count(b"1 0 0 rg") == 14,
+    str(_pdf13_pns.count(b"1 0 0 rg")))
+cek("PDF PPPK: 3 sel merah dari DL", _pdf13_pppk.count(b"1 0 0 rg") == 3,
+    str(_pdf13_pppk.count(b"1 0 0 rg")))
+cek("PDF: tanpa DL → 0 sel merah",
+    insentif_pdf.pdf_absensi("pns", {**_per13, "dl_json": "{}"},
+                             insentif_impor.roster_dari_berkas(grup12["pns"])
+                             ).count(b"1 0 0 rg") == 0)
+
+# unggahan tanpa absensi e-gov ditolak
+async def alur_egov_http() -> None:
+    import httpx
+
+    from app.main import app
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://uji",
+                                 follow_redirects=True) as klien:
+        await klien.post("/login", data={"mode": "staff", "username": "admin",
+                                         "password": "admin123"})
+        asli = (AKAR / "DAFTAR-PENERIMA-DANA-INSENTIF (11).xls").read_bytes()
+        tolak = await klien.post(
+            "/insentif/cetak-berkas",
+            files={"berkas": ("dinas.xls", asli, "application/vnd.ms-excel")})
+        cek("HTTP: tanpa absensi e-gov ditolak",
+            "Unggah juga berkas absensi e-gov" in tolak.text,
+            tolak.text[-200:])
+        egov = _EGov_NYATA.read_bytes()
+        ok = await klien.post(
+            "/insentif/cetak-berkas",
+            files={"berkas": ("dinas.xls", asli, "application/vnd.ms-excel"),
+                   "absensi": ("egov.xlsx", egov,
+                               "application/vnd.openxmlformats-officedocument."
+                               "spreadsheetml.sheet")})
+        cek("HTTP: pratinjau sebut tanggal DL",
+            "tanggal DL" in ok.text and "27" in ok.text, ok.text[-300:])
+        pns = await klien.post("/insentif/cetak-berkas/pdf",
+                               data={"dokumen": "pns", "tgl_absensi": "30"})
+        cek("HTTP: PDF PNS dengan DL merah",
+            pns.status_code == 200 and pns.content.count(b"1 0 0 rg") == 14,
+            f"status {pns.status_code} merah {pns.content.count(b'1 0 0 rg')}")
+
+
+asyncio.run(alur_egov_http())
 
 # --------------------------------------------------------------------------- #
 # Laporan

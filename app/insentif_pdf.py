@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from . import insentif
+from . import insentif, insentif_impor
 from .pdf import (
     LEGAL_LEBAR,
     LEGAL_TINGGI,
@@ -156,7 +156,8 @@ def _kepala_absensi(isi: list[str], grid: Mapping[str, list],
 
 
 def _baris_absensi(isi: list[str], grid: Mapping[str, list], nomor: int,
-                   orang: Mapping[str, Any], y: float) -> float:
+                   orang: Mapping[str, Any], y: float,
+                   dl: Mapping[int, bool] | None = None) -> float:
     x = _sumbu_x(ABS_LEBAR)
     nama = str(orang.get("nama_tampil") or "")
     nip = insentif.format_nip_spasi(orang.get("nip"))
@@ -180,12 +181,14 @@ def _baris_absensi(isi: list[str], grid: Mapping[str, list], nomor: int,
     kotak(isi, x[19], y, ABS_LEBAR[19], ABS_TINGGI_ORANG, "",
           9.0, False, "tengah", None, 0.5)
     # Dua sub-baris tanda kehadiran (dibiarkan kosong untuk diisi tangan).
+    # Tanggal «DL» dari berkas e-gov diwarnai merah pula (sama seperti libur).
+    dl = dl or {}
     for lajur in ("band1", "band2"):
         for i, sel in enumerate(grid[lajur]):
             warna = None
             if sel is None:
                 warna = WARNA_ABU_TUA
-            elif sel["libur"]:
+            elif sel["libur"] or dl.get(sel["tgl"]):
                 warna = WARNA_MERAH
             kotak(isi, x[4 + i], y, 34.0, ABS_SUB, "", 10.0, False,
                   "tengah", warna, 0.5)
@@ -261,6 +264,7 @@ def halaman_absensi(dokumen: str, periode: Mapping[str, Any],
     except (ValueError, TypeError):
         tgl = insentif.tanggal_terakhir(tahun, bulan)
     label = "PNS" if dokumen == "pns" else "PPPK"
+    dl_semua = insentif.baca_dl_periode(periode)
 
     tinggi_judul = 3 * 17 + 8
     tinggi_kepala = 18 + 15 + 11 + 15 + 11
@@ -288,7 +292,9 @@ def halaman_absensi(dokumen: str, periode: Mapping[str, Any],
         y = _kepala_absensi(isi, grid, y)
         for orang in roster[nomor:nomor + banyak]:
             nomor += 1
-            y = _baris_absensi(isi, grid, nomor, orang, y)
+            kunci = insentif_impor.kunci_orang(orang)
+            dl_orang = {int(t): True for t in dl_semua.get(kunci, ())}
+            y = _baris_absensi(isi, grid, nomor, orang, y, dl_orang)
         if urutan == len(kelompok) - 1:
             _kaki_absensi(isi, merah, ttd, tgl, bulan, tahun, y - 6)
         halaman.append(("\n".join(isi) + "\n").encode("latin-1", "replace"))
