@@ -578,6 +578,41 @@ cek("hanya 1 alat (tidak salah pilih insentif)",
 OLLAMA.chat_skrip = []
 
 # --------------------------------------------------------------------------- #
+# 10d. Penjaga pesan meta: model menyebut proses, bukan jawaban
+# --------------------------------------------------------------------------- #
+skenario("10d. Penjaga pesan meta (jawab dari hasil alat)")
+
+cek("deteksi: pesan meta «saya akan… mohon berikan» → True",
+    ollama._tampaknya_pesan_meta(
+        "Tentu, saya akan menjawab berdasarkan hasil alat. Mohon berikan "
+        "hasil alatnya agar saya dapat membantu.") is True)
+cek("deteksi: jawaban angka konkret → bukan pesan meta",
+    ollama._tampaknya_pesan_meta("Total siswa seluruhnya adalah 816 siswa.") is False)
+cek("deteksi: teks pendek/kosong → bukan pesan meta",
+    ollama._tampaknya_pesan_meta("") is False)
+cek("deteksi: teks biasa tanpa pola meta → bukan pesan meta",
+    ollama._tampaknya_pesan_meta("Bot Dapodik sedang menganggur.") is False)
+
+# End-to-end: model pertama memberi pesan meta, penjaga memaksa satu kali
+# mengulang, lalu model menjawab dari hasil alat.
+OLLAMA.chat_skrip = [
+    chat_bicara("Tentu, saya akan menjawab pertanyaan berdasarkan hasil dari alat "
+                "«lihat_jumlah_siswa». Mohon berikan hasil alatnya agar saya dapat "
+                "membantu dengan lebih baik."),
+    chat_bicara("Total siswa seluruhnya adalah 2 siswa."),
+]
+hasil = ollama.bicara("berapa jumlah siswa seluruhnya?", cfg=CFG_AKTIF)
+cek("pesan meta → dipaksa mengulang lalu jawab dari hasil alat",
+    "2 siswa" in hasil.get("jawaban", ""), str(hasil.get("jawaban"))[:160])
+cek("pesan meta tidak dikembalikan sebagai jawaban akhir",
+    "mohon berikan" not in hasil.get("jawaban", "").lower(),
+    str(hasil.get("jawaban"))[:160])
+cek("alat tetap dipanggil lihat_jumlah_siswa",
+    [j["alat"] for j in hasil.get("alat") or []] == ["lihat_jumlah_siswa"],
+    str([j["alat"] for j in hasil.get("alat") or []]))
+OLLAMA.chat_skrip = []
+
+# --------------------------------------------------------------------------- #
 # 11. Alat insentif tulis (periode, roster)
 # --------------------------------------------------------------------------- #
 skenario("11. Alat insentif tulis (periode & roster)")

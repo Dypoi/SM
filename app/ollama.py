@@ -140,6 +140,27 @@ def _detik_pengaturan(setting: Mapping[str, str]) -> int:
     return max(10, min(1800, nilai))
 
 
+def _tampaknya_pesan_meta(isi: str) -> bool:
+    """Tangkap jawaban model yang berupa pesan meta, bukan jawaban nyata.
+
+    Model kadang mengembalikan teks seperti «saya akan menjawab… mohon berikan
+    hasil alat…» alih-alih menyebutkan jawaban, padahal hasil alat sudah
+    tersedia. Deteksi pola itu supaya bisa dipaksa menjawab dari hasil alat.
+    """
+    jika_tidak = (not isi or len(isi.strip()) < 8)
+    if jika_tidak:
+        return False
+    teks = isi.lower()
+    meta = ("saya akan", "mohon berikan", "agar saya dapat", "saya dapat membantu",
+            "berikan saya", "sudah tersedia", "saya akan menjawab", "tunggu",
+            "silakan berikan", "mohon informasi")
+    if not any(kata in teks for kata in meta):
+        return False
+    # Bila sudah menyebut angka konkret, dianggap jawaban — bukan pesan meta.
+    import re as _re
+    return not _re.search(r"\d", isi)
+
+
 def _pesan_kosong(model: str) -> str:
     """Pesan bila model kembali tanpa jawaban — model mungkin terlalu kecil."""
     return (
@@ -459,6 +480,10 @@ SYSTEM_PROMPT = (
     "- Untuk pekerjaan (menjalankan bot, mengunggah/membuat berkas, mengubah "
     "data), panggil alatnya dan laporkan hasil yang benar-benar dikembalikan "
     "alat. Jangan menyatakan berhasil bila alat melaporkan kegagalan.\n"
+    "- **Setelah alat mengembalikan hasil, langsung sampaikan jawabannya.** "
+    "JANGAN menulis pesan meta tentang apa yang akan Anda lakukan, dan JANGAN "
+    "meminta hasil alat atau pertanyaan lagi — Anda sudah memiliki keduanya. "
+    "Sebutkan isi hasil alat apa adanya dalam satu jawaban ringkas.\n"
     "- Bila butuh ID (periode, baris roster, pengajuan, pegawai), ambil dulu dari "
     "alat lihat_... — jangan mengarang ID.\n"
     "- Alat yang menghapus data («hapus_...») bersifat permanen; pastikan ID "
@@ -1385,12 +1410,9 @@ def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
         pesans.append({"role": "tool", "tool_call_id": _id_hitung,
                        "content": json.dumps(hasil_hitung, ensure_ascii=False)})
         pesans.append({"role": "user",
-                       "content": ("Jumlah siswa sudah tersedia dari hasil alat "
-                                   "«lihat_jumlah_siswa». Jawab pertanyaan pengguna "
-                                   "berdasarkan hasil tersebut; jika pertanyaan "
-                                   "meminta kelompok tertentu, panggil alat itu lagi "
-                                   "dengan saringan yang diminta.")})
+                       "content": ("Hasil alat «lihat_jumlah_siswa» sudah tersimpan. Jawab SEKARANG pertanyaan pengguna berdasarkan angka dari hasil tersebut — sebutkan angka itu dalam jawaban. Jangan meminta data lagi, datanya sudah ada. Jika pertanyaan meminta kelompok tertentu, panggil alat itu lagi dengan saringan yang diminta.")})
 
+    coba_ulang_meta = False
     for _langkah in range(BATAS_LOOP):
         hasil = _chat(url, model, setting.get(KUNCI_KUNCI) or "", pesans, detik=detik)
         pesan_model = hasil.get("message") or {}
@@ -1406,6 +1428,19 @@ def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
                               "function": {"name": dari_teks[0],
                                             "arguments": dari_teks[1]}}]
             else:
+                # Penjaga: model kadang mengembalikan pesan meta («saya akan
+                # menjawab… mohon berikan hasil alat») alih-alih jawaban, padahal
+                # hasil alat sudah ada. Paksa sekali menjawab dari hasil alat.
+                if (not coba_ulang_meta and jejak
+                        and _tampaknya_pesan_meta(isi_model)):
+                    coba_ulang_meta = True
+                    pesans.append({"role": "user",
+                                   "content": ("Jawab SEKARANG dengan menyebutkan "
+                                               "hasil alat yang sudah tersedia. "
+                                               "Jangan menulis pesan tentang proses "
+                                               "atau meminta data lagi — datanya "
+                                               "sudah ada di hasil alat sebelumnya.")})
+                    continue
                 jawaban = isi_model.strip() or _pesan_kosong(model)
                 return {"jawaban": jawaban, "alat": jejak,
                         "batas": False, "riwayat": pesans}
