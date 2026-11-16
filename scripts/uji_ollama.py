@@ -41,7 +41,8 @@ os.environ["SM_DATA_DIR"] = str(_SEMENTARA / "data")
 os.environ["SM_DB_PATH"] = str(_SEMENTARA / "uji.sqlite3")
 os.environ["SM_AUTO_SEED"] = "0"
 
-from app import bot_dapodik, insentif_impor, migrations, ollama, services  # noqa: E402
+from app import (bot_dapodik, insentif, insentif_impor, migrations, ollama,  # noqa: E402
+                 services)
 
 migrations.init_database()
 
@@ -268,9 +269,46 @@ hasil_alat = ollama.jalankan_alat("alat_tak_ada", {}, CFG_AKTIF)
 cek("alat tak dikenal ditolak",
     hasil_alat.get("ok") is False and "tidak dikenal" in (hasil_alat.get("pesan") or ""),
     str(hasil_alat))
-cek("daftar alat 8 nama",
-    {a["nama"] for a in ollama.daftar_alat()} == set(ollama._PELAKU),
-    str(sorted(ollama._PELAKU)))
+cek("daftar alat 26 nama (seluruh fitur bodap)",
+    {a["nama"] for a in ollama.daftar_alat()} == set(ollama._PELAKU)
+    and len(ollama.daftar_alat()) == 26,
+    str(len(ollama._PELAKU)))
+
+
+# --------------------------------------------------------------------------- #
+# Persiapan data uji untuk alat-alat data bodap
+# --------------------------------------------------------------------------- #
+def _isi_data_uji() -> None:
+    from app import db
+
+    db.execute("INSERT OR IGNORE INTO students(nisn, nama, rombel, tingkat, status) "
+               "VALUES('3900000001', 'Uji Budi', '7-A', '7', 'Aktif')")
+    db.execute("INSERT OR IGNORE INTO students(nisn, nama, rombel, tingkat, status) "
+               "VALUES('3900000002', 'Uji Sari', '8-B', '8', 'Aktif')")
+    db.execute("INSERT OR IGNORE INTO gtk_pegawai(nama, nip, jenis_ptk, "
+               "status_kepegawaian, pangkat_golongan, rekening) "
+               "VALUES('Guru Uji', '198001011980010001', 'Guru', 'Aktif', 'IV/a', '123456')")
+    db.execute("INSERT OR IGNORE INTO extracurriculars(nama, pembina, hari, jam_mulai, "
+               "jam_selesai, aktif) VALUES('Pramuka Uji', 'Guru Uji', 'Senin', '14:00', "
+               "'16:00', 1)")
+    db.execute("INSERT INTO tangcer_penerima(tahun, semester, tahap, nisn, nama, jenis, "
+               "nominal, cocok) VALUES('2026', 'Ganjil', '1', '3900000001', 'Uji Budi', "
+               "'KPS', 300000, 'nisn')")
+    siswa = db.query_value("SELECT id FROM students WHERE nisn = '3900000001'")
+    db.execute("INSERT INTO change_requests(student_id, nisn, nama, rombel, status, "
+               "jumlah_field, dokumen_lengkap) VALUES(?, '3900000001', 'Uji Budi', "
+               "'7-A', 'menunggu', 1, 1)", (siswa,))
+    request_id = db.query_value(
+        "SELECT id FROM change_requests WHERE nisn = '3900000001' ORDER BY id DESC LIMIT 1")
+    db.execute("INSERT INTO change_request_items(request_id, field, label, nilai_baru) "
+               "VALUES(?, 'hp', 'HP', '081111111111')", (request_id,))
+    # Field terkunci: dipakai untuk membuktikan alat TIDAK mengubahnya.
+    db.execute("INSERT INTO change_request_items(request_id, field, label, nilai_baru) "
+               "VALUES(?, 'rombel', 'Rombel', '7-Z')", (request_id,))
+    return request_id
+
+
+REQUEST_ID_UJI = _isi_data_uji()
 
 # --------------------------------------------------------------------------- #
 # 6. Alat bodap: status
@@ -367,9 +405,212 @@ cek("pesan batas jelas", "dihentikan" in (hasil.get("jawaban") or ""),
 OLLAMA.chat_skrip = []
 
 # --------------------------------------------------------------------------- #
-# 10. Titik akhir HTTP
+# 10. Alat data bodap (siswa, GTK, persetujuan, ekskul, TANGCER, pengaturan)
 # --------------------------------------------------------------------------- #
-skenario("10. Titik akhir HTTP")
+skenario("10. Alat data bodap")
+
+hasil = ollama.jalankan_alat("lihat_daftar_siswa", {"q": "Budi"}, CFG_AKTIF)
+cek("daftar siswa: cari «Budi» → 1 baris",
+    hasil.get("ok") is True and hasil.get("total") == 1
+    and hasil["baris"][0]["nisn"] == "3900000001", str(hasil)[:160])
+hasil = ollama.jalankan_alat("lihat_daftar_siswa", {"rombel": "8-B"}, CFG_AKTIF)
+cek("daftar siswa: saring rombel 8-B",
+    hasil.get("ok") is True and hasil.get("total") == 1
+    and hasil["baris"][0]["nama"] == "Uji Sari", str(hasil)[:160])
+hasil = ollama.jalankan_alat("lihat_siswa", {"nisn": "3900000001"}, CFG_AKTIF)
+cek("detail siswa found",
+    hasil.get("ok") is True and hasil["siswa"]["nama"] == "Uji Budi", str(hasil)[:160])
+hasil = ollama.jalankan_alat("lihat_siswa", {"nisn": "0000000000"}, CFG_AKTIF)
+cek("detail siswa tidak ada → pesan jelas",
+    hasil.get("ok") is False and "tidak ditemukan" in (hasil.get("pesan") or ""),
+    str(hasil))
+
+hasil = ollama.jalankan_alat("lihat_daftar_gtk", {"jenis": "Guru"}, CFG_AKTIF)
+cek("daftar GTK: 1 guru + rekening_ada",
+    hasil.get("ok") is True and hasil.get("jumlah") == 1
+    and hasil["baris"][0]["rekening_ada"] is True, str(hasil)[:160])
+
+hasil = ollama.jalankan_alat("lihat_antrean_persetujuan", {"status": "menunggu"}, CFG_AKTIF)
+cek("antrean persetujuan: 1 menunggu + id",
+    hasil.get("ok") is True and len(hasil.get("pengajuan") or []) == 1
+    and hasil["pengajuan"][0]["id"] == REQUEST_ID_UJI, str(hasil)[:160])
+hasil = ollama.jalankan_alat("lihat_antrean_persetujuan", {"status": "xyz"}, CFG_AKTIF)
+cek("antrean persetujuan: status tidak dikenal ditolak",
+    hasil.get("ok") is False and "tidak dikenal" in (hasil.get("pesan") or ""), str(hasil))
+
+hasil = ollama.jalankan_alat("lihat_ekskul", {}, CFG_AKTIF)
+cek("ekskul: 1 kegiatan + anggota",
+    hasil.get("ok") is True and hasil.get("jumlah") == 1
+    and hasil["ekskul"][0]["nama"] == "Pramuka Uji", str(hasil)[:160])
+
+hasil = ollama.jalankan_alat("lihat_status_tangcer", {"tahun": "2026"}, CFG_AKTIF)
+cek("status TANGCER: ringkas + 1 penerima",
+    hasil.get("ok") is True and hasil.get("jumlah") == 1
+    and hasil["penerima"][0]["nama"] == "Uji Budi", str(hasil)[:160])
+
+hasil = ollama.jalankan_alat("lihat_pengaturan", {}, CFG_AKTIF)
+cek("pengaturan: sekolah + tarif + fitur",
+    hasil.get("ok") is True and "tarif_insentif" in hasil
+    and "fitur_aktif" in hasil, str(hasil)[:160])
+
+# --------------------------------------------------------------------------- #
+# 11. Alat insentif tulis (periode, roster)
+# --------------------------------------------------------------------------- #
+skenario("11. Alat insentif tulis (periode & roster)")
+
+hasil = ollama.jalankan_alat("buat_periode_insentif", {"tahun": 2027, "bulan": 3}, CFG_AKTIF)
+cek("buat periode 2027-03", hasil.get("ok") is True, str(hasil))
+periode_id = hasil.get("periode_id")
+cek("periode tersimpan", insentif.get_periode(periode_id) is not None) if periode_id else \
+    cek("periode tersimpan", False, "tidak ada id")
+cek("periode muncul di status insentif",
+    any(p.get("tahun") == 2027 and p.get("bulan") == 3
+        for p in ollama.jalankan_alat("lihat_status_insentif", {}, CFG_AKTIF)["periode"]))
+
+hasil = ollama.jalankan_alat("buat_periode_insentif", {"tahun": 2027, "bulan": 13}, CFG_AKTIF)
+cek("bulan 13 ditolak", hasil.get("ok") is False, str(hasil))
+
+hasil_a = ollama.jalankan_alat("tambah_orang_insentif",
+   {"periode_id": periode_id, "dokumen": "pns",
+    "nilai": {"nama_tampil": "Orang A", "tarif": 3000000}}, CFG_AKTIF)
+cek("tambah orang A", hasil_a.get("ok") is True, str(hasil_a))
+hasil_b = ollama.jalankan_alat("tambah_orang_insentif",
+   {"periode_id": periode_id, "dokumen": "pns",
+    "nilai": {"nama_tampil": "Orang B", "tarif": 4000000}}, CFG_AKTIF)
+cek("tambah orang B", hasil_b.get("ok") is True, str(hasil_b))
+baris_a, baris_b = hasil_a.get("baris_id"), hasil_b.get("baris_id")
+
+hasil = ollama.jalankan_alat("tambah_orang_insentif",
+   {"periode_id": periode_id, "dokumen": "xyz", "nilai": {"nama_tampil": "X"}}, CFG_AKTIF)
+cek("dokumen tidak dikenal ditolak", hasil.get("ok") is False, str(hasil))
+hasil = ollama.jalankan_alat("tambah_orang_insentif",
+   {"periode_id": periode_id, "dokumen": "pns", "nilai": {"tarif": 1}}, CFG_AKTIF)
+cek("tanpa nama_tampil ditolak", hasil.get("ok") is False
+    and "nama_tampil" in (hasil.get("pesan") or ""), str(hasil))
+
+hasil = ollama.jalankan_alat("ubah_orang_insentif",
+   {"baris_id": baris_a, "nilai": {"tarif": 5000000}}, CFG_AKTIF)
+cek("ubah orang A tarif", hasil.get("ok") is True, str(hasil))
+cek("tarif tersimpan 5000000",
+    int(insentif.roster_periode(periode_id, "pns")[0]["tarif"] or 0) == 5000000)
+
+hasil = ollama.jalankan_alat("geser_orang_insentif",
+   {"baris_id": baris_a, "arah": 1}, CFG_AKTIF)
+cek("geser orang A turun", hasil.get("ok") is True, str(hasil))
+cek("urutan bertukar (A jadi kedua)",
+    [b["nama_tampil"] for b in insentif.roster_periode(periode_id, "pns")]
+    == ["Orang B", "Orang A"])
+hasil = ollama.jalankan_alat("geser_orang_insentif",
+   {"baris_id": baris_a, "arah": 0}, CFG_AKTIF)
+cek("arah 0 ditolak", hasil.get("ok") is False, str(hasil))
+
+hasil = ollama.jalankan_alat("hapus_orang_insentif", {"baris_id": baris_b}, CFG_AKTIF)
+cek("hapus orang B", hasil.get("ok") is True, str(hasil))
+cek("orang B hilang",
+    all(b["id"] != baris_b for b in insentif.roster_periode(periode_id, "pns")))
+hasil = ollama.jalankan_alat("hapus_orang_insentif", {"baris_id": 999999}, CFG_AKTIF)
+cek("hapus id tak ada ditolak", hasil.get("ok") is False, str(hasil))
+
+hasil = ollama.jalankan_alat("hapus_periode_insentif", {"periode_id": periode_id}, CFG_AKTIF)
+cek("hapus periode", hasil.get("ok") is True, str(hasil))
+cek("periode hilang", insentif.get_periode(periode_id) is None)
+
+# --------------------------------------------------------------------------- #
+# 12. Alat libur & jabatan insentif
+# --------------------------------------------------------------------------- #
+skenario("12. Alat libur & jabatan insentif")
+
+hasil = ollama.jalankan_alat("tambah_libur",
+   {"tanggal": "2027-03-20", "nama": "Hari Buruh", "jenis": "kustom"}, CFG_AKTIF)
+cek("tambah libur", hasil.get("ok") is True, str(hasil))
+cek("libur tersimpan",
+    any(str(b.get("tanggal")) == "2027-03-20"
+        for b in insentif.daftar_libur_tahun(2027)))
+hasil = ollama.jalankan_alat("hapus_libur", {"tanggal": "2027-03-20"}, CFG_AKTIF)
+cek("hapus libur", hasil.get("ok") is True, str(hasil))
+cek("libur hilang",
+    not any(str(b.get("tanggal")) == "2027-03-20"
+            for b in insentif.daftar_libur_tahun(2027)))
+# 2027-03-15 = Hari Raya Nyepi (libur nasional bawaan) — menambahnya kembali
+# harus dicatat sudah ada, bukan diam-diam mencatat duplikat.
+hasil = ollama.jalankan_alat("tambah_libur",
+   {"tanggal": "2027-03-15", "nama": "Nyepi", "jenis": "kustom"}, CFG_AKTIF)
+cek("libur nasional bawaan tidak ditambahkan duplikat",
+    hasil.get("ok") is False and "sudah ada" in (hasil.get("pesan") or ""), str(hasil))
+hasil = ollama.jalankan_alat("tambah_libur",
+   {"tanggal": "bukan-tanggal", "nama": "X"}, CFG_AKTIF)
+cek("tanggal tidak sah ditolak", hasil.get("ok") is False, str(hasil))
+
+pegawai_id = 1
+hasil = ollama.jalankan_alat("ubah_jabatan_insentif",
+   {"pegawai_id": pegawai_id, "jabatan": "Guru"}, CFG_AKTIF)
+cek("ubah jabatan insentif", hasil.get("ok") is True, str(hasil))
+cek("jabatan tersimpan Guru",
+    insentif.profil_untuk_gtk(pegawai_id).get("jabatan") == "Guru")
+hasil = ollama.jalankan_alat("ubah_jabatan_insentif",
+   {"pegawai_id": pegawai_id, "jabatan": "Kapten"}, CFG_AKTIF)
+cek("jabatan tidak dikenal ditolak", hasil.get("ok") is False
+    and "tidak dikenal" in (hasil.get("pesan") or ""), str(hasil))
+hasil = ollama.jalankan_alat("ubah_jabatan_insentif",
+   {"pegawai_id": 99999, "jabatan": "Guru"}, CFG_AKTIF)
+cek("pegawai tidak ada ditolak", hasil.get("ok") is False, str(hasil))
+
+# --------------------------------------------------------------------------- #
+# 13. Alat persetujuan
+# --------------------------------------------------------------------------- #
+skenario("13. Alat persetujuan")
+
+hasil = ollama.jalankan_alat("putuskan_pengajuan",
+   {"request_id": REQUEST_ID_UJI, "keputusan": "terima", "catatan": "disetujui ollama"},
+   CFG_AKTIF)
+cek("setujui pengajuan", hasil.get("ok") is True, str(hasil))
+siswa_baru = services.get_student_by_nisn("3900000001")
+cek("hp siswa diperbarui (field tidak terkunci)",
+    siswa_baru["hp"] == "081111111111", str(siswa_baru.get("hp")))
+cek("field terkunci (rombel) TIDAK diubah",
+    siswa_baru["rombel"] == "7-A", str(siswa_baru.get("rombel")))
+cek("status pengajuan disetujui",
+    services.ambil_pengajuan(REQUEST_ID_UJI)["status"] == "disetujui")
+hasil = ollama.jalankan_alat("putuskan_pengajuan",
+   {"request_id": REQUEST_ID_UJI, "keputusan": "tolak"}, CFG_AKTIF)
+cek("pengajuan sudah diputuskan ditolak",
+    hasil.get("ok") is False and "sudah diputuskan" in (hasil.get("pesan") or ""),
+    str(hasil))
+hasil = ollama.jalankan_alat("putuskan_pengajuan",
+   {"request_id": 999999, "keputusan": "terima"}, CFG_AKTIF)
+cek("pengajuan tidak ada ditolak", hasil.get("ok") is False, str(hasil))
+hasil = ollama.jalankan_alat("putuskan_pengajuan",
+   {"request_id": 1, "keputusan": "maybe"}, CFG_AKTIF)
+cek("keputusan tidak dikenal ditolak", hasil.get("ok") is False, str(hasil))
+
+# --------------------------------------------------------------------------- #
+# 14. Alat SPJ TANGCER
+# --------------------------------------------------------------------------- #
+skenario("14. Alat SPJ TANGCER")
+
+hasil = ollama.jalankan_alat("buat_spj_tangcer",
+   {"tahun": "2099", "semester": "Ganjil", "tahap": "1", "kepala": "Kepala Uji",
+    "nip": "197001011970010001"}, CFG_AKTIF)
+cek("tanpa penerima → jujur gagal",
+    hasil.get("ok") is False
+    and "Tidak ada data penerima tersimpan" in (hasil.get("pesan") or ""),
+    str(hasil))
+
+hasil = ollama.jalankan_alat("buat_spj_tangcer",
+   {"tahun": "2026", "semester": "Ganjil", "tahap": "1", "kepala": "Kepala Uji",
+    "nip": "197001011970010001", "jabatan": "Kepala Sekolah", "tanggal": "10-01-2026",
+    "dana_masuk": False}, CFG_AKTIF)
+cek("buat paket SPJ TANGCER", hasil.get("ok") is True, str(hasil)[:200])
+folder = hasil.get("folder") or ""
+cek("paket 6 berkas di folder",
+    len(hasil.get("berkas") or []) == 6 and Path(folder).is_dir()
+    and all((Path(folder) / b["berkas"]).exists() for b in hasil.get("berkas") or []),
+    folder)
+
+# --------------------------------------------------------------------------- #
+# 15. Titik akhir HTTP
+# --------------------------------------------------------------------------- #
+skenario("15. Titik akhir HTTP")
 
 async def uji_http() -> None:
     import httpx

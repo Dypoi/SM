@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """Integrasi **Ollama**: «otak» percakapan yang mengoperasikan bodap lewat alat.
 
-Latar belakang (permintaan sekolah, ronde 73): pengguna ingin mengobrol dengan
-model Ollama (mis. lewat jembatan WhatsApp) dan menyuruhnya mengoperasikan bodap —
-cek status insentif, unggah berkas lalu membuat SPJ, atau menjalankan Bot Dapodik
-dan melaporkan hasilnya. Ollama sendiri tidak punya akses DOM atau basis data;
-ia hanya boleh **memanggil alat yang sudah didaftarkan** di sini, dan setiap alat
-dipetakan ke fungsi bodap yang sudah teruji.
+Latar belakang (permintaan sekolah, ronde 73–74): pengguna ingin mengobrol dengan
+model Ollama (mis. lewat jembatan WhatsApp) dan menyuruhnya mengoperasikan
+**semua fitur bodap** — cek status insentif/SPJ, melihat data siswa & GTK,
+menyetujui pengajuan, mengelola periode insentif (roster, libur), menyusun SPJ
+insentif & SPJ TANGCER, atau menjalankan Bot Dapodik dan melaporkan hasilnya.
+Ollama sendiri tidak punya akses DOM atau basis data; ia hanya boleh
+**memanggil alat yang sudah didaftarkan** di sini, dan setiap alat dipetakan ke
+fungsi bodap yang sudah teruji.
 
 Aturan keamanan (tetap sesuai prinsip sekolah):
 - Ollama harus **diaktifkan** dulu di halaman «Ollama».
-- Alat aksi (menjalankan bot, mengunggah, membuat SPJ) hanya berjalan bila
-  pengaturan «Eksekusi otomatis» aktif; bila tidak, alat mengembalikan saran saja
-  sehingga Ollama melaporkan ke pengguna tanpa mengeksekusi apa pun.
+- Alat aksi (mengubah/menghapus data, menjalankan bot) hanya berjalan bila
+  pengaturan «Eksekusi otomatis» aktif; bila tidak, alat mengembalikan saran
+  saja sehingga Ollama melaporkan ke pengguna tanpa mengeksekusi apa pun.
+  Bila menghapus data, pastikan ID diambil dari hasil alat «lihat_...» dulu.
 - Model hanya dapat memanggil nama alat yang terdaftar — tidak ada akses bebas.
 - Hasil alat wajib dikembalikan apa adanya; Ollama hanya menyampaikan isinya.
 
@@ -32,7 +35,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from . import bot_dapodik, config, insentif, insentif_impor, insentif_pdf, services
+from . import (bot_dapodik, config, gtk, insentif, insentif_impor, insentif_pdf,
+               services, spj, tangcer)
 
 log = logging.getLogger(__name__)
 
@@ -55,15 +59,23 @@ OLLAMA_BAWAAN: dict[str, str] = {
     KUNCI_URL: "http://localhost:11434",
     KUNCI_MODEL: "qwen2.5:14b-instruct",
     KUNCI_KUNCI: "",
-    KUNCI_EKSEKUSI: "0",
+    # Sekolah memilih eksekusi langsung (ronde 74): alat aksi langsung berjalan
+    # bila Ollama aktif. Bila ingin mode saran saja, matikan di halaman Ollama.
+    KUNCI_EKSEKUSI: "1",
 }
 
 #: Batas iterasi pemanggilan alat dalam satu percakapan (anti «model berputar»).
 BATAS_LOOP = 6
 #: Batas riwayat percakapan yang dikirim ke model (yang tertua dipotong).
 BATAS_RIWAYAT = 20
-#: Batas detik per permintaan HTTP ke Ollama (14B di CPU butuh waktu).
+#: Batas detik per permintaan HTTP ke Ollama (7B/14B di CPU butuh waktu).
 DETIK_PERMINTAAN = 180
+
+#: Jabaran insentif yang sah (sejajar dengan menu insentif).
+JABATAN_INSENTIF = ("Kepala Sekolah", "Wakil Kepala Sekolah", "Guru",
+                    "Tenaga Kependidikan", "Pelatih")
+#: Status persetujuan yang sah.
+STATUS_PERSETUJUAN = ("menunggu", "disetujui", "ditolak", "dibatalkan", "semua")
 
 
 class OllamaGalat(RuntimeError):
@@ -162,130 +174,219 @@ def cek_koneksi(cfg: Mapping[str, str] | None = None) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
-# Alat (tool) — skema untuk model + pelaku untuk bodap
+# Skema alat (tool) — untuk model + pelaku untuk bodap
 # --------------------------------------------------------------------------- #
+def _alat(nama: str, deskripsi: str, sifat: dict[str, Any]) -> dict[str, Any]:
+    return {"type": "function",
+            "function": {"name": nama, "description": deskripsi,
+                         "parameters": sifat}}
+
+
+def _obj(properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
+    return {"type": "object", "properties": properties, "required": required or []}
+
+
+_STR = {"type": "string"}
+_INT = {"type": "integer"}
+
 _ALAT_SKEMA: list[dict[str, Any]] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "lihat_status_bot",
-            "description": ("Ringkasan keadaan Bot Dapodik: sedang berjalan atau "
-                            "menganggur, kemajuan pekerjaan terakhir (berhasil/gagal/"
-                            "dilewati), siswa yang sedang diproses, dan baris-baris "
-                            "catatan terbaru."),
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "lihat_status_insentif",
-            "description": ("Ringkasan modul insentif: periode insentif yang ada, "
-                            "status impor rekening, dan status draf cetak SPJ "
-                            "(berkas rekening & berkas absensi e-gov)."),
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "lihat_status_spj",
-            "description": ("Status pembuatan SPJ dari berkas: apakah berkas rekening "
-                            "dan berkas absensi e-gov sudah diunggah, serta ringkasan "
-                            "pratinjau (bulan, jumlah penerima, total dana, tanggal DL)."),
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "jalankan_bot_dapodik",
-            "description": ("Memulai Bot Dapodik untuk antrean siswa. Kosongkan "
-                            "«rombel» untuk semua rombel; «limit» membatasi jumlah "
-                            "siswa; «nisn_manual» untuk NISN tertentu (satu per "
-                            "baris). Kembalikan nomor pekerjaan dan jumlah siswa."),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "rombel": {"type": "string", "description": "Nama rombel (kosong = semua)."},
-                    "limit": {"type": "integer", "description": "Batas jumlah siswa (0 = semua)."},
-                    "nisn_manual": {"type": "string", "description": "NISN manual, satu per baris."},
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "hentikan_bot_dapodik",
-            "description": "Menghentikan Bot Dapodik yang sedang berjalan.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "baca_hasil_bot",
-            "description": ("Hasil pekerjaan Bot Dapodik terakhir: hitungan "
-                            "berhasil/gagal/dilewati, daftar siswa beserta status "
-                            "dan pesan terbaru, serta baris-baris catatan terakhir."),
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "unggah_berkas_spj",
-            "description": ("Mengunggah berkas rekening insentif (.xls/.xlsx) dan "
-                            "berkas absensi e-gov (.xlsx/.xls/.xlsb/.ods) untuk "
-                            "pembuatan SPJ. Isi berkas dikirim sebagai base64."),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "nama_berkas": {"type": "string", "description": "Nama berkas rekening."},
-                    "isi_berkas": {"type": "string", "description": "Isi berkas rekening (base64)."},
-                    "nama_absensi": {"type": "string", "description": "Nama berkas absensi e-gov."},
-                    "isi_absensi": {"type": "string", "description": "Isi berkas absensi (base64)."},
-                },
-                "required": ["nama_berkas", "isi_berkas", "nama_absensi", "isi_absensi"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "buat_spj",
-            "description": ("Membuat dokumen SPJ dari draf berkas yang sudah "
-                            "diunggah. «dokumen»: spj (gabungan), pns, atau pppk; "
-                            "«tgl»: tanggal 1–31 (kosong = akhir bulan). Kembalikan "
-                            "nama berkas PDF, jalur penyimpanan, dan ukurannya."),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "dokumen": {"type": "string", "description": "spj, pns, atau pppk."},
-                    "tgl": {"type": "integer", "description": "Tanggal 1–31 (kosong = akhir bulan)."},
-                },
-                "required": [],
-            },
-        },
-    },
+    # ------------------------------------------------------------- status -- #
+    _alat("lihat_status_bot",
+          "Ringkasan keadaan Bot Dapodik: sedang berjalan atau menganggur, kemajuan "
+          "pekerjaan terakhir (berhasil/gagal/dilewati), siswa yang sedang diproses, "
+          "dan baris-baris catatan terbaru.",
+          _obj({})),
+    _alat("lihat_status_insentif",
+          "Ringkasan modul insentif: periode insentif yang ada, status impor "
+          "rekening, dan status draf cetak SPJ (berkas rekening & berkas absensi e-gov).",
+          _obj({})),
+    _alat("lihat_status_spj",
+          "Status pembuatan SPJ insentif dari berkas: apakah berkas rekening dan "
+          "berkas absensi e-gov sudah diunggah, serta ringkasan pratinjau "
+          "(bulan, jumlah penerima, total dana, tanggal DL).",
+          _obj({})),
+    _alat("baca_hasil_bot",
+          "Hasil pekerjaan Bot Dapodik terakhir: hitungan berhasil/gagal/dilewati, "
+          "daftar siswa beserta status dan pesan terbaru, serta baris-baris catatan terakhir.",
+          _obj({})),
+    # ------------------------------------------------------------------ data -- #
+    _alat("lihat_daftar_siswa",
+          "Daftar siswa aplikasi SM. «q» teks pencarian (nama/NISN); «rombel», "
+          "«tingkat», «status» untuk menyaring; «limit» jumlah baris maksimum "
+          "(1–200, bawaan 20). Kembalikan baris (id, nisn, nama, rombel, tingkat, "
+          "status) dan total.",
+          _obj({"q": {**_STR, "description": "Teks pencarian (nama/NISN)."},
+                "rombel": {**_STR, "description": "Nama rombel."},
+                "tingkat": {**_STR, "description": "Tingkat kelas."},
+                "status": {**_STR, "description": "Status siswa (mis. Aktif)."},
+                "limit": {**_INT, "description": "Jumlah baris maksimum (1–200)."}})),
+    _alat("lihat_siswa",
+          "Detail lengkap satu siswa berdasarkan NISN (10 digit). Kembalikan "
+          "semua kolom data siswa apa adanya.",
+          _obj({"nisn": {**_STR, "description": "NISN siswa (10 digit)."}},
+               ["nisn"])),
+    _alat("lihat_daftar_gtk",
+          "Daftar guru & tendik (GTK). «jenis» (guru/tendik), «status», «cari» "
+          "teks pencarian; «limit» jumlah baris maksimum (1–500, bawaan 50).",
+          _obj({"jenis": {**_STR, "description": "guru atau tendik."},
+                "status": {**_STR, "description": "Status pegawai."},
+                "cari": {**_STR, "description": "Teks pencarian."},
+                "limit": {**_INT, "description": "Jumlah baris maksimum (1–500)."}})),
+    _alat("lihat_antrean_persetujuan",
+          "Daftar pengajuan perubahan data siswa yang menunggu keputusan. «status»: "
+          "menunggu, disetujui, ditolak, dibatalkan, atau semua; «q» teks pencarian.",
+          _obj({"status": {**_STR, "description": "Status pengajuan (kosong = menunggu)."},
+                "q": {**_STR, "description": "Teks pencarian (nama/NISN)."}})),
+    _alat("lihat_ekskul",
+          "Daftar ekstrakurikuler beserta jumlah anggota. «aktif_hanya»: true untuk "
+          "hanya yang aktif.",
+          _obj({"aktif_hanya": {"type": "boolean", "description": "Hanya ekskul aktif."}})),
+    _alat("lihat_status_tangcer",
+          "Ringkasan TANGCER: penerima yang tersimpan (tahun, semester, jumlah, "
+          "nominal) dan daftar penerima («tahun», «semester», «cari»).",
+          _obj({"tahun": {**_STR, "description": "Tahun (mis. 2026)."},
+                "semester": {**_STR, "description": "Ganjil atau Genap."},
+                "cari": {**_STR, "description": "Teks pencarian nama."}})),
+    _alat("lihat_pengaturan",
+          "Ringkasan pengaturan bodap: identitas sekolah, tahun ajaran & semester, "
+          "tarif insentif, dan tanda apakah fitur-fitur utama aktif. Baca saja.",
+          _obj({})),
+    # -------------------------------------------------------------- bot/SPJ -- #
+    _alat("jalankan_bot_dapodik",
+          "Memulai Bot Dapodik untuk antrean siswa. Kosongkan «rombel» untuk semua "
+          "rombel; «limit» membatasi jumlah siswa; «nisn_manual» untuk NISN tertentu "
+          "(satu per baris). Kembalikan nomor pekerjaan dan jumlah siswa.",
+          _obj({"rombel": {**_STR, "description": "Nama rombel (kosong = semua)."},
+                "limit": {**_INT, "description": "Batas jumlah siswa (0 = semua)."},
+                "nisn_manual": {**_STR, "description": "NISN manual, satu per baris."}})),
+    _alat("hentikan_bot_dapodik",
+          "Menghentikan Bot Dapodik yang sedang berjalan.",
+          _obj({})),
+    _alat("unggah_berkas_spj",
+          "Mengunggah berkas rekening insentif (.xls/.xlsx) dan berkas absensi e-gov "
+          "(.xlsx/.xls/.xlsb/.ods) untuk pembuatan SPJ. Isi berkas dikirim sebagai base64.",
+          _obj({"nama_berkas": {**_STR, "description": "Nama berkas rekening."},
+                "isi_berkas": {**_STR, "description": "Isi berkas rekening (base64)."},
+                "nama_absensi": {**_STR, "description": "Nama berkas absensi e-gov."},
+                "isi_absensi": {**_STR, "description": "Isi berkas absensi (base64)."}},
+               ["nama_berkas", "isi_berkas", "nama_absensi", "isi_absensi"])),
+    _alat("buat_spj",
+          "Membuat dokumen SPJ insentif dari draf berkas yang sudah diunggah. "
+          "«dokumen»: spj (gabungan), pns, atau pppk; «tgl»: tanggal 1–31 "
+          "(kosong = akhir bulan). Kembalikan nama berkas PDF, jalur penyimpanan, "
+          "dan ukurannya.",
+          _obj({"dokumen": {**_STR, "description": "spj, pns, atau pppk."},
+                "tgl": {**_INT, "description": "Tanggal 1–31 (kosong = akhir bulan)."}})),
+    _alat("buat_spj_tangcer",
+          "Menyusun paket berkas SPJ Tangerang Cerdas (docx + xlsx + PDF) dari data "
+          "penerima TANGCER yang tersimpan. Isi isian seperti halaman «SPJ TANGCER»: "
+          "tahun, semester (Ganjil/Genap), tahap, kepala, nip, jabatan, alamat, kota, "
+          "tanggal, biaya_personal, volume, sampel, dana_masuk (true/false).",
+          _obj({"tahun": {**_STR, "description": "Tahun (mis. 2026)."},
+                "semester": {**_STR, "description": "Ganjil atau Genap."},
+                "tahap": {**_STR, "description": "Tahap (mis. 1)."},
+                "kepala": {**_STR, "description": "Nama kepala sekolah."},
+                "nip": {**_STR, "description": "NIP kepala sekolah."},
+                "jabatan": {**_STR, "description": "Jabatan kepala (bawaan: Kepala Sekolah)."},
+                "alamat": {**_STR, "description": "Alamat lembaga."},
+                "kota": {**_STR, "description": "Kota/kabupaten."},
+                "tanggal": {**_STR, "description": "Tanggal SPJ."},
+                "biaya_personal": {**_STR, "description": "Biaya personal."},
+                "volume": {**_STR, "description": "Volume."},
+                "sampel": {**_STR, "description": "Sampel."},
+                "dana_masuk": {"type": "boolean", "description": "Apakah dana sudah masuk."}})),
+    # ------------------------------------------------------ insentif tulis -- #
+    _alat("putuskan_pengajuan",
+          "Menyetujui («keputusan»: terima) atau menolak («keputusan»: tolak) satu "
+          "pengajuan perubahan data siswa. «catatan» opsional. Ambil request_id dari "
+          "alat lihat_antrean_persetujuan.",
+          _obj({"request_id": {**_INT, "description": "ID pengajuan."},
+                "keputusan": {**_STR, "description": "terima atau tolak."},
+                "catatan": {**_STR, "description": "Catatan keputusan (opsional)."}},
+               ["request_id", "keputusan"])),
+    _alat("buat_periode_insentif",
+          "Membuat draf periode insentif baru. «tahun» (mis. 2027), «bulan» 1–12; "
+          "«salin_dari» opsional (ID periode lain untuk menyalin rosternya).",
+          _obj({"tahun": {**_INT, "description": "Tahun (mis. 2027)."},
+                "bulan": {**_INT, "description": "Bulan 1–12."},
+                "salin_dari": {**_INT, "description": "ID periode untuk menyalin roster."}},
+               ["tahun", "bulan"])),
+    _alat("hapus_periode_insentif",
+          "Menghapus draf periode insentif beserta semua rosternya. Menulis data "
+          "hilang — pastikan periode_id benar, ambil dari alat lihat_status_insentif.",
+          _obj({"periode_id": {**_INT, "description": "ID periode insentif."}},
+               ["periode_id"])),
+    _alat("tambah_orang_insentif",
+          "Menambah satu baris penerima ke roster periode insentif. «dokumen»: pns, "
+          "pppk, atau spj; «nilai» objek JSON dengan bidang nama_tampil (wajib), nip, "
+          "npwp, rekening, nik, gol, pangkat, jabatan, tarif, pph_persen, pph_nominal.",
+          _obj({"periode_id": {**_INT, "description": "ID periode insentif."},
+                "dokumen": {**_STR, "description": "pns, pppk, atau spj."},
+                "nilai": {"type": "object", "description": "Bidang penerima (JSON objek)."}},
+               ["periode_id", "dokumen", "nilai"])),
+    _alat("ubah_orang_insentif",
+          "Mengubah satu baris roster periode insentif. Berikan «nilai» objek JSON "
+          "dengan bidang yang ingin diubah (nama_tampil, nip, npwp, rekening, nik, gol, "
+          "pangkat, jabatan, tarif, pph_persen, pph_nominal) — bidang kosong diisi "
+          "nilai lama.",
+          _obj({"baris_id": {**_INT, "description": "ID baris roster."},
+                "nilai": {"type": "object", "description": "Bidang yang diubah (JSON objek)."}},
+               ["baris_id", "nilai"])),
+    _alat("hapus_orang_insentif",
+          "Menghapus satu baris dari roster periode insentif. Menulis data hilang — "
+          "pastikan baris_id benar.",
+          _obj({"baris_id": {**_INT, "description": "ID baris roster."}},
+               ["baris_id"])),
+    _alat("geser_orang_insentif",
+          "Memindahkan urutan satu baris roster: «arah» -1 naik (ke atas) atau "
+          "+1 turun (ke bawah).",
+          _obj({"baris_id": {**_INT, "description": "ID baris roster."},
+                "arah": {**_INT, "description": "-1 naik, +1 turun."}},
+               ["baris_id", "arah"])),
+    _alat("tambah_libur",
+          "Menambah/mengganti tanggal libur insentif. «tanggal» (YYYY-MM-DD), "
+          "«nama» (mis. «Hari Raya Nyepi»), «jenis»: nasional, cuti, atau kustom.",
+          _obj({"tanggal": {**_STR, "description": "Tanggal YYYY-MM-DD."},
+                "nama": {**_STR, "description": "Nama libur."},
+                "jenis": {**_STR, "description": "nasional, cuti, atau kustom."}},
+               ["tanggal", "nama"])),
+    _alat("hapus_libur",
+          "Menghapus tanggal libur insentif. Menulis data hilang — pastikan tanggal "
+          "benar.",
+          _obj({"tanggal": {**_STR, "description": "Tanggal YYYY-MM-DD."}},
+               ["tanggal"])),
+    _alat("ubah_jabatan_insentif",
+          "Mengubah jabatan insentif satu pegawai GTK. «jabatan»: Kepala Sekolah, "
+          "Wakil Kepala Sekolah, Guru, Tenaga Kependidikan, Pelatih; kosong = "
+          "otomatis dari data GTK.",
+          _obj({"pegawai_id": {**_INT, "description": "ID pegawai GTK."},
+                "jabatan": {**_STR, "description": "Jabatan insentif (kosong = otomatis)."}},
+               ["pegawai_id"])),
 ]
 
 #: Alat yang mengeksekusi aksi nyata (dibatasi oleh pengaturan eksekusi).
-_ALAT_AKSI = frozenset({"jalankan_bot_dapodik", "hentikan_bot_dapodik",
-                        "unggah_berkas_spj", "buat_spj"})
+_ALAT_AKSI = frozenset({
+    "jalankan_bot_dapodik", "hentikan_bot_dapodik", "unggah_berkas_spj",
+    "buat_spj", "buat_spj_tangcer", "putuskan_pengajuan", "buat_periode_insentif",
+    "hapus_periode_insentif", "tambah_orang_insentif", "ubah_orang_insentif",
+    "hapus_orang_insentif", "geser_orang_insentif", "tambah_libur",
+    "hapus_libur", "ubah_jabatan_insentif",
+})
 
 SYSTEM_PROMPT = (
     "Anda adalah assistant yang mengoperasikan aplikasi sekolah «SM» (bodap) di "
     "komputer pengguna. Anda hanya dapat menggunakan alat yang tersedia — jangan "
     "mengarang hasil. Aturan:\n"
     "- Beri jawaban dalam bahasa Indonesia, ringkas dan jelas.\n"
-    "- Untuk menanyakan keadaan (status), panggil alatnya lalu sampaikan isinya "
-    "apa adanya.\n"
-    "- Untuk pekerjaan (menjalankan bot, mengunggah berkas, membuat SPJ), panggil "
-    "alatnya dan laporkan hasil yang benar-benar dikembalikan alat. Jangan "
-    "menyatakan berhasil bila alat melaporkan kegagalan.\n"
+    "- Untuk melihat keadaan, panggil alat «lihat_...» lalu sampaikan isinya apa "
+    "adanya.\n"
+    "- Untuk pekerjaan (menjalankan bot, mengunggah/membuat berkas, mengubah "
+    "data), panggil alatnya dan laporkan hasil yang benar-benar dikembalikan "
+    "alat. Jangan menyatakan berhasil bila alat melaporkan kegagalan.\n"
+    "- Bila butuh ID (periode, baris roster, pengajuan, pegawai), ambil dulu dari "
+    "alat lihat_... — jangan mengarang ID.\n"
+    "- Alat yang menghapus data («hapus_...») bersifat permanen; pastikan ID "
+    "sudah benar sebelum memanggilnya.\n"
     "- Bila alat mengembalikan pesan kesalahan atau saran, sampaikan kepada "
     "pengguna apa adanya bersama cara mengatasinya.\n"
     "- Jangan pernah meminta informasi sensitif (kata sandi, kunci API).\n"
@@ -307,7 +408,7 @@ def _orang_egov() -> list[dict[str, Any]]:
         return []
 
 
-def _ringkas_periode(batas: int = 8) -> list[dict[str, Any]]:
+def _ringkas_periode(batas: int = 12) -> list[dict[str, Any]]:
     periode = []
     for baris in insentif.daftar_periode()[:batas]:
         periode.append({
@@ -366,7 +467,8 @@ def _pelaku_lihat_status_spj() -> dict[str, Any]:
         grup = insentif_impor.bagi_absensi(baris)
         dl = insentif_impor.tanda_dl(_orang_egov())
     except ValueError as galat:
-        return {"ok": False, "ada_berkas": True, "pesan": f"Berkas tersimpan tapi tak terbaca: {galat}"}
+        return {"ok": False, "ada_berkas": True,
+                "pesan": f"Berkas tersimpan tapi tak terbaca: {galat}"}
     orang_e = _orang_egov()
     by_kunci = {insentif_impor.kunci_orang(o): o for o in orang_e}
     return {
@@ -380,39 +482,6 @@ def _pelaku_lihat_status_spj() -> dict[str, Any]:
         "orang_dl": len(dl),
         "contoh_nama_dl": [by_kunci.get(k, {}).get("nama", k) for k in list(dl)[:6]],
     }
-
-
-def _pelaku_jalankan_bot(arg: Mapping[str, Any]) -> dict[str, Any]:
-    cfg = services.bot_setting()
-    siap, keterangan = services.bot_siap_pakai()
-    if not siap:
-        return {"ok": False, "pesan": keterangan}
-    rombel = str(arg.get("rombel") or "").strip()[:20]
-    try:
-        limit = max(0, min(2000, int(arg.get("limit") or 0)))
-    except (TypeError, ValueError):
-        limit = 0
-    nisn_manual = str(arg.get("nisn_manual") or "")
-    antrean = services.bot_antrean(rombel=rombel, limit=limit, nisn_manual=nisn_manual)
-    if not antrean:
-        return {"ok": False, "pesan": "Antrean kosong: tidak ada siswa yang cocok dengan pilihan."}
-    try:
-        job_id, _bot = bot_dapodik.mulai_bot(antrean, cfg, actor="ollama")
-    except bot_dapodik.BotBerjalanError as galat:
-        return {"ok": False, "pesan": str(galat)}
-    mode = ("simulasi" if cfg.get("bot_simulasi") == "1" else
-            "di belakang layar" if cfg.get("bot_headless") == "1" else "dengan jendela Chrome")
-    services.log_audit("ollama", "admin", "bot_mulai", "dapodik_jobs", str(job_id),
-                       f"{len(antrean)} siswa (rombel={rombel or 'semua'})")
-    return {"ok": True, "job_id": job_id, "jumlah_siswa": len(antrean), "mode": mode}
-
-
-def _pelaku_hentikan_bot() -> dict[str, Any]:
-    berhenti = bot_dapodik.hentikan_bot()
-    services.log_audit("ollama", "admin", "bot_hentikan", "dapodik_jobs", "-",
-                       "berhasil" if berhenti else "tidak ada bot berjalan")
-    return {"ok": True, "dihentikan": berhenti,
-            "pesan": "Bot dihentikan." if berhenti else "Tidak ada bot yang sedang berjalan."}
 
 
 def _pelaku_baca_hasil_bot() -> dict[str, Any]:
@@ -435,6 +504,159 @@ def _pelaku_baca_hasil_bot() -> dict[str, Any]:
                   for i in items],
         "catatan_terakhir": catatan.splitlines()[-15:],
     }
+
+
+def _angka_batas(nilai: Any, bawaan: int, minimum: int, maksimum: int) -> int:
+    try:
+        angka = int(nilai)
+    except (TypeError, ValueError):
+        return bawaan
+    return max(minimum, min(maksimum, angka))
+
+
+def _pelaku_lihat_daftar_siswa(arg: Mapping[str, Any]) -> dict[str, Any]:
+    batas = _angka_batas(arg.get("limit"), 20, 1, 200)
+    penyaring = services.StudentFilter(
+        q=str(arg.get("q") or "").strip(),
+        rombel=str(arg.get("rombel") or "").strip(),
+        tingkat=str(arg.get("tingkat") or "").strip(),
+        status=str(arg.get("status") or "").strip(),
+    )
+    baris, total = services.list_students(penyaring, page=1, per_page=batas)
+    return {
+        "ok": True, "total": total, "limit": batas,
+        "baris": [{"id": baris_satu.get("id"), "nisn": baris_satu.get("nisn"),
+                   "nama": baris_satu.get("nama"), "rombel": baris_satu.get("rombel"),
+                   "tingkat": baris_satu.get("tingkat"),
+                   "status": baris_satu.get("status")}
+                  for baris_satu in baris],
+    }
+
+
+def _pelaku_lihat_siswa(arg: Mapping[str, Any]) -> dict[str, Any]:
+    nisn = str(arg.get("nisn") or "").strip()
+    if not nisn:
+        return {"ok": False, "pesan": "NISN wajib diisi."}
+    baris = services.get_student_by_nisn(nisn)
+    if baris is None:
+        return {"ok": False, "pesan": f"Siswa dengan NISN «{nisn}» tidak ditemukan."}
+    return {"ok": True, "siswa": baris}
+
+
+def _pelaku_lihat_daftar_gtk(arg: Mapping[str, Any]) -> dict[str, Any]:
+    batas = _angka_batas(arg.get("limit"), 50, 1, 500)
+    baris = gtk.daftar_pegawai(jenis=str(arg.get("jenis") or "").strip(),
+                              status=str(arg.get("status") or "").strip(),
+                              cari=str(arg.get("cari") or "").strip(),
+                              batas=batas)
+    return {
+        "ok": True, "jumlah": len(baris),
+        "baris": [{"id": b.get("id"), "nama": b.get("nama"),
+                   "jenis": b.get("jenis_ptk"),
+                   "status": b.get("status_kepegawaian"),
+                   "nip": b.get("nip"),
+                   "pangkat": b.get("pangkat_golongan"),
+                   "rekening_ada": bool(str(b.get("rekening") or "").strip())}
+                  for b in baris],
+    }
+
+
+def _pelaku_lihat_antrean_persetujuan(arg: Mapping[str, Any]) -> dict[str, Any]:
+    status = str(arg.get("status") or "menunggu").strip()
+    if status not in STATUS_PERSETUJUAN:
+        return {"ok": False, "pesan": f"Status tidak dikenal. Pilih: {', '.join(STATUS_PERSETUJUAN)}."}
+    q = str(arg.get("q") or "").strip()
+    daftar = services.daftar_pengajuan(status=None if status == "semua" else status,
+                                       q=q, limit=50)
+    return {
+        "ok": True, "status": status,
+        "statistik": services.statistik_pengajuan(),
+        "pengajuan": [{"id": p.get("id"), "nisn": p.get("nisn"),
+                       "nama": p.get("nama"), "rombel": p.get("rombel"),
+                       "status": p.get("status"),
+                       "jumlah_field": p.get("jumlah_field")}
+                      for p in daftar],
+    }
+
+
+def _pelaku_lihat_ekskul(arg: Mapping[str, Any]) -> dict[str, Any]:
+    aktif_hanya = str(arg.get("aktif_hanya") or "").strip().lower() in ("1", "true", "yes")
+    daftar = services.list_ekskul(aktif_only=aktif_hanya)
+    return {
+        "ok": True, "jumlah": len(daftar),
+        "ekskul": [{"id": e.get("id"), "nama": e.get("nama"),
+                    "pembina": e.get("pembina"), "pelatih": e.get("pelatih"),
+                    "hari": e.get("hari"),
+                    "jam": f"{e.get('jam_mulai')}–{e.get('jam_selesai')}",
+                    "anggota": e.get("jumlah_anggota"), "aktif": e.get("aktif")}
+                   for e in daftar],
+    }
+
+
+def _pelaku_lihat_status_tangcer(arg: Mapping[str, Any]) -> dict[str, Any]:
+    ringkas = tangcer.ringkas_penerima()
+    daftar = tangcer.daftar_penerima(
+        tahun=str(arg.get("tahun") or "").strip(),
+        semester=str(arg.get("semester") or "").strip(),
+        cari=str(arg.get("cari") or "").strip(),
+        cocok="", batas=100)
+    return {
+        "ok": True, "ringkas": ringkas, "jumlah": len(daftar),
+        "penerima": [{"tahun": p.get("tahun"), "semester": p.get("semester"),
+                      "tahap": p.get("tahap"), "nisn": p.get("nisn"),
+                      "nama": p.get("nama"), "jenis": p.get("jenis"),
+                      "nominal": p.get("nominal"), "cocok": p.get("cocok")}
+                     for p in daftar],
+    }
+
+
+def _pelaku_lihat_pengaturan() -> dict[str, Any]:
+    profil = services.school_profile()
+    pengaturan_insentif = insentif.baca_pengaturan()
+    preferensi = services.get_settings()
+    return {
+        "ok": True,
+        "sekolah": {"nama": profil.get("nama"), "npsn": profil.get("npsn"),
+                    "alamat": profil.get("alamat")},
+        "tahun_ajaran": profil.get("tahun_ajaran"),
+        "semester": profil.get("semester"),
+        "tarif_insentif": {kunci: pengaturan_insentif.get(kunci) for kunci in
+                           ("tarif_ks", "tarif_waka", "tarif_guru", "tarif_pelatih")},
+        "fitur_aktif": {"pengajuan": preferensi.get("pengajuan_aktif") == "1",
+                        "ekskul": preferensi.get("ekskul_aktif") == "1",
+                        "dapodik_sync": preferensi.get("dapodik_sync_aktif") == "1",
+                        "ollama": preferensi.get(KUNCI_AKTIF) == "1"},
+    }
+
+
+def _pelaku_jalankan_bot(arg: Mapping[str, Any]) -> dict[str, Any]:
+    cfg = services.bot_setting()
+    siap, keterangan = services.bot_siap_pakai()
+    if not siap:
+        return {"ok": False, "pesan": keterangan}
+    rombel = str(arg.get("rombel") or "").strip()[:20]
+    limit = _angka_batas(arg.get("limit"), 0, 0, 2000)
+    nisn_manual = str(arg.get("nisn_manual") or "")
+    antrean = services.bot_antrean(rombel=rombel, limit=limit, nisn_manual=nisn_manual)
+    if not antrean:
+        return {"ok": False, "pesan": "Antrean kosong: tidak ada siswa yang cocok dengan pilihan."}
+    try:
+        job_id, _bot = bot_dapodik.mulai_bot(antrean, cfg, actor="ollama")
+    except bot_dapodik.BotBerjalanError as galat:
+        return {"ok": False, "pesan": str(galat)}
+    mode = ("simulasi" if cfg.get("bot_simulasi") == "1" else
+            "di belakang layar" if cfg.get("bot_headless") == "1" else "dengan jendela Chrome")
+    services.log_audit("ollama", "admin", "bot_mulai", "dapodik_jobs", str(job_id),
+                       f"{len(antrean)} siswa (rombel={rombel or 'semua'})")
+    return {"ok": True, "job_id": job_id, "jumlah_siswa": len(antrean), "mode": mode}
+
+
+def _pelaku_hentikan_bot() -> dict[str, Any]:
+    berhenti = bot_dapodik.hentikan_bot()
+    services.log_audit("ollama", "admin", "bot_hentikan", "dapodik_jobs", "-",
+                       "berhasil" if berhenti else "tidak ada bot berjalan")
+    return {"ok": True, "dihentikan": berhenti,
+            "pesan": "Bot dihentikan." if berhenti else "Tidak ada bot yang sedang berjalan."}
 
 
 def _b64_decode(isi: str, nama: str) -> bytes:
@@ -515,10 +737,7 @@ def _pelaku_buat_spj(arg: Mapping[str, Any]) -> dict[str, Any]:
     dokumen = str(arg.get("dokumen") or "spj").strip().lower()
     if dokumen not in ("spj", "pns", "pppk"):
         return {"ok": False, "pesan": "Dokumen tidak dikenal. Pilih: spj, pns, atau pppk."}
-    try:
-        tgl = int(arg.get("tgl") or 0)
-    except (TypeError, ValueError):
-        tgl = 0
+    tgl = _angka_batas(arg.get("tgl"), 0, 0, 31)
     if not 1 <= tgl <= 31:
         tgl = akhir
     ttd = insentif_impor.ttd_bawaan()
@@ -561,15 +780,297 @@ def _pelaku_buat_spj(arg: Mapping[str, Any]) -> dict[str, Any]:
             "pesan": f"Dokumen «{nama}» siap di unduh dari jalur {target}."}
 
 
+def _pelaku_buat_spj_tangcer(arg: Mapping[str, Any]) -> dict[str, Any]:
+    def _teks(kunci: str) -> str:
+        return str(arg.get(kunci) or "").strip()
+    form = {
+        "tahun": _teks("tahun"), "semester": _teks("semester"),
+        "tahap": _teks("tahap") or "1",
+        "kepala": _teks("kepala"), "nip": _teks("nip"),
+        "jabatan": _teks("jabatan") or "Kepala Sekolah", "alamat": _teks("alamat"),
+        "kota": _teks("kota"), "tanggal": _teks("tanggal"),
+        "biaya_personal": _teks("biaya_personal"), "volume": _teks("volume"),
+        "sampel": _teks("sampel"),
+        "dana_masuk": str(arg.get("dana_masuk") or "").strip().lower()
+        in ("1", "true", "yes"),
+    }
+    # Penjaga nilai: tahun harus cocok dengan data penerima tersimpan — SPJ
+    # pantang dicetak dari data tahun lain.
+    tahun = _teks("tahun")
+    peserta = tangcer.daftar_penerima(tahun=tahun, semester=_teks("semester"))
+    if not peserta:
+        return {"ok": False,
+                "pesan": (f"Tidak ada data penerima tersimpan untuk tahun {tahun or '—'} "
+                          f"semester {_teks('semester') or '—'}. Isi dulu menu TANGCER, "
+                          f"atau pastikan tahunnya benar.")}
+    try:
+        data = spj.data_dari(form)
+        baris = spj.baris_spj(data)
+        paket = spj.buat_paket(data, baris)
+    except tangcer.TangcerError as galat:
+        return {"ok": False, "pesan": str(galat)}
+    except Exception as galat:  # noqa: BLE001
+        log.exception("Pembuatan SPJ TANGCER via Ollama gagal")
+        return {"ok": False, "pesan": f"Gagal menyusun SPJ TANGCER: {galat}"}
+    services.log_audit("ollama", "admin", "tangcer_spj", "spj", paket["token"],
+                       f"{paket['ringkas'].get('jumlah_siswa', 0)} siswa, "
+                       f"{len(paket['berkas'])} berkas")
+    return {
+        "ok": True, "token": paket["token"], "folder": paket["folder"],
+        "sekolah": paket.get("sekolah"), "tahun": paket.get("tahun"),
+        "semester": paket.get("semester"), "dibuat": paket.get("dibuat"),
+        "ringkasan": paket.get("ringkas"),
+        "berkas": paket.get("berkas"),
+        "pesan": (f"Berkas SPJ TANGCER siap: {len(paket.get('berkas') or [])} berkas "
+                  f"di {paket['folder']} (token {paket['token']})."),
+    }
+
+
+def _pelaku_putuskan_pengajuan(arg: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        request_id = int(arg.get("request_id") or 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "pesan": "request_id harus angka."}
+    keputusan = str(arg.get("keputusan") or "").strip().lower()
+    if keputusan not in ("terima", "tolak"):
+        return {"ok": False, "pesan": "«keputusan» harus «terima» atau «tolak»."}
+    try:
+        hasil = services.putuskan_pengajuan(request_id, keputusan == "terima",
+                                             aktor="ollama",
+                                             catatan=str(arg.get("catatan") or "").strip())
+    except ValueError as galat:
+        return {"ok": False, "pesan": str(galat)}
+    nama = hasil.get("nama") or ""
+    if keputusan == "terima":
+        pesan = (f"Pengajuan «{nama}» disetujui. "
+                 f"{hasil.get('jumlah_diterapkan', 0)} kolom data diperbarui "
+                 "dan tercatat pada riwayat perubahan.")
+    else:
+        pesan = f"Pengajuan «{nama}» ditolak. Siswa dapat mengajukan ulang."
+    return {"ok": True, "keputusan": keputusan, "pengajuan": nama, "pesan": pesan}
+
+
+def _pelaku_buat_periode_insentif(arg: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        tahun = int(arg.get("tahun") or 0)
+        bulan = int(arg.get("bulan") or 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "pesan": "tahun dan bulan harus angka."}
+    try:
+        salin_dari = int(arg.get("salin_dari") or 0) or None
+    except (TypeError, ValueError):
+        salin_dari = None
+    try:
+        periode_id = insentif.buat_periode(tahun, bulan, salin_dari=salin_dari,
+                                           actor="ollama")
+    except ValueError as galat:
+        return {"ok": False, "pesan": str(galat)}
+    services.log_audit("ollama", "admin", "insentif_periode_buat", "insentif_periode",
+                       str(periode_id), f"{bulan}/{tahun} salin_dari={salin_dari or '-'}")
+    return {"ok": True, "periode_id": periode_id, "bulan": bulan, "tahun": tahun,
+            "pesan": f"Periode {insentif.NAMA_BULAN_KECIL[bulan]} {tahun} dibuat "
+                     f"(ID {periode_id})."}
+
+
+def _pelaku_hapus_periode_insentif(arg: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        periode_id = int(arg.get("periode_id") or 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "pesan": "periode_id harus angka."}
+    periode = insentif.get_periode(periode_id)
+    if periode is None:
+        return {"ok": False, "pesan": f"Periode ID {periode_id} tidak ditemukan."}
+    insentif.hapus_periode(periode_id)
+    services.log_audit("ollama", "admin", "insentif_periode_hapus", "insentif_periode",
+                       str(periode_id), f"{periode.get('bulan')}/{periode.get('tahun')}")
+    return {"ok": True, "dihapus": periode_id,
+            "pesan": f"Periode ID {periode_id} dan semua rosternya dihapus."}
+
+
+def _nilai_mapping(arg: Mapping[str, Any], kunci: str) -> Mapping[str, Any] | None:
+    nilai = arg.get(kunci)
+    if not isinstance(nilai, dict):
+        return None
+    return {str(k): v for k, v in nilai.items()}
+
+
+def _pelaku_tambah_orang_insentif(arg: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        periode_id = int(arg.get("periode_id") or 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "pesan": "periode_id harus angka."}
+    dokumen = str(arg.get("dokumen") or "").strip().lower()
+    if dokumen not in ("pns", "pppk", "spj"):
+        return {"ok": False, "pesan": "«dokumen» harus pns, pppk, atau spj."}
+    nilai = _nilai_mapping(arg, "nilai")
+    if nilai is None:
+        return {"ok": False, "pesan": "«nilai» harus objek JSON dengan bidang penerima."}
+    if not str(nilai.get("nama_tampil") or "").strip():
+        return {"ok": False, "pesan": "Bidang «nama_tampil» wajib diisi."}
+    if insentif.get_periode(periode_id) is None:
+        return {"ok": False, "pesan": f"Periode ID {periode_id} tidak ditemukan."}
+    try:
+        baris_id = insentif.tambah_roster(periode_id, dokumen, nilai)
+    except ValueError as galat:
+        return {"ok": False, "pesan": str(galat)}
+    services.log_audit("ollama", "admin", "insentif_roster_tambah", "insentif_roster",
+                       str(baris_id), f"periode {periode_id} dokumen {dokumen}")
+    return {"ok": True, "baris_id": baris_id,
+            "pesan": f"Baris penerima «{nilai.get('nama_tampil')}» ditambahkan ke "
+                     f"dokumen {dokumen} (baris ID {baris_id})."}
+
+
+def _pelaku_ubah_orang_insentif(arg: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        baris_id = int(arg.get("baris_id") or 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "pesan": "baris_id harus angka."}
+    nilai = _nilai_mapping(arg, "nilai")
+    if nilai is None:
+        return {"ok": False, "pesan": "«nilai» harus objek JSON dengan bidang yang diubah."}
+    try:
+        insentif.ubah_roster(baris_id, nilai)
+    except ValueError as galat:
+        return {"ok": False, "pesan": str(galat)}
+    services.log_audit("ollama", "admin", "insentif_roster_ubah", "insentif_roster",
+                       str(baris_id), ", ".join(sorted(nilai)))
+    return {"ok": True, "baris_id": baris_id,
+            "pesan": f"Baris roster ID {baris_id} diperbarui ({len(nilai)} bidang)."}
+
+
+def _pelaku_hapus_orang_insentif(arg: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        baris_id = int(arg.get("baris_id") or 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "pesan": "baris_id harus angka."}
+    baris = _ambil_roster(baris_id)
+    if baris is None:
+        return {"ok": False, "pesan": f"Baris roster ID {baris_id} tidak ditemukan."}
+    insentif.hapus_roster(baris_id)
+    services.log_audit("ollama", "admin", "insentif_roster_hapus", "insentif_roster",
+                       str(baris_id), str(baris.get("nama_tampil") or ""))
+    return {"ok": True, "dihapus": baris_id,
+            "pesan": f"Baris roster ID {baris_id} ({baris.get('nama_tampil')}) dihapus."}
+
+
+def _ambil_roster(baris_id: int) -> dict[str, Any] | None:
+    from . import db
+    return db.row_to_dict(db.query_one(
+        "SELECT * FROM insentif_roster WHERE id = ?", (baris_id,)))
+
+
+def _pelaku_geser_orang_insentif(arg: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        baris_id = int(arg.get("baris_id") or 0)
+        arah = int(arg.get("arah") or 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "pesan": "baris_id dan arah harus angka."}
+    if arah not in (-1, 1):
+        return {"ok": False, "pesan": "«arah» harus -1 (naik) atau +1 (turun)."}
+    if _ambil_roster(baris_id) is None:
+        return {"ok": False, "pesan": f"Baris roster ID {baris_id} tidak ditemukan."}
+    insentif.geser_roster(baris_id, arah)
+    services.log_audit("ollama", "admin", "insentif_roster_geser", "insentif_roster",
+                       str(baris_id), f"arah {arah}")
+    return {"ok": True, "baris_id": baris_id, "arah": arah,
+            "pesan": f"Baris roster ID {baris_id} digeser "
+                     f"{'naik' if arah < 0 else 'turun'}."}
+
+
+def _pelaku_tambah_libur(arg: Mapping[str, Any]) -> dict[str, Any]:
+    tanggal = str(arg.get("tanggal") or "").strip()
+    nama = str(arg.get("nama") or "").strip()
+    if not tanggal or not nama:
+        return {"ok": False, "pesan": "tanggal dan nama libur wajib diisi."}
+    jenis = str(arg.get("jenis") or "kustom").strip()
+    if jenis not in ("nasional", "cuti", "kustom"):
+        jenis = "kustom"
+    # Penjaga nilai: libur nasional/cuti bawaan tidak perlu dicatat ulang —
+    # tolak duplikat, laporkan bawaan yang sudah ada.
+    if tanggal in insentif.LIBUR_BAWAAN:
+        nama_bawaan, jenis_bawaan = insentif.LIBUR_BAWAAN[tanggal]
+        return {"ok": False,
+                "pesan": (f"Tanggal {tanggal} sudah ada sebagai libur "
+                          f"{jenis_bawaan} bawaan ({nama_bawaan}) — tidak perlu "
+                          f"dicatat ulang.")}
+    try:
+        insentif.simpan_libur(tanggal, nama, jenis)
+    except ValueError as galat:
+        return {"ok": False, "pesan": f"Tanggal tidak sah: {galat}"}
+    services.log_audit("ollama", "admin", "insentif_libur_simpan", "insentif_libur",
+                       tanggal, f"{nama} ({jenis})")
+    return {"ok": True, "tanggal": tanggal, "nama": nama, "jenis": jenis,
+            "pesan": f"Tanggal {tanggal} ({nama}) disimpan sebagai libur {jenis}."}
+
+
+def _pelaku_hapus_libur(arg: Mapping[str, Any]) -> dict[str, Any]:
+    tanggal = str(arg.get("tanggal") or "").strip()
+    if not tanggal:
+        return {"ok": False, "pesan": "tanggal wajib diisi."}
+    nama = ""
+    if tanggal[:4].isdigit():
+        for baris in insentif.daftar_libur_tahun(int(tanggal[:4])):
+            if str(baris.get("tanggal") or "") == tanggal:
+                nama = str(baris.get("nama") or "")
+                break
+    insentif.hapus_libur(tanggal)
+    services.log_audit("ollama", "admin", "insentif_libur_hapus", "insentif_libur",
+                       tanggal, nama)
+    return {"ok": True, "tanggal": tanggal,
+            "pesan": f"Tanggal {tanggal} ({nama or 'libur'}) dihapus."}
+
+
+def _pelaku_ubah_jabatan_insentif(arg: Mapping[str, Any]) -> dict[str, Any]:
+    try:
+        pegawai_id = int(arg.get("pegawai_id") or 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "pesan": "pegawai_id harus angka."}
+    baris = gtk.get_pegawai(pegawai_id)
+    if baris is None:
+        return {"ok": False, "pesan": f"Pegawai GTK ID {pegawai_id} tidak ditemukan."}
+    jabatan = str(arg.get("jabatan") or "").strip()
+    if jabatan and jabatan not in JABATAN_INSENTIF:
+        return {"ok": False,
+                "pesan": f"Jabatan «{jabatan}» tidak dikenal. Pilih: {', '.join(JABATAN_INSENTIF)}."}
+    profil = insentif.profil_untuk_gtk(pegawai_id)
+    insentif.db.execute(
+        "UPDATE insentif_profil SET jabatan = ?, diubah = datetime('now','localtime') "
+        "WHERE id = ?", (jabatan or None, profil["id"]))
+    services.log_audit("ollama", "admin", "gtk_jabatan_insentif", "gtk_pegawai",
+                       str(pegawai_id),
+                       f"{baris['nama']}: jabatan insentif → «{jabatan or 'otomatis'}»")
+    return {"ok": True, "pegawai_id": pegawai_id, "jabatan": jabatan or "otomatis",
+            "pesan": f"Jabatan insentif «{baris['nama']}» disimpan "
+                     f"({jabatan or 'otomatis'})."}
+
+
 _PELAKU: dict[str, Callable[[Mapping[str, Any]], dict[str, Any]]] = {
     "lihat_status_bot": lambda _arg: _pelaku_lihat_status_bot(),
     "lihat_status_insentif": lambda _arg: _pelaku_lihat_status_insentif(),
     "lihat_status_spj": lambda _arg: _pelaku_lihat_status_spj(),
+    "baca_hasil_bot": lambda _arg: _pelaku_baca_hasil_bot(),
+    "lihat_daftar_siswa": _pelaku_lihat_daftar_siswa,
+    "lihat_siswa": _pelaku_lihat_siswa,
+    "lihat_daftar_gtk": _pelaku_lihat_daftar_gtk,
+    "lihat_antrean_persetujuan": _pelaku_lihat_antrean_persetujuan,
+    "lihat_ekskul": _pelaku_lihat_ekskul,
+    "lihat_status_tangcer": _pelaku_lihat_status_tangcer,
+    "lihat_pengaturan": lambda _arg: _pelaku_lihat_pengaturan(),
     "jalankan_bot_dapodik": _pelaku_jalankan_bot,
     "hentikan_bot_dapodik": lambda _arg: _pelaku_hentikan_bot(),
-    "baca_hasil_bot": lambda _arg: _pelaku_baca_hasil_bot(),
     "unggah_berkas_spj": _pelaku_unggah_berkas_spj,
     "buat_spj": _pelaku_buat_spj,
+    "buat_spj_tangcer": _pelaku_buat_spj_tangcer,
+    "putuskan_pengajuan": _pelaku_putuskan_pengajuan,
+    "buat_periode_insentif": _pelaku_buat_periode_insentif,
+    "hapus_periode_insentif": _pelaku_hapus_periode_insentif,
+    "tambah_orang_insentif": _pelaku_tambah_orang_insentif,
+    "ubah_orang_insentif": _pelaku_ubah_orang_insentif,
+    "hapus_orang_insentif": _pelaku_hapus_orang_insentif,
+    "geser_orang_insentif": _pelaku_geser_orang_insentif,
+    "tambah_libur": _pelaku_tambah_libur,
+    "hapus_libur": _pelaku_hapus_libur,
+    "ubah_jabatan_insentif": _pelaku_ubah_jabatan_insentif,
 }
 
 
