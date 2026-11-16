@@ -445,9 +445,15 @@ SYSTEM_PROMPT = (
     "alatnya secara wajar (tool call), lalu tunggu hasilnya. Jangan menulis "
     "hasil alat fiktif di pesan Anda.\n"
     "- Beri jawaban dalam bahasa Indonesia, ringkas dan jelas.\n"
+    "- **Pilih alat yang paling cocok dengan maksud pertanyaan.** Peta wajib: "
+    "«berapa jumlah/banyak siswa» → HANYA «lihat_jumlah_siswa»; «daftar siswa»/"
+    "«lihat siswa» → «lihat_daftar_siswa»/«lihat_siswa»; keadaan bot → «lihat_"
+    "status_bot»/«baca_hasil_bot»; keadaan insentif/SPJ → «lihat_status_insentif»"
+    "/«lihat_status_spj». Jangan memakai alat status/insentif untuk pertanyaan "
+    "jumlah siswa, dan sebaliknya.\n"
     "- Untuk pertanyaan **«berapa banyak / jumlah siswa»**, panggil alat "
-    "«lihat_jumlah_siswa» — jangan memakai «lihat_daftar_siswa» dan jangan "
-    "meminta daftar semua siswa.\n"
+    "«lihat_jumlah_siswa» — jangan memakai «lihat_daftar_siswa» atau alat "
+    "lain, dan jangan meminta daftar semua siswa.\n"
     "- Untuk melihat/menyaring daftar sejumlah baris, panggil alat «lihat_...» "
     "lalu sampaikan isinya apa adanya.\n"
     "- Untuk pekerjaan (menjalankan bot, mengunggah/membuat berkas, mengubah "
@@ -1311,6 +1317,28 @@ def _panggilan_dari_teks(isi: str) -> tuple[str, dict[str, Any]] | None:
     return None
 
 
+def _pertanyaan_hitung_siswa(pesan: str) -> bool:
+    """Tangkap pertanyaan yang jelas meminta jumlah siswa (hitung, bukan daftar).
+
+    Penjaga nilai: untuk pertanyaan seperti ini kita panggilkan
+    «lihat_jumlah_siswa» langsung di server agar model tidak salah pilih alat
+    (mis. melaporkan status insentif). Hanya dipicu bila ada kata «siswa» +
+    kata hitung; pertanyaan «daftar siswa» tidak terpicu.
+    """
+    teks = (pesan or "").lower()
+    if "siswa" not in teks:
+        return False
+    hitung = ("jumlah", "berapa", "banyak", "total", "hitung",
+              "sebanyak", "kuantitas")
+    if not any(kata in teks for kata in hitung):
+        return False
+    # Jangan salah tangkap «berapa banyak penerima insentif» dsb — harus ada
+    # «siswa» (sudah dicek) dan bukan pertanyaan daftar/filter murni.
+    if any(kata in teks for kata in ("daftar", "lihat", "rinci", "detail")):
+        return False
+    return True
+
+
 def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
            cfg: Mapping[str, str] | None = None) -> dict[str, Any]:
     """Satu percakapan lengkap: jawaban akhir + jejak alat yang dipakai.
@@ -1339,6 +1367,30 @@ def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
 
     jejak: list[dict[str, Any]] = []
     detik = _detik_pengaturan(setting)
+
+    # Penjaga nilai: pertanyaan hitung siswa yang jelas → panggil alat
+    # «lihat_jumlah_siswa» langsung di server, agar model tidak salah pilih
+    # alat (mis. melaporkan status insentif). Hasil disuntikkan sebagai hasil
+    # alat yang sah; model menjawab dari data ini.
+    if _pertanyaan_hitung_siswa(pesan):
+        _id_hitung = f"hitung-{len(jejak) + 1}"
+        hasil_hitung = jalankan_alat("lihat_jumlah_siswa", {}, setting)
+        jejak.append({"alat": "lihat_jumlah_siswa", "argumen": {},
+                      "hasil": hasil_hitung, "otomatis": True})
+        pesans.append({"role": "assistant",
+                       "content": "Saya menghitung jumlah siswa terlebih dahulu.",
+                       "tool_calls": [{"id": _id_hitung, "type": "function",
+                                       "function": {"name": "lihat_jumlah_siswa",
+                                                    "arguments": {}}}]})
+        pesans.append({"role": "tool", "tool_call_id": _id_hitung,
+                       "content": json.dumps(hasil_hitung, ensure_ascii=False)})
+        pesans.append({"role": "user",
+                       "content": ("Jumlah siswa sudah tersedia dari hasil alat "
+                                   "«lihat_jumlah_siswa». Jawab pertanyaan pengguna "
+                                   "berdasarkan hasil tersebut; jika pertanyaan "
+                                   "meminta kelompok tertentu, panggil alat itu lagi "
+                                   "dengan saringan yang diminta.")})
+
     for _langkah in range(BATAS_LOOP):
         hasil = _chat(url, model, setting.get(KUNCI_KUNCI) or "", pesans, detik=detik)
         pesan_model = hasil.get("message") or {}

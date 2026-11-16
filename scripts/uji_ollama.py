@@ -534,7 +534,7 @@ OLLAMA.chat_skrip = [
                 '"arguments": {}}\n```'),
     chat_bicara("Total siswa seluruhnya adalah 2 siswa."),
 ]
-hasil = ollama.bicara("berapa jumlah siswa seluruhnya?", cfg=CFG_AKTIF)
+hasil = ollama.bicara("tolong periksa data siswa", cfg=CFG_AKTIF)
 cek("loop tangkap JSON-di-teks lalu jalankan alat",
     [j["alat"] for j in hasil.get("alat") or []] == ["lihat_jumlah_siswa"],
     str([j["alat"] for j in hasil.get("alat") or []]))
@@ -542,6 +542,39 @@ cek("jawaban dari hasil alat nyata (total 2)",
     "2 siswa" in hasil.get("jawaban", ""), str(hasil.get("jawaban")))
 cek("loop tidak mengulang tak berujung",
     hasil.get("batas") is False, str(hasil.get("batas")))
+OLLAMA.chat_skrip = []
+
+# --------------------------------------------------------------------------- #
+# 10c. Penjaga nilai: pertanyaan hitung siswa → alat dipaksa server-side
+# --------------------------------------------------------------------------- #
+skenario("10c. Penjaga nilai pertanyaan hitung siswa")
+
+cek("deteksi: «berapa jumlah siswa seluruhnya» → True",
+    ollama._pertanyaan_hitung_siswa("berapa jumlah siswa seluruhnya?") is True)
+cek("deteksi: «berapa banyak siswa di rombel 7-A» → True",
+    ollama._pertanyaan_hitung_siswa("berapa banyak siswa di rombel 7-A") is True)
+cek("deteksi: «jumlah siswa» → True",
+    ollama._pertanyaan_hitung_siswa("jumlah siswa") is True)
+cek("deteksi: «daftar siswa» → False (bukan hitung)",
+    ollama._pertanyaan_hitung_siswa("lihat daftar siswa") is False)
+cek("deteksi: «berapa penerima insentif» → False (bukan siswa)",
+    ollama._pertanyaan_hitung_siswa("berapa penerima insentif?") is False)
+cek("deteksi: «detail siswa Budi» → False",
+    ollama._pertanyaan_hitung_siswa("detail siswa Budi") is False)
+
+# End-to-end: pertanyaan hitung → lihat_jumlah_siswa dipanggil otomatis oleh
+# server (ditandai «otomatis»), bahkan jika model tidak memintanya.
+OLLAMA.chat_skrip = [chat_bicara("Total siswa seluruhnya adalah 2 siswa.")]
+hasil = ollama.bicara("berapa jumlah siswa seluruhnya?", cfg=CFG_AKTIF)
+alat_dipakai = [j["alat"] for j in hasil.get("alat") or []]
+cek("pertanyaan hitung → lihat_jumlah_siswa dipanggil otomatis",
+    "lihat_jumlah_siswa" in alat_dipakai
+    and any(j.get("otomatis") for j in hasil.get("alat") or []),
+    str(alat_dipakai))
+cek("model menjawab dari hasil alat (total 2)",
+    "2 siswa" in hasil.get("jawaban", ""), str(hasil.get("jawaban")))
+cek("hanya 1 alat (tidak salah pilih insentif)",
+    alat_dipakai == ["lihat_jumlah_siswa"], str(alat_dipakai))
 OLLAMA.chat_skrip = []
 
 # --------------------------------------------------------------------------- #
