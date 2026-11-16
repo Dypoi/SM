@@ -55,6 +55,13 @@
               membuat SPJ). Bila mati, Ollama hanya memberi saran.</small>
           </label>
         </div>
+        <div class="field">
+          <label for="detik">Batas waktu jawaban (detik)</label>
+          <input type="number" id="detik" name="detik" min="10" max="1800"
+                 value="{{ cfg.ollama_detik }}" placeholder="300">
+          <span class="hint">Model besar (14B) di CPU butuh waktu lama. Naikkan bila
+            sering galat timeout; turunkan untuk respons lebih cepat.</span>
+        </div>
       </div>
       <div class="btn-group mt-2">
         <button class="btn btn-primary btn-sm" type="submit">{{ icon('check') }} Simpan pengaturan</button>

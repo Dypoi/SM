@@ -48,10 +48,11 @@ KUNCI_URL = "ollama_url"
 KUNCI_MODEL = "ollama_model"
 KUNCI_KUNCI = "ollama_kunci"
 KUNCI_EKSEKUSI = "ollama_eksekusi"
+KUNCI_DETIK = "ollama_detik"
 KUNCI_UJI = "ollama_uji_terakhir"
 
 OLLAMA_KEYS: tuple[str, ...] = (
-    KUNCI_AKTIF, KUNCI_URL, KUNCI_MODEL, KUNCI_KUNCI, KUNCI_EKSEKUSI,
+    KUNCI_AKTIF, KUNCI_URL, KUNCI_MODEL, KUNCI_KUNCI, KUNCI_EKSEKUSI, KUNCI_DETIK,
 )
 
 OLLAMA_BAWAAN: dict[str, str] = {
@@ -62,6 +63,9 @@ OLLAMA_BAWAAN: dict[str, str] = {
     # Sekolah memilih eksekusi langsung (ronde 74): alat aksi langsung berjalan
     # bila Ollama aktif. Bila ingin mode saran saja, matikan di halaman Ollama.
     KUNCI_EKSEKUSI: "1",
+    # Model besar (14B) di CPU butuh inference lama, apalagi dengan pemanggilan
+    # alat (beberapa putaran). Batas bawaan diperbesar supaya tidak galat timeout.
+    KUNCI_DETIK: "300",
 }
 
 #: Batas iterasi pemanggilan alat dalam satu percakapan (anti «model berputar»).
@@ -127,6 +131,34 @@ def baca_laporan_uji() -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 # Klien HTTP Ollama (urllib — tanpa dependensi baru)
 # --------------------------------------------------------------------------- #
+def _detik_pengaturan(setting: Mapping[str, str]) -> int:
+    """Batas detik per permintaan HTTP — dari pengaturan, dibatasi 10–1800."""
+    try:
+        nilai = int(str(setting.get(KUNCI_DETIK) or DETIK_PERMINTAAN).strip())
+    except (TypeError, ValueError):
+        nilai = DETIK_PERMINTAAN
+    return max(10, min(1800, nilai))
+
+
+def _pesan_kosong(model: str) -> str:
+    """Pesan bila model kembali tanpa jawaban — model mungkin terlalu kecil."""
+    return (
+        "Ollama tidak memberikan jawaban (model «" + (model or "—") + "» mungkin "
+        "terlalu kecil untuk panggilan alat atau sedang memproses). Coba "
+        "ulangi, atau gunakan model yang lebih besar (mis. qwen2.5:14b-instruct)."
+    )
+
+
+def _pesan_timeout(detik: int) -> str:
+    """Pesan galat timeout yang membantu — model besar di CPU memang lambat."""
+    return (
+        "Ollama terlalu lama menjawab (melebihi " + str(detik) + " detik). Model besar "
+        "di CPU memang lambat — tunggu lalu coba lagi, gunakan model yang "
+        "lebih kecil (mis. qwen2.5:7b-instruct), atau naikkan batas waktu "
+        "di pengaturan Ollama."
+    )
+
+
 def _permintaan(url: str, metode: str = "GET", tubuh: dict[str, Any] | None = None,
                 kunci: str = "", detik: int = DETIK_PERMINTAAN) -> dict[str, Any]:
     """Kirim permintaan JSON ke Ollama dan baca jawaban JSON."""
@@ -147,10 +179,17 @@ def _permintaan(url: str, metode: str = "GET", tubuh: dict[str, Any] | None = No
         raise OllamaGalat(f"Ollama menjawab galat HTTP {galat.code}"
                           f"{(': ' + rincian) if rincian else ''}") from galat
     except urllib.error.URLError as galat:
+        alasan = str(galat.reason or "").lower()
+        if "timed out" in alasan or "timeout" in alasan:
+            raise OllamaGalat(_pesan_timeout(detik)) from galat
         raise OllamaGalat(f"Tidak dapat menghubungi Ollama di {url}. "
                           f"Periksa apakah Ollama berjalan dan alamatnya benar "
                           f"({galat.reason}).") from galat
+    except TimeoutError as galat:
+        raise OllamaGalat(_pesan_timeout(detik)) from galat
     except OSError as galat:
+        if "timed out" in str(galat).lower() or "timeout" in str(galat).lower():
+            raise OllamaGalat(_pesan_timeout(detik)) from galat
         raise OllamaGalat(f"Gagal menghubungi Ollama di {url}: {galat}") from galat
     try:
         return json.loads(mentah)
@@ -165,7 +204,9 @@ def cek_koneksi(cfg: Mapping[str, str] | None = None) -> dict[str, Any]:
     if not url:
         return {"ok": False, "model": [], "pesan": "Alamat Ollama belum diisi."}
     try:
-        hasil = _permintaan(f"{url}/api/tags", kunci=(setting.get(KUNCI_KUNCI) or ""))
+        hasil = _permintaan(f"{url}/api/tags",
+                            kunci=(setting.get(KUNCI_KUNCI) or ""),
+                            detik=_detik_pengaturan(setting))
     except OllamaGalat as galat:
         return {"ok": False, "model": [], "pesan": str(galat)}
     model = [str(m.get("name") or "") for m in (hasil.get("models") or []) if m.get("name")]
@@ -1188,13 +1229,14 @@ def daftar_alat() -> list[dict[str, str]]:
 # --------------------------------------------------------------------------- #
 # Siklus percakapan: pesan → Ollama → alat → jawaban
 # --------------------------------------------------------------------------- #
-def _chat(url: str, model: str, kunci: str, pesans: list[dict[str, Any]]) -> dict[str, Any]:
+def _chat(url: str, model: str, kunci: str, pesans: list[dict[str, Any]],
+          detik: int = DETIK_PERMINTAAN) -> dict[str, Any]:
     tubuh = {"model": model, "messages": pesans, "tools": _ALAT_SKEMA,
              "stream": False,
              # Model 7B/14B di CPU: suhu nol agar pemanggilan alat stabil dan
              # tidak degeneratif (tidak mengulang/mengarang).
              "options": {"temperature": 0}}
-    return _permintaan(f"{url}/api/chat", "POST", tubuh, kunci=kunci)
+    return _permintaan(f"{url}/api/chat", "POST", tubuh, kunci=kunci, detik=detik)
 
 
 def _objek_json_dari_teks(isi: str) -> list[dict[str, Any]]:
@@ -1296,8 +1338,9 @@ def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
     pesans.append({"role": "user", "content": pesan})
 
     jejak: list[dict[str, Any]] = []
+    detik = _detik_pengaturan(setting)
     for _langkah in range(BATAS_LOOP):
-        hasil = _chat(url, model, setting.get(KUNCI_KUNCI) or "", pesans)
+        hasil = _chat(url, model, setting.get(KUNCI_KUNCI) or "", pesans, detik=detik)
         pesan_model = hasil.get("message") or {}
         panggilan = pesan_model.get("tool_calls") or []
         isi_model = str(pesan_model.get("content") or "")
@@ -1311,7 +1354,8 @@ def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
                               "function": {"name": dari_teks[0],
                                             "arguments": dari_teks[1]}}]
             else:
-                return {"jawaban": isi_model, "alat": jejak,
+                jawaban = isi_model.strip() or _pesan_kosong(model)
+                return {"jawaban": jawaban, "alat": jejak,
                         "batas": False, "riwayat": pesans}
         pesans.append({"role": "assistant",
                        "content": isi_model,

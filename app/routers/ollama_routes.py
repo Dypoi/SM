@@ -42,6 +42,7 @@ def simpan_pengaturan(
     model: str = Form(""),
     kunci: str = Form(""),
     eksekusi: str = Form(""),
+    detik: str = Form(""),
     user: auth.SessionUser = Depends(auth.require_admin),
 ):
     """Simpan pengaturan Ollama (aktivasi + alamat + model + izin eksekusi)."""
@@ -51,6 +52,7 @@ def simpan_pengaturan(
         "ollama_model": model,
         "ollama_kunci": kunci,
         "ollama_eksekusi": "1" if eksekusi else "0",
+        "ollama_detik": detik,
     })
     pesan = ("Pengaturan Ollama disimpan." + (f" ({len(berubah)} kolom berubah.)"
                                               if berubah else " Tiada yang berubah."))

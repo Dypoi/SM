@@ -177,13 +177,37 @@ def _berkas_egov_b64() -> str:
 skenario("1. Pengaturan & aktivasi")
 
 bawaan = ollama.pengaturan()
-cek("bawaaan lima kunci lengkap",
+cek("bawaaan enam kunci lengkap (termasuk batas waktu)",
     set(bawaan) == set(ollama.OLLAMA_KEYS) and bawaan[ollama.KUNCI_AKTIF] == "0",
     str(bawaan))
 cek("alamat bawaan localhost:11434",
     bawaan[ollama.KUNCI_URL] == "http://localhost:11434", bawaan[ollama.KUNCI_URL])
 cek("model bawaan qwen2.5:14b-instruct",
     bawaan[ollama.KUNCI_MODEL] == "qwen2.5:14b-instruct", bawaan[ollama.KUNCI_MODEL])
+cek("batas waktu bawaan 300 detik",
+    bawaan[ollama.KUNCI_DETIK] == "300", bawaan[ollama.KUNCI_DETIK])
+
+# Validasi batas waktu.
+cek("_detik_pengaturan: bawaan 300",
+    ollama._detik_pengaturan({}) == ollama.DETIK_PERMINTAAN,
+    str(ollama._detik_pengaturan({})))
+cek("_detik_pengaturan: batas bawah 10",
+    ollama._detik_pengaturan({ollama.KUNCI_DETIK: "3"}) == 10,
+    str(ollama._detik_pengaturan({ollama.KUNCI_DETIK: "3"})))
+cek("_detik_pengaturan: batas atas 1800",
+    ollama._detik_pengaturan({ollama.KUNCI_DETIK: "99999"}) == 1800,
+    str(ollama._detik_pengaturan({ollama.KUNCI_DETIK: "99999"})))
+cek("_detik_pengaturan: bukan angka → bawaan",
+    ollama._detik_pengaturan({ollama.KUNCI_DETIK: "abc"}) == ollama.DETIK_PERMINTAAN)
+
+# Pesan galat yang membantu.
+cek("_pesan_timeout menyebut model besar di CPU",
+    "CPU" in ollama._pesan_timeout(300) and "300" in ollama._pesan_timeout(300),
+    ollama._pesan_timeout(300))
+cek("_pesan_kosong menyebut model & saran naik model",
+    "tidak memberikan jawaban" in ollama._pesan_kosong("qwen2.5:7b-instruct")
+    and "14b" in ollama._pesan_kosong("qwen2.5:7b-instruct"),
+    ollama._pesan_kosong("qwen2.5:7b-instruct"))
 
 berubah = ollama.simpan_pengaturan(CFG_AKTIF)
 cek("simpan mengubah 5 kunci", len(berubah) == 5, str(berubah))
@@ -191,6 +215,12 @@ setelah = ollama.pengaturan()
 cek("baca kembali sama", setelah[ollama.KUNCI_URL] == OLLAMA.alamat
     and setelah[ollama.KUNCI_MODEL] == "qwen2.5:14b-instruct"
     and setelah[ollama.KUNCI_AKTIF] == "1", str(setelah))
+
+ollama.simpan_pengaturan({ollama.KUNCI_DETIK: "600"})
+cek("simpan batas waktu tersimpan",
+    ollama.pengaturan().get(ollama.KUNCI_DETIK) == "600",
+    ollama.pengaturan().get(ollama.KUNCI_DETIK))
+ollama.simpan_pengaturan({ollama.KUNCI_DETIK: "300"})
 
 # --------------------------------------------------------------------------- #
 # 2. Koneksi
@@ -722,10 +752,24 @@ async def uji_http() -> None:
         simpan = await klien.post("/ollama/pengaturan",
                                   data={"aktif": "1", "url": OLLAMA.alamat,
                                         "model": "qwen2.5:14b-instruct", "kunci": "",
-                                        "eksekusi": "1"})
-        cek("POST /ollama/pengaturan simpan",
+                                        "eksekusi": "1", "detik": "450"})
+        cek("POST /ollama/pengaturan simpan (termasuk batas waktu)",
             simpan.status_code == 200 and "Pengaturan Ollama disimpan" in simpan.text,
             simpan.text[-200:])
+        cek("batas waktu tersimpan lewat rute",
+            services.get_setting(ollama.KUNCI_DETIK) == "450",
+            services.get_setting(ollama.KUNCI_DETIK))
+        services.set_setting(ollama.KUNCI_DETIK, "300")
+
+        # Jawaban kosong dari model → pesan jujur (bukan string kosong).
+        OLLAMA.chat_skrip = [chat_bicara("")]
+        kosong = await klien.post("/ollama/chat",
+                                 json={"pesan": "berapa jumlah siswa?"})
+        cek("chat model jawab kosong → pesan jelas",
+            kosong.status_code == 200
+            and "tidak memberikan jawaban" in (kosong.json().get("jawaban") or ""),
+            str(kosong.json().get("jawaban"))[:160])
+        OLLAMA.chat_skrip = []
 
         await klien.post("/logout")
         tanpa_kunci = await klien.post("/ollama/chat", json={"pesan": "hallo"})
