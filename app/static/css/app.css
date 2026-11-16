@@ -1408,3 +1408,48 @@ table.table-spj td.isi { white-space: normal; overflow-wrap: break-word; }
 table.table-spj th.num, table.table-spj td.num, table.table-spj td.mono,
 table.table-spj th:first-child, table.table-spj td:first-child { white-space: nowrap; }
 table.table-spj tfoot th { background: #f8fafc; }
+
+/* ------------------------------------------------------------- Ollama -- */
+/* Obrolan dengan model Ollama (halaman «Ollama»). */
+.chat-area {
+  display: flex;
+  flex-direction: column;
+  gap: .6rem;
+  max-height: 56vh;
+  min-height: 220px;
+  overflow-y: auto;
+  padding: .8rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2, #f8fafc);
+}
+.chat-pesan { display: flex; flex-direction: column; gap: .25rem; max-width: 82%; }
+.chat-bot { align-self: flex-start; }
+.chat-siswa { align-self: flex-end; align-items: flex-end; }
+.chat-isi {
+  padding: .55rem .8rem;
+  border-radius: 10px;
+  font-size: .88rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.chat-bot .chat-isi { background: #fff; border: 1px solid var(--border); }
+.chat-siswa .chat-isi { background: var(--primary); color: #fff; }
+.chat-alat { font-size: .78rem; color: var(--muted); width: 100%; }
+.chat-alat summary { cursor: pointer; }
+.chat-alat ul { margin: .35rem 0 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: .2rem; }
+.chat-form { display: flex; gap: .5rem; align-items: flex-end; }
+.chat-form textarea {
+  flex: 1; min-width: 0; resize: vertical;
+  font-family: inherit; font-size: .88rem;
+  padding: .5rem .7rem; border: 1px solid var(--border); border-radius: 8px;
+}
+.chat-form .btn { flex-shrink: 0; }
+.alat-daftar { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+.alat-daftar li { font-size: .84rem; line-height: 1.4; padding-left: .9rem; position: relative; }
+.alat-daftar li::before {
+  content: "›"; position: absolute; left: 0; top: 0; color: var(--muted); font-weight: 700;
+}
+.alat-daftar code { font-family: var(--mono); font-size: .8rem; color: var(--primary); }
+.chat-catat { font-size: .78rem; }

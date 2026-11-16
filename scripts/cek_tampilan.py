@@ -55,13 +55,13 @@ BLOK = {"div", "p", "ul", "ol", "dl", "dt", "dd", "table", "form", "section", "a
 HALAMAN_SISWA = ("/portal", "/portal/profil", "/portal/ekstrakurikuler", "/portal/pengajuan")
 
 #: Halaman petugas yang diperiksa susunannya (login admin).
-HALAMAN_PETUGAS = ("/online", "/bot-dapodik/catatan", "/pembaruan", "/bot-dapodik", "/tangcer",
-                  "/tangcer/spj", "/tangcer/bedah", "/gtk", "/insentif",
+HALAMAN_PETUGAS = ("/online", "/bot-dapodik/catatan", "/pembaruan", "/bot-dapodik", "/ollama",
+                  "/tangcer", "/tangcer/spj", "/tangcer/bedah", "/gtk", "/insentif",
                   "/insentif/pengaturan", "/insentif/libur", "/insentif/profil",
                   "/insentif/impor-rekening", "/insentif/cetak-berkas")
 
 #: Halaman yang wajib bebas gaya sebaris & keterangan panjang (ronde 56 & 58).
-HALAMAN_RAPI = ("/pembaruan", "/bot-dapodik", "/tangcer", "/tangcer/spj", "/tangcer/bedah", "/gtk",
+HALAMAN_RAPI = ("/pembaruan", "/bot-dapodik", "/ollama", "/tangcer", "/tangcer/spj", "/tangcer/bedah", "/gtk",
                 "/insentif", "/insentif/pengaturan", "/insentif/libur", "/insentif/profil",
                 "/insentif/impor-rekening", "/insentif/cetak-berkas")
 BATAS_KETERANGAN = 160

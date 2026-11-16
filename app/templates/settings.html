@@ -303,6 +303,48 @@
         </div>
       </div>
 
+      <div class="card mt-2" id="ollama">
+        <div class="card-head">
+          <div>
+            <h3>{{ icon('chat') }} Aktivasi Ollama</h3>
+            <p>Biarkan Ollama mengobrol dan mengoperasikan bodap lewat alat
+               (status insentif, SPJ, Bot Dapodik). Berjalan lokal di komputer ini.</p>
+          </div>
+          {% if settings.ollama_aktif == '1' %}
+            <span class="badge badge-success">Aktif</span>
+          {% else %}
+            <span class="badge badge-muted">Belum aktif</span>
+          {% endif %}
+        </div>
+        <div class="card-body">
+          <form method="post" action="/ollama/pengaturan">
+            <div class="form-grid">
+              <div class="field span-2">
+                <label class="cek-bot-judul" for="ollama-aktif"><strong>Aktifkan Ollama</strong></label>
+                <label class="cek-bot-isi" for="ollama-aktif">
+                  <input type="checkbox" id="ollama-aktif" name="aktif" value="1"
+                         {{ 'checked' if settings.ollama_aktif == '1' }}>
+                  <small>Mengizinkan bodap menerima perintah obrolan dari Ollama.</small>
+                </label>
+              </div>
+              <div class="field">
+                <label for="ollama-url">Alamat Ollama</label>
+                <input type="text" id="ollama-url" name="url" value="{{ settings.ollama_url or 'http://localhost:11434' }}">
+              </div>
+              <div class="field">
+                <label for="ollama-model">Model</label>
+                <input type="text" id="ollama-model" name="model"
+                       value="{{ settings.ollama_model or 'qwen2.5:14b-instruct' }}">
+              </div>
+            </div>
+            <div class="btn-group">
+              <button class="btn btn-primary btn-sm" type="submit">{{ icon('check') }} Simpan</button>
+              <a class="btn btn-outline btn-sm" href="/ollama">{{ icon('chat') }} Buka halaman Ollama</a>
+            </div>
+          </form>
+        </div>
+      </div>
+
       <div class="card mt-2">
         <div class="card-head">
           <div>

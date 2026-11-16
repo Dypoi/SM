@@ -32,6 +32,7 @@ from .routers import (
     dashboard_routes,
     ekskul_routes,
     import_routes,
+    ollama_routes,
     online_routes,
     portal_routes,
     settings_routes,
@@ -166,6 +167,7 @@ app.include_router(portal_routes.router)
 app.include_router(settings_routes.router)
 app.include_router(update_routes.router)
 app.include_router(online_routes.router)
+app.include_router(ollama_routes.router)
 app.include_router(approval_routes.router)
 app.include_router(api_routes.router)
 app.include_router(bot_routes.router)

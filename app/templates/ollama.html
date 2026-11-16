@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{% set uji = status.uji or {} %}
+
+{# ------------------------------------------------------------ aktivasi -- #}
+<div class="card" id="aktivasi">
+  <div class="card-head">
+    <div>
+      <h3>{{ icon('chat') }} Aktivasi Ollama</h3>
+      <p>Ollama adalah «otak» percakapan yang mengoperasikan bodap lewat alat.
+         Berjalan di komputer ini (lokal) — data tidak dikirim keluar.</p>
+    </div>
+    {% if status.aktif %}
+      <span class="badge badge-success">Aktif</span>
+    {% else %}
+      <span class="badge badge-muted">Belum aktif</span>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    <form method="post" action="/ollama/pengaturan">
+      <div class="form-grid">
+        <div class="field span-2">
+          <label class="cek-bot-judul" for="aktif"><strong>Aktifkan Ollama</strong></label>
+          <label class="cek-bot-isi" for="aktif">
+            <input type="checkbox" id="aktif" name="aktif" value="1"
+                   {{ 'checked' if cfg.ollama_aktif == '1' }}>
+            <small>Hanya bila aktif, bodap menerima perintah obrolan dari Ollama.</small>
+          </label>
+        </div>
+        <div class="field">
+          <label for="url">Alamat Ollama</label>
+          <input type="text" id="url" name="url" value="{{ cfg.ollama_url }}"
+                 placeholder="http://localhost:11434">
+          <span class="hint">Alamat layanan Ollama di komputer ini.</span>
+        </div>
+        <div class="field">
+          <label for="model">Model</label>
+          <input type="text" id="model" name="model" value="{{ cfg.ollama_model }}"
+                 placeholder="qwen2.5:14b-instruct">
+          <span class="hint">Model yang sudah dipasang di Ollama (contoh: qwen2.5:14b-instruct).</span>
+        </div>
+        <div class="field">
+          <label for="kunci">Kunci API Ollama (opsional)</label>
+          <input type="password" id="kunci" name="kunci" autocomplete="new-password"
+                 value="{{ cfg.ollama_kunci }}" placeholder="kosong bila Ollama lokal tanpa kunci">
+        </div>
+        <div class="field">
+          <label class="cek-bot-judul" for="eksekusi"><strong>Eksekusi otomatis</strong></label>
+          <label class="cek-bot-isi" for="eksekusi">
+            <input type="checkbox" id="eksekusi" name="eksekusi" value="1"
+                   {{ 'checked' if cfg.ollama_eksekusi == '1' }}>
+            <small>Beri hak Ollama menjalankan aksi (menjalankan bot, mengunggah,
+              membuat SPJ). Bila mati, Ollama hanya memberi saran.</small>
+          </label>
+        </div>
+      </div>
+      <div class="btn-group mt-2">
+        <button class="btn btn-primary btn-sm" type="submit">{{ icon('check') }} Simpan pengaturan</button>
+        <button class="btn btn-outline btn-sm" type="submit" formaction="/ollama/uji"
+                formnovalidate>{{ icon('refresh') }} Uji koneksi</button>
+      </div>
+    </form>
+
+    {% if uji %}
+      <div class="section-title">Laporan uji koneksi terakhir</div>
+      {% if uji.ok %}
+        <p class="soft kecil-rapat">{{ uji.pesan }}</p>
+        {% if uji.model %}
+          <ul class="bar-list" style="margin-top:.4rem">
+            {% for satu in uji.model %}
+              <li class="flex between">
+                <span class="mono">{{ satu }}</span>
+                <span class="badge {{ 'badge-success' if satu == cfg.ollama_model else 'badge-muted' }}">
+                  {{ 'model dipilih' if satu == cfg.ollama_model else 'tersedia' }}
+                </span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      {% else %}
+        <p class="soft kecil-rapat" style="color:var(--danger)">{{ uji.pesan }}</p>
+      {% endif %}
+    {% else %}
+      <p class="soft kecil-rapat">Belum pernah diuji. Tekan <em>Uji koneksi</em> untuk
+         memeriksa Ollama dan melihat model yang tersedia.</p>
+    {% endif %}
+  </div>
+</div>
+
+{# -------------------------------------------------------------- obrolan -- #}
+<div class="card mt-2" id="obrolan">
+  <div class="card-head">
+    <div>
+      <h3>{{ icon('robot') }} Obrolan dengan Ollama</h3>
+      <p>Coba perintah langsung. Setiap jawaban menunjukkan alat yang dipakai
+         Ollama dan hasilnya dari bodap.</p>
+    </div>
+    {% if status.aktif %}
+      <span class="badge badge-success">Ollama aktif</span>
+    {% else %}
+      <span class="badge badge-warning">Activate dulu di atas</span>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    <div class="chat-area" id="chat-area" aria-live="polite">
+      <div class="chat-pesan chat-siswa">
+        <div class="chat-isi">
+          Hai! Saya assistant yang mengoperasikan bodap. Coba perintah seperti
+          «lihat status insentif», «lihat status bot», atau «lihat status SPJ».
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-group mt-2" id="perintah-cepat">
+      <button class="btn btn-outline btn-sm" type="button" data-pesan="lihat status insentif">Status insentif</button>
+      <button class="btn btn-outline btn-sm" type="button" data-pesan="lihat status bot">Status bot Dapodik</button>
+      <button class="btn btn-outline btn-sm" type="button" data-pesan="lihat status SPJ">Status SPJ</button>
+      <button class="btn btn-outline btn-sm" type="button" data-pesan="baca hasil bot">Baca hasil bot terakhir</button>
+    </div>
+
+    <form id="form-chat" class="chat-form mt-2" autocomplete="off">
+      <textarea id="pesan-chat" name="pesan" rows="2"
+                placeholder="Tulis perintah (mis. «unggah berkas ini dan buat SPJ»)"></textarea>
+      <button class="btn btn-primary" type="submit" id="tombol-kirim">{{ icon('upload') }} Kirim</button>
+    </form>
+    <p class="muted kecil chat-catat" id="catat-chat"></p>
+  </div>
+</div>
+
+{# ---------------------------------------------------------------- alat -- #}
+<div class="card mt-2" id="alat">
+  <div class="card-head">
+    <div>
+      <h3>{{ icon('info') }} Alat yang dapat dipanggil Ollama</h3>
+      <p>Ollama hanya dapat memanggil alat ini — tidak ada akses bebas ke sistem.</p>
+    </div>
+  </div>
+  <div class="card-body">
+    <ul class="alat-daftar">
+      {% for satu in alat %}
+        <li><code>{{ satu.nama }}</code> — {{ satu.deskripsi }}</li>
+      {% endfor %}
+    </ul>
+    <p class="soft kecil-rapat mt-2">
+      Jembatan WhatsApp (ronde berikutnya) memanggil titik akhir <code>POST /ollama/chat</code>
+      dengan <code>X-API-Key</code> — kunci sama dengan halaman Pengaturan → Integrasi.
+      Hasil alat dan obrolan tercatat di <code>data/ollama/alat.log</code>.
+    </p>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var kotak = document.getElementById("chat-area");
+  var form = document.getElementById("form-chat");
+  var input = document.getElementById("pesan-chat");
+  var tombol = document.getElementById("tombol-kirim");
+  var catat = document.getElementById("catat-chat");
+  var riwayat = [];
+  var kunci = "ollama-chat";
+
+  function simpan() { try { localStorage.setItem(kunci, JSON.stringify(riwayat)); } catch (e) {} }
+  function muat() {
+    try {
+      var simpanan = JSON.parse(localStorage.getItem(kunci) || "[]");
+      if (Array.isArray(simpanan)) { riwayat = simpanan.slice(-40); }
+    } catch (e) {}
+  }
+  muat();
+
+  function gelembung(peranan, isi, alat) {
+    var baris = document.createElement("div");
+    baris.className = "chat- pesan chat-" + (peranan === "user" ? "siswa" : "bot");
+    var isi_kothak = document.createElement("div");
+    isi_kothak.className = "chat-isi";
+    isi_kothak.textContent = isi;
+    baris.appendChild(isi_kothak);
+    if (alat && alat.length) {
+      var detail = document.createElement("details");
+      detail.className = "chat-alat";
+      var ringkasan = document.createElement("summary");
+      ringkasan.textContent = "Alat dipakai: " + alat.map(function (a) { return a.alat; }).join(", ");
+      detail.appendChild(ringkasan);
+      var daftar = document.createElement("ul");
+      alat.forEach(function (a) {
+        var li = document.createElement("li");
+        var nama = document.createElement("strong");
+        nama.textContent = a.alat + " → " + (a.hasil && a.hasil.ok ? "berhasil" : "gagal/saran");
+        li.appendChild(nama);
+        li.appendChild(document.createTextNode(" " + ((a.hasil && a.hasil.pesan) || "").slice(0, 160)));
+        daftar.appendChild(li);
+      });
+      detail.appendChild(daftar);
+      baris.appendChild(detail);
+    }
+    kotak.appendChild(baris);
+    kotak.scrollTop = kotak.scrollHeight;
+  }
+
+  function kirim(pesan) {
+    pesan = (pesan || "").trim();
+    if (!pesan) { return; }
+    gelembung("user", pesan);
+    riwayat.push({ role: "user", content: pesan });
+    simpan();
+    tombol.disabled = true;
+    input.value = "";
+    catat.textContent = "Ollama sedang berpikir…";
+    var isi = JSON.stringify({ pesan: pesan, riwayat: riwayat.slice(-20) });
+    fetch("/ollama/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: isi
+    }).then(function (jawaban) {
+      return jawaban.json().then(function (data) {
+        return { ok: jawaban.ok, data: data };
+      });
+    }).then(function (hasil) {
+      var data = hasil.data || {};
+      if (!hasil.ok) {
+        gelembung("bot", "Galat: " + (data.detail || "permintaan gagal"));
+      } else {
+        gelembung("bot", data.jawaban || "(Ollama tidak memberi jawaban)", data.alat || []);
+        if (data.jawaban) {
+          riwayat.push({ role: "assistant", content: data.jawaban });
+          simpan();
+        }
+      }
+    }).catch(function (galat) {
+      gelembung("bot", "Galat jaringan: " + galat);
+    }).finally(function () {
+      tombol.disabled = false;
+      input.focus();
+      catat.textContent = "";
+    });
+  }
+
+  form.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    kirim(input.value);
+  });
+  var cepat = document.getElementById("perintah-cepat");
+  if (cepat) {
+    cepat.addEventListener("click", function (ev) {
+      var tombol_cepat = ev.target.closest("[data-pesan]");
+      if (tombol_cepat) { kirim(tombol_cepat.getAttribute("data-pesan")); }
+    });
+  }
+})();
+</script>
+{% endblock %}

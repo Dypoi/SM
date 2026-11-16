@@ -410,13 +410,15 @@ def nav_items(user: auth.SessionUser | None) -> list[dict[str, str]]:
         {"href": "/insentif", "label": "Insentif", "icon": "file"},
         {"href": "/bot-dapodik", "label": "Bot Dapodik", "icon": "robot",
          "badge": services.bot_menunggu_kira()},
+        {"href": "/ollama", "label": "Ollama", "icon": "chat"},
         {"href": "/online", "label": "Online", "icon": "globe"},
         {"href": "/pengaturan", "label": "Pengaturan", "icon": "cog"},
         {"href": "/pembaruan", "label": "Pembaruan", "icon": "refresh"},
     ]
     if user.role != auth.ROLE_ADMIN:
         items = [item for item in items if item["href"] not in
-                 {"/pengaturan", "/pembaruan", "/pengajuan", "/bot-dapodik", "/online"}]
+                 {"/pengaturan", "/pembaruan", "/pengajuan", "/bot-dapodik",
+                  "/online", "/ollama"}]
         items.append({"href": "/profil-akun", "label": "Akun Saya", "icon": "user"})
     return items
 
@@ -432,6 +434,7 @@ NAV_GRUP = {
     "/tangcer": "Data & Laporan",
     "/insentif": "Data & Laporan",
     "/bot-dapodik": "Sistem",
+    "/ollama": "Sistem",
     "/online": "Sistem",
     "/statistik": "Data & Laporan",
     "/ekstrakurikuler": "Data & Laporan",
@@ -467,6 +470,7 @@ PAGE_TITLES = {
     "/tangcer": "TANGCER",
     "/insentif": "Insentif",
     "/bot-dapodik": "Bot Dapodik",
+    "/ollama": "Ollama",
     "/pengaturan": "Pengaturan",
     "/online": "Online",
     "/pembaruan": "Pembaruan Aplikasi",
