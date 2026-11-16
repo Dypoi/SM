@@ -269,9 +269,9 @@ hasil_alat = ollama.jalankan_alat("alat_tak_ada", {}, CFG_AKTIF)
 cek("alat tak dikenal ditolak",
     hasil_alat.get("ok") is False and "tidak dikenal" in (hasil_alat.get("pesan") or ""),
     str(hasil_alat))
-cek("daftar alat 26 nama (seluruh fitur bodap)",
+cek("daftar alat 27 nama (seluruh fitur bodap)",
     {a["nama"] for a in ollama.daftar_alat()} == set(ollama._PELAKU)
-    and len(ollama.daftar_alat()) == 26,
+    and len(ollama.daftar_alat()) == 27,
     str(len(ollama._PELAKU)))
 
 
@@ -452,6 +452,67 @@ hasil = ollama.jalankan_alat("lihat_pengaturan", {}, CFG_AKTIF)
 cek("pengaturan: sekolah + tarif + fitur",
     hasil.get("ok") is True and "tarif_insentif" in hasil
     and "fitur_aktif" in hasil, str(hasil)[:160])
+
+# Alat hitung eksak — jawaban untuk ribuan siswa tanpa memuncakan baris.
+hasil = ollama.jalankan_alat("lihat_jumlah_siswa", {}, CFG_AKTIF)
+cek("jumlah siswa: total eksak (2 data uji)",
+    hasil.get("ok") is True and hasil.get("total") == 2, str(hasil))
+cek("jumlah siswa: tanpa baris (hanya total)",
+    "baris" not in hasil and "total" in hasil, str(hasil)[:160])
+hasil = ollama.jalankan_alat("lihat_jumlah_siswa",
+   {"pecahan_rombel": "1", "pecahan_tingkat": "1"}, CFG_AKTIF)
+cek("jumlah siswa: pecahan rombel & tingkat",
+    hasil.get("ok") is True
+    and {b["nilai"]: b["jumlah"] for b in hasil.get("per_rombel", [])}
+    == {"7-A": 1, "8-B": 1}
+    and {b["nilai"]: b["jumlah"] for b in hasil.get("per_tingkat", [])}
+    == {"7": 1, "8": 1}, str(hasil)[:200])
+hasil = ollama.jalankan_alat("lihat_jumlah_siswa", {"rombel": "7-A"}, CFG_AKTIF)
+cek("jumlah siswa: saring rombel 7-A → 1",
+    hasil.get("ok") is True and hasil.get("total") == 1, str(hasil))
+
+# --------------------------------------------------------------------------- #
+# 10b. Penangkal model yang menulis pemanggilan alat sebagai JSON di teks
+# --------------------------------------------------------------------------- #
+skenario("10b. Penangkal JSON-di-teks (anti halusinasi)")
+
+nama, argumen = ollama._panggilan_dari_teks(
+    'Saya hitung. ```json\n{"name": "lihat_jumlah_siswa", "arguments": {}}\n```')
+cek("tangkap pemanggilan alat dari JSON di teks",
+    nama == "lihat_jumlah_siswa" and argumen == {}, f"{nama} {argumen}")
+
+nama, argumen = ollama._panggilan_dari_teks(
+    'Panggil alat: {"alat": "lihat_jumlah_siswa", "argumen": {"rombel": "7-A"}}')
+cek("tangkap dari bentuk «alat»/«argumen»",
+    nama == "lihat_jumlah_siswa" and argumen.get("rombel") == "7-A",
+    f"{nama} {argumen}")
+
+cek("hasil fiktif alat bukan pemanggilan → tidak ditangkap",
+    ollama._panggilan_dari_teks(
+        '```json\n{"id": [1, 2], "nisn": ["x"], "jumlah": 500}\n```') is None)
+cek("teks biasa tanpa alat → tidak ditangkap",
+    ollama._panggilan_dari_teks("Total siswa adalah 500.") is None)
+cek("alat tidak terdaftar → tidak ditangkap",
+    ollama._panggilan_dari_teks(
+        '```json\n{"name": "buat_apa_aja", "arguments": {}}\n```') is None)
+
+# End-to-end: model menulis pemanggilan alat sebagai JSON di teks (bukan
+# tool_calls) — loop harus menangkap, menjalankan alat, lalu menjawab dari
+# hasil nyata, bukan dari teks fiktif.
+OLLAMA.chat_skrip = [
+    chat_bicara('Saya hitung. ```json\n{"name": "lihat_jumlah_siswa", '
+                '"arguments": {}}\n```'),
+    chat_bicara("Total siswa seluruhnya adalah 2 siswa."),
+]
+hasil = ollama.bicara("berapa jumlah siswa seluruhnya?", cfg=CFG_AKTIF)
+cek("loop tangkap JSON-di-teks lalu jalankan alat",
+    [j["alat"] for j in hasil.get("alat") or []] == ["lihat_jumlah_siswa"],
+    str([j["alat"] for j in hasil.get("alat") or []]))
+cek("jawaban dari hasil alat nyata (total 2)",
+    "2 siswa" in hasil.get("jawaban", ""), str(hasil.get("jawaban")))
+cek("loop tidak mengulang tak berujung",
+    hasil.get("batas") is False, str(hasil.get("batas")))
+OLLAMA.chat_skrip = []
 
 # --------------------------------------------------------------------------- #
 # 11. Alat insentif tulis (periode, roster)

@@ -35,8 +35,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from . import (bot_dapodik, config, gtk, insentif, insentif_impor, insentif_pdf,
-               services, spj, tangcer)
+from . import (bot_dapodik, config, db, gtk, insentif, insentif_impor,
+               insentif_pdf, services, spj, tangcer)
 
 log = logging.getLogger(__name__)
 
@@ -211,15 +211,35 @@ _ALAT_SKEMA: list[dict[str, Any]] = [
           _obj({})),
     # ------------------------------------------------------------------ data -- #
     _alat("lihat_daftar_siswa",
-          "Daftar siswa aplikasi SM. «q» teks pencarian (nama/NISN); «rombel», "
-          "«tingkat», «status» untuk menyaring; «limit» jumlah baris maksimum "
-          "(1–200, bawaan 20). Kembalikan baris (id, nisn, nama, rombel, tingkat, "
-          "status) dan total.",
+          "Daftar siswa aplikasi SM (hanya untuk melihat sejumlah baris, bukan "
+          "menghitung). «q» teks pencarian (nama/NISN); «rombel», «tingkat», "
+          "«status» untuk menyaring; «limit» jumlah baris maksimum (1–200, "
+          "bawaan 20 — jangan minta batas besar). Untuk pertanyaan «berapa "
+          "jumlah siswa», gunakan alat «lihat_jumlah_siswa» — lebih tepat dan "
+          "tidak memuntahkan ribuan baris. Kembalikan baris (id, nisn, nama, "
+          "rombel, tingkat, status) dan total.",
           _obj({"q": {**_STR, "description": "Teks pencarian (nama/NISN)."},
                 "rombel": {**_STR, "description": "Nama rombel."},
                 "tingkat": {**_STR, "description": "Tingkat kelas."},
                 "status": {**_STR, "description": "Status siswa (mis. Aktif)."},
-                "limit": {**_INT, "description": "Jumlah baris maksimum (1–200)."}})),
+                "limit": {**_INT, "description": "Jumlah baris maksimum (1–200, "
+                                               "jangan besar)."}})),
+    _alat("lihat_jumlah_siswa",
+          "Hitung jumlah siswa secara eksak (tanpa memuncukan daftar baris) — "
+          "cocok bila siswa ada ribuan. Kembalikan total, dan bila diminta "
+          "«pecahan_rombel»/«pecahan_tingkat»/«pecahan_status», ringkasan "
+          "kelompok beserta jumlahnya. «q», «rombel», «tingkat», «status» untuk "
+          "menyaring. Gunakan ini untuk semua pertanyaan «berapa banyak siswa».",
+          _obj({"q": {**_STR, "description": "Teks pencarian (nama/NISN)."},
+                "rombel": {**_STR, "description": "Nama rombel."},
+                "tingkat": {**_STR, "description": "Tingkat kelas."},
+                "status": {**_STR, "description": "Status siswa (mis. Aktif)."},
+                "pecahan_rombel": {"type": "boolean",
+                                   "description": "Beri jumlah per rombel."},
+                "pecahan_tingkat": {"type": "boolean",
+                                    "description": "Beri jumlah per tingkat."},
+                "pecahan_status": {"type": "boolean",
+                                   "description": "Beri jumlah per status."}})),
     _alat("lihat_siswa",
           "Detail lengkap satu siswa berdasarkan NISN (10 digit). Kembalikan "
           "semua kolom data siswa apa adanya.",
@@ -375,11 +395,20 @@ _ALAT_AKSI = frozenset({
 
 SYSTEM_PROMPT = (
     "Anda adalah assistant yang mengoperasikan aplikasi sekolah «SM» (bodap) di "
-    "komputer pengguna. Anda hanya dapat menggunakan alat yang tersedia — jangan "
-    "mengarang hasil. Aturan:\n"
+    "komputer pengguna. Anda mengoperasikan bodap **hanya dengan memanggil alat** "
+    "yang tersedia. Aturan keras:\n"
+    "- **Selalu panggil alat** untuk mendapat data. **JANGAN mengarang** angka, "
+    "nama, ID, atau hasil alat. Jawaban HANYA boleh berasal dari hasil alat yang "
+    "benar-benar dikembalikan.\n"
+    "- **JANGAN menulis pemanggilan alat sebagai JSON di dalam teks.** Panggil "
+    "alatnya secara wajar (tool call), lalu tunggu hasilnya. Jangan menulis "
+    "hasil alat fiktif di pesan Anda.\n"
     "- Beri jawaban dalam bahasa Indonesia, ringkas dan jelas.\n"
-    "- Untuk melihat keadaan, panggil alat «lihat_...» lalu sampaikan isinya apa "
-    "adanya.\n"
+    "- Untuk pertanyaan **«berapa banyak / jumlah siswa»**, panggil alat "
+    "«lihat_jumlah_siswa» — jangan memakai «lihat_daftar_siswa» dan jangan "
+    "meminta daftar semua siswa.\n"
+    "- Untuk melihat/menyaring daftar sejumlah baris, panggil alat «lihat_...» "
+    "lalu sampaikan isinya apa adanya.\n"
     "- Untuk pekerjaan (menjalankan bot, mengunggah/membuat berkas, mengubah "
     "data), panggil alatnya dan laporkan hasil yang benar-benar dikembalikan "
     "alat. Jangan menyatakan berhasil bila alat melaporkan kegagalan.\n"
@@ -531,6 +560,43 @@ def _pelaku_lihat_daftar_siswa(arg: Mapping[str, Any]) -> dict[str, Any]:
                    "status": baris_satu.get("status")}
                   for baris_satu in baris],
     }
+
+
+def _pelaku_lihat_jumlah_siswa(arg: Mapping[str, Any]) -> dict[str, Any]:
+    """Hitung jumlah siswa secara eksak — murah (COUNT/*) walau ribuan."""
+    penyaring = services.StudentFilter(
+        q=str(arg.get("q") or "").strip(),
+        rombel=str(arg.get("rombel") or "").strip(),
+        tingkat=str(arg.get("tingkat") or "").strip(),
+        status=str(arg.get("status") or "").strip(),
+    )
+    # per_page=1: COUNT(*) tetap dihitung penuh, tetapi baris tidak dimuat.
+    _, total = services.list_students(penyaring, page=1, per_page=1)
+    where, params = penyaring.where_clause()
+    pecahan: dict[str, list[dict[str, Any]]] = {}
+    if str(arg.get("pecahan_rombel") or "").strip().lower() in ("1", "true", "yes"):
+        pecahan["per_rombel"] = _hitung_kelompok("rombel", where, params)
+    if str(arg.get("pecahan_tingkat") or "").strip().lower() in ("1", "true", "yes"):
+        pecahan["per_tingkat"] = _hitung_kelompok("tingkat", where, params)
+    if str(arg.get("pecahan_status") or "").strip().lower() in ("1", "true", "yes"):
+        pecahan["per_status"] = _hitung_kelompok("status", where, params)
+    hasil = {"ok": True, "total": total}
+    hasil.update(pecahan)
+    hasil["pesan"] = (f"Total siswa yang cocok: {total}."
+                      + (" Tersedia juga ringkasan per kelompok." if pecahan else ""))
+    return hasil
+
+
+def _hitung_kelompok(kolom: str, where: str, params: list[Any]) -> list[dict[str, Any]]:
+    """Jumlah per nilai kolom (GROUP BY) — hanya untuk kolom sebaris."""
+    if kolom not in ("rombel", "tingkat", "status"):
+        return []
+    baris = db.query_all(
+        f"SELECT {kolom} AS nilai, COUNT(*) AS jumlah FROM students s "
+        f"WHERE {where} GROUP BY {kolom} ORDER BY jumlah DESC, nilai ASC",
+        params)
+    return [{"nilai": (b["nilai"] or "—"), "jumlah": int(b["jumlah"] or 0)}
+            for b in baris]
 
 
 def _pelaku_lihat_siswa(arg: Mapping[str, Any]) -> dict[str, Any]:
@@ -1050,6 +1116,7 @@ _PELAKU: dict[str, Callable[[Mapping[str, Any]], dict[str, Any]]] = {
     "lihat_status_spj": lambda _arg: _pelaku_lihat_status_spj(),
     "baca_hasil_bot": lambda _arg: _pelaku_baca_hasil_bot(),
     "lihat_daftar_siswa": _pelaku_lihat_daftar_siswa,
+    "lihat_jumlah_siswa": _pelaku_lihat_jumlah_siswa,
     "lihat_siswa": _pelaku_lihat_siswa,
     "lihat_daftar_gtk": _pelaku_lihat_daftar_gtk,
     "lihat_antrean_persetujuan": _pelaku_lihat_antrean_persetujuan,
@@ -1123,8 +1190,83 @@ def daftar_alat() -> list[dict[str, str]]:
 # --------------------------------------------------------------------------- #
 def _chat(url: str, model: str, kunci: str, pesans: list[dict[str, Any]]) -> dict[str, Any]:
     tubuh = {"model": model, "messages": pesans, "tools": _ALAT_SKEMA,
-             "stream": False}
+             "stream": False,
+             # Model 7B/14B di CPU: suhu nol agar pemanggilan alat stabil dan
+             # tidak degeneratif (tidak mengulang/mengarang).
+             "options": {"temperature": 0}}
     return _permintaan(f"{url}/api/chat", "POST", tubuh, kunci=kunci)
+
+
+def _objek_json_dari_teks(isi: str) -> list[dict[str, Any]]:
+    """Kumpulkan semua objek JSON (kurung seimbang, termasuk bersarang)."""
+    objek: list[dict[str, Any]] = []
+    i = 0
+    n = len(isi)
+    while i < n:
+        if isi[i] != "{":
+            i += 1
+            continue
+        tingkat = 0
+        dalam_string = False
+        escape = False
+        akhir = -1
+        for j in range(i, n):
+            kar = isi[j]
+            if dalam_string:
+                if escape:
+                    escape = False
+                elif kar == "\\":
+                    escape = True
+                elif kar == '"':
+                    dalam_string = False
+                continue
+            if kar == '"':
+                dalam_string = True
+            elif kar == "{":
+                tingkat += 1
+            elif kar == "}":
+                tingkat -= 1
+                if tingkat == 0:
+                    akhir = j
+                    break
+        if akhir < 0:
+            break
+        potongan = isi[i:akhir + 1]
+        try:
+            beban = json.loads(potongan)
+        except ValueError:
+            beban = None
+        if isinstance(beban, dict):
+            objek.append(beban)
+        i = akhir + 1
+    return objek
+
+
+def _panggilan_dari_teks(isi: str) -> tuple[str, dict[str, Any]] | None:
+    """Tangkap model yang menulis pemanggilan alat sebagai JSON di teks.
+
+    Model 7B kadang menulis ``{"name": "lihat_...", "arguments": {...}}`` di
+    dalam pesan alih-alih mengeluarkan ``tool_calls``. Kalau ditemukan, kita
+    menjalankannya — jangan membiarkannya jadi jawaban akhir yang mengarang.
+    Hanya bentuk pemanggilan (nama alat terdaftar + argumen) yang ditangkap,
+    bukan hasil alat fiktif.
+    """
+    if not isi:
+        return None
+    for beban in _objek_json_dari_teks(isi):
+        nama = beban.get("name") or beban.get("alat") or beban.get("tool")
+        if not isinstance(nama, str) or nama not in _PELAKU:
+            continue
+        argumen = beban.get("arguments", beban.get("argumen", {}))
+        if isinstance(argumen, str):
+            try:
+                argumen = json.loads(argumen)
+            except ValueError:
+                argumen = {}
+        if not isinstance(argumen, dict):
+            argumen = {}
+        return nama, argumen
+    return None
 
 
 def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
@@ -1158,11 +1300,21 @@ def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
         hasil = _chat(url, model, setting.get(KUNCI_KUNCI) or "", pesans)
         pesan_model = hasil.get("message") or {}
         panggilan = pesan_model.get("tool_calls") or []
+        isi_model = str(pesan_model.get("content") or "")
         if not panggilan:
-            return {"jawaban": str(pesan_model.get("content") or ""), "alat": jejak,
-                    "batas": False, "riwayat": pesans}
+            # Penangkal model 7B yang menulis pemanggilan alat sebagai JSON di
+            # teks: jalankan saja, jangan dibiarkan jadi jawaban yang mengarang.
+            dari_teks = _panggilan_dari_teks(isi_model)
+            if dari_teks:
+                panggilan = [{"id": f"panggilan-{len(jejak) + 1}",
+                              "type": "function",
+                              "function": {"name": dari_teks[0],
+                                            "arguments": dari_teks[1]}}]
+            else:
+                return {"jawaban": isi_model, "alat": jejak,
+                        "batas": False, "riwayat": pesans}
         pesans.append({"role": "assistant",
-                       "content": str(pesan_model.get("content") or ""),
+                       "content": isi_model,
                        "tool_calls": panggilan})
         for panggilan_satu in panggilan:
             fungsi = panggilan_satu.get("function") or {}
