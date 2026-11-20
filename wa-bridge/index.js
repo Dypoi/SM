@@ -383,6 +383,22 @@ if (require.main === module) {
 // --------------------------------------------------------------------------- //
 // Sambungan WhatsApp (Baileys)
 // --------------------------------------------------------------------------- //
+/** Hapus file kredensial/session WhatsApp agar pairing ulang bersih. */
+function hapusSession() {
+  try {
+    if (!fs.existsSync(WA_DIR)) return;
+    for (const f of fs.readdirSync(WA_DIR)) {
+      if (/creds\.json$/i.test(f) || /session\.data$/i.test(f) ||
+          /^[a-z0-9]+-\d+-\d+$/i.test(f) || f.endsWith(".tmp")) {
+        try { fs.rmSync(path.join(WA_DIR, f), { recursive: true, force: true }); } catch {}
+      }
+    }
+    console.log("[wa-bridge] Session lama dihapus — butuh QR pairing baru.");
+  } catch (e) {
+    console.error("[wa-bridge] hapus session gagal:", e && e.message);
+  }
+}
+
 async function sambungkan() {
   if (!ENABLED) {
     status.siap = false;
@@ -452,8 +468,22 @@ async function sambungkan() {
         const code = lastDisconnect && lastDisconnect.error && lastDisconnect.error.output &&
           lastDisconnect.error.output.statusCode;
         if (code === DisconnectReason.loggedOut) {
-          status.pesan = "Keluar dari WhatsApp — pasangkan ulang.";
-          console.log("[wa-bridge] Keluar (loggedOut).");
+          status.pesan = "Keluar dari WhatsApp — pasangkan ulang (QR akan muncul).";
+          console.log("[wa-bridge] Keluar (loggedOut) — hapus session dan sambung ulang.");
+          // Session lama tidak valid: hapus kredensial + session agar pairing
+          // ulang bersih, lalu sambung ulang untuk memunculkan QR baru.
+          setTimeout(async () => {
+            try {
+              if (sock) {
+                sock.ev.removeAllListeners();
+                if (typeof sock.end === "function") await sock.end();
+                else if (typeof sock.endSocket === "function") await sock.endSocket();
+              }
+            } catch {} // abaikan kesalahan penutupan
+            sock = null;
+            hapusSession();
+            sambungkan();
+          }, 2000);
         } else {
           status.pesan = "Sambungan terputus — mencoba menyambung lagi.";
           console.log("[wa-bridge] Terputus (code " + (code || "?") + ") — menyambung lagi.");
