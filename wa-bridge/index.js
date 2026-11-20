@@ -15,8 +15,9 @@
  * Titik akhir HTTP lokal bridge (hanya dijamin localhost):
  *   GET  /status              status sambungan + nomor
  *   GET  /qr                  PNG kode QR pairing (bila menunggu)
- *   POST /send                { no, teks } — kirim pesan keluar
- *   POST /test/inbound        { dari, teks } — simulasi masuk (untuk uji)
+ *   POST /send                { no, teks } — kirim pesan keluar (butuh X-API-Key)
+ *   POST /test/inbound        { dari, teks } — simulasi masuk (butuh X-API-Key)
+ *   POST /reset               { no } — kosongkan riwayat nomor (butuh X-API-Key)
  */
 
 "use strict";
@@ -37,6 +38,9 @@ try {
 const PORT = parseInt(process.env.SM_WA_PORT || "8799", 10);
 const BASE_URL = (process.env.SM_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 const API_KEY = process.env.SM_API_KEY || "";
+if (!API_KEY) {
+  console.warn("[wa-bridge] PERINGATAN: SM_API_KEY kosong — pasang kunci API di pengaturan bodap.");
+}
 const WA_DIR = process.env.SM_WA_DIR || path.join(__dirname, ".session");
 const ENABLED = (process.env.SM_WA_ENABLED || "1") === "1";
 const MODE_UJI = (process.env.SM_WA_NO_CONNECT || "") === "1";
@@ -87,26 +91,49 @@ async function kirimDanCatat(no, teks) {
   catatTerkirim(terkirim);
 }
 
+/** Normalisasi JID: hapus sufiks ":device" (62812xxx:12@... -> 62812xxx@...). */
+function normJid(jid) {
+  return String(jid || "").replace(/:\d+@/, "@");
+}
+
+/**
+ * Apakah dua JID menunjuk nomor yang sama?
+ * Bandingkan bagian **nomor** (sebelum @), mengabaikan domain
+ * (@s.whatsapp.net / @lid) dan sufiks device (:12). Nomor adalah identitas
+ * yang sama untuk @s.whatsapp.net dan @lid.
+ */
+function nomorSama(a, b) {
+  const na = String(a || "").replace(/:\d+@/, "@").split("@")[0];
+  const nb = String(b || "").replace(/:\d+@/, "@").split("@")[0];
+  return na !== "" && na === nb;
+}
+
+/** Apakah JID adalah nomor pribadi WhatsApp (personal, bukan grup). */
+function adalahNomorPribadi(jid) {
+  return /@(s\.whatsapp\.net|lid)$/.test(String(jid || ""));
+}
+
 /**
  * Apakah pesan ini harus diproses (dijawab)?
- * - dari orang lain (dariMe false): proses, kecuali HANYA_DIRI.
- * - self-chat yang diketik pengguna (dariMe true, remoteJid=ownJid, bukan echo):
- *   proses bila ALLOW_SELF.
- * - echo balasan kita sendiri (dariMe true, id di _sentIds): lewati.
- * - pesan keluar ke chat orang lain (dariMe true, remoteJid != ownJid): lewati.
+ * Kebijakan ketat: **Ollama hanya membalas chat ke diri sendiri** (HANYA_DIRI).
+ * - echo balasan kita sendiri (dariMe true, id terkirim): lewati (anti-loop).
+ * - pesan keluar ke chat orang lain (dariMe true, bukan ownJid): lewati.
+ * - self-chat (dariMe true, remoteJid = ownJid, bukan echo): proses bila ALLOW_SELF.
+ * - pesan dari orang lain (dariMe false): **lewati** bila HANYA_DIRI (bawaan).
  */
 function bolehProses(msg) {
   if (!msg || !msg.key) return false;
   const dari = msg.key.remoteJid;
   const dariSaya = !!msg.key.fromMe;
   if (dariSaya && adalahEcho(msg.key.id)) return false;
-  if (dariSaya && dari !== ownJid) return false;
-  if (dariSaya && !ALLOW_SELF) return false;
-  const prosesSelf = dariSaya && dari === ownJid;
-  const prosesLuar = !dariSaya;
-  if (!prosesSelf && !prosesLuar) return false;
-  if (HANYA_DIRI && !prosesSelf) return false;
-  if (!dari || !dari.endsWith("@s.whatsapp.net")) return false;
+  // Pesan dari luar (bukan kita): tolak bila mode hanya-diri.
+  if (!dariSaya) {
+    if (HANYA_DIRI) return false;
+    return adalahNomorPribadi(dari);
+  }
+  // Pesan keluar: hanya self-chat (remoteJid = ownJid) yang diproses.
+  if (!ownJid || !nomorSama(dari, ownJid)) return false;
+  if (!ALLOW_SELF) return false;
   return true;
 }
 
@@ -137,16 +164,18 @@ function catatRiwayat(peran, no, isi) {
   simpanRiwayat();
 }
 
-/** Panggil bodap /ollama/chat → jawaban. */
-async function tanyaBodap(teks, no) {
-  const riwayat = ambilRiwayat(no);
+/** Panggil bodap /ollama/chat → jawaban. Riwayat disampaikan agar tidak dobel. */
+async function tanyaBodap(teks, no, riwayat) {
+  const daftar = Array.isArray(riwayat) ? riwayat : rapihkanRiwayat(no);
   const respons = await fetch(`${BASE_URL}/ollama/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "X-API-Key": API_KEY,
     },
-    body: JSON.stringify({ pesan: teks, riwayat, sumber: "wa" }),
+    // Batas waktu: Ollama 3B di CPU bisa lama; jangan biarkan antrean mandek.
+    signal: AbortSignal.timeout(330000),
+    body: JSON.stringify({ pesan: teks, riwayat: daftar, sumber: "wa" }),
   });
   const isi = await respons.json().catch(() => ({}));
   if (!respons.ok) {
@@ -165,6 +194,36 @@ function rapihkanRiwayat(no) {
     .map((s) => ({ role: s.role, content: s.content }));
 }
 
+/** Pecah teks panjang agar tidak melampaui batas WhatsApp (~4096 karakter). */
+function potongPesan(teks, batas = 3800) {
+  const s = String(teks || "");
+  if (s.length <= batas) return [s];
+  const bagian = [];
+  // Pecah di batas, usahakan di baris baru.
+  let sisa = s;
+  while (sisa.length > batas) {
+    let potong = sisa.slice(0, batas);
+    const idx = potong.lastIndexOf("\n");
+    if (idx > batas * 0.5) potong = potong.slice(0, idx);
+    bagian.push(potong.trim());
+    sisa = sisa.slice(potong.length).replace(/^\n+/, "");
+  }  if (sisa.trim()) bagian.push(sisa.trim());
+  return bagian;
+}
+
+/** Kirim pesan (mungkin beberapa bagian) dan catat ID-nya (anti-echo). */
+async function kirimPotong(no, teks) {
+  if (!sock) return;
+  const potongan = potongPesan(teks);
+  for (let i = 0; i < potongan.length; i++) {
+    if (i > 0) await sleep(600); // jeda antar bagian agar rapi
+    const terkirim = await sock.sendMessage(no, { text: potongan[i] });
+    catatTerkirim(terkirim);
+  }
+}
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
 /** Menangani satu pesan masuk dari WhatsApp → tanya bodap → balas. */
 async function tanganiPesan(dari, teks) {
   if (!ENABLED) {
@@ -179,31 +238,45 @@ async function tanganiPesan(dari, teks) {
   if (!teks) {
     return { ok: false, jawaban: "" };
   }
-  // Pesan teks WhatsApp sering memakai « » atau format lain; ambil teksnya.
   status.terakhir = `${dari}: ${teks.slice(0, 40)}`;
+  // Perintah reset: kosongkan riwayat nomor (3B cepat kacau bila riwayat panjang).
+  if (teks.trim().toLowerCase() === "/reset") {
+    history[dari] = [];
+    simpanRiwayat();
+    const ack = "Riwayat percakapan untuk nomor ini sudah dikosongkan.";
+    catatRiwayat("assistant", dari, ack);
+    await kirimPotong(dari, ack);
+    return { ok: true, jawaban: ack };
+  }
   let hasil;
   try {
-    // Catat dulu pertanyaan pengguna untuk riwayat.
-    catatRiwayat("user", dari, teks);
-    // Gunakan riwayat yang sudah dicatatkan.
+    // Riwayat DIAMBIL SEBELUM mencatat pesan user — agar tidak dobel.
     const riwayatBersih = rapihkanRiwayat(dari);
-    // Tanya bodap dengan riwayat bersih (tanyaBodap mengambil lagi dari file).
-    hasil = await tanyaBodap(teks, dari);
+    // Indikator «mengetik» — tahu bot hidup tanpa pesan «⏳».
+    if (sock && typeof sock.sendPresenceUpdate === "function") {
+      try { await sock.sendPresenceUpdate("composing", dari); } catch {}
+    }
+    hasil = await tanyaBodap(teks, dari, riwayatBersih);
     if (hasil.ok && hasil.jawaban) {
+      // Catat hanya setelah berhasil — pesan gagal tidak mengotori riwayat.
+      catatRiwayat("user", dari, teks);
       catatRiwayat("assistant", dari, hasil.jawaban);
-      await kirimDanCatat(dari, hasil.jawaban);
+      await kirimPotong(dari, hasil.jawaban);
     } else if (hasil.ok) {
-      // Bodap tidak memberi jawaban — balas jujur.
       const ganti = "Saya belum bisa menjawab pertanyaan itu. Coba tanyakan hal lain, " +
         "atau ulangi pertanyaannya.";
+      catatRiwayat("user", dari, teks);
       catatRiwayat("assistant", dari, ganti);
-      await kirimDanCatat(dari, ganti);
+      await kirimPotong(dari, ganti);
     } else {
-      await kirimDanCatat(dari, hasil.jawaban);
+      // Galat — jangan masuk riwayat, balas jujur.
+      await kirimPotong(dari, hasil.jawaban);
     }
   } catch (e) {
     console.error("tanganiPesan gagal:", e);
     status.error = String(e && e.message || e);
+    hasil = { ok: false, jawaban: "Ada kesalahan sementara. Coba lagi nanti." };
+    await kirimPotong(dari, hasil.jawaban);
   }
   return hasil;
 }
@@ -224,6 +297,12 @@ function kirim(res, kode, isi, tipe = "application/json") {
   const tubuh = typeof isi === "string" ? isi : JSON.stringify(isi || {});
   res.writeHead(kode, { "Content-Type": tipe, "Content-Length": Buffer.byteLength(tubuh) });
   res.end(tubuh);
+}
+
+/** Cek kunci API untuk rute yang mengubah/memancing keluaran. */
+function autentikasi(req) {
+  const kunci = req.headers["x-api-key"] || "";
+  return !!API_KEY && kunci === API_KEY;
 }
 
 async function jawabRute(req, res) {
@@ -252,6 +331,7 @@ async function jawabRute(req, res) {
       return res.end(png);
     }
     if (req.method === "POST" && jalan === "/send") {
+      if (!autentikasi(req)) return kirim(res, 401, { detail: "Kunci API tidak valid." });
       const badan = await bacaBadan(req);
       const no = String(badan.no || "").trim();
       const teks = String(badan.teks || "");
@@ -268,12 +348,22 @@ async function jawabRute(req, res) {
       }
     }
     if (req.method === "POST" && jalan === "/test/inbound") {
+      if (!autentikasi(req)) return kirim(res, 401, { detail: "Kunci API tidak valid." });
       // Uji tanpa WhatsApp sungguhan: simulasi pesan masuk.
       const badan = await bacaBadan(req);
       const dari = String(badan.dari || "uji@s.wa");
       const teks = String(badan.teks || "");
       const hasil = await tanganiPesan(dari, teks);
       return kirim(res, 200, hasil);
+    }
+    if (req.method === "POST" && jalan === "/reset") {
+      if (!autentikasi(req)) return kirim(res, 401, { detail: "Kunci API tidak valid." });
+      const badan = await bacaBadan(req);
+      const no = String(badan.no || "").trim();
+      if (!no) return kirim(res, 400, { detail: "no wajib." });
+      history[no] = [];
+      simpanRiwayat();
+      return kirim(res, 200, { ok: true, detail: `Riwayat ${no} dikosongkan.` });
     }
     return kirim(res, 404, { detail: "Titik akhir tidak ada." });
   } catch (e) {
@@ -351,7 +441,7 @@ async function sambungkan() {
         status.terhubung = true;
         status.menunggu_pairing = false;
         status.siap = true;
-        ownJid = (sock.user && sock.user.id) || status.nomor || "";
+        ownJid = normJid((sock.user && sock.user.id) || status.nomor || "");
         status.nomor = ownJid;
         status.pesan = `Terhubung sebagai ${status.nomor || "—"}.`;
         console.log("[wa-bridge] WhatsApp terhubung:", status.nomor);
@@ -367,7 +457,18 @@ async function sambungkan() {
         } else {
           status.pesan = "Sambungan terputus — mencoba menyambung lagi.";
           console.log("[wa-bridge] Terputus (code " + (code || "?") + ") — menyambung lagi.");
-          setTimeout(sambungkan, 2000);
+          // Jangan menumpuk koneksi: tutup socket lama + lepas listener dulu.
+          setTimeout(async () => {
+            try {
+              if (sock) {
+                sock.ev.removeAllListeners();
+                if (typeof sock.end === "function") await sock.end();
+                else if (typeof sock.endSocket === "function") await sock.endSocket();
+              }
+            } catch {} // abaikan kesalahan penutupan
+            sock = null;
+            sambungkan();
+          }, 2000);
         }
       }
       if (error) {
@@ -406,8 +507,6 @@ function queue(tugas) {
   return berikut;
 }
 
-// Simpan session secara berkala.
-setInterval(() => { try { if (sock) sock.ev.emit("creds.update"); } catch {} }, 60_000);
 
 // Jaga: sambungan WhatsApp yang gagal jangan mematikan HTTP server.
 process.on("uncaughtException", (e) => { console.error("[wa-bridge] uncaught:", e && e.message); });
@@ -417,4 +516,11 @@ if (require.main === module) {
   sambungkan();
 }
 
-module.exports = { bolehProses, catatTerkirim, adalahEcho, _sentIds, setOwnJid: (v) => { ownJid = v; }, ALLOW_SELF, HANYA_DIRI };
+module.exports = {
+  bolehProses, catatTerkirim, adalahEcho, _sentIds,
+  normJid, nomorSama, adalahNomorPribadi, potongPesan,
+  setOwnJid: (v) => { ownJid = v; },
+  setOwnJidRaw: (v) => { ownJid = normJid(v); },
+  getOwnJid: () => ownJid,
+  ALLOW_SELF, HANYA_DIRI,
+};

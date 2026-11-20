@@ -26,6 +26,8 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -111,7 +113,8 @@ def main() -> int:
 
     skenario("3. Mulai bridge (mode uji)")
     services.update_settings({wa_bridge.KUNCI_AKTIF: "1",
-                              wa_bridge.KUNCI_PORT: str(BRIDGE_PORT)})
+                              wa_bridge.KUNCI_PORT: str(BRIDGE_PORT),
+                              "api_key": "kunci-uji-rahasia"})
     hasil = wa_bridge.mulai(port=BRIDGE_PORT)
     cek("bridge mulai", hasil.get("ok") is True, str(hasil.get("pesan")))
     status = wa_bridge.status_cepat(BRIDGE_PORT)
@@ -143,6 +146,29 @@ def main() -> int:
     kir = wa_bridge.kirim("628123456789@s.whatsapp.net", "halo", BRIDGE_PORT)
     cek("kirim keluar: graceful (belum terhubung)",
         kir.get("ok") is False and bool(kir.get("pesan")), str(kir))
+
+    skenario("5b. Autentikasi rute terlindungi + /reset")
+    def _panggil_tanpa_kunci(rute: str, badan: dict) -> tuple[bool, str]:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{BRIDGE_PORT}{rute}",
+            data=json.dumps(badan).encode("utf-8"), method="POST",
+            headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=5.0) as respons:
+                return True, str(respons.status)
+        except urllib.error.HTTPError as galat:
+            return False, str(galat.code)
+        except Exception as galat:  # noqa: BLE001
+            return False, str(galat)
+
+    ok401, kode401 = _panggil_tanpa_kunci("/test/inbound", {"dari": "x", "teks": "ha"})
+    cek("/test/inbound tanpa kunci → 401", (not ok401) and kode401 == "401", kode401)
+    ok401b, kode401b = _panggil_tanpa_kunci("/reset", {"no": "x@s.wa"})
+    cek("/reset tanpa kunci → 401", (not ok401b) and kode401b == "401", kode401b)
+    # Dengan kunci: /reset mengosongkan riwayat.
+    ok_r, data_r, galat_r = wa_bridge._kirim_json(
+        "/reset", {"no": "r@s.whatsapp.net"}, BRIDGE_PORT, detik=5.0)
+    cek("/reset dengan kunci → ok", ok_r and bool(data_r.get("ok")), str(data_r))
 
     skenario("6. Hentikan bridge")
     cek("bridge dihentikan", wa_bridge.hentikan() is True, "")

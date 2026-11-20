@@ -156,8 +156,12 @@ def _kirim_json(path: str, badan: dict, port: int | None = None,
                 detik: float = 30.0) -> tuple[bool, dict, str]:
     url = url_bridge(port) + path
     data = json.dumps(badan).encode("utf-8")
-    req = urllib.request.Request(url, data=data, method="POST",
-                                 headers={"Content-Type": "application/json"})
+    # Rute /send, /test/inbound, /reset meminta kunci API di header X-API-Key.
+    headers = {"Content-Type": "application/json"}
+    kunci = _api_key()
+    if kunci:
+        headers["X-API-Key"] = kunci
+    req = urllib.request.Request(url, data=data, method="POST", headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=detik) as respons:
             return True, json.loads(respons.read() or b"{}"), ""
