@@ -589,6 +589,21 @@ ditambahkan lewat menu **Ekstrakurikuler**.
 - Pemeriksaan berkala di latar belakang, dengan pilihan tarik otomatis dan
   muat ulang otomatis.
 
+### WhatsApp — obrolan via WA (khusus admin)
+- Menu **WhatsApp**: menghubungkan bodap dengan WhatsApp via jembatan
+  **Baileys** (sidecar Node.js). Otak tetap Ollama; jembatan hanya relay
+  pesan ke `/ollama/chat` dan mengirim jawaban kembali.
+- **Prasyarat:** pasang **Node.js** di komputer, lalu jalankan `npm install`
+  di folder `wa-bridge` (sekali). Bila belum terpasang, aplikasi tetap jalan
+  dan halaman melaporkan «tidak siap» dengan petunjuk.
+- **Pasangan:** aktifkan jembatan → scan kode QR di halaman «WhatsApp» dengan
+  WhatsApp di HP (**Perangkat Tertaut → Tautkan Perangkat**). Session tersimpan
+  di `data/wa/` (tidak ikut di-git).
+- **System prompt ala Meta AI:** nada percakapan alami, tetapi aturan keras
+  akurasi alat tetap (tidak mengarang, jawab dari alat, jawab langsung setelah
+  alat). WA bukan tempat tabel besar — ringkasan + tautan ke halaman aplikasi.
+- Detail bridge: lihat `wa-bridge/README.md`.
+
 ---
 
 ## 4. Bot Dapodik

@@ -478,6 +478,31 @@ SYSTEM_PROMPT = (
     "- Sampaikan pesan kesalahan/saran alat kepada pengguna apa adanya."
 )
 
+#: System prompt untuk **jembatan WhatsApp** — nada percakapan alami seperti
+#: Meta AI, tetapi aturan keras akurasi alat tetap sama (tidak mengarang, jawab
+#: dari alat, jawab langsung setelah alat). WA bukan tempat tabel besar.
+SYSTEM_PROMPT_WA = (
+    "Anda asisten sekolah «SM» yang ramah, mengobrol natural seperti Meta AI. "
+    "Anda mengoperasikan aplikasi hanya dengan memanggil alat yang tersedia. "
+    "Aturan keras (tidak boleh dilanggar):\n"
+    "- **Selalu panggil alat** untuk data. **JANGAN mengarang** angka, nama, ID, "
+    "atau hasil. Jawaban HANYA dari hasil alat yang dikembalikan.\n"
+    "- **JANGAN** menulis pemanggilan alat sebagai JSON di teks; panggil alatnya, "
+    "tunggu hasil, jangan menulis hasil fiktif.\n"
+    "- Peta alat: «jumlah siswa» → HANYA «lihat_jumlah_siswa»; «daftar siswa» → «lihat_"
+    "daftar_siswa»; bot → «lihat_status_bot»; insentif/SPJ → «lihat_status_insentif»/«lihat_"
+    "status_spj».\n"
+    "- Untuk pekerjaan (bot, unggahan/pembuatan berkas, ubah data), panggil alatnya "
+    "dan laporkan hasil yang benar; jangan menyatakan berhasil bila alat gagal.\n"
+    "- **Setelah alat mengembalikan hasil, langsung sebutkan jawabannya.** JANGAN "
+    "pesan meta atau meminta data yang sudah ada.\n"
+    "- Bila butuh ID (periode, roster, pengajuan, pegawai), ambil dari alat "
+    "lihat_... — jangan mengarang. Alat «hapus_...» permanen; pastikan ID benar.\n"
+    "- Nada: hangat, ringkas, seperti mengobrol. WA bukan tempat tabel besar — "
+    "beri ringkasan pendek; untuk daftar lengkap, tawarkan/beri tautan ke halaman "
+    "aplikasi. Sampaikan pesan kesalahan/saran alat apa adanya."
+)
+
 
 # --------------------------------------------------------------------------- #
 # Pelaku alat — setiap alat dipetakan ke fungsi bodap yang sudah teruji
@@ -1407,7 +1432,8 @@ def _pilih_alat(pesan: str) -> list[dict[str, Any]]:
 
 
 def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
-           cfg: Mapping[str, str] | None = None) -> dict[str, Any]:
+           cfg: Mapping[str, str] | None = None,
+           sumber: str = "web") -> dict[str, Any]:
     """Satu percakapan lengkap: jawaban akhir + jejak alat yang dipakai.
 
     ``riwayat`` adalah pesan-pesan sebelumnya (dimiliki jembatan WA / halaman);
@@ -1424,7 +1450,8 @@ def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
     if not url or not model:
         raise OllamaGalat("Alamat atau model Ollama belum diisi di pengaturan.")
 
-    pesans: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    sistem = SYSTEM_PROMPT_WA if (sumber or "web") == "wa" else SYSTEM_PROMPT
+    pesans: list[dict[str, Any]] = [{"role": "system", "content": sistem}]
     for item in (riwayat or [])[-BATAS_RIWAYAT:]:
         peranan = item.get("role") if isinstance(item, dict) else None
         isi = item.get("content") if isinstance(item, dict) else None

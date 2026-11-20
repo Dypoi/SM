@@ -1,0 +1,14 @@
+{
+  "name": "sm-wa-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Jembatan WhatsApp (Baileys) untuk SM — relay pesan ke bodap/Ollama.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "qrcode": "^1.5.4"
+  }
+}

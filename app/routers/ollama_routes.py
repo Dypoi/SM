@@ -112,8 +112,9 @@ async def chat(request: Request):
     riwayat = isi.get("riwayat") or []
     if not isinstance(riwayat, list):
         return JSONResponse({"detail": "Riwayat harus berupa daftar."}, status_code=400)
+    sumber = str(isi.get("sumber") or "web").strip().lower()
     try:
-        hasil = ollama.bicara(pesan, riwayat=riwayat)
+        hasil = ollama.bicara(pesan, riwayat=riwayat, sumber=sumber)
     except ollama.OllamaTidakAktif as galat:
         return JSONResponse({"detail": str(galat)}, status_code=400)
     except ollama.OllamaGalat as galat:

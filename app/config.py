@@ -43,6 +43,9 @@ def _siapkan_mode_serverless() -> None:
 _siapkan_mode_serverless()
 
 DATA_DIR = Path(os.getenv("SM_DATA_DIR") or BASE_DIR / "data")
+
+#: Port server HTTP SM (dipakai jembatan WhatsApp untuk memanggil balik).
+PORT = int(os.getenv("SM_APP_PORT") or os.getenv("SM_PORT") or 8000)
 UPLOAD_DIR = DATA_DIR / "uploads"
 EXPORT_DIR = DATA_DIR / "exports"
 DB_NAMA = "sm.sqlite3"
@@ -147,7 +150,7 @@ APP_NAME = "SM"
 APP_LONG_NAME = "Sistem Informasi Manajemen Sekolah"
 #: Penanda versi — dinaikkan tiap ronde perbaikan supaya pengguna bisa memastikan
 #: versi mana yang sedang dibuka (di footer halaman tertulis «SM v<versi>»).
-APP_VERSION = "0.1.41"
+APP_VERSION = "0.1.42"
 
 # --------------------------------------------------------------------------- #
 # Mode online (aplikasi dibuka dari luar jaringan sekolah)

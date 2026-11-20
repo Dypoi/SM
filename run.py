@@ -81,6 +81,10 @@ def main() -> int:
         # benar-benar berhenti (supaya aplikasi tidak mati), jadi portnya belum bebas.
         tunggu_port_bebas(args.port, args.tunggu_port)
 
+    import os
+    # Beri tahu jembatan WhatsApp port server ini (dipakai saat memanggil balik).
+    os.environ["SM_APP_PORT"] = str(args.port)
+
     import uvicorn
 
     print("=" * 68)

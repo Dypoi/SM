@@ -23,7 +23,7 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import auth, config, db, migrations, online, services, updater
+from . import auth, config, db, migrations, online, services, updater, wa_bridge
 from .routers import (
     api_routes,
     bot_routes,
@@ -41,6 +41,7 @@ from .routers import (
     tangcer_routes,
     gtk_routes,
     insentif_routes,
+    wa_routes,
 )
 from .web import render
 
@@ -77,8 +78,16 @@ async def lifespan(app: FastAPI):
         log.info("Data awal dimuat dari %s (%s siswa)", seed["file"], seed["imported"])
     updater.bersihkan_marker_lama()
     tugas_pemantau = asyncio.create_task(_pemantau_latar())
+    # Jembatan WhatsApp: nyalakan bila diaktifkan (subprocess Node, tanpa jendela).
+    if str(services.get_setting(wa_bridge.KUNCI_AKTIF)) == "1":
+        hasil_wa = await asyncio.to_thread(wa_bridge.mulai)
+        if hasil_wa.get("ok"):
+            log.info("Jembatan WhatsApp menyala di port %s.", hasil_wa.get("port"))
+        else:
+            log.warning("Jembatan WhatsApp tidak siap: %s", hasil_wa.get("pesan"))
     log.info("%s siap dijalankan. Database: %s", config.APP_NAME, config.DB_PATH)
     yield
+    wa_bridge.hentikan()
     tugas_pemantau.cancel()
     with suppress(asyncio.CancelledError):
         await tugas_pemantau
@@ -174,6 +183,7 @@ app.include_router(bot_routes.router)
 app.include_router(tangcer_routes.router)
 app.include_router(gtk_routes.router)
 app.include_router(insentif_routes.router)
+app.include_router(wa_routes.router)
 
 
 # --------------------------------------------------------------------------- #
