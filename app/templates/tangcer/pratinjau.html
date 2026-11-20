@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{#- Pratinjau TANGCER: apa yang terbaca dari berkas, mana yang diambil (sekolah kita),
+    mana yang diabaikan (sekolah lain), dan catatan pembacaan apa adanya. -#}
+<div class="card">
+  <div class="card-head">
+    <div>
+      <h3>Pratinjau: {{ kepala.berkas }}</h3>
+      <p>
+        Dibaca {{ kepala.dibuat }} · {{ kepala.ext or '?' }} ·
+        {{ (kepala.ukuran or 0) // 1024 }} KB ·
+        periode {{ kepala.tahun or '-' }} {{ kepala.semester or '-' }}
+        {%- if kepala.tahap %} · {{ kepala.tahap }}{% endif %}
+      </p>
+    </div>
+    <div class="btn-group">
+      <a class="btn btn-ghost btn-sm" href="/tangcer">{{ icon('x') }} Tutup</a>
+      <form class="inline-form" method="post" action="/tangcer/impor/{{ kepala.id }}/hapus"
+            onsubmit="return confirm('Hapus pratinjau ini beserta penerima hasil impornya?')">
+        <button class="btn btn-danger btn-sm" type="submit">{{ icon('trash') }} Hapus</button>
+      </form>
+      {% if kepala.status != 'tersimpan' and not galat and diterima %}
+      <form class="inline-form" method="post" action="/tangcer/impor/{{ kepala.id }}/simpan">
+        <button class="btn btn-primary btn-sm" type="submit">{{ icon('check') }} Simpan ke daftar penerima</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card-body">
+    {% if galat %}
+    <div class="alert alert-err" role="status">
+      <span class="alert-icon">{{ icon('warning') }}</span>
+      <div>{{ galat }}</div>
+    </div>
+    {% endif %}
+
+    {% if kepala.status == 'tersimpan' %}
+    <div class="alert alert-ok" role="status">
+      <span class="alert-icon">{{ icon('check') }}</span>
+      <div>
+        Impor ini <strong>sudah disimpan</strong> pada {{ kepala.disimpan or '-' }}.
+        Menyimpan ulang tidak akan menggandakan data: baris yang sudah ada dilewati.
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="grid grid-4 mt-1">
+      <div class="stat-card stat-primary">
+        <div class="stat-icon">{{ icon('file') }}</div>
+        <div class="stat-body">
+          <div class="stat-label">Baris penerima terbaca</div>
+          <div class="stat-value">{{ kepala.total_baris | angka_id }}</div>
+          <div class="stat-note">Dari seluruh sekolah di berkas ini</div>
+        </div>
+      </div>
+      <div class="stat-card stat-success">
+        <div class="stat-icon">{{ icon('check') }}</div>
+        <div class="stat-body">
+          <div class="stat-label">Milik sekolah kita</div>
+          <div class="stat-value">{{ diterima | length | angka_id }}</div>
+          <div class="stat-note">{{ kepala.sekolah_kita }}</div>
+        </div>
+      </div>
+      <div class="stat-card stat-warning">
+        <div class="stat-icon">{{ icon('x') }}</div>
+        <div class="stat-body">
+          <div class="stat-label">Diabaikan (sekolah lain)</div>
+          <div class="stat-value">{{ kepala.sekolah_lain | angka_id }}</div>
+          <div class="stat-note">Tidak disimpan ke aplikasi</div>
+        </div>
+      </div>
+      <div class="stat-card stat-info">
+        <div class="stat-icon">{{ icon('folder') }}</div>
+        <div class="stat-body">
+          <div class="stat-label">Sekolah lain di berkas</div>
+          <div class="stat-value">{{ sekolah_lain | length | angka_id }}</div>
+          <div class="stat-note">Rinciannya di bawah</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="split mt-2">
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3>Sekolah yang ditemukan di berkas</h3>
+          <p>Hanya sekolah yang <strong>cocok</strong> dengan sekolah kita yang diambil.</p>
+        </div>
+      </div>
+      <div class="card-body p-0 table-wrap">
+        <table class="data">
+          <thead><tr><th>Nama sekolah pada berkas</th><th class="num">Baris</th><th>Keputusan</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>{{ kepala.sekolah_kita }}</strong></td>
+              <td class="num">{{ diterima | length | angka_id }}</td>
+              {% if diterima %}
+              <td><span class="badge badge-success">diambil</span></td>
+              {% else %}
+              <td><span class="badge badge-warning">tidak ada di berkas ini</span></td>
+              {% endif %}
+            </tr>
+            {% set batas_sekolah = 25 %}
+            {% for nama, jumlah in (sekolah_lain.items() | list)[:batas_sekolah] %}
+            <tr>
+              <td>{{ nama }}</td>
+              <td class="num">{{ jumlah | angka_id }}</td>
+              <td><span class="badge badge-muted">diabaikan</span></td>
+            </tr>
+            {% endfor %}
+            {% if (sekolah_lain | length) > batas_sekolah %}
+            <tr>
+              <td colspan="3" class="muted">
+                … dan {{ (sekolah_lain | length) - batas_sekolah }} sekolah lain di berkas ini
+                — semuanya diabaikan, tidak ada satu pun yang disimpan.
+              </td>
+            </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Catatan pembacaan berkas</h3>
+          <p>Apa yang dikenali, dilewati, dan mengapa — bukan disamarkan.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        {% if catatan %}
+        <ul class="langkah-bot">
+          {% for baris in catatan %}<li>{{ baris }}</li>{% endfor %}
+        </ul>
+        {% else %}
+        <div class="empty">Tidak ada catatan khusus.</div>
+        {% endif %}
+        {% if kolom %}
+        <div class="note mt-2">
+          <strong>Kolom yang dikenali:</strong>
+          {% for indeks, bidang in kolom.items() %}<span class="chip chip-muted">{{ bidang }}</span> {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3>Perlu diperiksa</h3>
+          <p>Bila ada baris yang salah masuk atau salah diabaikan, laporkan — pencocokan bisa disetel.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <p class="pesan-rapat">
+          Pencocokan nama sekolah mengabaikan perbedaan huruf besar/kecil, titik, spasi
+          berlebih, angka nol di depan, dan singkatan seperti <em>SMPN</em> → <em>SMP NEGERI</em>.
+          Perbedaan yang <strong>tidak</strong> diabaikan: jenjang (SMP ≠ SMA), status
+          (Negeri ≠ Swasta), dan jenis daerah (Kota ≠ Kabupaten).
+        </p>
+        <p class="soft kecil mt-1">
+          Baris yang tidak menyebut sekolahnya hanya ikut diambil bila Anda mencentang
+          «Berkas sudah khusus sekolah kita» saat mengunggah.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Baris yang akan disimpan ({{ diterima | length | angka_id }})</h3>
+      <p>
+        Hanya baris milik <strong>{{ kepala.sekolah_kita }}</strong>.
+        {% if diterima | length > batas_tampil %}(ditampilkan {{ batas_tampil }} pertama){% endif %}
+      </p>
+    </div>
+    {% if kepala.status != 'tersimpan' and diterima and not galat %}
+    <form class="inline-form" method="post" action="/tangcer/impor/{{ kepala.id }}/simpan">
+      <button class="btn btn-primary btn-sm" type="submit">{{ icon('check') }} Simpan {{ diterima | length | angka_id }} baris</button>
+    </form>
+    {% endif %}
+  </div>
+  <div class="card-body p-0 table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th class="num">Baris</th><th>Nama</th><th>NISN</th><th>NIK</th><th>Rombel</th>
+          <th>Sekolah pada berkas</th><th class="num">Nominal</th><th>Alasan diambil</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in diterima[:batas_tampil] %}
+        <tr>
+          <td class="num">{{ item.baris_ke }}</td>
+          <td>{{ item.nama or '-' }}</td>
+          <td>{{ item.nisn or '-' }}</td>
+          <td>{{ item.nik or '-' }}</td>
+          <td>{{ item.rombel or '-' }}</td>
+          <td>{{ item.sekolah or '(tidak disebut)' }}</td>
+          <td class="num">{{ item.nominal | rupiah }}</td>
+          <td class="muted">{{ item.alasan }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8">
+            <div class="empty">
+              Tidak ada baris milik sekolah kita pada berkas ini. Periksa nama sekolah pada
+              berkas dengan nama di halaman <a href="/pengaturan">Pengaturan</a>.
+              {% if sekolah_lain %}
+              Berkas ini memuat <strong>{{ sekolah_lain | length | angka_id }} sekolah lain</strong>
+              (terbanyak: {{ (sekolah_lain.items() | list)[:3] | map(attribute=0) | join(', ') }}).
+              {% if kepala.tahap %}
+              Berkas ini disebut <strong>tahap {{ kepala.tahap }}</strong> — bila sekolah kita
+              belum ada di sini, kemungkinan penerimanya ada di berkas tahap lain.
+              {% endif %}
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if ditolak %}
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Baris yang diabaikan ({{ ditolak | length | angka_id }})</h3>
+      <p>Ditampilkan supaya bisa dipastikan tidak ada baris sekolah kita yang tertinggal.</p>
+    </div>
+  </div>
+  <div class="card-body p-0 table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th class="num">Baris</th><th>Nama</th><th>NISN</th><th>Sekolah pada berkas</th>
+          <th>Alasan diabaikan</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in ditolak[:batas_tampil] %}
+        <tr>
+          <td class="num">{{ item.baris_ke }}</td>
+          <td>{{ item.nama or '-' }}</td>
+          <td>{{ item.nisn or '-' }}</td>
+          <td>{{ item.sekolah or '(tidak disebut)' }}</td>
+          <td class="muted">{{ item.alasan }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

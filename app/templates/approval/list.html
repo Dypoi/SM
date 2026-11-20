@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon, stat_card, pagination as render_pagination, pengajuan_badge %}
+
+{% block content %}
+<div class="card">
+  <div class="card-head">
+    <div>
+      <h3>Persetujuan Perubahan Data</h3>
+      <p>
+        Siswa mengajukan perbaikan data beserta foto akta kelahiran, kartu keluarga, dan ijazah.
+        Periksa buktinya, lalu setujui atau tolak.
+      </p>
+    </div>
+    <span class="badge {{ 'badge-warning' if statistik.menunggu else 'badge-success' }} badge-lg">
+      {{ statistik.menunggu }} menunggu
+    </span>
+  </div>
+</div>
+
+<div class="grid grid-4 mt-2">
+  {{ stat_card('Menunggu', statistik.menunggu | angka_id, 'info', 'warning', 'Perlu diperiksa') }}
+  {{ stat_card('Disetujui', statistik.disetujui | angka_id, 'check', 'success') }}
+  {{ stat_card('Ditolak', statistik.ditolak | angka_id, 'warning', 'danger') }}
+  {{ stat_card('Total pengajuan', statistik.total | angka_id, 'file', 'primary') }}
+</div>
+
+<div class="card mt-3">
+  <div class="card-head">
+    <div>
+      <h3>Daftar Pengajuan</h3>
+      <p>{{ pagination.total }} pengajuan pada filter ini.</p>
+    </div>
+    <form method="get" action="/pengajuan" class="flex flex-wrap gap-1">
+      <input type="text" name="q" value="{{ q }}" placeholder="Cari nama / NISN / rombel">
+      <select name="status">
+        {% for kode, label in status_pilihan %}
+          <option value="{{ kode }}" {{ 'selected' if status_terpilih == kode }}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-outline btn-sm" type="submit">{{ icon('search') }} Cari</button>
+    </form>
+  </div>
+
+  {% if pengajuan %}
+  <div class="card-body p-0 table-wrap">
+    <table class="data">
+      <thead>
+        <tr>
+          <th>#</th><th>Siswa</th><th>Rombel</th><th>Diajukan</th>
+          <th>Perubahan</th><th>Berkas</th><th>Status</th><th class="text-right">Aksi</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in pengajuan %}
+        <tr>
+          <td class="mono">{{ item.id }}</td>
+          <td>
+            <a href="/pengajuan/{{ item.id }}">{{ item.nama or '-' }}</a>
+            <div class="muted mono" style="font-size:.78rem">{{ item.nisn or '-' }}</div>
+          </td>
+          <td>{{ item.rombel or '—' }}</td>
+          <td class="nowrap">{{ item.diajukan_at | tanggal_waktu }}</td>
+          <td>{{ item.item_count }} kolom</td>
+          <td>
+            {% if item.dokumen_count %}
+              <span class="badge badge-success">{{ item.dokumen_count }} berkas</span>
+            {% elif item.dokumen_lengkap %}
+              <span class="badge badge-info">berkas tersimpan</span>
+            {% else %}
+              <span class="badge badge-warning">belum lengkap</span>
+            {% endif %}
+          </td>
+          <td>{{ pengajuan_badge(item.status) }}</td>
+          <td class="text-right nowrap">
+            <a class="btn btn-outline btn-sm" href="/pengajuan/{{ item.id }}">Periksa</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ render_pagination(pagination, '?status=' ~ status_terpilih ~ ('&q=' ~ q if q else '')) }}
+  {% else %}
+  <div class="card-body">
+    <div class="empty">
+      {{ icon('check') }}
+      <p>Tidak ada pengajuan pada filter ini.</p>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

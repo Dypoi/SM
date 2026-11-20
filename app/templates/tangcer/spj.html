@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{#- SPJ TANGCER: menyusun berkas SPJ (Pakta Integritas, Surat Pernyataan Transfer,
+    Daftar Penerima, lembar fotokopi) dari daftar penerima yang sudah tersimpan.
+    Pratinjaunya menampilkan data APA ADANYA — biar diperiksa dulu sebelum dicetak. -#}
+<div class="card mb-2">
+  <div class="card-head">
+    <div>
+      <h3>SPJ Tangerang Cerdas</h3>
+      <p>
+        Berkas SPJ disusun dari <strong>daftar penerima yang sudah tersimpan</strong> di menu
+        TANGCER — jumlah siswa, nomor rekening, kelas, dan nama orang tua terisi sendiri.
+        Berkasnya (Word/Excel/PDF) bisa diperiksa dulu, baru dicetak dan ditandatangani.
+      </p>
+    </div>
+    <div class="btn-group">
+      <a class="btn btn-outline btn-sm" href="/tangcer">{{ icon('star') }} Kembali ke TANGCER</a>
+      <a class="btn btn-outline btn-sm" href="/pengaturan">{{ icon('cog') }} Data sekolah</a>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-4 mb-2">
+  <div class="stat-card stat-primary">
+    <div class="stat-icon">{{ icon('users') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Siswa penerima SPJ</div>
+      <div class="stat-value">{{ ringkas.jumlah_siswa | angka_id }}</div>
+      <div class="stat-note">{{ data.sekolah }}</div>
+    </div>
+  </div>
+  <div class="stat-card stat-info">
+    <div class="stat-icon">{{ icon('chart') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Biaya personal × volume</div>
+      <div class="stat-value">{{ data.biaya_personal | rupiah }}</div>
+      <div class="stat-note">{{ data.volume }} bulan (satu semester)</div>
+    </div>
+  </div>
+  <div class="stat-card stat-success">
+    <div class="stat-icon">{{ icon('folder') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Total SPJ</div>
+      <div class="stat-value">{{ ringkas.total | rupiah }}</div>
+      <div class="stat-note">{{ ringkas.jumlah_siswa }} siswa × {{ data.biaya_personal | rupiah }} × {{ data.volume }}</div>
+    </div>
+  </div>
+  <div class="stat-card stat-warning">
+    <div class="stat-icon">{{ icon('warning') }}</div>
+    <div class="stat-body">
+      <div class="stat-label">Perlu dilengkapi</div>
+      <div class="stat-value">{{ (ringkas.tanpa_rekening + ringkas.tanpa_orangtua) | angka_id }}</div>
+      <div class="stat-note">{{ ringkas.tanpa_rekening }} tanpa rekening · {{ ringkas.tanpa_orangtua }} tanpa nama orang tua</div>
+    </div>
+  </div>
+</div>
+
+{% for pesan in catatan %}
+<div class="alert alert-{{ 'warn' if 'Belum ada' in pesan or 'belum sama' in pesan else 'ok' }}">{{ pesan }}</div>
+{% endfor %}
+
+<div class="split">
+  <div>
+    <form class="card" method="post" action="/tangcer/spj">
+      <div class="card-head">
+        <div>
+          <h3>Isian berkas SPJ</h3>
+          <p>Isian yang kosong memakai data sekolah di menu Pengaturan.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div class="field">
+            <label for="spj-tahun">Tahun</label>
+            <input type="text" id="spj-tahun" name="tahun" value="{{ data.tahun }}" placeholder="2026"
+                   list="spj-tahun-terpakai">
+            <datalist id="spj-tahun-terpakai">
+              {% for pilihan in tahun_terpakai %}<option value="{{ pilihan }}"></option>{% endfor %}
+            </datalist>
+            <span class="hint">Harus sama dengan tahun data penerima yang tersimpan.</span>
+          </div>
+          <div class="field">
+            <label for="spj-semester">Semester</label>
+            <select id="spj-semester" name="semester">
+              <option value="1" {% if data.semester == '1' %}selected{% endif %}>1 (Januari s/d Juni)</option>
+              <option value="2" {% if data.semester == '2' %}selected{% endif %}>2 (Juli s/d Desember)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="spj-tahap">Tahap</label>
+            <input type="text" id="spj-tahap" name="tahap" value="{{ data.tahap }}" placeholder="1">
+          </div>
+          <div class="field">
+            <label for="spj-kepala">Nama kepala sekolah</label>
+            <input type="text" id="spj-kepala" name="kepala" value="{{ data.kepala }}"
+                   placeholder="{{ 'Nama kepala sekolah belum diisi di Pengaturan' }}">
+          </div>
+          <div class="field">
+            <label for="spj-nip">NIP kepala sekolah</label>
+            <input type="text" id="spj-nip" name="nip" value="{{ data.nip }}" placeholder="NIP.">
+          </div>
+          <div class="field">
+            <label for="spj-jabatan">Jabatan</label>
+            <input type="text" id="spj-jabatan" name="jabatan" value="{{ data.jabatan }}">
+          </div>
+          <div class="field">
+            <label for="spj-alamat">Alamat sekolah</label>
+            <input type="text" id="spj-alamat" name="alamat" value="{{ data.alamat }}"
+                   placeholder="{{ data.alamat_lengkap or 'Alamat sekolah' }}">
+          </div>
+          <div class="field">
+            <label for="spj-kota">Kota/kabupaten (tempat tanda tangan)</label>
+            <input type="text" id="spj-kota" name="kota" value="{{ data.kota }}">
+          </div>
+          <div class="field">
+            <label for="spj-tanggal">Tanggal (kosongkan = hari ini)</label>
+            <input type="text" id="spj-tanggal" name="tanggal" value="{{ data.tanggal }}"
+                   placeholder="{{ data.tanggal_teks }}">
+          </div>
+          <div class="field">
+            <label for="spj-biaya">Biaya personal per bulan</label>
+            <input type="text" id="spj-biaya" name="biaya_personal" value="{{ data.biaya_personal }}"
+                   inputmode="numeric">
+            <span class="hint">Petunjuk teknis SMP/MTs: 100.000 per peserta didik per bulan.</span>
+          </div>
+          <div class="field">
+            <label for="spj-volume">Volume (bulan)</label>
+            <input type="text" id="spj-volume" name="volume" value="{{ data.volume }}" inputmode="numeric">
+            <span class="hint">Satu semester biasanya 6 bulan → 600.000 per siswa.</span>
+          </div>
+          <div class="field">
+            <label for="spj-sampel">Jumlah sampel dokumentasi</label>
+            <input type="text" id="spj-sampel" name="sampel" value="{{ data.sampel }}" inputmode="numeric">
+          </div>
+        </div>
+        <div class="check-line mt-2">
+          <label class="check">
+            <input type="checkbox" name="dana_masuk" value="1" {% if data.dana_masuk %}checked{% endif %}>
+            <span>Dana Tangerang Cerdas sudah masuk rekening sekolah (kolom Penerimaan diisi angka)</span>
+          </label>
+        </div>
+        <div class="form-actions mt-2">
+          <button class="btn btn-primary" type="submit">{{ icon('file') }} Susun berkas SPJ</button>
+          <span class="muted">Berkas hasil disimpan di aplikasi ini dan bisa diunduh berkali-kali.</span>
+        </div>
+      </div>
+    </form>
+
+  </div>
+
+  <div>
+    {% if paket_aktif %}
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <h3>Berkas SPJ siap unduh</h3>
+          <p>{{ paket_aktif.token }} · dibuat {{ paket_aktif.dibuat }}</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <ul class="daftar-aman">
+          {% for berkas in paket_aktif.berkas %}
+          <li>
+            <a href="/tangcer/spj/unduh?token={{ paket_aktif.token }}&berkas={{ berkas.nama | urlencode }}">
+              {{ icon('download') }} {{ berkas.nama }}
+            </a>
+            <span class="muted">· {{ (berkas.ukuran / 1024) | round(1) }} KB</span>
+          </li>
+          {% endfor %}
+        </ul>
+        <form class="inline-form mt-2" method="post" action="/tangcer/spj/hapus"
+              onsubmit="return confirm('Hapus paket berkas SPJ {{ paket_aktif.token }}?')">
+          <input type="hidden" name="token" value="{{ paket_aktif.token }}">
+          <button class="btn btn-danger btn-sm" type="submit">{{ icon('trash') }} Hapus paket ini</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Berkas yang akan dibuat</h3>
+          <p>Enam berkas, mengikuti berkas kerja SPJ sekolah.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <ul class="daftar-aman">
+          {% for nama in urutan_berkas %}<li>{{ icon('file') }} {{ nama }}</li>{% endfor %}
+        </ul>
+      </div>
+    </div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Paket SPJ yang pernah dibuat</h3>
+          <p>Berkas lama tetap bisa diunduh ulang.</p>
+        </div>
+      </div>
+      <div class="card-body">
+        {% if paket %}
+        <ul class="daftar-aman">
+          {% for item in paket %}
+          <li>
+            <a href="/tangcer/spj?token={{ item.token }}">{{ item.token }}</a>
+            <span class="muted">· {{ item.dibuat }} · {{ item.berkas | length }} berkas</span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="empty">Belum ada paket SPJ yang dibuat.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+    <div class="card mt-2">
+      <div class="card-head">
+        <div>
+          <h3>Pratinjau daftar penerima untuk SPJ</h3>
+          <p>
+            {{ baris | length }} baris{% if baris | length > batas_tampil %} (ditampilkan {{ batas_tampil }} baris pertama){% endif %}.
+            Kolomnya sama dengan berkas <strong>DAFTAR PENERIMA</strong> yang biasa dipakai sekolah.
+          </p>
+        </div>
+      </div>
+      <div class="card-body p-0 table-wrap">
+        <table class="data table-spj">
+          <thead>
+            <tr>
+              <th>No</th><th>Nomor rekening</th><th>Nama</th><th>Kelas</th><th>L/P</th>
+              <th>Nama orang tua</th><th class="num">Biaya</th><th class="num">Volume</th>
+              <th class="num">Jumlah</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in baris[:batas_tampil] %}
+            <tr>
+              <td>{{ item.no }}</td>
+              <td class="mono">{{ item.rekening or '-' }}</td>
+              <td class="isi">{{ item.nama }}{% if not item.rekening %} <span class="badge badge-warning">tanpa rekening</span>{% endif %}</td>
+              <td>{{ item.rombel or '-' }}</td>
+              <td>{{ item.kelamin or '-' }}</td>
+              <td class="isi">{{ item.orangtua or '-' }}</td>
+              <td class="num">{{ item.biaya | rupiah }}</td>
+              <td class="num">{{ item.volume }}</td>
+              <td class="num">{{ item.jumlah | rupiah }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9"><div class="empty">
+              Belum ada penerima tersimpan. Unggah dan simpan daftar penerima dulu di
+              <a href="/tangcer">menu TANGCER</a>.
+            </div></td></tr>
+            {% endfor %}
+          </tbody>
+          {% if baris %}
+          <tfoot>
+            <tr>
+              <th colspan="8" class="text-right">Jumlah</th>
+              <th class="num">{{ ringkas.total | rupiah }}</th>
+            </tr>
+          </tfoot>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+
+{% endblock %}

@@ -1,0 +1,732 @@
+"""Menu Insentif — SPJ + absensi PNS/PPPK bulanan otomatis.
+
+Alurnya: **pilih bulan → periksa draf → unduh PDF siap cetak**. Daftar
+orang, tarif, PPh, tanggal merah, dan penandatangan terisi sendiri dari
+data GTK + kalender bawaan; semuanya tetap bisa diubah per bulan.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+import logging
+from pathlib import Path
+from typing import Any
+from urllib.parse import quote_plus
+
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi.responses import RedirectResponse, Response
+
+from .. import auth, config, gtk, insentif, insentif_impor, insentif_pdf, services
+from ..web import render
+
+log = logging.getLogger("sm.insentif.web")
+
+router = APIRouter()
+
+NAMA_BERKAS = {"pns": "absensi-pns", "pppk": "absensi-pppk", "spj": "spj-insentif"}
+
+
+def _kembali(alamat: str, level: str, pesan: str) -> RedirectResponse:
+    return RedirectResponse(f"{alamat}?level={level}&msg={quote_plus(pesan)}", status_code=303)
+
+
+def _orang_egov() -> list[dict[str, Any]]:
+    """Orang + tanggal DL dari draf unggahan absensi e-gov (bisa kosong)."""
+    draf = insentif_impor.baca_draf(insentif_impor.KUNCI_CETAK_EGov)
+    if not draf:
+        return []
+    try:
+        return insentif_impor.baca_absensi_egov(draf["path"])
+    except ValueError as galat:
+        log.warning("Absensi e-gov tak terbaca: %s", galat)
+        return []
+
+
+@router.get("/insentif")
+def halaman_insentif(
+    request: Request,
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Beranda insentif: buat draf bulan + arsip periode + prasyarat."""
+    kini = dt.date.today()
+    return render(
+        request,
+        "insentif/index.html",
+        {
+            "page_title": "Insentif",
+            "tahun_ini": kini.year,
+            "bulan_ini": kini.month,
+            "daftar_bulan": list(enumerate(insentif.NAMA_BULAN_KECIL))[1:],
+            "periode": insentif.daftar_periode(),
+            "pengaturan": insentif.baca_pengaturan(),
+            "ringkas_gtk": gtk.ringkas_pegawai(),
+            "impor_rekening": insentif_impor.status(),
+        },
+    )
+
+
+@router.post("/insentif/periode/buat")
+def buat_periode(
+    request: Request,
+    tahun: int = Form(0),
+    bulan: int = Form(0),
+    salin_dari: int = Form(0),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    if not tahun or not bulan:
+        return _kembali("/insentif", "err", "Pilih tahun dan bulan dulu.")
+    try:
+        periode_id = insentif.buat_periode(
+            tahun, bulan, salin_dari=salin_dari or None, actor=user.username)
+    except ValueError as galat:
+        return _kembali("/insentif", "err", str(galat))
+    nama = f"{insentif.NAMA_BULAN_KECIL[bulan]} {tahun}"
+    services.log_audit(user.username, user.role, "insentif_buat", "insentif_periode",
+                 periode_id, f"draf {nama}" + (" (salinan)" if salin_dari else ""))
+    return RedirectResponse(f"/insentif/periode/{periode_id}", status_code=303)
+
+
+@router.post("/insentif/periode/{periode_id}/hapus")
+def hapus_periode(
+    request: Request,
+    periode_id: int,
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    periode = insentif.get_periode(periode_id)
+    if periode is None:
+        return _kembali("/insentif", "err", "Periode itu tidak ditemukan.")
+    insentif.hapus_periode(periode_id)
+    nama = f"{insentif.NAMA_BULAN_KECIL[int(periode['bulan'])]} {periode['tahun']}"
+    services.log_audit(user.username, user.role, "insentif_hapus", "insentif_periode",
+                 periode_id, f"draf {nama} dihapus")
+    return _kembali("/insentif", "ok", f"Draf {nama} dihapus.")
+
+
+@router.get("/insentif/periode/{periode_id}")
+def buka_periode(
+    request: Request,
+    periode_id: int,
+    dokumen: str = "spj",
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Editor draf: roster tiga dokumen + libur + tanda tangan + unduh."""
+    periode = insentif.get_periode(periode_id)
+    if periode is None:
+        return _kembali("/insentif", "err", "Periode itu tidak ditemukan.")
+    if dokumen not in ("pns", "pppk", "spj"):
+        dokumen = "spj"
+    merah = insentif.baca_libur_periode(periode)
+    grid = insentif.grid_absensi(int(periode["tahun"]), int(periode["bulan"]), merah)
+    return render(
+        request,
+        "insentif/periode.html",
+        {
+            "page_title": f"Insentif {insentif.NAMA_BULAN_KECIL[int(periode['bulan'])]} "
+                          f"{periode['tahun']}",
+            "periode": periode,
+            "nama_bulan": insentif.NAMA_BULAN[int(periode["bulan"])],
+            "nama_bulan_kecil": insentif.NAMA_BULAN_KECIL[int(periode["bulan"])],
+            "dokumen": dokumen,
+            "roster": {nama: insentif.roster_periode(periode_id, nama)
+                       for nama, _label in insentif.DOKUMEN},
+            "luar": {nama: insentif.luar_roster(periode_id, nama)
+                     for nama, _label in insentif.DOKUMEN},
+            "merah": sorted(merah.items()),
+            "grid": grid,
+            "ttd": insentif.baca_ttd(periode),
+            "ringkas": insentif.ringkas_spj(insentif.roster_periode(periode_id, "spj")),
+            "pengaturan": insentif.baca_pengaturan(),
+        },
+    )
+
+
+@router.post("/insentif/periode/{periode_id}/tambah")
+def tambah_orang(
+    request: Request,
+    periode_id: int,
+    dokumen: str = Form(...),
+    gtk_id: int = Form(0),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    try:
+        insentif.tambah_dari_gtk(periode_id, dokumen, gtk_id)
+    except ValueError as galat:
+        return _kembali(f"/insentif/periode/{periode_id}?dokumen={dokumen}",
+                        "err", str(galat))
+    return _kembali(f"/insentif/periode/{periode_id}?dokumen={dokumen}",
+                    "ok", "Satu orang ditambahkan ke daftar.")
+
+
+@router.post("/insentif/roster/{baris_id}/ubah")
+def ubah_orang(
+    request: Request,
+    baris_id: int,
+    dokumen: str = Form("spj"),
+    nama_tampil: str = Form(""),
+    nip: str = Form(""),
+    npwp: str = Form(""),
+    rekening: str = Form(""),
+    nik: str = Form(""),
+    gol: str = Form(""),
+    jabatan: str = Form(""),
+    tarif: str = Form(""),
+    pph_nominal: str = Form(""),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    from .. import db as _db
+    kini = _db.row_to_dict(_db.query_one(
+        "SELECT * FROM insentif_roster WHERE id = ?", (baris_id,)))
+    if kini is None:
+        return _kembali("/insentif", "err", "Baris daftar tidak ditemukan.")
+    try:
+        insentif.ubah_roster(baris_id, {"nama_tampil": nama_tampil, "nip": nip,
+                                       "npwp": npwp, "rekening": rekening,
+                                       "nik": nik, "gol": gol, "jabatan": jabatan,
+                                       "tarif": tarif, "pph_nominal": pph_nominal})
+    except ValueError as galat:
+        return _kembali(f"/insentif/periode/{kini['periode_id']}?dokumen={dokumen}",
+                        "err", str(galat))
+    return _kembali(f"/insentif/periode/{kini['periode_id']}?dokumen={dokumen}",
+                    "ok", "Perubahan disimpan.")
+
+
+@router.post("/insentif/roster/{baris_id}/hapus")
+def hapus_orang(
+    request: Request,
+    baris_id: int,
+    dokumen: str = Form("spj"),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    from .. import db as _db
+    kini = _db.row_to_dict(_db.query_one(
+        "SELECT * FROM insentif_roster WHERE id = ?", (baris_id,)))
+    if kini is None:
+        return _kembali("/insentif", "err", "Baris daftar tidak ditemukan.")
+    insentif.hapus_roster(baris_id)
+    return _kembali(f"/insentif/periode/{kini['periode_id']}?dokumen={dokumen}",
+                    "ok", f"«{kini.get('nama_tampil')}» dikeluarkan dari daftar.")
+
+
+@router.post("/insentif/roster/{baris_id}/geser")
+def geser_orang(
+    request: Request,
+    baris_id: int,
+    dokumen: str = Form("spj"),
+    arah: int = Form(0),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    from .. import db as _db
+    kini = _db.row_to_dict(_db.query_one(
+        "SELECT * FROM insentif_roster WHERE id = ?", (baris_id,)))
+    if kini is None:
+        return _kembali("/insentif", "err", "Baris daftar tidak ditemukan.")
+    insentif.geser_roster(baris_id, arah)
+    return RedirectResponse(
+        f"/insentif/periode/{kini['periode_id']}?dokumen={dokumen}", status_code=303)
+
+
+@router.post("/insentif/roster/{baris_id}/bawaan")
+def bawaan_orang(
+    request: Request,
+    baris_id: int,
+    dokumen: str = Form("spj"),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    from .. import db as _db
+    kini = _db.row_to_dict(_db.query_one(
+        "SELECT * FROM insentif_roster WHERE id = ?", (baris_id,)))
+    if kini is None:
+        return _kembali("/insentif", "err", "Baris daftar tidak ditemukan.")
+    try:
+        insentif.jadikan_bawaan(baris_id)
+    except ValueError as galat:
+        return _kembali(f"/insentif/periode/{kini['periode_id']}?dokumen={dokumen}",
+                        "err", str(galat))
+    return _kembali(f"/insentif/periode/{kini['periode_id']}?dokumen={dokumen}",
+                    "ok", "Nama & jabatan ini dipakai sebagai bawaan bulan-bulan berikut.")
+
+
+@router.post("/insentif/periode/{periode_id}/ttd")
+def simpan_tanda_tangan(
+    request: Request,
+    periode_id: int,
+    tgl_absensi: str = Form("31"),
+    tgl_spj: str = Form("31"),
+    ks_nama: str = Form(""),
+    ks_nip: str = Form(""),
+    bendahara_nama: str = Form(""),
+    bendahara_nip: str = Form(""),
+    pengawas_nama: str = Form(""),
+    pengawas_nip: str = Form(""),
+    catatan: str = Form(""),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    try:
+        insentif.simpan_ttd(periode_id, {"tgl_absensi": tgl_absensi, "tgl_spj": tgl_spj,
+                                        "ks_nama": ks_nama, "ks_nip": ks_nip,
+                                        "bendahara_nama": bendahara_nama,
+                                        "bendahara_nip": bendahara_nip,
+                                        "pengawas_nama": pengawas_nama,
+                                        "pengawas_nip": pengawas_nip,
+                                        "catatan": catatan})
+    except ValueError as galat:
+        return _kembali(f"/insentif/periode/{periode_id}", "err", str(galat))
+    return _kembali(f"/insentif/periode/{periode_id}", "ok",
+                    "Tanggal & penandatangan disimpan.")
+
+
+def _pdf_response(isi: bytes, nama: str) -> Response:
+    return Response(
+        content=isi,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nama}"'},
+    )
+
+
+@router.get("/insentif/periode/{periode_id}/pdf/{dokumen}")
+def unduh_pdf(
+    request: Request,
+    periode_id: int,
+    dokumen: str,
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    periode = insentif.get_periode(periode_id)
+    if periode is None:
+        return _kembali("/insentif", "err", "Periode itu tidak ditemukan.")
+    if dokumen not in (*NAMA_BERKAS, "gabungan"):
+        return _kembali(f"/insentif/periode/{periode_id}", "err",
+                        "Dokumen tidak dikenal.")
+    kode = f"{int(periode['tahun']):04d}{int(periode['bulan']):02d}"
+    if dokumen == "gabungan":
+        isi = insentif_pdf.pdf_gabungan(periode)
+        nama = f"insentif-{kode}-gabungan.pdf"
+    elif dokumen == "spj":
+        isi = insentif_pdf.pdf_spj(
+            periode, insentif.roster_periode(periode_id, "spj"))
+        nama = f"insentif-{kode}-{NAMA_BERKAS[dokumen]}.pdf"
+    else:
+        isi = insentif_pdf.pdf_absensi(
+            dokumen, periode, insentif.roster_periode(periode_id, dokumen))
+        nama = f"insentif-{kode}-{NAMA_BERKAS[dokumen]}.pdf"
+    services.log_audit(user.username, user.role, "insentif_pdf", "insentif_periode",
+                 periode_id, f"unduh {dokumen} {kode}")
+    return _pdf_response(isi, nama)
+
+
+@router.get("/insentif/pengaturan")
+def halaman_pengaturan(
+    request: Request,
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    return render(
+        request,
+        "insentif/pengaturan.html",
+        {
+            "page_title": "Pengaturan Insentif",
+            "pengaturan": insentif.baca_pengaturan(),
+            "pegawai": gtk.daftar_pegawai(batas=500),
+        },
+    )
+
+
+@router.post("/insentif/pengaturan")
+def simpan_pengaturan(
+    request: Request,
+    tarif_ks: str = Form("7000000"),
+    tarif_waka: str = Form("2700000"),
+    tarif_guru: str = Form("1350000"),
+    tarif_pelatih: str = Form("650000"),
+    pph_guru_3: str = Form("67500"),
+    pph_guru_4: str = Form("202500"),
+    pph_waka_3: str = Form("135000"),
+    pph_waka_4: str = Form("405000"),
+    pph_ks_3: str = Form("350000"),
+    pph_ks_4: str = Form("1050000"),
+    pph_nonasn: str = Form("0"),
+    unit_kerja: str = Form(""),
+    kecamatan: str = Form(""),
+    kota: str = Form(""),
+    bendahara_gtk_id: str = Form(""),
+    pengawas_nama: str = Form(""),
+    pengawas_nip: str = Form(""),
+    ks_nama: str = Form(""),
+    ks_nip: str = Form(""),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    insentif.simpan_pengaturan({
+        "tarif_ks": tarif_ks, "tarif_waka": tarif_waka,
+        "tarif_guru": tarif_guru, "tarif_pelatih": tarif_pelatih,
+        "pph_guru_3": pph_guru_3, "pph_guru_4": pph_guru_4,
+        "pph_waka_3": pph_waka_3, "pph_waka_4": pph_waka_4,
+        "pph_ks_3": pph_ks_3, "pph_ks_4": pph_ks_4, "pph_nonasn": pph_nonasn,
+        "unit_kerja": unit_kerja, "kecamatan": kecamatan, "kota": kota,
+        "bendahara_gtk_id": bendahara_gtk_id, "pengawas_nama": pengawas_nama,
+        "pengawas_nip": pengawas_nip, "ks_nama": ks_nama, "ks_nip": ks_nip,
+    })
+    services.log_audit(user.username, user.role, "insentif_pengaturan", "-", None,
+                 "tarif, PPh & penandatangan diperbarui")
+    return _kembali("/insentif/pengaturan", "ok",
+                    "Pengaturan disimpan; dipakai mulai draf berikutnya.")
+
+
+@router.get("/insentif/libur")
+def halaman_libur(
+    request: Request,
+    tahun: int = 0,
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    if not tahun:
+        tahun = dt.date.today().year
+    return render(
+        request,
+        "insentif/libur.html",
+        {
+            "page_title": "Kelola Libur Insentif",
+            "tahun": tahun,
+            "daftar": insentif.daftar_libur_tahun(tahun),
+        },
+    )
+
+
+@router.post("/insentif/libur/simpan")
+def simpan_libur(
+    request: Request,
+    tahun: int = Form(0),
+    tanggal: str = Form(""),
+    nama: str = Form(""),
+    jenis: str = Form("kustom"),
+    aktif: str = Form("1"),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    try:
+        insentif.simpan_libur(tanggal.strip(), nama.strip(), jenis.strip(),
+                             aktif.strip() == "1")
+    except ValueError as galat:
+        return _kembali(f"/insentif/libur?tahun={tahun or dt.date.today().year}",
+                        "err", f"Tanggal tidak sah: {galat}")
+    if not nama.strip() and aktif.strip() == "1":
+        return _kembali(f"/insentif/libur?tahun={tahun or dt.date.today().year}",
+                        "err", "Nama libur wajib diisi.")
+    return _kembali(f"/insentif/libur?tahun={tahun or dt.date.today().year}",
+                    "ok", "Kalender libur diperbarui; dipakai mulai draf berikutnya.")
+
+
+@router.post("/insentif/libur/hapus")
+def hapus_libur(
+    request: Request,
+    tahun: int = Form(0),
+    tanggal: str = Form(""),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    insentif.hapus_libur(tanggal.strip())
+    return _kembali(f"/insentif/libur?tahun={tahun or dt.date.today().year}",
+                    "ok", "Aturan manual tanggal itu dihapus (kembali ke bawaan).")
+
+
+@router.get("/insentif/profil")
+def halaman_profil(
+    request: Request,
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    return render(
+        request,
+        "insentif/profil.html",
+        {
+            "page_title": "Profil Insentif Pegawai",
+            "daftar": insentif.daftar_profil(),
+        },
+    )
+
+
+@router.post("/insentif/profil/{profil_id}")
+def simpan_satu_profil(
+    request: Request,
+    profil_id: int,
+    nama_tampil: str = Form(""),
+    jabatan: str = Form(""),
+    tarif_override: str = Form(""),
+    ikut_pns: str = Form(""),
+    ikut_pppk: str = Form(""),
+    ikut_spj: str = Form(""),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    insentif.simpan_profil(profil_id, {"nama_tampil": nama_tampil,
+                                      "jabatan": jabatan,
+                                      "tarif_override": tarif_override,
+                                      "ikut_pns": ikut_pns == "1",
+                                      "ikut_pppk": ikut_pppk == "1",
+                                      "ikut_spj": ikut_spj == "1"})
+    return _kembali("/insentif/profil", "ok",
+                    "Profil disimpan; dipakai mulai draf berikutnya.")
+
+
+@router.get("/insentif/impor-rekening")
+def halaman_impor_rekening(
+    request: Request,
+    pratinjau: int = 0,
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Impor rekening awal: unggah berkas lama sekali, cocokkan, terapkan."""
+    cocok = tak_gtk = tak_berkas = None
+    draf = insentif_impor.baca_draf()
+    if pratinjau and draf is not None:
+        try:
+            hasil = insentif_impor.cocokan(
+                insentif_impor.baca_berkas_rekening(draf["path"]))
+        except ValueError as galat:
+            return _kembali("/insentif/impor-rekening", "err", str(galat))
+        cocok = hasil["cocok"]
+        tak_gtk = hasil["tak_di_gtk"]
+        tak_berkas = hasil["tak_di_berkas"]
+    return render(
+        request,
+        "insentif/impor.html",
+        {
+            "page_title": "Impor Rekening Awal",
+            "status_impor": insentif_impor.status(),
+            "draf": draf,
+            "cocok": cocok,
+            "tak_di_gtk": tak_gtk,
+            "tak_di_berkas": tak_berkas,
+        },
+    )
+
+
+@router.post("/insentif/impor-rekening")
+async def unggah_rekening(
+    request: Request,
+    berkas: UploadFile = File(...),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Terima berkas lama lalu tampilkan pratinjau pencocokan."""
+    nama = berkas.filename or "unggahan.xls"
+    isi = await berkas.read()
+    ekstensi = Path(nama).suffix.lower()
+    if not isi:
+        return _kembali("/insentif/impor-rekening", "err",
+                        "Berkas kosong atau gagal dibaca.")
+    if ekstensi not in insentif_impor.EKSTENSI:
+        return _kembali("/insentif/impor-rekening", "err",
+                        "Jenis berkas «%s» belum didukung menu ini. Yang "
+                        "didukung: %s." % (ekstensi or "tanpa ekstensi",
+                                           ", ".join(insentif_impor.EKSTENSI)))
+    if len(isi) > config.MAX_UPLOAD_BYTES:
+        return _kembali("/insentif/impor-rekening", "err",
+                        f"Ukuran berkas melebihi {config.MAX_UPLOAD_MB} MB.")
+    try:
+        simpan = services.save_upload(nama, isi)
+        daftar = insentif_impor.baca_berkas_rekening(simpan.path, simpan.extension)
+    except ValueError as galat:
+        return _kembali("/insentif/impor-rekening", "err", str(galat))
+    if not daftar:
+        simpan.path.unlink(missing_ok=True)
+        return _kembali("/insentif/impor-rekening", "err",
+                        "Tidak ada baris penerima yang terbaca. Pastikan "
+                        "berkasnya memuat kolom NO REKENING.")
+    insentif_impor.simpan_draf(simpan.path, nama)
+    return RedirectResponse("/insentif/impor-rekening?pratinjau=1", status_code=303)
+
+
+@router.post("/insentif/impor-rekening/terapkan")
+def terapkan_rekening(
+    request: Request,
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Isi rekening GTK yang kosong dari draf impor."""
+    try:
+        ringkas = insentif_impor.terapkan()
+    except ValueError as galat:
+        return _kembali("/insentif/impor-rekening", "err", str(galat))
+    services.log_audit(user.username, user.role, "insentif_impor_rekening", "-",
+                 None, f"{ringkas['berkas']}: {ringkas['terisi']} rekening "
+                       f"terisi ({ringkas['cocok']} cocok, {ringkas['beda']} beda)")
+    return _kembali("/insentif", "ok",
+                    f"{ringkas['terisi']} nomor rekening terisi dari "
+                    f"«{ringkas['berkas']}» ({ringkas['cocok']} cocok, "
+                    f"{ringkas['beda']} beda dipertahankan).")
+
+
+# --------------------------------------------------------------------------- #
+# Cetak SPJ langsung dari berkas mentah
+# --------------------------------------------------------------------------- #
+
+_KUNCI_TTD = ("ks_nama", "ks_nip", "bendahara_nama", "bendahara_nip",
+              "pengawas_nama", "pengawas_nip")
+
+
+@router.get("/insentif/cetak-berkas")
+def cetak_berkas_form(
+    request: Request,
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Cetak SPJ dari berkas: unggah berkas Dinas → pratinjau → PDF."""
+    draf = insentif_impor.baca_draf(insentif_impor.KUNCI_CETAK)
+    pratinjau = None
+    if draf:
+        try:
+            baris = insentif_impor.baca_berkas_rekening(draf["path"])
+            bln, thn = insentif_impor.bulan_tahun_judul(draf["path"])
+            roster = insentif_impor.roster_dari_berkas(baris)
+            grup = insentif_impor.bagi_absensi(baris)
+            _dl_map = insentif_impor.tanda_dl(_orang_egov())
+            orang_e = _orang_egov()
+            by_kunci = {insentif_impor.kunci_orang(o): o for o in orang_e}
+            dl = [{"nama": by_kunci.get(k, {}).get("nama", k),
+                   "nip": by_kunci.get(k, {}).get("nip", ""),
+                   "tanggal": v} for k, v in sorted(_dl_map.items())]
+            pratinjau = {"nama": draf["nama"], "jumlah": len(roster),
+                         "pns": len(grup["pns"]), "pppk": len(grup["pppk"]),
+                         "luar": len(roster) - len(grup["pns"]) - len(grup["pppk"]),
+                         "total": sum(r["tarif"] for r in roster),
+                         "pph": sum(r["pph_nominal"] for r in roster),
+                         "bulan": bln, "tahun": thn, "orang": roster[:5],
+                         "tgl": (insentif.tanggal_terakhir(thn, bln)
+                                 if bln and thn else dt.date.today().day),
+                         "dl": dl,
+                         "dl_jumlah": sum(len(v["tanggal"]) for v in dl),
+                         "dl_orang": len(dl)}
+        except ValueError as galat:
+            insentif_impor.hapus_draf(insentif_impor.KUNCI_CETAK)
+            return _kembali("/insentif/cetak-berkas", "err", str(galat))
+    return render(
+        request,
+        "insentif/cetak.html",
+        {"page_title": "Cetak SPJ dari berkas", "draf": draf,
+         "pratinjau": pratinjau, "ttd": insentif_impor.ttd_bawaan()})
+
+
+@router.post("/insentif/cetak-berkas")
+async def cetak_berkas_unggah(
+    request: Request,
+    berkas: UploadFile = File(...),
+    absensi: UploadFile | None = File(None),
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    """Terima berkas Dinas + absensi e-gov, lalu tampilkan pratinjau."""
+    if absensi is None or not (absensi.filename or "").strip():
+        return _kembali("/insentif/cetak-berkas", "err",
+                        "Unggah juga berkas absensi e-gov (.xls / .xlsx) — "
+                        " Tanggal «DL» di situ yang diwarnai merah di PDF.")
+    nama = berkas.filename or "unggahan.xls"
+    isi = await berkas.read()
+    ekstensi = Path(nama).suffix.lower()
+    if not isi:
+        return _kembali("/insentif/cetak-berkas", "err",
+                        "Berkas kosong atau gagal dibaca.")
+    if ekstensi not in insentif_impor.EKSTENSI:
+        return _kembali("/insentif/cetak-berkas", "err",
+                        "Jenis berkas «%s» belum didukung menu ini. Yang "
+                        "didukung: %s." % (ekstensi or "tanpa ekstensi",
+                                           ", ".join(insentif_impor.EKSTENSI)))
+    if len(isi) > config.MAX_UPLOAD_BYTES:
+        return _kembali("/insentif/cetak-berkas", "err",
+                        f"Ukuran berkas melebihi {config.MAX_UPLOAD_MB} MB.")
+    try:
+        simpan = services.save_upload(nama, isi)
+        daftar = insentif_impor.baca_berkas_rekening(simpan.path,
+                                                     simpan.extension)
+    except ValueError as galat:
+        return _kembali("/insentif/cetak-berkas", "err", str(galat))
+    if not daftar:
+        simpan.path.unlink(missing_ok=True)
+        return _kembali("/insentif/cetak-berkas", "err",
+                        "Tidak ada baris penerima yang terbaca. Pastikan "
+                        "berkasnya memuat kolom NO REKENING.")
+    insentif_impor.simpan_draf(simpan.path, nama, insentif_impor.KUNCI_CETAK)
+    # --- Absensi e-gov: dibaca sendiri, gagal tak memblokir cetak SPJ. ---
+    isi_e = await absensi.read()
+    nama_e = absensi.filename or "absensi.xlsx"
+    ekstensi_e = Path(nama_e).suffix.lower()
+    if not isi_e:
+        return _kembali("/insentif/cetak-berkas", "err",
+                        "Berkas absensi e-gov kosong atau gagal dibaca.")
+    if ekstensi_e not in insentif_impor.EGov_EKSTENSI:
+        return _kembali("/insentif/cetak-berkas", "err",
+                        "Jenis berkas «%s» belum didukung untuk absensi. "
+                        "Yang didukung: %s." % (ekstensi_e or "tanpa ekstensi",
+                                               ", ".join(insentif_impor.EGov_EKSTENSI)))
+    if len(isi_e) > config.MAX_UPLOAD_BYTES:
+        return _kembali("/insentif/cetak-berkas", "err",
+                        f"Ukuran berkas melebihi {config.MAX_UPLOAD_MB} MB.")
+    try:
+        simpan_e = services.save_upload(nama_e, isi_e)
+        orang_e = insentif_impor.baca_absensi_egov(simpan_e.path,
+                                                  simpan_e.extension)
+    except ValueError as galat:
+        simpan_e.path.unlink(missing_ok=True)
+        return _kembali("/insentif/cetak-berkas", "err",
+                        f"Absensi e-gov tak terbaca: {galat}")
+    if not orang_e:
+        simpan_e.path.unlink(missing_ok=True)
+        return _kembali("/insentif/cetak-berkas", "err",
+                        "Tidak ada baris kehadiran yang terbaca dari "
+                        "berkas absensi e-gov.")
+    insentif_impor.simpan_draf(simpan_e.path, nama_e,
+                               insentif_impor.KUNCI_CETAK_EGov)
+    return RedirectResponse("/insentif/cetak-berkas", status_code=303)
+
+
+@router.post("/insentif/cetak-berkas/buang")
+def cetak_berkas_buang(
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    insentif_impor.hapus_draf(insentif_impor.KUNCI_CETAK)
+    insentif_impor.hapus_draf(insentif_impor.KUNCI_CETAK_EGov)
+    return RedirectResponse("/insentif/cetak-berkas", status_code=303)
+
+
+@router.post("/insentif/cetak-berkas/pdf")
+async def cetak_berkas_pdf(
+    request: Request,
+    user: auth.SessionUser = Depends(auth.require_staff),
+):
+    form = await request.form()
+    draf = insentif_impor.baca_draf(insentif_impor.KUNCI_CETAK)
+    if not draf:
+        return RedirectResponse("/insentif/cetak-berkas", status_code=303)
+    dokumen = (form.get("dokumen") or "spj").strip().lower()
+    if dokumen not in ("spj", "pns", "pppk"):
+        return _kembali("/insentif/cetak-berkas", "err",
+                        "Dokumen tidak dikenal.")
+    try:
+        baris = insentif_impor.baca_berkas_rekening(draf["path"])
+    except ValueError as galat:
+        return _kembali("/insentif/cetak-berkas", "err", str(galat))
+    bln, thn = insentif_impor.bulan_tahun_judul(draf["path"])
+    ttd = {kunci: (form.get(kunci) or "").strip() for kunci in _KUNCI_TTD}
+    tahun = thn or dt.date.today().year
+    bulan = bln or dt.date.today().month
+    akhir = insentif.tanggal_terakhir(tahun, bulan)
+    try:
+        tgl = int(form.get("tgl_spj" if dokumen == "spj" else "tgl_absensi")
+                  or 0)
+    except ValueError:
+        tgl = 0
+    if not 1 <= tgl <= 31:
+        tgl = akhir
+    ttd_json = json.dumps(ttd, ensure_ascii=False)
+    if dokumen == "spj":
+        periode = {"tahun": tahun, "bulan": bulan, "tgl_spj": tgl,
+                   "ttd_json": ttd_json}
+        roster = insentif_impor.roster_dari_berkas(baris)
+        isi = insentif_pdf.pdf_spj(periode, roster)
+        nama = f"spj-insentif-{tahun:04d}{bulan:02d}.pdf"
+    else:
+        merah = insentif.tanggal_merah(tahun, bulan,
+                                       insentif.tambahan_libur())
+        dl = insentif_impor.tanda_dl(_orang_egov())
+        periode = {"tahun": tahun, "bulan": bulan, "tgl_absensi": tgl,
+                   "libur_json": json.dumps({str(k): v for k, v in
+                                             sorted(merah.items())},
+                                            ensure_ascii=False),
+                   "dl_json": json.dumps({k: v for k, v in sorted(dl.items())},
+                                         ensure_ascii=False),
+                   "ttd_json": ttd_json}
+        grup = insentif_impor.bagi_absensi(baris)
+        roster = insentif_impor.roster_dari_berkas(grup[dokumen])
+        isi = insentif_pdf.pdf_absensi(dokumen, periode, roster)
+        nama = f"absensi-{dokumen}-{tahun:04d}{bulan:02d}.pdf"
+    services.log_audit(user.username, user.role, "insentif_pdf",
+                       "cetak_berkas", 0, f"unduh {dokumen} berkas {nama}")
+    return _pdf_response(isi, nama)

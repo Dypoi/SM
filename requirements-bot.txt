@@ -1,0 +1,9 @@
+# Pustaka tambahan HANYA untuk Bot Dapodik (opsional).
+# Aplikasi SM tetap berjalan tanpa berkas ini.
+#
+# Cara pasang (sekali saja):
+#     .venv\Scripts\pip install -r requirements-bot.txt
+#
+# Bot memakai Chrome yang sudah terpasang di PC sekolah. Bila belum ada,
+# unduh Google Chrome, lalu jalankan halaman "Bot Dapodik" di aplikasi.
+selenium>=4.20

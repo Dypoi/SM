@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+<div class="split">
+  <div>
+    <!-- ============================ Tombol utama ============================ -->
+    <div class="card" id="online">
+      <div class="card-head">
+        <div>
+          <h3>Online (bisa dibuka dari internet)</h3>
+          <p>Satu tombol: aplikasi menyala di HP/luar sekolah lewat Tailscale Funnel —
+             tanpa jendela Command Prompt, tanpa mengetik perintah apa pun.</p>
+        </div>
+        {% if terowongan.online %}
+        <span class="badge badge-success">Online</span>
+        {% elif pekerjaan.jalan %}
+        <span class="badge badge-info">Sedang dinyalakan…</span>
+        {% else %}
+        <span class="badge badge-muted">Hanya jaringan sekolah</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        {% if terowongan.online %}
+          <p><strong>Aplikasi sudah bisa dibuka dari internet.</strong> Bagikan alamat ini
+             (buka dari HP, laptop dinas, atau rumah):</p>
+          <p class="online-link" id="alamat-online" data-alamat="{{ terowongan.alamat }}">{{ terowongan.alamat }}</p>
+          <div class="btn-group mt-2">
+            <a class="btn btn-primary" href="{{ terowongan.alamat }}" target="_blank" rel="noopener">{{ icon('search') }} Buka alamatnya</a>
+            <button class="btn btn-outline" type="button" id="salin-online" data-salin="{{ terowongan.alamat }}">{{ icon('file') }} Salin alamat</button>
+            <form method="post" action="/online/matikan" data-konfirmasi="Matikan akses publik? Aplikasi tetap berjalan di jaringan sekolah.">
+              <button class="btn btn-outline" type="submit">{{ icon('logout') }} Matikan online</button>
+            </form>
+          </div>
+          {% if peringatan_port %}
+          <div class="alert alert-warn mt-2" role="status">{{ peringatan_port }}</div>
+          {% endif %}
+
+        {% elif pekerjaan.jalan or pekerjaan.tahap == 'menunggu-izin' %}
+          <p><strong>Sedang menyalakan…</strong> {{ pekerjaan.pesan or 'Mohon tunggu sebentar.' }}</p>
+          <div class="mt-2" id="panel-kemajuan">
+            <dl class="kv"><dt>Langkah</dt><dd id="tahap-online">{{ pekerjaan.tahap }}</dd></dl>
+            {% if pekerjaan.tautan_izin or pekerjaan.tahap == 'menunggu-izin' %}
+            <div class="alert alert-warn mt-2" role="status">
+              <span class="alert-icon">{{ icon('warning') }}</span>
+              <span>
+                <strong>Sekali saja:</strong> Tailscale meminta persetujuan Funnel untuk sekolah ini.
+                Buka tautan di bawah, klik <em>Approve</em>, dan prosesnya lanjut sendiri.
+                {% if pekerjaan.tautan_izin %}
+                <br><a href="{{ pekerjaan.tautan_izin }}" target="_blank" rel="noopener">{{ pekerjaan.tautan_izin }}</a>
+                {% else %}
+                <br><a href="https://login.tailscale.com/admin/acls" target="_blank" rel="noopener">login.tailscale.com/admin/acls → bagian Funnel</a>
+                {% endif %}
+              </span>
+            </div>
+            {% endif %}
+            <div class="log-kotak mono" id="log-online">
+              {% for baris in pekerjaan.log %}{{ baris }}
+{% endfor %}
+            </div>
+          </div>
+
+        {% else %}
+          <p>Tekan tombol di bawah. Aplikasi akan menyalakan
+             <strong>Tailscale Funnel</strong> (gratis, alamat tetap
+             <span class="mono">https://…ts.net</span>) dan menampilkan alamatnya di halaman ini.</p>
+          <form method="post" action="/online/nyalakan" id="form-online">
+            <input type="hidden" name="port" value="{{ port_lokal }}">
+            <input type="hidden" name="https_port" value="{{ port_publik }}">
+            <button class="btn btn-primary btn-lg" type="submit">{{ icon('upload') }} Nyalakan online (1 tombol)</button>
+          </form>
+
+          {% if not terowongan.ada %}
+            <div class="alert alert-warn mt-2" role="status">
+              <span class="alert-icon">{{ icon('warning') }}</span>
+              <span>Tailscale belum terpasang di komputer ini. Pasang sekali dari
+                <a href="https://tailscale.com/download" target="_blank" rel="noopener">tailscale.com/download</a>,
+                masuk dengan akun sekolah, lalu tekan tombol di atas.</span>
+            </div>
+          {% else %}
+            <p class="hint mt-2">Tailscale terdeteksi: <span class="mono">{{ terowongan.jalur }}</span>{% if terowongan.nama %} · perangkat <strong>{{ terowongan.nama }}</strong>{% endif %}</p>
+            {% if terowongan.pesan %}<p class="hint">{{ terowongan.pesan }}</p>{% endif %}
+          {% endif %}
+          <p class="hint mt-2">Saat pertama kali dipakai, Tailscale menampilkan <strong>tautan
+             persetujuan Funnel</strong> (sekali saja untuk sekolah ini) — tautannya muncul di
+             halaman ini, tidak ada jendela hitam yang perlu ditutup.</p>
+        {% endif %}
+
+        {% if pekerjaan.tahap == 'gagal' and not pekerjaan.jalan %}
+        <div class="alert alert-err mt-2" role="alert">
+          <span class="alert-icon">{{ icon('warning') }}</span>
+          <span>{{ pekerjaan.pesan }}</span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- ============================ Cara & catatan ============================ -->
+    <div class="card mt-2">
+      <div class="card-head"><div><h3>Cara kerja &amp; catatan</h3>
+        <p>Ringkas, supaya tidak ada yang perlu menebak.</p></div></div>
+      <div class="card-body">
+        <ul class="daftar-ringkas">
+          <li>Aplikasi tetap berjalan di PC sekolah, port lokal <span class="mono">{{ port_lokal }}</span>.
+              Tailscale Funnel hanya membuat <em>pintunya</em> di internet (port publik {{ port_publik }}).</li>
+          <li>Alamat publiknya tetap (berakhiran <span class="mono">.ts.net</span>) selama perangkat ini
+              memakai tailnet sekolah yang sama — aman dibagikan ke guru/HP.</li>
+          <li>Perintahnya dijalankan di belakang layar (<span class="mono">CREATE_NO_WINDOW</span>):
+              tidak ada jendela Command Prompt, baik saat menyalakan maupun mematikan.</li>
+          <li>Tombol <strong>Matikan online</strong> menutup akses internet; aplikasi di jaringan
+              sekolah tetap bisa dipakai seperti biasa.</li>
+          <li>Sebelum dibuka luas, rapikan dulu pengamannya di
+              <a href="/pengaturan#aman-online">Pengaturan → Aman Online</a>
+              (ganti kata sandi admin bawaan, nyalakan pengaman login siswa).</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================== Samping ============================== -->
+  <div>
+    <div class="card">
+      <div class="card-head"><div><h3>Keadaan sekarang</h3><p>Diperiksa langsung dari komputer ini.</p></div></div>
+      <div class="card-body">
+        <dl class="kv">
+          <dt>Tailscale</dt><dd>{{ 'terpasang' if terowongan.ada else 'belum terpasang' }}</dd>
+          <dt>Perangkat</dt><dd class="mono">{{ terowongan.nama or '—' }}</dd>
+          <dt>Funnel</dt><dd>{{ 'menyala' if terowongan.online else ('belum menyala' if terowongan.ada else '—') }}</dd>
+          <dt>Alamat publik</dt><dd class="mono">{{ terowongan.alamat or '—' }}</dd>
+          <dt>Port aplikasi</dt><dd class="mono">{{ port_lokal }}</dd>
+        </dl>
+        <div class="btn-group mt-2">
+          <a class="btn btn-outline btn-sm" href="/online">{{ icon('refresh') }} Periksa lagi</a>
+          <a class="btn btn-outline btn-sm" href="/pengaturan#aman-online">{{ icon('cog') }} Aman Online</a>
+        </div>
+      </div>
+    </div>
+    {% if penanda.diperbarui %}
+    <div class="card mt-2">
+      <div class="card-body hint">
+        Penanda online terakhir diperbarui {{ penanda.diperbarui }}.
+        Menyalakan lewat tombol ini juga menyimpan penanda itu — itulah yang dipakai lonceng
+        notifikasi dan daftar periksa keamanan.
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* Pemantauan tombol Online: tanya kemajuan tiap 2 detik, tampilkan lognya apa adanya. */
+(function () {
+  var panel = document.getElementById("panel-kemajuan");
+  var kotak = document.getElementById("log-online");
+  var tahap = document.getElementById("tahap-online");
+  var jalan = {{ 'true' if pekerjaan.jalan else 'false' }};
+  var menunggu = {{ 'true' if pekerjaan.tahap == 'menunggu-izin' else 'false' }};
+  var muatUlang = false;
+
+  function salin(teks, tombol) {
+    if (!teks) return;
+    var selesai = function () {
+      var asli = tombol.innerHTML;
+      tombol.innerHTML = "Tersalin ✓";
+      setTimeout(function () { tombol.innerHTML = asli; }, 1800);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(teks).then(selesai, function () { pilihTeks(); });
+    } else { pilihTeks(); }
+    function pilihTeks() {
+      var el = document.getElementById("alamat-online");
+      if (!el) return;
+      var r = document.createRange(); r.selectNodeContents(el);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      selesai();
+    }
+  }
+
+  var tombolSalin = document.getElementById("salin-online");
+  if (tombolSalin) tombolSalin.addEventListener("click", function () {
+    salin(tombolSalin.dataset.salin || "", tombolSalin);
+  });
+
+  if (!jalan && !menunggu) return;
+  var putaran = 0;
+  var timer = setInterval(function () {
+    putaran += 1;
+    if (putaran > 300) { clearInterval(timer); return; }
+    fetch("/online/status.json", { headers: { "Accept": "application/json" } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        var p = data.pekerjaan || {};
+        if (tahap) tahap.textContent = p.tahap || "";
+        if (kotak) {
+          kotak.textContent = (p.log || []).join("\n");
+          kotak.scrollTop = kotak.scrollHeight;
+        }
+        if (!p.jalan) {
+          clearInterval(timer);
+          if (!muatUlang) { muatUlang = true; setTimeout(function () { location.reload(); }, 900); }
+        }
+      })
+      .catch(function () { /* diamkan: percobaan berikutnya 2 detik lagi */ });
+  }, 2000);
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{#- Bedah berkas: memperlihatkan isi berkas apa adanya (termasuk yang tidak terbaca),
+    supaya bisa diperiksa & dilaporkan tanpa menebak. -#}
+<div class="card">
+  <div class="card-head">
+    <div>
+      <h3>Bedah berkas — melihat isi apa adanya</h3>
+      <p>
+        Alat ini <strong>tidak</strong> menyimpan apa pun ke daftar penerima. Gunanya
+        memperlihatkan apa yang benar-benar terbaca dari sebuah berkas mentah
+        (Excel/CSV/PDF), termasuk bagian yang <em>tidak</em> terbaca — sehingga
+        pembacanya bisa diperiksa kalau ada baris yang seharusnya masuk tetapi belum.
+      </p>
+    </div>
+    <div class="btn-group">
+      <a class="btn btn-ghost btn-sm" href="/tangcer">{{ icon('x') }} Kembali ke TANGCER</a>
+    </div>
+  </div>
+  <div class="card-body">
+    <form class="form" method="post" action="/tangcer/bedah" enctype="multipart/form-data">
+      <div class="cek-bot" data-upload-zone>
+        <div class="cek-bot-isi">
+          <label class="cek-bot-judul" for="berkas-bedah">
+            {{ icon('file') }} Pilih berkas mentah (Excel/CSV/PDF) — ukuran maksimal {{ maks_ukuran }} MB
+          </label>
+          <input class="input" type="file" id="berkas-bedah" name="berkas"
+                 accept="{{ ekstensi_terima }}" data-file-name>
+        </div>
+      </div>
+      <details class="rinci-opsi">
+        <summary>Jenis berkas yang bisa dibedah</summary>
+        <ul class="daftar-aman">
+          {% for ext, label in format_didukung %}
+          <li><span class="mono">{{ ext }}</span> — {{ label }}</li>
+          {% endfor %}
+        </ul>
+      </details>
+      <div class="form-aksi">
+        <button class="btn btn-primary" type="submit">{{ icon('search') }} Bedah berkas</button>
+      </div>
+    </form>
+
+    {% if hasil %}
+    <div class="card card-tight mt-2">
+      <div class="card-body">
+        <h4>{{ hasil.nama }}</h4>
+        <dl class="kv">
+          <dt>Jenis berkas</dt><dd>{{ hasil.jenis }}</dd>
+          <dt>Ukuran</dt><dd>{{ (hasil.ukuran // 1024) }} KB ({{ hasil.ukuran | angka_id }} bita)</dd>
+          <dt>Baris terbaca</dt><dd>{{ hasil.jumlah_baris | angka_id }}</dd>
+          {% for satu in hasil.pembaca %}
+          <dt>Pembaca</dt><dd>{{ satu }}</dd>
+          {% endfor %}
+        </dl>
+
+        {% if hasil.saran %}
+        <div class="alert alert-warn" role="status">
+          <span class="alert-icon">{{ icon('info') }}</span>
+          <div>{{ hasil.saran }}</div>
+        </div>
+        {% endif %}
+
+        {% if hasil.catatan %}
+        <ul class="daftar-aman">
+          {% for satu in hasil.catatan %}
+          <li>{{ satu }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+
+        <div class="btn-group">
+          <a class="btn btn-primary btn-sm" href="/tangcer/bedah.txt?token={{ hasil.token }}">
+            {{ icon('download') }} Unduh teks lengkap (.txt)
+          </a>
+          <span class="muted">Berkas teks itu bisa dikirim untuk pemeriksaan lanjutan.</span>
+        </div>
+      </div>
+    </div>
+
+    {% for bagian in hasil.bagian %}
+    <div class="card card-tight mt-2">
+      <div class="card-head">
+        <div>
+          <h4>{{ bagian.judul }}</h4>
+          <p>{{ bagian.jumlah | angka_id }} baris terbaca</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <details class="rinci-opsi">
+          <summary>Tampilkan isi ({{ bagian.baris[:hasil.baris_tampil] | length }} baris pertama)</summary>
+          <pre class="mono teks-berkas">{% for baris in bagian.baris[:hasil.baris_tampil] %}{{ baris }}
+{% endfor %}</pre>
+          {% if bagian.jumlah > hasil.baris_tampil %}
+          <p class="muted">
+            Masih ada {{ (bagian.jumlah - hasil.baris_tampil) | angka_id }} baris lagi —
+            semuanya ada di berkas teks yang bisa diunduh di atas.
+          </p>
+          {% endif %}
+        </details>
+      </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

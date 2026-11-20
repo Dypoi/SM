@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{% set st = status %}
+
+{# ------------------------------------------------------------ status -- #}
+<div class="card" id="status">
+  <div class="card-head">
+    <div>
+      <h3>{{ icon('chat') }} WhatsApp (WA)</h3>
+      <p>Jembatan WhatsApp (Baileys) hanya relay pesan ke Ollama/bodap. Otak dan
+         penjaga nilai tetap di server. Sambung ke WhatsApp dengan scan kode QR
+         dari HP (Menu: <strong>Perangkat Tertaut</strong>).</p>
+    </div>
+    <span class="badge {{ 'badge-success' if st.terhubung else ('badge-warn' if st.menunggu_pairing else ('badge-muted' if not st.aktif or not st.siap else 'badge-danger')) }}">
+      {{ 'Terhubung' if st.terhubung else ('Menunggu pairing' if st.menunggu_pairing else ('Aktif' if st.aktif and st.siap else 'Tidak siap')) }}
+    </span>
+  </div>
+  <div class="card-body">
+    <div class="form-grid">
+      <div class="field">
+        <label>Status</label>
+        <div id="status-teks" class="hint">{{ st.pesan or '—' }}</div>
+      </div>
+      <div class="field">
+        <label>Nomor WhatsApp</label>
+        <div class="hint">{{ st.nomor or '—' }}</div>
+      </div>
+      <div class="field">
+        <label>Node.js</label>
+        <div class="hint">{{ 'Terpasang' if st.node else 'Belum terpasang' }}</div>
+      </div>
+      <div class="field">
+        <label>Baileys</label>
+        <div class="hint">{{ 'Terpasang' if st.baileys else 'Belum terpasang' }}</div>
+      </div>
+    </div>
+    {% if not st.siap %}
+      <p class="hint" style="margin-top:.6rem">
+        Node.js atau Baileys belum terpasang. Pasang Node.js, lalu jalankan
+        <code>npm install</code> di folder <code>wa-bridge</code>, kemudian
+        aktifkan di bawah.
+      </p>
+    {% endif %}
+    <p class="hint" style="margin-top:.6rem">
+      Bot membalas pesan yang <strong>masuk dari nomor lain</strong> ke nomor WA
+      yang tertaut di sini. Anda juga bisa <strong>chat ke diri sendiri</strong>
+      di nomor WA pribadi Anda — bot akan menjawabnya. Balasan bot
+      otomatis <strong>tidak dibalas ulang</strong> (anti-ulang) agar tidak
+      berputar sendiri.
+    </p>
+  </div>
+</div>
+
+{# ------------------------------------------------------------ pairing -- #}
+<div class="card" id="pasang">
+  <div class="card-head">
+    <div>
+      <h3>{{ icon('camera') }} Pasangan (Pairing)</h3>
+      <p>Scan kode QR ini dengan WhatsApp di HP untuk menautkan jembatan.</p>
+    </div>
+    <button class="btn btn-sm" type="button" onclick="muatQr()">Muat ulang QR</button>
+  </div>
+  <div class="card-body">
+    <div id="qr-kotak" class="qr-kotak">
+      <img id="qr-gambar" alt="Kode QR pasangan" style="display:none">
+      <p id="qr-teks" class="hint">Kode QR akan tampil di sini bila jembatan menunggu pasangan.</p>
+    </div>
+  </div>
+</div>
+
+{# ------------------------------------------------------------ pengaturan -- #}
+<div class="card" id="pengaturan">
+  <div class="card-head">
+    <div>
+      <h3>{{ icon('cog') }} Pengaturan</h3>
+      <p>Aktifkan jembatan dan atur port lokalnya.</p>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="post" action="/wa/pengaturan">
+      <div class="form-grid">
+        <div class="field">
+          <label class="cek-bot-judul" for="aktif"><strong>Aktifkan WhatsApp</strong></label>
+          <label class="cek-bot-isi" for="aktif">
+            <input type="checkbox" id="aktif" name="aktif" value="1"
+                   {{ 'checked' if cfg.wa_aktif == '1' }}>
+            <small>Hanya bila aktif, bodap menerima dan mengirim pesan via WhatsApp.</small>
+          </label>
+        </div>
+        <div class="field">
+          <label for="port">Port lokal bridge</label>
+          <input type="number" id="port" name="port" value="{{ cfg.wa_port }}" min="1024" max="65535">
+          <span class="hint">Port HTTP lokal jembatan (bawaan 8799).</span>
+        </div>
+      </div>
+      <div class="form-aksi">
+        <button class="btn btn-primary" type="submit">Simpan pengaturan</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ------------------------------------------------------------ uji & kirim -- #}
+<div class="card" id="uji">
+  <div class="card-head">
+    <div>
+      <h3>{{ icon('bell') }} Uji &amp; Kirim</h3>
+      <p>Uji jembatan dengan pesan masuk simulasi, atau kirim pesan keluar.</p>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="post" action="/wa/uji" class="form-grid">
+      <div class="field">
+        <label for="uji-dari">Nomor uji</label>
+        <input type="text" id="uji-dari" name="dari" value="uji@s.whatsapp.net">
+      </div>
+      <div class="field">
+        <label for="uji-teks">Teks uji</label>
+        <input type="text" id="uji-teks" name="teks" placeholder="berapa jumlah siswa?" required>
+      </div>
+      <div class="form-aksi">
+        <button class="btn" type="submit">Uji masuk</button>
+      </div>
+    </form>
+    <hr class="pembatas">
+    <form method="post" action="/wa/kirim" class="form-grid">
+      <div class="field">
+        <label for="kirim-no">Nomor tujuan</label>
+        <input type="text" id="kirim-no" name="no" placeholder="628xxxxxxxxxx@s.whatsapp.net" required>
+      </div>
+      <div class="field">
+        <label for="kirim-teks">Teks</label>
+        <input type="text" id="kirim-teks" name="teks" placeholder="Pesan keluar" required>
+      </div>
+      <div class="form-aksi">
+        <button class="btn" type="submit">Kirim via WA</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function muatQr() {
+  const img = document.getElementById('qr-gambar');
+  const kotak = document.getElementById('qr-kotak');
+  const teks = document.getElementById('qr-teks');
+  try {
+    const r = await fetch('/wa/qr');
+    if (r.ok) {
+      const blob = await r.blob();
+      img.src = URL.createObjectURL(blob);
+      img.style.display = 'block';
+      teks.style.display = 'none';
+    } else {
+      img.style.display = 'none';
+      teks.style.display = 'block';
+      teks.textContent = 'Belum ada kode QR (mungkin sudah terhubung).';
+    }
+  } catch (e) {
+    teks.textContent = 'Gagal memuat QR.';
+  }
+}
+async function muatStatus() {
+  try {
+    const r = await fetch('/wa/status.json');
+    const s = await r.json();
+    document.getElementById('status-teks').textContent = s.pesan || '—';
+    if (s.menunggu_pairing) muatQr();
+  } catch (e) { /* abaikan */ }
+}
+muatQr();
+muatStatus();
+setInterval(muatStatus, 8000);
+</script>
+{% endblock %}

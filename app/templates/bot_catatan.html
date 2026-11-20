@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% set judul_halaman = "Catatan Bot Dapodik" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Catatan Bot Dapodik (lengkap)</h1>
+    <p>
+      Seluruh baris catatan pekerjaan bot{% if job_id %} <strong>#{{ job_id }}</strong>{% endif %} —
+      bukan hanya 12 baris terakhir. Versi kode yang berjalan:
+      <span class="mono">{{ versi_kode or '—' }}</span>.
+    </p>
+  </div>
+  <div class="btn-group">
+    <a class="btn btn-primary btn-sm" href="/bot-dapodik/catatan.txt{% if job_id %}?job={{ job_id }}{% endif %}">
+      Unduh catatan (.txt)
+    </a>
+    <a class="btn btn-outline btn-sm" href="/bot-dapodik">Kembali ke Bot Dapodik</a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <div>
+      <h3>{{ jumlah_baris }} baris catatan</h3>
+      <p>
+        Asal catatan: <strong>{{ dari }}</strong>.
+        {% if berkas %}<br>Berkas di PC: <span class="mono">{{ berkas }}</span>{% endif %}
+      </p>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-outline btn-sm" type="button" id="salin-catatan">Salin semua</button>
+      <a class="btn btn-outline btn-sm" href="/bot-dapodik/catatan">Muat ulang</a>
+    </div>
+  </div>
+  <div class="card-body">
+    {% if catatan.strip() %}
+    <pre class="log-panel" id="catatan-lengkap" style="max-height:70vh; overflow:auto">{{ catatan }}</pre>
+    <p class="muted" style="font-size:.8rem; margin:.5rem 0 0">
+      Butir yang paling berguna untuk melaporkan kegagalan: baris yang memuat
+      <span class="mono">[versi]</span>, <span class="mono">[bio]</span>,
+      <span class="mono">[bio-rincian]</span>, dan <span class="mono">[periodik]</span>.
+      Kirimkan catatan ini apa adanya (tombol <em>Unduh catatan (.txt)</em>) — jangan
+      dipotong, supaya sebabnya bisa ditelusuri tanpa menebak.
+    </p>
+    {% else %}
+    <p class="empty">
+      Belum ada catatan untuk pekerjaan ini. Jalankan bot terlebih dahulu dari halaman
+      <a href="/bot-dapodik">Bot Dapodik</a>; setiap baris catatan akan tersimpan di sini
+      beserta berkasnya di PC.
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+{% if riwayat %}
+<div class="card mt-2">
+  <div class="card-head">
+    <div>
+      <h3>Catatan pekerjaan sebelumnya</h3>
+      <p>Buka catatan lengkap pekerjaan lain dengan menekan nomornya.</p>
+    </div>
+  </div>
+  <div class="card-body p-0 table-wrap compact">
+    <table class="data">
+      <caption class="sr-only">Riwayat pekerjaan bot</caption>
+      <thead>
+        <tr><th>#</th><th>Mulai</th><th>Selesai</th><th>Status</th><th>Siswa</th><th>Catatan</th></tr>
+      </thead>
+      <tbody>
+        {% for satu in riwayat %}
+        <tr>
+          <td class="mono">#{{ satu.id }}</td>
+          <td class="muted nowrap">{{ satu.started_at or '—' }}</td>
+          <td class="muted nowrap">{{ satu.finished_at or '—' }}</td>
+          <td>{{ satu.status or '—' }}</td>
+          <td>{{ satu.total_item or 0 }}</td>
+          <td><a class="btn btn-outline btn-sm" href="/bot-dapodik/catatan?job={{ satu.id }}">Lihat catatan</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const tombol = document.getElementById("salin-catatan");
+  const panel = document.getElementById("catatan-lengkap");
+  if (!tombol || !panel) return;
+  tombol.addEventListener("click", async () => {
+    const teks = panel.textContent || "";
+    try {
+      await navigator.clipboard.writeText(teks);
+      tombol.textContent = "Tersalin ✓";
+    } catch (e) {
+      // Peramban tanpa izin papan klip: pilih teksnya supaya bisa disalin manual.
+      const rentang = document.createRange();
+      rentang.selectNodeContents(panel);
+      const pilih = window.getSelection();
+      pilih.removeAllRanges();
+      pilih.addRange(rentang);
+      tombol.textContent = "Tekan Ctrl+C untuk menyalin";
+    }
+    setTimeout(() => { tombol.textContent = "Salin semua"; }, 4000);
+  });
+})();
+</script>
+{% endblock %}

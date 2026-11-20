@@ -1,0 +1,82 @@
+{#- Kerangka halaman **untuk siswa**: tanpa menu petugas, huruf besar, menu bawah
+    seperti aplikasi HP. Dipakai oleh semua halaman /portal/… supaya anak kelas 7
+    tidak melihat menu yang bukan untuknya (Impor, Bot Dapodik, Pengaturan, …).
+
+    Halaman petugas tetap memakai base.html (tabel padat) — sengaja dipisah. -#}
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2563eb">
+  <title>{{ page_title }} · {{ app_name }}</title>
+  <meta name="description" content="{{ app_long_name }} {{ profil.nama }}">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232563eb'/%3E%3Cpath d='M9 21V11l7-4 7 4v10' stroke='white' stroke-width='2.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M13 21v-4h6v4' stroke='white' stroke-width='2.2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="{{ static_url('css/app.css') if static_url is defined else '/static/css/app.css' }}">
+  <link rel="stylesheet" href="{{ static_url('css/portal.css') if static_url is defined else '/static/css/portal.css' }}">
+</head>
+<body class="portal">
+<a class="skip-link" href="#konten">Lompat ke isi</a>
+{% from "_macros.html" import icon, flash %}
+{% set saya = siswa if siswa is defined and siswa else None %}
+{% set halaman = current_path | default('/portal') %}
+
+<div class="portal-shell">
+  <header class="pl-bar">
+    <a class="pl-brand" href="/portal">
+      <span class="pl-logo">{{ icon('book') }}</span>
+      <span>
+        <strong>{{ app_name }} · Ruang Siswa</strong>
+        <small>{{ profil.nama | title }}</small>
+      </span>
+    </a>
+    <div class="pl-bar-user">
+      {% if saya %}
+      <span class="pl-siapa" title="{{ saya.nama | title }} ({{ saya.nisn }})">
+        <span class="pl-mini">{{ (saya.nama or '?')[:1] | upper }}</span>
+        {{ saya.nama | title }}
+      </span>
+      {% endif %}
+      <form method="post" action="/logout">
+        <button class="pl-keluar" type="submit">{{ icon('logout') }} Keluar</button>
+      </form>
+    </div>
+  </header>
+
+  {#- Halaman «Ajukan Perubahan» memakai dua kolom (isian + lampiran berkas), jadi di
+      layar lebar kerangkanya boleh lebih lega. Halaman siswa lain tetap 760 px. -#}
+  <main class="pl-main{{ ' pl-main-lebar' if halaman == '/portal/pengajuan' else '' }}" id="konten" tabindex="-1">
+    <div class="print-only cetak-kepala">
+      <div>
+        <h1>{{ profil.nama }}</h1>
+        <p>{{ page_title }}{% if hari_ini is defined %} · dicetak {{ hari_ini() }}{% endif %}</p>
+      </div>
+      <p>{{ app_long_name }} · {{ app_name }} v{{ app_version }}</p>
+    </div>
+    <div class="flash-area">{{ flash(msg if msg is defined else None, msg_level if msg_level is defined else None) }}</div>
+    {% block content %}{% endblock %}
+  </main>
+
+  <nav class="pl-nav" aria-label="Menu siswa">
+    <a href="/portal" class="{{ 'aktif' if halaman in ['/portal', '/portal/'] }}" {{ 'aria-current=page' if halaman in ['/portal', '/portal/'] }}>
+      {{ icon('home') }}<span>Beranda</span>
+    </a>
+    <a href="/portal/profil" class="{{ 'aktif' if halaman.startswith('/portal/profil') }}" {{ 'aria-current=page' if halaman.startswith('/portal/profil') }}>
+      {{ icon('user') }}<span>Dataku</span>
+    </a>
+    <a href="/portal/ekstrakurikuler" class="{{ 'aktif' if halaman.startswith('/portal/ekstrakurikuler') }}" {{ 'aria-current=page' if halaman.startswith('/portal/ekstrakurikuler') }}>
+      {{ icon('flag') }}<span>Kegiatan</span>
+    </a>
+    <form method="post" action="/logout">
+      <button type="submit">{{ icon('logout') }}<span>Keluar</span></button>
+    </form>
+  </nav>
+
+  <footer class="pl-foot">
+    {{ profil.nama | title }} · {{ profil.tahun_ajaran }} · Semester {{ profil.semester }}
+  </footer>
+</div>
+<script src="{{ static_url('js/app.js') if static_url is defined else '/static/js/app.js' }}" defer></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

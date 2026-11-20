@@ -1,0 +1,50 @@
+# --- Data & rahasia (JANGAN di-commit) ---
+data/
+*.sqlite3
+*.db
+.env
+secrets.env
+
+# Data contoh berisi data pribadi siswa (NIK, NISN, alamat) -> tidak di-commit
+sample-data/
+*.xlsx
+*.xls
+*.xlsb
+*.ods
+!template-import/*.xlsx
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- Uji antarmuka (jsdom) di luar aplikasi ---
+node_modules/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- OS/editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+
+# --- Hasil pemasang (paket ZIP & bahan pustaka) ---
+SM-*-paket.zip
+bahan/
+dist/
+
+# --- Hasil pratinjau tampilan (berisi data siswa, jangan di-commit) ---
+pratinjau/
+
+# --- Hasil pembangunan pemasang bodap (jangan di-commit) ---
+pemasang/payload/
+pemasang/bodap.ico
+pemasang/bodap.png
+pemasang/BODAP_VERSI.txt
+build/
+dist/
+hasil-uji.json

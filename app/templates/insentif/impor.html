@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+
+{% block content %}
+{#- Impor rekening awal: unggah berkas lama sekali → cocokkan → terapkan. -#}
+<div class="card mb-2">
+  <div class="card-head">
+    <div>
+      <h3>Impor rekening awal</h3>
+      <p>Unggah sekali berkas lama (mis. daftar penerima insentif) supaya nomor
+      rekening terisi sendiri — tidak perlu memindah satu per satu. Yang diambil
+      <strong>hanya nomor rekening</strong>; rekening yang sudah terisi tidak
+      pernah ditimpa.</p>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="post" action="/insentif/impor-rekening" enctype="multipart/form-data">
+      <label class="field">Berkas lama (.xls / .xlsx)
+        <input type="file" name="berkas" accept=".xls,.xlsx" required>
+      </label>
+      <p><button class="btn btn-primary" type="submit">{{ icon('upload') }} Unggah &amp; cocokkan</button>
+      <a class="btn" href="/insentif">← Kembali</a></p>
+    </form>
+    {% if status_impor.terakhir %}
+    <p class="muted">Impor terakhir: {{ status_impor.terakhir.waktu }} ·
+    {{ status_impor.terakhir.terisi }} terisi dari
+    «{{ status_impor.terakhir.berkas }}»
+    ({{ status_impor.terakhir.cocok }} cocok,
+    {{ status_impor.terakhir.beda }} beda dipertahankan).</p>
+    {% endif %}
+  </div>
+</div>
+
+{% if cocok is not none %}
+<div class="card mb-2">
+  <div class="card-head">
+    <div>
+      <h3>Hasil pencocokan: {{ draf.nama }}</h3>
+      <p>
+        <span class="badge badge-success">{{ cocok | selectattr('aksi', 'equalto', 'ISI') | list | length }} akan diisi</span>
+        <span class="badge badge-muted">{{ cocok | selectattr('aksi', 'equalto', 'SAMA') | list | length }} sudah sama</span>
+        <span class="badge badge-warning">{{ cocok | selectattr('aksi', 'equalto', 'BEDA') | list | length }} beda (dipertahankan)</span>
+        <span class="badge badge-danger">{{ tak_di_gtk | length }} tak ada di GTK</span>
+        <span class="badge badge-info">{{ tak_di_berkas | length }} tak ada di berkas</span>
+      </p>
+    </div>
+  </div>
+  <div class="card-body">
+    <h4>Cocok dengan GTK ({{ cocok | length }})</h4>
+    {% if cocok %}
+    <table class="data">
+      <thead><tr><th>GTK (Dapodik)</th><th>NIP</th><th>Rekening GTK</th>
+      <th>Rekening berkas</th><th>Aksi</th></tr></thead>
+      <tbody>
+        {% for baris in cocok %}
+        <tr>
+          <td><strong>{{ baris.gtk_nama }}</strong>
+            <br><span class="muted">{{ baris.berkas.nama }}</span></td>
+          <td class="mono">{{ baris.gtk_nip or baris.berkas.nip or '—' }}</td>
+          <td class="mono">{{ baris.gtk_rekening or '—' }}</td>
+          <td class="mono">{{ baris.berkas.rekening or '—' }}</td>
+          <td><span class="badge {{ 'badge-success' if baris.aksi == 'ISI' else ('badge-muted' if baris.aksi == 'SAMA' else 'badge-warning') }}">{{ baris.aksi }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <form class="mt-2" method="post" action="/insentif/impor-rekening/terapkan">
+      <p><button class="btn btn-primary" type="submit">{{ icon('check') }} Terapkan (isi yang kosong)</button>
+      <a class="btn" href="/insentif/impor-rekening">Batal</a></p>
+    </form>
+    {% else %}
+    <div class="empty">Tidak ada baris yang cocok dengan data GTK.</div>
+    {% endif %}
+
+    <h4 class="mt-2">Ada di berkas, tak ada di GTK ({{ tak_di_gtk | length }})</h4>
+    {% if tak_di_gtk %}
+    <table class="data">
+      <thead><tr><th>Nama di berkas</th><th>NIP</th><th class="num">Rekening</th></tr></thead>
+      <tbody>
+        {% for baris in tak_di_gtk %}
+        <tr><td>{{ baris.nama }}</td><td class="mono">{{ baris.nip or '—' }}</td>
+        <td class="mono num">{{ baris.rekening or '—' }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">Semua nama di berkas ada di GTK.</div>
+    {% endif %}
+
+    <h4 class="mt-2">Ada di GTK, tak ada di berkas ({{ tak_di_berkas | length }})</h4>
+    {% if tak_di_berkas %}
+    <table class="data">
+      <thead><tr><th>Nama GTK</th><th>NIP</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for orang in tak_di_berkas %}
+        <tr><td>{{ orang.nama }}</td><td class="mono">{{ orang.nip or '—' }}</td>
+        <td>{{ orang.status_kepegawaian or '—' }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">Semua GTK ada di berkas.</div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}
