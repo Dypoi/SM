@@ -309,9 +309,13 @@ hasil_alat = ollama.jalankan_alat("alat_tak_ada", {}, CFG_AKTIF)
 cek("alat tak dikenal ditolak",
     hasil_alat.get("ok") is False and "tidak dikenal" in (hasil_alat.get("pesan") or ""),
     str(hasil_alat))
-cek("daftar alat 27 nama (seluruh fitur bodap)",
-    {a["nama"] for a in ollama.daftar_alat()} == set(ollama._PELAKU)
-    and len(ollama.daftar_alat()) == 27,
+cek("daftar alat 26 nama di skema (seluruh fitur bodap)",
+    {a["nama"] for a in ollama.daftar_alat()} <= set(ollama._PELAKU)
+    and len(ollama.daftar_alat()) == 26,
+    str(len(ollama.daftar_alat())))
+cek("unggah_berkas_spj tidak di skema tapi ada pelaksana (jembatan)",
+    "unggah_berkas_spj" not in {a["nama"] for a in ollama.daftar_alat()}
+    and "unggah_berkas_spj" in ollama._PELAKU,
     str(len(ollama._PELAKU)))
 
 
@@ -865,6 +869,102 @@ async def uji_http() -> None:
             dengan_kunci.status_code == 200
             and dengan_kunci.json().get("jawaban") == "Insentif siap.",
             f"status {dengan_kunci.status_code} {str(dengan_kunci.json())[:160]}")
+
+
+# --------------------------------------------------------------------------- #
+# 15. Optimasi R81: num_ctx, pemilihan alat, pemotongan hasil, penjaga ID
+# --------------------------------------------------------------------------- #
+skenario("15. Optimasi R81 (num_ctx / pilih alat / potong / penjaga)")
+
+# _chat mengirim num_ctx + keep_alive di payload.
+OLLAMA.chat_skrip = [chat_bicara("selesai")]
+ollama.bicara("lihat status bot", cfg=CFG_AKTIF)
+_ollama_chat_terakhir = OLLAMA.chat_terakhir
+cek("_chat memakai num_ctx 8192",
+    (_ollama_chat_terakhir or {}).get("options", {}).get("num_ctx") == 8192,
+    str((_ollama_chat_terakhir or {}).get("options")))
+cek("_chat memakai keep_alive 30m (level atas)",
+    (_ollama_chat_terakhir or {}).get("keep_alive") == "30m",
+    str((_ollama_chat_terakhir or {}).get("keep_alive")))
+cek("_chat suhu 0",
+    (_ollama_chat_terakhir or {}).get("options", {}).get("temperature") == 0,
+    str((_ollama_chat_terakhir or {}).get("options")))
+OLLAMA.chat_skrip = []
+
+# _ALAT_SKEMA: unggah_berkas_spj hilang, buat_spj_tangcer hanya tahun+semester.
+nama_alat = {a["function"]["name"] for a in ollama._ALAT_SKEMA}
+cek("unggah_berkas_spj tidak ada di _ALAT_SKEMA",
+    "unggah_berkas_spj" not in nama_alat, str(sorted(nama_alat)))
+tangcer_param = {
+    a["function"]["name"]: sorted(
+        a["function"].get("parameters", {}).get("properties", {}).keys())
+    for a in ollama._ALAT_SKEMA
+    if a["function"]["name"] == "buat_spj_tangcer"}
+cek("buat_spj_tangcer hanya tahun+semester",
+    tangcer_param.get("buat_spj_tangcer") == ["semester", "tahun"],
+    str(tangcer_param.get("buat_spj_tangcer")))
+
+# _pilih_alat hanya mengembalikan subset relevan (tidak semua 26 alat).
+pil = ollama._pilih_alat("lihat status bot dan jumlah siswa")
+pil_nama = {a["function"]["name"] for a in pil}
+cek("_pilih_alat hanya alat relevan (<=8)",
+    0 < len(pil_nama) <= 8, str(sorted(pil_nama)))
+cek("_pilih_alat memuat lihat_status_bot",
+    "lihat_status_bot" in pil_nama, str(sorted(pil_nama)))
+pil_default = {a["function"]["name"] for a in ollama._pilih_alat("halo")}
+cek("_pilih_alat default = alat baca ringan",
+    pil_default <= {"lihat_status_bot", "lihat_status_insentif",
+                    "lihat_pengaturan"}, str(sorted(pil_default)))
+
+# _potong_hasil memotong di atas batas.
+potong = ollama._potong_hasil("x" * 5000, batas=3000)
+cek("_potong_hasil memotong di 3000",
+    len(potong) == 3000 + len("… (dipotong; persempit saringan/limit)")
+    and potong.startswith("x" * 3000)
+    and "dipotong" in potong, f"len={len(potong)}")
+cek("_potong_hasil biarkan pendek",
+    ollama._potong_hasil("pendek") == "pendek", "")
+
+# _saringan_hitung_siswa: tingkat + rombel.
+cek("saringan tingkat",
+    ollama._saringan_hitung_siswa("jumlah siswa kelas 9") == {"tingkat": "9"},
+    str(ollama._saringan_hitung_siswa("jumlah siswa kelas 9")))
+cek("saringan rombel",
+    ollama._saringan_hitung_siswa("jumlah siswa rombel 9a") == {"rombel": "9A"},
+    str(ollama._saringan_hitung_siswa("jumlah siswa rombel 9a")))
+
+# _id_terlihat menolak alat hapus bila ID belum muncul di jejak lihat_*.
+cek("ID belum terlihat → ditolak",
+    ollama._id_terlihat("hapus_periode_insentif", {"periode_id": "7"},
+                        [{"alat": "lihat_status_insentif", "hasil": "{}"}])
+    is False, "")
+cek("ID sudah terlihat → diizinkan",
+    ollama._id_terlihat(
+        "hapus_periode_insentif", {"periode_id": "7"},
+        [{"alat": "lihat_status_insentif",
+          "hasil": '{"periode":[{"periode_id":"7"}]}'}])
+    is True, "")
+
+# Penjaga: alat hapus dengan ID tak terlihat ditolak ramah di loop bicara().
+OLLAMA.chat_skrip = [chat_alat("hapus_periode_insentif", {"periode_id": "999"}),
+                     chat_bicara("Tidak bisa menghapus — ID belum terlihat.")]
+hapus_hasil = ollama.bicara("hapus periode insentif 999", cfg=CFG_AKTIF)
+cek("hapus ID tak terlihat ditolak ramah",
+    hapus_hasil.get("alat") and hapus_hasil["alat"][-1].get("alat") == "hapus_periode_insentif"
+    and hapus_hasil["alat"][-1].get("id_tidak_terlihat") is True,
+    str(hapus_hasil.get("alat", [{}])[-1:]))
+OLLAMA.chat_skrip = []
+
+# Deteksi panggilan berulang: alat sama dengan argumen sama tidak dijalankan lagi.
+OLLAMA.chat_skrip = [chat_alat("lihat_status_bot"),
+                     chat_alat("lihat_status_bot"),
+                     chat_bicara("selesai")]
+ulang_hasil = ollama.bicara("lihat status bot lalu lihat lagi", cfg=CFG_AKTIF)
+ulang_jejak = ulang_hasil.get("alat") or []
+cek("panggilan berulang dicatat ulang=True",
+    any(z.get("ulang") for z in ulang_jejak),
+    str([{k: z.get(k) for k in ("alat", "ulang")} for z in ulang_jejak]))
+OLLAMA.chat_skrip = []
 
 
 import asyncio  # noqa: E402

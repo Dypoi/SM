@@ -29,6 +29,7 @@ import base64
 import binascii
 import json
 import logging
+import re
 import time
 import urllib.error
 import urllib.request
@@ -158,8 +159,7 @@ def _tampaknya_pesan_meta(isi: str) -> bool:
     if not any(kata in teks for kata in meta):
         return False
     # Bila sudah menyebut angka konkret, dianggap jawaban — bukan pesan meta.
-    import re as _re
-    return not _re.search(r"\d", isi)
+    return not re.search(r"\d", isi)
 
 
 def _pesan_kosong(model: str) -> str:
@@ -179,6 +179,18 @@ def _pesan_timeout(detik: int) -> str:
         "lebih kecil (mis. qwen2.5:7b-instruct), atau naikkan batas waktu "
         "di pengaturan Ollama."
     )
+
+
+def _potong_hasil(isi: str, batas: int = 3000) -> str:
+    """Potong hasil alat yang terlalu besar agar konteks tidak membanjiri model.
+
+    Hasil alat yang panjang (mis. daftar 200 baris) akan memenuhi konteks model
+    kecil. Dipotong dengan tanda «dipotong» supaya model tahu harus mempersempit
+    saringan/limit bila butuh detail lebih lanjut.
+    """
+    if len(isi) <= batas:
+        return isi
+    return isi[:batas] + "… (dipotong; persempit saringan/limit)"
 
 
 def _format_detik(detik: float) -> str:
@@ -338,35 +350,18 @@ _ALAT_SKEMA: list[dict[str, Any]] = [
     _alat("hentikan_bot_dapodik",
           "Hentikan Bot Dapodik yang sedang berjalan.",
           _obj({})),
-    _alat("unggah_berkas_spj",
-          "Unggah berkas rekening + absensi e-gov (base64) untuk pembuatan SPJ.",
-          _obj({"nama_berkas": {**_STR, "description": "Nama berkas rekening."},
-                "isi_berkas": {**_STR, "description": "Isi berkas rekening (base64)."},
-                "nama_absensi": {**_STR, "description": "Nama berkas absensi e-gov."},
-                "isi_absensi": {**_STR, "description": "Isi berkas absensi (base64)."}},
-               ["nama_berkas", "isi_berkas", "nama_absensi", "isi_absensi"])),
     _alat("buat_spj",
           "Buat dokumen SPJ dari draf yang diunggah. dokumen: spj/pns/pppk; "
           "tgl 1–31 (kosong = akhir bulan).",
           _obj({"dokumen": {**_STR, "description": "spj, pns, atau pppk."},
                 "tgl": {**_INT, "description": "Tanggal 1–31 (kosong = akhir bulan)."}})),
     _alat("buat_spj_tangcer",
-          "Susun paket SPJ TANGCER (docx+xlsx+PDF) dari penerima tersimpan. Isi "
-          "tahun, semester, tahap, kepala, nip, jabatan, alamat, kota, tanggal, "
-          "biaya_personal, volume, sampel, dana_masuk.",
+          "Susun paket SPJ TANGCER (docx+xlsx+PDF) dari penerima tersimpan. "
+          "Hanya isi tahun & semester; sisanya diisi otomatis dari pengaturan "
+          "sekolah dan pengisian terakhir. Pastikan ada data penerima TANGCER.",
           _obj({"tahun": {**_STR, "description": "Tahun (mis. 2026)."},
-                "semester": {**_STR, "description": "Ganjil atau Genap."},
-                "tahap": {**_STR, "description": "Tahap (mis. 1)."},
-                "kepala": {**_STR, "description": "Nama kepala sekolah."},
-                "nip": {**_STR, "description": "NIP kepala sekolah."},
-                "jabatan": {**_STR, "description": "Jabatan kepala."},
-                "alamat": {**_STR, "description": "Alamat lembaga."},
-                "kota": {**_STR, "description": "Kota/kabupaten."},
-                "tanggal": {**_STR, "description": "Tanggal SPJ."},
-                "biaya_personal": {**_STR, "description": "Biaya personal."},
-                "volume": {**_STR, "description": "Volume."},
-                "sampel": {**_STR, "description": "Sampel."},
-                "dana_masuk": {"type": "boolean", "description": "Dana sudah masuk."}})),
+                "semester": {**_STR, "description": "Ganjil atau Genap."}},
+               ["tahun", "semester"])),
     # ------------------------------------------------------ insentif tulis -- #
     _alat("putuskan_pengajuan",
           "Setujui (terima) atau tolak pengajuan siswa. Ambil request_id dari "
@@ -434,31 +429,53 @@ _ALAT_AKSI = frozenset({
     "hapus_libur", "ubah_jabatan_insentif",
 })
 
+#: Alat hapus/ubah yang berbahaya: ID yang dipakai harus pernah muncul di hasil
+#: alat lihat_* sebelumnya pada jejak — supaya model kecil tidak mengarang ID.
+_ALAT_BUTUH_ID: dict[str, str] = {
+    "hapus_periode_insentif": "periode_id",
+    "hapus_orang_insentif": "baris_id",
+    "ubah_orang_insentif": "baris_id",
+    "geser_orang_insentif": "baris_id",
+    "ubah_jabatan_insentif": "pegawai_id",
+    "putuskan_pengajuan": "request_id",
+}
+
+
+def _id_terlihat(nama: str, argumen: dict[str, Any], jejak: list[dict[str, Any]]) -> bool:
+    """Cek ID alat hapus/ubah sudah pernah muncul di hasil alat lihat_*."""
+    kunci = _ALAT_BUTUH_ID.get(nama)
+    if not kunci or kunci not in argumen:
+        return True
+    id_nilai = str(argumen.get(kunci) or "").strip()
+    if not id_nilai:
+        return True
+    untuk = id_nilai.lower()
+    for satu in jejak:
+        if not str(satu.get("alat") or "").startswith("lihat_"):
+            continue
+        teks = str(satu.get("hasil") or "")
+        if untuk in teks.lower():
+            return True
+    return False
+
+
 SYSTEM_PROMPT = (
-    "Anda adalah assistant yang mengoperasikan aplikasi sekolah «SM» (bodap) di "
-    "komputer pengguna. Anda mengoperasikan bodap **hanya dengan memanggil alat** "
-    "yang tersedia. Aturan keras:\n"
-    "- **Selalu panggil alat** untuk mendapat data. **JANGAN mengarang** angka, "
-    "nama, ID, atau hasil alat. Jawaban HANYA dari hasil alat yang dikembalikan.\n"
+    "Anda assistant yang mengoperasikan aplikasi sekolah «SM» (bodap) di komputer "
+    "pengguna, **hanya dengan memanggil alat** yang tersedia. Aturan keras:\n"
+    "- **Selalu panggil alat** untuk data. **JANGAN mengarang** angka, nama, ID, "
+    "atau hasil. Jawaban HANYA dari hasil alat yang dikembalikan.\n"
     "- **JANGAN** menulis pemanggilan alat sebagai JSON di teks; panggil alatnya, "
     "tunggu hasil, jangan menulis hasil fiktif.\n"
-    "- Jawab dalam bahasa Indonesia, ringkas dan jelas.\n"
-    "- **Pilih alat yang cocok dengan maksud pertanyaan.** Peta: «berapa jumlah/"
-    "banyak siswa» → HANYA «lihat_jumlah_siswa»; «daftar/lihat siswa» → «lihat_"
-    "daftar_siswa»/«lihat_siswa»; keadaan bot → «lihat_status_bot»/«baca_hasil_"
-    "bot»; insentif/SPJ → «lihat_status_insentif»/«lihat_status_spj». Jangan "
-    "pakai alat status/insentif untuk pertanyaan jumlah siswa.\n"
-    "- Untuk melihat daftar sejumlah baris, panggil «lihat_...» dan sampaikan "
-    "isinya apa adanya.\n"
+    "- Jawab bahasa Indonesia, ringkas. Peta alat: «jumlah siswa» → HANYA «lihat_"
+    "jumlah_siswa»; «daftar siswa» → «lihat_daftar_siswa»; bot → «lihat_status_bot»; "
+    "insentif/SPJ → «lihat_status_insentif»/«lihat_status_spj».\n"
     "- Untuk pekerjaan (bot, unggahan/pembuatan berkas, ubah data), panggil alatnya "
-    "dan laporkan hasil yang benar. Jangan menyatakan berhasil bila alat gagal.\n"
+    "dan laporkan hasil yang benar; jangan menyatakan berhasil bila alat gagal.\n"
     "- **Setelah alat mengembalikan hasil, langsung sebutkan jawabannya.** JANGAN "
     "pesan meta atau meminta data yang sudah ada.\n"
     "- Bila butuh ID (periode, roster, pengajuan, pegawai), ambil dari alat "
-    "lihat_... — jangan mengarang.\n"
-    "- Alat «hapus_...» permanen; pastikan ID benar sebelum dipakai.\n"
-    "- Sampaikan pesan kesalahan/saran alat kepada pengguna apa adanya.\n"
-    "- Jangan minta informasi sensitif (kata sandi, kunci API)."
+    "lihat_... — jangan mengarang. Alat «hapus_...» permanen; pastikan ID benar.\n"
+    "- Sampaikan pesan kesalahan/saran alat kepada pengguna apa adanya."
 )
 
 
@@ -705,7 +722,7 @@ def _pelaku_lihat_status_tangcer(arg: Mapping[str, Any]) -> dict[str, Any]:
         tahun=str(arg.get("tahun") or "").strip(),
         semester=str(arg.get("semester") or "").strip(),
         cari=str(arg.get("cari") or "").strip(),
-        cocok="", batas=100)
+        cocok="", batas=20)
     return {
         "ok": True, "ringkas": ringkas, "jumlah": len(daftar),
         "penerima": [{"tahun": p.get("tahun"), "semester": p.get("semester"),
@@ -1229,12 +1246,15 @@ def daftar_alat() -> list[dict[str, str]]:
 # Siklus percakapan: pesan → Ollama → alat → jawaban
 # --------------------------------------------------------------------------- #
 def _chat(url: str, model: str, kunci: str, pesans: list[dict[str, Any]],
-          detik: int = DETIK_PERMINTAAN) -> dict[str, Any]:
-    tubuh = {"model": model, "messages": pesans, "tools": _ALAT_SKEMA,
-             "stream": False,
+          detik: int = DETIK_PERMINTAAN,
+          alat: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    tubuh = {"model": model, "messages": pesans,
+             "tools": alat if alat is not None else _ALAT_SKEMA,
+             "stream": False, "keep_alive": "30m",
              # Model 7B/14B di CPU: suhu nol agar pemanggilan alat stabil dan
-             # tidak degeneratif (tidak mengulang/mengarang).
-             "options": {"temperature": 0}}
+             # tidak degeneratif (tidak mengulang/mengarang). num_ctx dibatasi
+             # agar konteks/KV cache tidak membesar tak terkendali.
+             "options": {"temperature": 0, "num_ctx": 8192}}
     return _permintaan(f"{url}/api/chat", "POST", tubuh, kunci=kunci, detik=detik)
 
 
@@ -1332,6 +1352,60 @@ def _pertanyaan_hitung_siswa(pesan: str) -> bool:
     return True
 
 
+def _saringan_hitung_siswa(pesan: str) -> dict[str, str]:
+    """Ambil saringan rombel/tingkat dari pertanyaan hitung siswa.
+
+    Mis. «berapa siswa kelas 7A?» → rombel «7A»; «berapa siswa tingkat 8?»
+    → tingkat «8». Penjaga nilai memakai ini supaya tidak menjawab total seluruh
+    sekolah untuk pertanyaan yang sebenarnya meminta kelompok tertentu.
+    """
+    teks = (pesan or "").lower()
+    saringan: dict[str, str] = {}
+    m = re.search(r"(?:kelas|tingkat)\s*[:]?\s*([0-9])", teks)
+    if m:
+        saringan["tingkat"] = m.group(1)
+    m = re.search(r"rombel\s*[:]?\s*([0-9][a-z]?)", teks)
+    if m:
+        saringan["rombel"] = m.group(1).upper()
+    else:
+        m = re.search(r"\b([0-9][a-z])\b", teks)
+        if m:
+            saringan["rombel"] = m.group(1).upper()
+    return saringan
+
+
+#: Pemetaan kata kunci → alat yang relevan. Model kecil (2B/4B) sulit memilih
+#: bila 27 alat dikirim sekaligus; kirim hanya alat yang relevan per pesan.
+_KELOMPOK: dict[tuple[str, ...], tuple[str, ...]] = {
+    ("siswa",): ("lihat_jumlah_siswa", "lihat_daftar_siswa", "lihat_siswa"),
+    ("gtk", "guru", "tendik"): ("lihat_daftar_gtk", "ubah_jabatan_insentif"),
+    ("bot", "dapodik"): ("lihat_status_bot", "baca_hasil_bot",
+                         "jalankan_bot_dapodik", "hentikan_bot_dapodik"),
+    ("insentif", "periode", "roster", "libur"): (
+        "lihat_status_insentif", "tambah_libur", "hapus_libur",
+        "buat_periode_insentif", "tambah_orang_insentif"),
+    ("spj",): ("lihat_status_spj", "buat_spj", "buat_spj_tangcer"),
+    ("pengajuan", "setuju", "tolak"): ("lihat_antrean_persetujuan",
+                                      "putuskan_pengajuan"),
+    ("tangcer",): ("lihat_status_tangcer", "buat_spj_tangcer"),
+    ("ekskul",): ("lihat_ekskul",),
+    ("pengaturan", "profil", "sekolah"): ("lihat_pengaturan",),
+}
+
+
+def _pilih_alat(pesan: str) -> list[dict[str, Any]]:
+    """Pilih alat yang relevan dengan pesan — kirim hanya itu ke model kecil."""
+    teks = (pesan or "").lower()
+    nama: set[str] = set()
+    for kata, alat in _KELOMPOK.items():
+        if any(k in teks for k in kata):
+            nama.update(alat)
+    if not nama:
+        # Tak terdeteksi: hanya alat baca ringan yang selalu relevan.
+        nama = {"lihat_status_bot", "lihat_status_insentif", "lihat_pengaturan"}
+    return [a for a in _ALAT_SKEMA if a["function"]["name"] in nama]
+
+
 def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
            cfg: Mapping[str, str] | None = None) -> dict[str, Any]:
     """Satu percakapan lengkap: jawaban akhir + jejak alat yang dipakai.
@@ -1370,23 +1444,28 @@ def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
     # alat yang sah; model menjawab dari data ini.
     if _pertanyaan_hitung_siswa(pesan):
         _id_hitung = f"hitung-{len(jejak) + 1}"
-        hasil_hitung = jalankan_alat("lihat_jumlah_siswa", {}, setting)
-        jejak.append({"alat": "lihat_jumlah_siswa", "argumen": {},
+        arg_hitung = _saringan_hitung_siswa(pesan)
+        hasil_hitung = jalankan_alat("lihat_jumlah_siswa", arg_hitung, setting)
+        jejak.append({"alat": "lihat_jumlah_siswa", "argumen": arg_hitung,
                       "hasil": hasil_hitung, "otomatis": True})
         pesans.append({"role": "assistant",
                        "content": "Saya menghitung jumlah siswa terlebih dahulu.",
                        "tool_calls": [{"id": _id_hitung, "type": "function",
                                        "function": {"name": "lihat_jumlah_siswa",
-                                                    "arguments": {}}}]})
+                                                    "arguments": arg_hitung}}]})
         pesans.append({"role": "tool", "tool_call_id": _id_hitung,
-                       "content": json.dumps(hasil_hitung, ensure_ascii=False)})
+                       "content": _potong_hasil(
+                           json.dumps(hasil_hitung, ensure_ascii=False))})
         pesans.append({"role": "user",
                        "content": ("Hasil alat «lihat_jumlah_siswa» sudah tersimpan. Jawab SEKARANG pertanyaan pengguna berdasarkan angka dari hasil tersebut — sebutkan angka itu dalam jawaban. Jangan meminta data lagi, datanya sudah ada. Jika pertanyaan meminta kelompok tertentu, panggil alat itu lagi dengan saringan yang diminta.")})
 
     coba_ulang_meta = False
+    _sudah_dipakai: set[tuple[str, str]] = set()
+    alat_relevan = _pilih_alat(pesan)
     for _langkah in range(BATAS_LOOP):
         _t0 = time.perf_counter()
-        hasil = _chat(url, model, setting.get(KUNCI_KUNCI) or "", pesans, detik=detik)
+        hasil = _chat(url, model, setting.get(KUNCI_KUNCI) or "", pesans,
+                      detik=detik, alat=alat_relevan)
         waktu_langkah.append(round(time.perf_counter() - _t0, 2))
         pesan_model = hasil.get("message") or {}
         panggilan = pesan_model.get("tool_calls") or []
@@ -1435,10 +1514,30 @@ def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
             if not isinstance(argumen, dict):
                 argumen = {}
             id_panggilan = str(panggilan_satu.get("id") or f"panggilan-{len(jejak) + 1}")
+            # Penjaga: panggilan berulang (nama + argumen sama) tidak dijalankan
+            # ulang — suruh model menjawab dari hasil sebelumnya.
+            _kunci = (nama, json.dumps(argumen, sort_keys=True, ensure_ascii=False))
+            if _kunci in _sudah_dipakai:
+                hasil_alat = {"ok": False, "pesan": f"Alat «{nama}» dengan argumen ini sudah dijalankan — gunakan hasil sebelumnya, jangan memanggilnya lagi."}
+                jejak.append({"alat": nama, "argumen": argumen, "hasil": hasil_alat,
+                              "ulang": True})
+                pesans.append({"role": "tool", "tool_call_id": id_panggilan,
+                               "content": json.dumps(hasil_alat, ensure_ascii=False)})
+                continue
+            _sudah_dipakai.add(_kunci)
+            # Penjaga: alat hapus/ubah — ID harus pernah muncul di hasil lihat_*.
+            if not _id_terlihat(nama, argumen, jejak):
+                hasil_alat = {"ok": False, "pesan": f"Sebelum «{nama}», ambil ID dulu dari alat lihat_... — pastikan ID benar, jangan mengarang."}
+                jejak.append({"alat": nama, "argumen": argumen, "hasil": hasil_alat,
+                              "id_tidak_terlihat": True})
+                pesans.append({"role": "tool", "tool_call_id": id_panggilan,
+                               "content": json.dumps(hasil_alat, ensure_ascii=False)})
+                continue
             hasil_alat = jalankan_alat(nama, argumen, setting)
             jejak.append({"alat": nama, "argumen": argumen, "hasil": hasil_alat})
             pesans.append({"role": "tool", "tool_call_id": id_panggilan,
-                           "content": json.dumps(hasil_alat, ensure_ascii=False)})
+                           "content": _potong_hasil(
+                               json.dumps(hasil_alat, ensure_ascii=False))})
     _selesai = time.perf_counter() - mulai
     return {"jawaban": ("Ollama masih meminta alat setelah "
                         f"{BATAS_LOOP} langkah — percakapan dihentikan untuk "
