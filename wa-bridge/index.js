@@ -67,6 +67,10 @@ let sock = null;
 let qrBaru = "";
 let history = {};
 let ownJid = "";
+// Penjaga reconnect: hanya satu jadwal sambung ulang, hindari tumpukan
+// socket/listener (MaxListenersExceededWarning).
+let sedangSambungUlang = false;
+let tugasReconnect = null;
 
 /** ID pesan yang baru kita kirim — dipakai anti-echo (jangan membalik balasan kita). */
 const _sentIds = new Map();
@@ -399,6 +403,39 @@ function hapusSession() {
   }
 }
 
+/**
+ * Jadwalkan sambung ulang — hanya SATU yang berjalan, hindari tumpukan
+ * socket/listener (MaxListenersExceededWarning).
+ * @param {boolean} hapusSession benar=hapus kredensial (session loggedOut).
+ */
+function jadwalkanReconnect(hapusSession) {
+  if (sedangSambungUlang) return; // sudah ada jadwal — jangan menumpuk
+  sedangSambungUlang = true;
+  tugasReconnect = setTimeout(async () => {
+    tugasReconnect = null;
+    sedangSambungUlang = false;
+    try {
+      if (sock) {
+        sock.ev.removeAllListeners();
+        if (typeof sock.end === "function") await sock.end();
+        else if (typeof sock.endSocket === "function") await sock.endSocket();
+      }
+    } catch {} // abaikan kesalahan penutupan
+    sock = null;
+    if (hapusSession) hapusSession();
+    sambungkan();
+  }, 2000);
+}
+
+/** Batalkan jadwal sambung ulang yang tertunda (saat sudah terhubung). */
+function jikaReconnectCancel() {
+  if (tugasReconnect) {
+    clearTimeout(tugasReconnect);
+    tugasReconnect = null;
+  }
+  sedangSambungUlang = false;
+}
+
 async function sambungkan() {
   if (!ENABLED) {
     status.siap = false;
@@ -457,6 +494,8 @@ async function sambungkan() {
         console.log("[wa-bridge] QR pairing tersedia — minta admin scan.");
       }
       if (connection === "open") {
+        // Koneksi stabil: hapus jadwal reconnect yang tertunda.
+        jikaReconnectCancel();
         qrBaru = "";
         status.terhubung = true;
         status.menunggu_pairing = false;
@@ -476,33 +515,12 @@ async function sambungkan() {
           console.log("[wa-bridge] Keluar (loggedOut) — hapus session dan sambung ulang.");
           // Session lama tidak valid: hapus kredensial + session agar pairing
           // ulang bersih, lalu sambung ulang untuk memunculkan QR baru.
-          setTimeout(async () => {
-            try {
-              if (sock) {
-                sock.ev.removeAllListeners();
-                if (typeof sock.end === "function") await sock.end();
-                else if (typeof sock.endSocket === "function") await sock.endSocket();
-              }
-            } catch {} // abaikan kesalahan penutupan
-            sock = null;
-            hapusSession();
-            sambungkan();
-          }, 2000);
+          jadwalkanReconnect(true); // hapus session + sambung ulang
         } else {
           status.pesan = "Sambungan terputus — mencoba menyambung lagi.";
           console.log("[wa-bridge] Terputus (code " + (code || "?") + ") — menyambung lagi.");
-          // Jangan menumpuk koneksi: tutup socket lama + lepas listener dulu.
-          setTimeout(async () => {
-            try {
-              if (sock) {
-                sock.ev.removeAllListeners();
-                if (typeof sock.end === "function") await sock.end();
-                else if (typeof sock.endSocket === "function") await sock.endSocket();
-              }
-            } catch {} // abaikan kesalahan penutupan
-            sock = null;
-            sambungkan();
-          }, 2000);
+          // Jangan menumpuk koneksi: satu jadwal sambung ulang saja.
+          jadwalkanReconnect(false);
         }
       }
       if (error) {
