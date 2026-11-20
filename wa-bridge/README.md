@@ -52,6 +52,20 @@ HP WhatsApp ─┐
 | `SM_API_KEY` | Kunci API bodap |
 | `SM_WA_ENABLED` | "1" nyala / "0" mati |
 | `SM_WA_NO_CONNECT` | "1" mode uji (HTTP jalan, tanpa sambungan WA) |
+| `SM_WA_ALLOW_SELF` | "1" proses chat ke diri sendiri (bawaan "1") |
+| `SM_WA_HANYA_DIRI` | "1" hanya balas self-chat, lewati pesan dari nomor lain (bawaan "1") |
+
+## Chat ke diri sendiri (self-chat)
+
+Bot dapat dihubungi **tanpa meminta orang lain**: ketik pesan ke **chat diri
+sendiri** di nomor WA pribadi Anda. Bot menjawabnya seperti biasa.
+
+- Self-chat diproses lewat handler yang sama; **anti-echo** memastikan balasan
+  bot sendiri **tidak dibalas ulang** (mencegah loop).
+- Bawaan `SM_WA_HANYA_DIRI=1` → hanya self-chat yang dibalas; ubah ke `0` jika
+  ingin bot juga menjawab pesan dari nomor lain.
+- Bawaan `SM_WA_ALLOW_SELF=1` → self-chat diproses; set ke `0` kembali ke sikap
+  lama (semua pesan `fromMe` dilewati, anti-loop).
 
 ## Titik akhir HTTP lokal
 

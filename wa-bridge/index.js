@@ -40,6 +40,11 @@ const API_KEY = process.env.SM_API_KEY || "";
 const WA_DIR = process.env.SM_WA_DIR || path.join(__dirname, ".session");
 const ENABLED = (process.env.SM_WA_ENABLED || "1") === "1";
 const MODE_UJI = (process.env.SM_WA_NO_CONNECT || "") === "1";
+// Self-chat: bot membalas pesan yang diketik ke diri sendiri.
+// ALLOW_SELF: proses pesan fromMe di self-chat (bawaan "1").
+// HANYA_DIRI: hanya balas self-chat, lewati pesan dari nomor lain (bawaan "1").
+const ALLOW_SELF = (process.env.SM_WA_ALLOW_SELF || "1") === "1";
+const HANYA_DIRI = (process.env.SM_WA_HANYA_DIRI || "1") === "1";
 
 const HISTORY_FILE = path.join(WA_DIR, "riwayat.json");
 
@@ -57,6 +62,53 @@ const status = {
 let sock = null;
 let qrBaru = "";
 let history = {};
+let ownJid = "";
+
+/** ID pesan yang baru kita kirim — dipakai anti-echo (jangan membalik balasan kita). */
+const _sentIds = new Map();
+
+function catatTerkirim(msg) {
+  if (!msg || !msg.key || !msg.key.id) return;
+  _sentIds.set(msg.key.id, Date.now());
+}
+
+function adalahEcho(id) {
+  if (!id) return false;
+  const t = _sentIds.get(id);
+  if (!t) return false;
+  if (Date.now() - t > 60000) { _sentIds.delete(id); return false; }
+  return true;
+}
+
+/** Kirim pesan dan catat ID-nya supaya echo-nya dilewati. */
+async function kirimDanCatat(no, teks) {
+  if (!sock) return;
+  const terkirim = await sock.sendMessage(no, { text: teks });
+  catatTerkirim(terkirim);
+}
+
+/**
+ * Apakah pesan ini harus diproses (dijawab)?
+ * - dari orang lain (dariMe false): proses, kecuali HANYA_DIRI.
+ * - self-chat yang diketik pengguna (dariMe true, remoteJid=ownJid, bukan echo):
+ *   proses bila ALLOW_SELF.
+ * - echo balasan kita sendiri (dariMe true, id di _sentIds): lewati.
+ * - pesan keluar ke chat orang lain (dariMe true, remoteJid != ownJid): lewati.
+ */
+function bolehProses(msg) {
+  if (!msg || !msg.key) return false;
+  const dari = msg.key.remoteJid;
+  const dariSaya = !!msg.key.fromMe;
+  if (dariSaya && adalahEcho(msg.key.id)) return false;
+  if (dariSaya && dari !== ownJid) return false;
+  if (dariSaya && !ALLOW_SELF) return false;
+  const prosesSelf = dariSaya && dari === ownJid;
+  const prosesLuar = !dariSaya;
+  if (!prosesSelf && !prosesLuar) return false;
+  if (HANYA_DIRI && !prosesSelf) return false;
+  if (!dari || !dari.endsWith("@s.whatsapp.net")) return false;
+  return true;
+}
 
 function bacaRiwayat() {
   try {
@@ -139,15 +191,15 @@ async function tanganiPesan(dari, teks) {
     hasil = await tanyaBodap(teks, dari);
     if (hasil.ok && hasil.jawaban) {
       catatRiwayat("assistant", dari, hasil.jawaban);
-      if (sock) await sock.sendMessage(dari, { text: hasil.jawaban });
+      await kirimDanCatat(dari, hasil.jawaban);
     } else if (hasil.ok) {
       // Bodap tidak memberi jawaban — balas jujur.
       const ganti = "Saya belum bisa menjawab pertanyaan itu. Coba tanyakan hal lain, " +
         "atau ulangi pertanyaannya.";
       catatRiwayat("assistant", dari, ganti);
-      if (sock) await sock.sendMessage(dari, { text: ganti });
+      await kirimDanCatat(dari, ganti);
     } else {
-      if (sock) await sock.sendMessage(dari, { text: hasil.jawaban });
+      await kirimDanCatat(dari, hasil.jawaban);
     }
   } catch (e) {
     console.error("tanganiPesan gagal:", e);
@@ -208,7 +260,8 @@ async function jawabRute(req, res) {
         return kirim(res, 503, { detail: "WhatsApp belum terhubung — pasangkan dulu (lihat halaman /wa)." });
       }
       try {
-        await sock.sendMessage(no, { text: teks });
+        const terkirim = await sock.sendMessage(no, { text: teks });
+        catatTerkirim(terkirim);
         return kirim(res, 200, { ok: true });
       } catch (e) {
         return kirim(res, 503, { detail: "Gagal mengirim: " + (e && e.message || e) });
@@ -230,10 +283,12 @@ async function jawabRute(req, res) {
 }
 
 const server = http.createServer(jawabRute);
-server.listen(PORT, "127.0.0.1", () => {
-  console.log(`[wa-bridge] HTTP lokal: http://127.0.0.1:${PORT}`);
-  console.log(`[wa-bridge] bodap: ${BASE_URL} | enabled=${ENABLED}`);
-});
+if (require.main === module) {
+  server.listen(PORT, "127.0.0.1", () => {
+    console.log(`[wa-bridge] HTTP lokal: http://127.0.0.1:${PORT}`);
+    console.log(`[wa-bridge] bodap: ${BASE_URL} | enabled=${ENABLED}`);
+  });
+}
 
 // --------------------------------------------------------------------------- //
 // Sambungan WhatsApp (Baileys)
@@ -296,7 +351,8 @@ async function sambungkan() {
         status.terhubung = true;
         status.menunggu_pairing = false;
         status.siap = true;
-        status.nomor = (sock.user && sock.user.id) || status.nomor || "";
+        ownJid = (sock.user && sock.user.id) || status.nomor || "";
+        status.nomor = ownJid;
         status.pesan = `Terhubung sebagai ${status.nomor || "—"}.`;
         console.log("[wa-bridge] WhatsApp terhubung:", status.nomor);
       }
@@ -324,11 +380,8 @@ async function sambungkan() {
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       if (type !== "notify") return;
       for (const msg of messages) {
-        if (!msg || msg.key.fromMe) continue;
+        if (!msg || !bolehProses(msg)) continue;
         const dari = msg.key.remoteJid;
-        if (!dari || dari.endsWith("@g.us") || dari.endsWith("@s.whatsapp.net") === false) {
-          // hanya grup/personal whatsapp; lewati grup (bisa dibuka nanti)
-        }
         const teks =
           (msg.message && msg.message.conversation) ||
           (msg.message && msg.message.extendedTextMessage &&
@@ -360,4 +413,8 @@ setInterval(() => { try { if (sock) sock.ev.emit("creds.update"); } catch {} }, 
 process.on("uncaughtException", (e) => { console.error("[wa-bridge] uncaught:", e && e.message); });
 process.on("unhandledRejection", (e) => { console.error("[wa-bridge] unhandled:", e && e.message); });
 
-sambungkan();
+if (require.main === module) {
+  sambungkan();
+}
+
+module.exports = { bolehProses, catatTerkirim, adalahEcho, _sentIds, setOwnJid: (v) => { ownJid = v; }, ALLOW_SELF, HANYA_DIRI };
