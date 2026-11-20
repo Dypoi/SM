@@ -181,6 +181,15 @@ async function jawabRute(req, res) {
     if (req.method === "GET" && jalan === "/status") {
       return kirim(res, 200, { ...status, enabled: ENABLED });
     }
+    // Akses langsung root: beri info ramah (bukan 404 membingungkan).
+    if (req.method === "GET" && jalan === "/") {
+      return kirim(res, 200, {
+        ok: true,
+        bridge: "sm-wa-bridge",
+        titik_akhir: ["/status", "/qr", "/send", "/test/inbound"],
+        ...status, enabled: ENABLED,
+      });
+    }
     if (req.method === "GET" && jalan === "/qr") {
       if (!qrBaru) {
         return kirim(res, 404, { detail: "Tidak ada kode QR saat ini (mungkin sudah terhubung)." });
@@ -195,9 +204,15 @@ async function jawabRute(req, res) {
       const no = String(badan.no || "").trim();
       const teks = String(badan.teks || "");
       if (!no || !teks) return kirim(res, 400, { detail: "no dan teks wajib." });
-      if (!sock) return kirim(res, 503, { detail: "WhatsApp belum terhubung." });
-      await sock.sendMessage(no, { text: teks });
-      return kirim(res, 200, { ok: true });
+      if (!sock || !status.terhubung) {
+        return kirim(res, 503, { detail: "WhatsApp belum terhubung — pasangkan dulu (lihat halaman /wa)." });
+      }
+      try {
+        await sock.sendMessage(no, { text: teks });
+        return kirim(res, 200, { ok: true });
+      } catch (e) {
+        return kirim(res, 503, { detail: "Gagal mengirim: " + (e && e.message || e) });
+      }
     }
     if (req.method === "POST" && jalan === "/test/inbound") {
       // Uji tanpa WhatsApp sungguhan: simulasi pesan masuk.

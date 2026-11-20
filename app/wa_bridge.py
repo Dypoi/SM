@@ -162,7 +162,15 @@ def _kirim_json(path: str, badan: dict, port: int | None = None,
         with urllib.request.urlopen(req, timeout=detik) as respons:
             return True, json.loads(respons.read() or b"{}"), ""
     except urllib.error.HTTPError as galat:
-        return False, {}, str(galat)
+        # Ambil isi tubuh galat (biasa {"detail": ...}) supaya pesan ramah
+        # tersampaikan, bukan sekadar «HTTP Error 503».
+        detail = ""
+        try:
+            isi = galat.read().decode("utf-8", "replace")
+            detail = json.loads(isi).get("detail") or isi
+        except Exception:  # noqa: BLE001
+            detail = str(galat)
+        return False, {}, str(detail)
     except Exception as galat:  # noqa: BLE001
         return False, {}, str(galat)
 
