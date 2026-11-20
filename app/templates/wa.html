@@ -151,15 +151,16 @@ async function muatQr() {
   const teks = document.getElementById('qr-teks');
   try {
     const r = await fetch('/wa/qr');
-    if (r.ok) {
-      const blob = await r.blob();
-      img.src = URL.createObjectURL(blob);
+    if (!r.ok) throw new Error('gagal');
+    const j = await r.json();
+    if (j.ok && j.png) {
+      img.src = 'data:image/png;base64,' + j.png;
       img.style.display = 'block';
       teks.style.display = 'none';
     } else {
       img.style.display = 'none';
       teks.style.display = 'block';
-      teks.textContent = 'Belum ada kode QR (mungkin sudah terhubung).';
+      teks.textContent = j.detail || 'Belum ada kode QR (mungkin sudah terhubung).';
     }
   } catch (e) {
     teks.textContent = 'Gagal memuat QR.';

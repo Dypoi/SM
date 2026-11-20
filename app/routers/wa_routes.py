@@ -8,11 +8,12 @@ dan menguji jembatan.
 from __future__ import annotations
 
 import asyncio
+import base64
 
 from urllib.parse import quote_plus
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import RedirectResponse
 
 from .. import auth, services, wa_bridge
 from ..web import render
@@ -79,11 +80,15 @@ def status_json(user: auth.SessionUser = Depends(auth.require_admin)):
 
 @router.get("/wa/qr")
 def qr(user: auth.SessionUser = Depends(auth.require_admin)):
-    """Kode QR pairing (PNG)."""
+    """Kode QR pairing. Selalu 200 JSON agar tidak ada 404 yang mengkhawatirkan.
+
+    Mengembalikan ``{"ok": true, "png": "<base64>"}`` bila ada QR, atau
+    ``{"ok": false, "detail": "..."}`` bila belum ada.
+    """
     ok, png, galat = wa_bridge.qr_png()
     if ok and png:
-        return Response(content=png, media_type="image/png")
-    return Response(status_code=404)
+        return {"ok": True, "png": base64.b64encode(png).decode("ascii")}
+    return {"ok": False, "detail": galat or "Belum ada kode QR."}
 
 
 @router.post("/wa/uji")
