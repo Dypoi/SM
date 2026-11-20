@@ -179,13 +179,20 @@
   }
   muat();
 
-  function gelembung(peranan, isi, alat) {
+  function gelembung(peranan, isi, alat, waktu) {
     var baris = document.createElement("div");
     baris.className = "chat- pesan chat-" + (peranan === "user" ? "siswa" : "bot");
     var isi_kothak = document.createElement("div");
     isi_kothak.className = "chat-isi";
     isi_kothak.textContent = isi;
     baris.appendChild(isi_kothak);
+    if (peranan === "bot" && waktu) {
+      var wl = document.createElement("div");
+      wl.className = "chat-waktu";
+      wl.style.cssText = "font-size:.75rem;color:#6b7280;margin-top:.3rem;";
+      wl.textContent = "⏱ " + waktu;
+      baris.appendChild(wl);
+    }
     if (alat && alat.length) {
       var detail = document.createElement("details");
       detail.className = "chat-alat";
@@ -216,7 +223,11 @@
     simpan();
     tombol.disabled = true;
     input.value = "";
-    catat.textContent = "Ollama sedang berpikir…";
+    var mulai_waktu = Date.now();
+    var timer_berpikir = setInterval(function () {
+      var s = Math.round((Date.now() - mulai_waktu) / 1000);
+      catat.textContent = "Ollama sedang berpikir... " + s + " detik";
+    }, 500);
     var isi = JSON.stringify({ pesan: pesan, riwayat: riwayat.slice(-20) });
     fetch("/ollama/chat", {
       method: "POST",
@@ -228,18 +239,21 @@
       });
     }).then(function (hasil) {
       var data = hasil.data || {};
+      var waktu = data.waktu_teks || (data.waktu != null ? (data.waktu + " detik") : "");
       if (!hasil.ok) {
-        gelembung("bot", "Galat: " + (data.detail || "permintaan gagal"));
+        gelembung("bot", "Galat: " + (data.detail || "permintaan gagal"), [], "");
       } else {
-        gelembung("bot", data.jawaban || "(Ollama tidak memberi jawaban)", data.alat || []);
+        gelembung("bot", data.jawaban || "(Ollama tidak memberi jawaban)",
+                  data.alat || [], waktu);
         if (data.jawaban) {
           riwayat.push({ role: "assistant", content: data.jawaban });
           simpan();
         }
       }
     }).catch(function (galat) {
-      gelembung("bot", "Galat jaringan: " + galat);
+      gelembung("bot", "Galat jaringan: " + galat, [], "");
     }).finally(function () {
+      clearInterval(timer_berpikir);
       tombol.disabled = false;
       input.focus();
       catat.textContent = "";

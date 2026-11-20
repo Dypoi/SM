@@ -29,6 +29,7 @@ import base64
 import binascii
 import json
 import logging
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -178,6 +179,17 @@ def _pesan_timeout(detik: int) -> str:
         "lebih kecil (mis. qwen2.5:7b-instruct), atau naikkan batas waktu "
         "di pengaturan Ollama."
     )
+
+
+def _format_detik(detik: float) -> str:
+    """Format durasi menjadi teks ramah («12 detik» / «1 menit 20 detik»)."""
+    jika = max(0.0, float(detik))
+    jika_menit, sisa = divmod(jika, 60)
+    jika_menit = int(jika_menit)
+    sisa = int(round(sisa))
+    if jika_menit <= 0:
+        return f"{sisa} detik"
+    return f"{jika_menit} menit {sisa} detik" if sisa else f"{jika_menit} menit"
 
 
 def _permintaan(url: str, metode: str = "GET", tubuh: dict[str, Any] | None = None,
@@ -1348,6 +1360,9 @@ def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
 
     jejak: list[dict[str, Any]] = []
     detik = _detik_pengaturan(setting)
+    # Pencatat waktu: total «berpikir» sampai jawaban, dan per panggilan model.
+    mulai = time.perf_counter()
+    waktu_langkah: list[float] = []
 
     # Penjaga nilai: pertanyaan hitung siswa yang jelas → panggil alat
     # «lihat_jumlah_siswa» langsung di server, agar model tidak salah pilih
@@ -1370,7 +1385,9 @@ def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
 
     coba_ulang_meta = False
     for _langkah in range(BATAS_LOOP):
+        _t0 = time.perf_counter()
         hasil = _chat(url, model, setting.get(KUNCI_KUNCI) or "", pesans, detik=detik)
+        waktu_langkah.append(round(time.perf_counter() - _t0, 2))
         pesan_model = hasil.get("message") or {}
         panggilan = pesan_model.get("tool_calls") or []
         isi_model = str(pesan_model.get("content") or "")
@@ -1398,8 +1415,11 @@ def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
                                                "sudah ada di hasil alat sebelumnya.")})
                     continue
                 jawaban = isi_model.strip() or _pesan_kosong(model)
+                _selesai = time.perf_counter() - mulai
                 return {"jawaban": jawaban, "alat": jejak,
-                        "batas": False, "riwayat": pesans}
+                        "batas": False, "riwayat": pesans,
+                        "waktu": round(_selesai, 2), "langkah": len(waktu_langkah),
+                        "waktu_teks": _format_detik(_selesai)}
         pesans.append({"role": "assistant",
                        "content": isi_model,
                        "tool_calls": panggilan})
@@ -1419,10 +1439,13 @@ def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
             jejak.append({"alat": nama, "argumen": argumen, "hasil": hasil_alat})
             pesans.append({"role": "tool", "tool_call_id": id_panggilan,
                            "content": json.dumps(hasil_alat, ensure_ascii=False)})
+    _selesai = time.perf_counter() - mulai
     return {"jawaban": ("Ollama masih meminta alat setelah "
                         f"{BATAS_LOOP} langkah — percakapan dihentikan untuk "
                         "mencegah putaran tak berujung."),
-            "alat": jejak, "batas": True, "riwayat": pesans}
+            "alat": jejak, "batas": True, "riwayat": pesans,
+            "waktu": round(_selesai, 2), "langkah": len(waktu_langkah),
+            "waktu_teks": _format_detik(_selesai)}
 
 
 def status_cepat() -> dict[str, Any]:

@@ -272,6 +272,16 @@ cek("riwayat dikembalikan (sistem + user + assistant-alat + tool)",
     and hasil["riwayat"][0]["role"] == "system"
     and hasil["riwayat"][-1]["role"] == "tool",
     str(len(hasil.get("riwayat") or [])))
+cek("indikator waktu: kunci «waktu» (detik, angka)",
+    isinstance(hasil.get("waktu"), (int, float)) and hasil.get("waktu", 0) >= 0,
+    str(hasil.get("waktu")))
+cek("indikator waktu: kunci «langkah» = 2 panggilan model",
+    isinstance(hasil.get("langkah"), int) and hasil.get("langkah") == 2,
+    str(hasil.get("langkah")))
+cek("indikator waktu: «waktu_teks» menyebut detik/menit",
+    bool(hasil.get("waktu_teks"))
+    and ("detik" in hasil.get("waktu_teks", "") or "menit" in hasil.get("waktu_teks", "")),
+    str(hasil.get("waktu_teks")))
 
 # --------------------------------------------------------------------------- #
 # 4. Riwayat diperpendek
