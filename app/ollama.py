@@ -254,193 +254,160 @@ _INT = {"type": "integer"}
 _ALAT_SKEMA: list[dict[str, Any]] = [
     # ------------------------------------------------------------- status -- #
     _alat("lihat_status_bot",
-          "Ringkasan keadaan Bot Dapodik: sedang berjalan atau menganggur, kemajuan "
-          "pekerjaan terakhir (berhasil/gagal/dilewati), siswa yang sedang diproses, "
-          "dan baris-baris catatan terbaru.",
+          "Ringkasan Bot Dapodik: berjalan/idle, kemajuan, siswa yang diproses, "
+          "catatan terbaru.",
           _obj({})),
     _alat("lihat_status_insentif",
-          "Ringkasan modul insentif: periode insentif yang ada, status impor "
-          "rekening, dan status draf cetak SPJ (berkas rekening & berkas absensi e-gov).",
+          "Ringkasan modul insentif: periode, status impor rekening, draf SPJ.",
           _obj({})),
     _alat("lihat_status_spj",
-          "Status pembuatan SPJ insentif dari berkas: apakah berkas rekening dan "
-          "berkas absensi e-gov sudah diunggah, serta ringkasan pratinjau "
-          "(bulan, jumlah penerima, total dana, tanggal DL).",
+          "Status pembuatan SPJ: apakah berkas rekening & absensi e-gov sudah "
+          "diunggah + ringkasan.",
           _obj({})),
     _alat("baca_hasil_bot",
-          "Hasil pekerjaan Bot Dapodik terakhir: hitungan berhasil/gagal/dilewati, "
-          "daftar siswa beserta status dan pesan terbaru, serta baris-baris catatan terakhir.",
+          "Hasil Bot Dapodik terakhir: hitungan berhasil/gagal/dilewati + catatan.",
           _obj({})),
     # ------------------------------------------------------------------ data -- #
     _alat("lihat_daftar_siswa",
-          "Daftar siswa aplikasi SM (hanya untuk melihat sejumlah baris, bukan "
-          "menghitung). «q» teks pencarian (nama/NISN); «rombel», «tingkat», "
-          "«status» untuk menyaring; «limit» jumlah baris maksimum (1–200, "
-          "bawaan 20 — jangan minta batas besar). Untuk pertanyaan «berapa "
-          "jumlah siswa», gunakan alat «lihat_jumlah_siswa» — lebih tepat dan "
-          "tidak memuntahkan ribuan baris. Kembalikan baris (id, nisn, nama, "
-          "rombel, tingkat, status) dan total.",
-          _obj({"q": {**_STR, "description": "Teks pencarian (nama/NISN)."},
+          "Daftar siswa (lihat sejumlah baris). Saring q/rombel/tingkat/status; "
+          "limit 1–200. Untuk hitung jumlah, pakai lihat_jumlah_siswa.",
+          _obj({"q": {**_STR, "description": "Pencarian nama/NISN."},
                 "rombel": {**_STR, "description": "Nama rombel."},
                 "tingkat": {**_STR, "description": "Tingkat kelas."},
-                "status": {**_STR, "description": "Status siswa (mis. Aktif)."},
-                "limit": {**_INT, "description": "Jumlah baris maksimum (1–200, "
-                                               "jangan besar)."}})),
+                "status": {**_STR, "description": "Status siswa."},
+                "limit": {**_INT, "description": "Batas baris (1–200)."}})),
     _alat("lihat_jumlah_siswa",
-          "Hitung jumlah siswa secara eksak (tanpa memuncukan daftar baris) — "
-          "cocok bila siswa ada ribuan. Kembalikan total, dan bila diminta "
-          "«pecahan_rombel»/«pecahan_tingkat»/«pecahan_status», ringkasan "
-          "kelompok beserta jumlahnya. «q», «rombel», «tingkat», «status» untuk "
-          "menyaring. Gunakan ini untuk semua pertanyaan «berapa banyak siswa».",
-          _obj({"q": {**_STR, "description": "Teks pencarian (nama/NISN)."},
+          "Hitung jumlah siswa eksak (tanpa daftar baris). Pakai untuk semua "
+          "pertanyaan jumlah siswa. Opsional pecahan_rombel/tingkat/status.",
+          _obj({"q": {**_STR, "description": "Pencarian nama/NISN."},
                 "rombel": {**_STR, "description": "Nama rombel."},
                 "tingkat": {**_STR, "description": "Tingkat kelas."},
-                "status": {**_STR, "description": "Status siswa (mis. Aktif)."},
+                "status": {**_STR, "description": "Status siswa."},
                 "pecahan_rombel": {"type": "boolean",
-                                   "description": "Beri jumlah per rombel."},
+                                   "description": "Jumlah per rombel."},
                 "pecahan_tingkat": {"type": "boolean",
-                                    "description": "Beri jumlah per tingkat."},
+                                    "description": "Jumlah per tingkat."},
                 "pecahan_status": {"type": "boolean",
-                                   "description": "Beri jumlah per status."}})),
+                                   "description": "Jumlah per status."}})),
     _alat("lihat_siswa",
-          "Detail lengkap satu siswa berdasarkan NISN (10 digit). Kembalikan "
-          "semua kolom data siswa apa adanya.",
+          "Detail lengkap satu siswa berdasarkan NISN (10 digit).",
           _obj({"nisn": {**_STR, "description": "NISN siswa (10 digit)."}},
                ["nisn"])),
     _alat("lihat_daftar_gtk",
-          "Daftar guru & tendik (GTK). «jenis» (guru/tendik), «status», «cari» "
-          "teks pencarian; «limit» jumlah baris maksimum (1–500, bawaan 50).",
+          "Daftar guru & tendik (GTK). Saring jenis/status/cari; limit 1–500.",
           _obj({"jenis": {**_STR, "description": "guru atau tendik."},
                 "status": {**_STR, "description": "Status pegawai."},
                 "cari": {**_STR, "description": "Teks pencarian."},
-                "limit": {**_INT, "description": "Jumlah baris maksimum (1–500)."}})),
+                "limit": {**_INT, "description": "Batas baris (1–500)."}})),
     _alat("lihat_antrean_persetujuan",
-          "Daftar pengajuan perubahan data siswa yang menunggu keputusan. «status»: "
-          "menunggu, disetujui, ditolak, dibatalkan, atau semua; «q» teks pencarian.",
+          "Pengajuan perubahan data siswa. Saring status (menunggu/disetujui/"
+          "ditolak/dibatalkan/semua) atau q.",
           _obj({"status": {**_STR, "description": "Status pengajuan (kosong = menunggu)."},
-                "q": {**_STR, "description": "Teks pencarian (nama/NISN)."}})),
+                "q": {**_STR, "description": "Pencarian nama/NISN."}})),
     _alat("lihat_ekskul",
-          "Daftar ekstrakurikuler beserta jumlah anggota. «aktif_hanya»: true untuk "
-          "hanya yang aktif.",
+          "Daftar ekstrakurikuler + jumlah anggota. aktif_hanya=true untuk aktif.",
           _obj({"aktif_hanya": {"type": "boolean", "description": "Hanya ekskul aktif."}})),
     _alat("lihat_status_tangcer",
-          "Ringkasan TANGCER: penerima yang tersimpan (tahun, semester, jumlah, "
-          "nominal) dan daftar penerima («tahun», «semester», «cari»).",
+          "Ringkasan TANGCER: penerima tersimpan + daftar penerima (tahun/semester/cari).",
           _obj({"tahun": {**_STR, "description": "Tahun (mis. 2026)."},
                 "semester": {**_STR, "description": "Ganjil atau Genap."},
-                "cari": {**_STR, "description": "Teks pencarian nama."}})),
+                "cari": {**_STR, "description": "Pencarian nama."}})),
     _alat("lihat_pengaturan",
-          "Ringkasan pengaturan bodap: identitas sekolah, tahun ajaran & semester, "
-          "tarif insentif, dan tanda apakah fitur-fitur utama aktif. Baca saja.",
+          "Pengaturan bodap: identitas sekolah, tahun/semester, tarif insentif, "
+          "fitur aktif. Baca saja.",
           _obj({})),
     # -------------------------------------------------------------- bot/SPJ -- #
     _alat("jalankan_bot_dapodik",
-          "Memulai Bot Dapodik untuk antrean siswa. Kosongkan «rombel» untuk semua "
-          "rombel; «limit» membatasi jumlah siswa; «nisn_manual» untuk NISN tertentu "
-          "(satu per baris). Kembalikan nomor pekerjaan dan jumlah siswa.",
+          "Mulai Bot Dapodik untuk antrean siswa. rombel kosong=semua; limit; "
+          "nisn_manual (satu per baris).",
           _obj({"rombel": {**_STR, "description": "Nama rombel (kosong = semua)."},
                 "limit": {**_INT, "description": "Batas jumlah siswa (0 = semua)."},
                 "nisn_manual": {**_STR, "description": "NISN manual, satu per baris."}})),
     _alat("hentikan_bot_dapodik",
-          "Menghentikan Bot Dapodik yang sedang berjalan.",
+          "Hentikan Bot Dapodik yang sedang berjalan.",
           _obj({})),
     _alat("unggah_berkas_spj",
-          "Mengunggah berkas rekening insentif (.xls/.xlsx) dan berkas absensi e-gov "
-          "(.xlsx/.xls/.xlsb/.ods) untuk pembuatan SPJ. Isi berkas dikirim sebagai base64.",
+          "Unggah berkas rekening + absensi e-gov (base64) untuk pembuatan SPJ.",
           _obj({"nama_berkas": {**_STR, "description": "Nama berkas rekening."},
                 "isi_berkas": {**_STR, "description": "Isi berkas rekening (base64)."},
                 "nama_absensi": {**_STR, "description": "Nama berkas absensi e-gov."},
                 "isi_absensi": {**_STR, "description": "Isi berkas absensi (base64)."}},
                ["nama_berkas", "isi_berkas", "nama_absensi", "isi_absensi"])),
     _alat("buat_spj",
-          "Membuat dokumen SPJ insentif dari draf berkas yang sudah diunggah. "
-          "«dokumen»: spj (gabungan), pns, atau pppk; «tgl»: tanggal 1–31 "
-          "(kosong = akhir bulan). Kembalikan nama berkas PDF, jalur penyimpanan, "
-          "dan ukurannya.",
+          "Buat dokumen SPJ dari draf yang diunggah. dokumen: spj/pns/pppk; "
+          "tgl 1–31 (kosong = akhir bulan).",
           _obj({"dokumen": {**_STR, "description": "spj, pns, atau pppk."},
                 "tgl": {**_INT, "description": "Tanggal 1–31 (kosong = akhir bulan)."}})),
     _alat("buat_spj_tangcer",
-          "Menyusun paket berkas SPJ Tangerang Cerdas (docx + xlsx + PDF) dari data "
-          "penerima TANGCER yang tersimpan. Isi isian seperti halaman «SPJ TANGCER»: "
-          "tahun, semester (Ganjil/Genap), tahap, kepala, nip, jabatan, alamat, kota, "
-          "tanggal, biaya_personal, volume, sampel, dana_masuk (true/false).",
+          "Susun paket SPJ TANGCER (docx+xlsx+PDF) dari penerima tersimpan. Isi "
+          "tahun, semester, tahap, kepala, nip, jabatan, alamat, kota, tanggal, "
+          "biaya_personal, volume, sampel, dana_masuk.",
           _obj({"tahun": {**_STR, "description": "Tahun (mis. 2026)."},
                 "semester": {**_STR, "description": "Ganjil atau Genap."},
                 "tahap": {**_STR, "description": "Tahap (mis. 1)."},
                 "kepala": {**_STR, "description": "Nama kepala sekolah."},
                 "nip": {**_STR, "description": "NIP kepala sekolah."},
-                "jabatan": {**_STR, "description": "Jabatan kepala (bawaan: Kepala Sekolah)."},
+                "jabatan": {**_STR, "description": "Jabatan kepala."},
                 "alamat": {**_STR, "description": "Alamat lembaga."},
                 "kota": {**_STR, "description": "Kota/kabupaten."},
                 "tanggal": {**_STR, "description": "Tanggal SPJ."},
                 "biaya_personal": {**_STR, "description": "Biaya personal."},
                 "volume": {**_STR, "description": "Volume."},
                 "sampel": {**_STR, "description": "Sampel."},
-                "dana_masuk": {"type": "boolean", "description": "Apakah dana sudah masuk."}})),
+                "dana_masuk": {"type": "boolean", "description": "Dana sudah masuk."}})),
     # ------------------------------------------------------ insentif tulis -- #
     _alat("putuskan_pengajuan",
-          "Menyetujui («keputusan»: terima) atau menolak («keputusan»: tolak) satu "
-          "pengajuan perubahan data siswa. «catatan» opsional. Ambil request_id dari "
-          "alat lihat_antrean_persetujuan.",
+          "Setujui (terima) atau tolak pengajuan siswa. Ambil request_id dari "
+          "lihat_antrean_persetujuan.",
           _obj({"request_id": {**_INT, "description": "ID pengajuan."},
                 "keputusan": {**_STR, "description": "terima atau tolak."},
-                "catatan": {**_STR, "description": "Catatan keputusan (opsional)."}},
+                "catatan": {**_STR, "description": "Catatan (opsional)."}},
                ["request_id", "keputusan"])),
     _alat("buat_periode_insentif",
-          "Membuat draf periode insentif baru. «tahun» (mis. 2027), «bulan» 1–12; "
-          "«salin_dari» opsional (ID periode lain untuk menyalin rosternya).",
+          "Buat draf periode insentif baru. tahun; bulan 1–12; salin_dari opsional.",
           _obj({"tahun": {**_INT, "description": "Tahun (mis. 2027)."},
                 "bulan": {**_INT, "description": "Bulan 1–12."},
-                "salin_dari": {**_INT, "description": "ID periode untuk menyalin roster."}},
+                "salin_dari": {**_INT, "description": "ID periode untuk salin roster."}},
                ["tahun", "bulan"])),
     _alat("hapus_periode_insentif",
-          "Menghapus draf periode insentif beserta semua rosternya. Menulis data "
-          "hilang — pastikan periode_id benar, ambil dari alat lihat_status_insentif.",
+          "Hapus draf periode + semua rosternya. Permanen — pastikan periode_id benar.",
           _obj({"periode_id": {**_INT, "description": "ID periode insentif."}},
                ["periode_id"])),
     _alat("tambah_orang_insentif",
-          "Menambah satu baris penerima ke roster periode insentif. «dokumen»: pns, "
-          "pppk, atau spj; «nilai» objek JSON dengan bidang nama_tampil (wajib), nip, "
-          "npwp, rekening, nik, gol, pangkat, jabatan, tarif, pph_persen, pph_nominal.",
+          "Tambah satu baris penerima ke roster. dokumen: pns/pppk/spj; nilai: "
+          "JSON (nama_tampil wajib).",
           _obj({"periode_id": {**_INT, "description": "ID periode insentif."},
                 "dokumen": {**_STR, "description": "pns, pppk, atau spj."},
-                "nilai": {"type": "object", "description": "Bidang penerima (JSON objek)."}},
+                "nilai": {"type": "object", "description": "Bidang penerima (JSON)."}},
                ["periode_id", "dokumen", "nilai"])),
     _alat("ubah_orang_insentif",
-          "Mengubah satu baris roster periode insentif. Berikan «nilai» objek JSON "
-          "dengan bidang yang ingin diubah (nama_tampil, nip, npwp, rekening, nik, gol, "
-          "pangkat, jabatan, tarif, pph_persen, pph_nominal) — bidang kosong diisi "
-          "nilai lama.",
+          "Ubah baris roster. nilai: JSON bidang yang diubah.",
           _obj({"baris_id": {**_INT, "description": "ID baris roster."},
-                "nilai": {"type": "object", "description": "Bidang yang diubah (JSON objek)."}},
+                "nilai": {"type": "object", "description": "Bidang yang diubah (JSON)."}},
                ["baris_id", "nilai"])),
     _alat("hapus_orang_insentif",
-          "Menghapus satu baris dari roster periode insentif. Menulis data hilang — "
-          "pastikan baris_id benar.",
+          "Hapus baris roster. Permanen — pastikan baris_id benar.",
           _obj({"baris_id": {**_INT, "description": "ID baris roster."}},
                ["baris_id"])),
     _alat("geser_orang_insentif",
-          "Memindahkan urutan satu baris roster: «arah» -1 naik (ke atas) atau "
-          "+1 turun (ke bawah).",
+          "Geser urutan baris roster: arah -1 naik, +1 turun.",
           _obj({"baris_id": {**_INT, "description": "ID baris roster."},
                 "arah": {**_INT, "description": "-1 naik, +1 turun."}},
                ["baris_id", "arah"])),
     _alat("tambah_libur",
-          "Menambah/mengganti tanggal libur insentif. «tanggal» (YYYY-MM-DD), "
-          "«nama» (mis. «Hari Raya Nyepi»), «jenis»: nasional, cuti, atau kustom.",
+          "Tambah/ganti tanggal libur. tanggal YYYY-MM-DD, nama, jenis "
+          "(nasional/cuti/kustom).",
           _obj({"tanggal": {**_STR, "description": "Tanggal YYYY-MM-DD."},
                 "nama": {**_STR, "description": "Nama libur."},
-                "jenis": {**_STR, "description": "nasional, cuti, atau kustom."}},
+                "jenis": {**_STR, "description": "nasional, cuti, kustom."}},
                ["tanggal", "nama"])),
     _alat("hapus_libur",
-          "Menghapus tanggal libur insentif. Menulis data hilang — pastikan tanggal "
-          "benar.",
+          "Hapus tanggal libur. Pastikan tanggal benar.",
           _obj({"tanggal": {**_STR, "description": "Tanggal YYYY-MM-DD."}},
                ["tanggal"])),
     _alat("ubah_jabatan_insentif",
-          "Mengubah jabatan insentif satu pegawai GTK. «jabatan»: Kepala Sekolah, "
-          "Wakil Kepala Sekolah, Guru, Tenaga Kependidikan, Pelatih; kosong = "
-          "otomatis dari data GTK.",
+          "Ubah jabatan insentif pegawai GTK. jabatan: Kepala Sekolah/Wakil/"
+          "Guru/Tendik/Pelatih; kosong = otomatis.",
           _obj({"pegawai_id": {**_INT, "description": "ID pegawai GTK."},
                 "jabatan": {**_STR, "description": "Jabatan insentif (kosong = otomatis)."}},
                ["pegawai_id"])),
@@ -460,37 +427,26 @@ SYSTEM_PROMPT = (
     "komputer pengguna. Anda mengoperasikan bodap **hanya dengan memanggil alat** "
     "yang tersedia. Aturan keras:\n"
     "- **Selalu panggil alat** untuk mendapat data. **JANGAN mengarang** angka, "
-    "nama, ID, atau hasil alat. Jawaban HANYA boleh berasal dari hasil alat yang "
-    "benar-benar dikembalikan.\n"
-    "- **JANGAN menulis pemanggilan alat sebagai JSON di dalam teks.** Panggil "
-    "alatnya secara wajar (tool call), lalu tunggu hasilnya. Jangan menulis "
-    "hasil alat fiktif di pesan Anda.\n"
-    "- Beri jawaban dalam bahasa Indonesia, ringkas dan jelas.\n"
-    "- **Pilih alat yang paling cocok dengan maksud pertanyaan.** Peta wajib: "
-    "«berapa jumlah/banyak siswa» → HANYA «lihat_jumlah_siswa»; «daftar siswa»/"
-    "«lihat siswa» → «lihat_daftar_siswa»/«lihat_siswa»; keadaan bot → «lihat_"
-    "status_bot»/«baca_hasil_bot»; keadaan insentif/SPJ → «lihat_status_insentif»"
-    "/«lihat_status_spj». Jangan memakai alat status/insentif untuk pertanyaan "
-    "jumlah siswa, dan sebaliknya.\n"
-    "- Untuk pertanyaan **«berapa banyak / jumlah siswa»**, panggil alat "
-    "«lihat_jumlah_siswa» — jangan memakai «lihat_daftar_siswa» atau alat "
-    "lain, dan jangan meminta daftar semua siswa.\n"
-    "- Untuk melihat/menyaring daftar sejumlah baris, panggil alat «lihat_...» "
-    "lalu sampaikan isinya apa adanya.\n"
-    "- Untuk pekerjaan (menjalankan bot, mengunggah/membuat berkas, mengubah "
-    "data), panggil alatnya dan laporkan hasil yang benar-benar dikembalikan "
-    "alat. Jangan menyatakan berhasil bila alat melaporkan kegagalan.\n"
-    "- **Setelah alat mengembalikan hasil, langsung sampaikan jawabannya.** "
-    "JANGAN menulis pesan meta tentang apa yang akan Anda lakukan, dan JANGAN "
-    "meminta hasil alat atau pertanyaan lagi — Anda sudah memiliki keduanya. "
-    "Sebutkan isi hasil alat apa adanya dalam satu jawaban ringkas.\n"
-    "- Bila butuh ID (periode, baris roster, pengajuan, pegawai), ambil dulu dari "
-    "alat lihat_... — jangan mengarang ID.\n"
-    "- Alat yang menghapus data («hapus_...») bersifat permanen; pastikan ID "
-    "sudah benar sebelum memanggilnya.\n"
-    "- Bila alat mengembalikan pesan kesalahan atau saran, sampaikan kepada "
-    "pengguna apa adanya bersama cara mengatasinya.\n"
-    "- Jangan pernah meminta informasi sensitif (kata sandi, kunci API).\n"
+    "nama, ID, atau hasil alat. Jawaban HANYA dari hasil alat yang dikembalikan.\n"
+    "- **JANGAN** menulis pemanggilan alat sebagai JSON di teks; panggil alatnya, "
+    "tunggu hasil, jangan menulis hasil fiktif.\n"
+    "- Jawab dalam bahasa Indonesia, ringkas dan jelas.\n"
+    "- **Pilih alat yang cocok dengan maksud pertanyaan.** Peta: «berapa jumlah/"
+    "banyak siswa» → HANYA «lihat_jumlah_siswa»; «daftar/lihat siswa» → «lihat_"
+    "daftar_siswa»/«lihat_siswa»; keadaan bot → «lihat_status_bot»/«baca_hasil_"
+    "bot»; insentif/SPJ → «lihat_status_insentif»/«lihat_status_spj». Jangan "
+    "pakai alat status/insentif untuk pertanyaan jumlah siswa.\n"
+    "- Untuk melihat daftar sejumlah baris, panggil «lihat_...» dan sampaikan "
+    "isinya apa adanya.\n"
+    "- Untuk pekerjaan (bot, unggahan/pembuatan berkas, ubah data), panggil alatnya "
+    "dan laporkan hasil yang benar. Jangan menyatakan berhasil bila alat gagal.\n"
+    "- **Setelah alat mengembalikan hasil, langsung sebutkan jawabannya.** JANGAN "
+    "pesan meta atau meminta data yang sudah ada.\n"
+    "- Bila butuh ID (periode, roster, pengajuan, pegawai), ambil dari alat "
+    "lihat_... — jangan mengarang.\n"
+    "- Alat «hapus_...» permanen; pastikan ID benar sebelum dipakai.\n"
+    "- Sampaikan pesan kesalahan/saran alat kepada pengguna apa adanya.\n"
+    "- Jangan minta informasi sensitif (kata sandi, kunci API)."
 )
 
 
