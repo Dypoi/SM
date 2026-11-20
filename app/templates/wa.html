@@ -150,32 +150,40 @@ async function muatQr() {
   const kotak = document.getElementById('qr-kotak');
   const teks = document.getElementById('qr-teks');
   try {
-    const r = await fetch('/wa/qr');
+    const r = await fetch('/wa/qr', { cache: 'no-store' });
     if (!r.ok) throw new Error('gagal');
     const j = await r.json();
     if (j.ok && j.png) {
       img.src = 'data:image/png;base64,' + j.png;
       img.style.display = 'block';
       teks.style.display = 'none';
+      teks.textContent = 'Scan kode QR ini di HP WhatsApp (Menu: Perangkat Tertaut).';
     } else {
       img.style.display = 'none';
       teks.style.display = 'block';
-      teks.textContent = j.detail || 'Belum ada kode QR (mungkin sudah terhubung).';
+      teks.textContent = j.detail || 'Belum ada kode QR. Tunggu beberapa detik lalu muat ulang.';
     }
   } catch (e) {
-    teks.textContent = 'Gagal memuat QR.';
+    teks.style.display = 'block';
+    teks.textContent = 'Gagal memuat QR — coba «Muat ulang QR».';
   }
 }
 async function muatStatus() {
+  let s = null;
   try {
-    const r = await fetch('/wa/status.json');
-    const s = await r.json();
-    document.getElementById('status-teks').textContent = s.pesan || '—';
-    if (s.menunggu_pairing) muatQr();
+    const r = await fetch('/wa/status.json', { cache: 'no-store' });
+    s = await r.json();
   } catch (e) { /* abaikan */ }
+  if (s) {
+    document.getElementById('status-teks').textContent = s.pesan || '—';
+    // QR bisa muncul setelah beberapa detik — selalu coba ambil (tidak hanya
+    // saat flag menunggu_pairing sudah benar, agar tidak tertinggal).
+    if (!s.terhubung) muatQr();
+  }
 }
 muatQr();
 muatStatus();
-setInterval(muatStatus, 8000);
+setInterval(muatStatus, 4000);
+setInterval(muatQr, 6000);
 </script>
 {% endblock %}

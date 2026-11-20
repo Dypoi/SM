@@ -427,21 +427,25 @@ async function sambungkan() {
   bacaRiwayat();
 
   try {
-    // fetchLatestBaileysVersion() perlu internet; bila gagal pakai versi bawaan.
-    let version = [0, 0, 0];
+    // fetchLatestBaileysVersion() perlu internet; bila gagal, JANGAN pakai
+    // [0,0,0] (versi invalid — Baileys gagal berpasangan, tidak ada QR).
+    // Biarkan Baileys memakai versi bawaannya.
+    let version;
     try {
       const vs = await fetchLatestBaileysVersion();
       version = vs.version;
+      console.log("[wa-bridge] Versi Baileys:", JSON.stringify(version));
     } catch (e) {
-      console.warn("[wa-bridge] fetch versi gagal, pakai bawaan:", e.message);
+      console.warn("[wa-bridge] fetch versi gagal — pakai versi bawaan Baileys:", e.message);
     }
     const { state, saveCreds } = await useMultiFileAuthState(WA_DIR);
-    sock = makeWASocket({
-      version,
+    const sockConfig = {
       auth: state,
       logger: log,
       browser: ["SM", "Desktop", "1.0.0"],
-    });
+    };
+    if (version) sockConfig.version = version;
+    sock = makeWASocket(sockConfig);
 
     sock.ev.on("connection.update", (update) => {
       const { connection, qr, lastDisconnect, error } = update;
