@@ -91,6 +91,21 @@ def qr(user: auth.SessionUser = Depends(auth.require_admin)):
     return {"ok": False, "detail": galat or "Belum ada kode QR."}
 
 
+@router.post("/wa/reconnect")
+def reconnect(user: auth.SessionUser = Depends(auth.require_admin)):
+    """Paksa bridge menyambung ulang agar kode QR pairing segar muncul.
+
+    Dipakai tombol «Muat ulang QR» — memicu reconnect, bukan sekadar membaca
+    QR yang kosong.
+    """
+    hasil = wa_bridge.sambung_ulang()
+    if hasil.get("ok"):
+        return _kembali(f"Sambung ulang diminta — {hasil.get('pesan') or 'QR akan muncul.'}",
+                        level="ok", anchor="pasang")
+    return _kembali(f"Gagal sambung ulang: {hasil.get('pesan') or 'tidak diketahui'}",
+                    level="err", anchor="pasang")
+
+
 @router.post("/wa/uji")
 async def uji(request: Request,
               user: auth.SessionUser = Depends(auth.require_admin)):

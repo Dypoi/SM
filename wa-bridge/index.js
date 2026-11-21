@@ -17,6 +17,7 @@
  *   GET  /qr                  PNG kode QR pairing (bila menunggu)
  *   POST /send                { no, teks } — kirim pesan keluar (butuh X-API-Key)
  *   POST /test/inbound        { dari, teks } — simulasi masuk (butuh X-API-Key)
+ *   POST /reconnect                       — paksa sambung ulang (butuh X-API-Key)
  *   POST /reset               { no } — kosongkan riwayat nomor (butuh X-API-Key)
  */
 
@@ -321,7 +322,7 @@ async function jawabRute(req, res) {
       return kirim(res, 200, {
         ok: true,
         bridge: "sm-wa-bridge",
-        titik_akhir: ["/status", "/qr", "/send", "/test/inbound"],
+        titik_akhir: ["/status", "/qr", "/reconnect", "/send", "/test/inbound"],
         ...status, enabled: ENABLED,
       });
     }
@@ -333,6 +334,28 @@ async function jawabRute(req, res) {
       const png = await QRCode.toBuffer(qrBaru, { type: "png", width: 320, margin: 1 });
       res.writeHead(200, { "Content-Type": "image/png", "Content-Length": png.length });
       return res.end(png);
+    }
+    if (req.method === "POST" && jalan === "/reconnect") {
+      if (!autentikasi(req)) return kirim(res, 401, { detail: "Kunci API tidak valid." });
+      // Paksa sambung ulang: batalkan jadwal, tutup socket, jalankan ulang
+      // agar Baileys menghasilkan kode QR pairing yang segar.
+      jikaReconnectCancel();
+      try {
+        if (sock) {
+          sock.ev.removeAllListeners();
+          if (typeof sock.end === "function") sock.end();
+          else if (typeof sock.endSocket === "function") sock.endSocket();
+        }
+      } catch {} // abaikan kesalahan penutupan
+      sock = null;
+      qrBaru = "";
+      status.terhubung = false;
+      status.siap = false;
+      status.menunggu_pairing = false;
+      status.pesan = "Meminta sambung ulang — kode QR akan muncul sebentar lagi.";
+      console.log("[wa-bridge] /reconnect — menyambung ulang untuk QR baru.");
+      sambungkan();
+      return kirim(res, 200, { ok: true, detail: "Sambung ulang diminta — QR akan muncul." });
     }
     if (req.method === "POST" && jalan === "/send") {
       if (!autentikasi(req)) return kirim(res, 401, { detail: "Kunci API tidak valid." });

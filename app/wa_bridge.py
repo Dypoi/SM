@@ -219,6 +219,18 @@ def status_cepat(port: int | None = None) -> dict:
     return hasil
 
 
+def sambung_ulang(port: int | None = None) -> dict:
+    """Paksa bridge menyambung ulang agar kode QR pairing segar muncul.
+
+    Bila bridge sedang dalam keadaan loggedOut/loop, tombol «Muat ulang QR»
+    harus memicu reconnect — bukan sekadar membaca QR yang kosong.
+    """
+    ok, data, galat = _kirim_json("/reconnect", {}, port, detik=10.0)
+    if ok:
+        return {"ok": bool(data.get("ok")), "pesan": data.get("detail") or ""}
+    return {"ok": False, "pesan": galat or "Gagal sambung ulang."}
+
+
 def qr_png(port: int | None = None) -> tuple[bool, bytes | None, str]:
     """Ambil PNG kode QR pairing (bila menunggu pairing)."""
     if not str(services.get_setting(KUNCI_AKTIF)) == "1":
