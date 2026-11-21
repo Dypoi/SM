@@ -109,11 +109,23 @@ def reconnect(user: auth.SessionUser = Depends(auth.require_admin)):
 @router.post("/wa/uji")
 async def uji(request: Request,
               user: auth.SessionUser = Depends(auth.require_admin)):
-    """Uji jembatan: kirim pesan masuk simulasi → lihat jawaban bodap."""
-    try:
-        isi = await request.json()
-    except Exception:  # noqa: BLE001
-        isi = {}
+    """Uji jembatan: kirim pesan masuk simulasi → lihat jawaban bodap.
+
+    Menerima **form data** (dari kotak «Uji masuk») dan juga JSON.
+    """
+    isi = {}
+    ctype = (request.headers.get("content-type") or "").lower()
+    if "application/json" in ctype:
+        try:
+            isi = await request.json()
+        except Exception:  # noqa: BLE001
+            isi = {}
+    else:
+        try:
+            form = await request.form()
+            isi = dict(form)
+        except Exception:  # noqa: BLE001
+            isi = {}
     dari = str(isi.get("dari") or "uji@s.whatsapp.net").strip()
     teks = str(isi.get("teks") or "").strip()
     if not teks:
