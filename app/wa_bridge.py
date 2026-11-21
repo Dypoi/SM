@@ -276,6 +276,19 @@ def sambung_ulang(port: int | None = None) -> dict:
     return {"ok": False, "pesan": galat or "Gagal sambung ulang."}
 
 
+def baca_log(baris: int = 200, port: int | None = None) -> str:
+    """Baca ekor log bridge (bridge.log) — untuk diagnosis self-chat."""
+    log_file = SESSION_DIR / "bridge.log"
+    if not log_file.exists():
+        return "(belum ada log bridge)"
+    try:
+        isi = log_file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "(log tidak terbaca)"
+    baris_isi = isi.splitlines()
+    return "\n".join(baris_isi[-baris:])
+
+
 def qr_png(port: int | None = None) -> tuple[bool, bytes | None, str]:
     """Ambil PNG kode QR pairing (bila menunggu pairing)."""
     if not str(services.get_setting(KUNCI_AKTIF)) == "1":

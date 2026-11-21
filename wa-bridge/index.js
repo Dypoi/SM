@@ -55,6 +55,9 @@ const HISTORY_FILE = path.join(WA_DIR, "riwayat.json");
 // Lock satu-instance: hanya SATU proses bridge per session WhatsApp. Dua
 // proses akan saling mengeluarkan (loggedOut berulang → harus scan QR lagi).
 const LOCK_FILE = path.join(WA_DIR, "bridge.lock");
+// Log file: stdout bridge diarahkan ke DEVNULL oleh aplikasi, jadi log
+// ditulis ke file agar bisa didiagnosis (pesan masuk, keputusan, galat).
+const LOG_FILE = path.join(WA_DIR, "bridge.log");
 
 /** Status sambungan — disimpan di sini agar rute /status bisa baca. */
 const status = {
@@ -123,12 +126,17 @@ function nomorSama(a, b) {
 }
 
 /**
- * Apakah JID adalah **diri sendiri**? Cek nomor telepon (ownJid) DAN LID
- * (ownLid) — chat ke diri sendiri bisa datang sebagai @s.whatsapp.net atau
- * @lid, keduanya harus terdeteksi.
+ * Apakah JID adalah **diri sendiri**?
+ * Cocok **eksak** (normalized) terhadap ownJid (@s.whatsapp.net) DAN ownLid
+ * (@lid) — penting karena bagian lokal @lid adalah string LID acak, BUKAN
+ * nomor telepon, jadi perbandingan nomor saja tidak cukup.
  */
 function adalahDiriSendiri(jid) {
-  return nomorSama(jid, ownJid) || (!!ownLid && nomorSama(jid, ownLid));
+  const n = normJid(jid);
+  if (!!ownJid && n === normJid(ownJid)) return true;
+  if (!!ownLid && n === normJid(ownLid)) return true;
+  // Fallback: perbandingan nomor (akun tanpa LID / @s.whatsapp.net).
+  return !!ownJid && nomorSama(jid, ownJid);
 }
 
 /** Apakah JID adalah nomor pribadi WhatsApp (personal, bukan grup). */
@@ -165,6 +173,14 @@ function bolehProses(msg) {
     return false;
   }
   return true;
+}
+
+/** Tulis log ke file (dan console) — untuk diagnosis saat stdout DEVNULL. */
+function _log(...args) {
+  const garis = "[" + new Date().toISOString() + "] " +
+    args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
+  try { fs.appendFileSync(LOG_FILE, garis + "\n", "utf8"); } catch {}
+  console.log(garis);
 }
 
 function bacaRiwayat() {
@@ -270,6 +286,7 @@ async function tanganiPesan(dari, teks) {
     return { ok: false, jawaban: "" };
   }
   status.terakhir = `${dari}: ${teks.slice(0, 40)}`;
+  _log("[wa-bridge] tanganiPesan:", dari, "->", teks.slice(0, 50));
   // Perintah reset: kosongkan riwayat nomor (3B cepat kacau bila riwayat panjang).
   if (teks.trim().toLowerCase() === "/reset") {
     history[dari] = [];
@@ -610,12 +627,15 @@ async function sambungkan() {
         status.terhubung = true;
         status.menunggu_pairing = false;
         status.siap = true;
-        ownJid = normJid((sock.user && sock.user.id) || status.nomor || "");
+        const idMentah = (sock.user && sock.user.id) || status.nomor || "";
+        ownJid = normJid(idMentah);
+        // Capture LID: dari sock.user.lid, atau bila sock.user.id adalah @lid.
         ownLid = normJid((sock.user && sock.user.lid) || "");
-        status.nomor = ownJid;
-        console.log("[wa-bridge] ownJid:", ownJid, "| ownLid:", ownLid || "—");
+        if (!ownLid && ownJid.endsWith("@lid")) { ownLid = ownJid; ownJid = ""; }
+        status.nomor = ownJid || ownLid;
+        _log("[wa-bridge] Terhubung. ownJid:", ownJid || "—",
+             "| ownLid:", ownLid || "—", "| user:", JSON.stringify(sock.user || {}));
         status.pesan = `Terhubung sebagai ${status.nomor || "—"}.`;
-        console.log("[wa-bridge] WhatsApp terhubung:", status.nomor);
       }
       if (connection === "close") {
         status.terhubung = false;
@@ -645,13 +665,27 @@ async function sambungkan() {
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       if (type !== "notify") return;
       for (const msg of messages) {
-        if (!msg || !bolehProses(msg)) continue;
+        if (!msg || !msg.key) continue;
         const dari = msg.key.remoteJid;
+        const dariSaya = !!msg.key.fromMe;
+        const ts = Number(msg.messageTimestamp || 0);
+        // Log detail setiap pesan masuk — untuk diagnosis (stdout DEVNULL,
+        // jadi lihat file bridge.log).
+        _log("[wa-bridge] pesan masuk: dari=", dari, "| fromMe=", dariSaya,
+             "| ts=", ts, "| ownJid=", ownJid || "—",
+             "| ownLid=", ownLid || "—");
+        if (!bolehProses(msg)) {
+          _log("[wa-bridge] DILEWATI (bukan self-chat/echo):", dari,
+               "| fromMe=", dariSaya, "| own=", ownJid, ownLid);
+          continue;
+        }
         // Batasan waktu: abaikan pesan lama (>2 menit) — saat reconnect
         // WhatsApp bisa mengirim ulang pesan lama, bot tidak boleh jawab
         // pertanyaan kemarin.
-        const ts = Number(msg.messageTimestamp || 0);
-        if (ts && Date.now() / 1000 - ts > 120) continue;
+        if (ts && Date.now() / 1000 - ts > 120) {
+          _log("[wa-bridge] DILEWATI (pesan lama >2 menit):", dari);
+          continue;
+        }
         // Ekstrak teks: pesan sementara (ephemeral) membungkus teks di
         // ephemeralMessage.message — ambil dari dalamnya dulu.
         const isi = (msg.message && msg.message.ephemeralMessage &&
@@ -660,9 +694,16 @@ async function sambungkan() {
           isi.conversation ||
           (isi.extendedTextMessage && isi.extendedTextMessage.text) ||
           "";
-        if (!teks) continue; // bukan teks (gambar/suara) — abaikan
+        if (!teks) {
+          _log("[wa-bridge] DILEWATI (bukan teks/gambar):", dari);
+          continue;
+        }
         // Anti-echo kokoh: abaikan balasan bot sendiri (diawali TANDA).
-        if (teks.startsWith(TANDA)) continue;
+        if (teks.startsWith(TANDA)) {
+          _log("[wa-bridge] DILEWATI (echo TANDA):", teks.slice(0, 30));
+          continue;
+        }
+        _log("[wa-bridge] DIPROSES self-chat:", dari, "->", teks.slice(0, 40));
         // Jawab secara berurutan agar tidak membebani Ollama.
         queue(() => tanganiPesan(dari, teks));
       }

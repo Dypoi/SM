@@ -106,6 +106,15 @@ def reconnect(user: auth.SessionUser = Depends(auth.require_admin)):
                     level="err", anchor="pasang")
 
 
+@router.get("/wa/log")
+def log_bridge(user: auth.SessionUser = Depends(auth.require_admin)):
+    """Ekor log bridge — untuk diagnosis (mis. self-chat tidak dibalas)."""
+    from fastapi.responses import PlainTextResponse
+
+    isi = wa_bridge.baca_log(baris=200)
+    return PlainTextResponse(isi, media_type="text/plain; charset=utf-8")
+
+
 @router.post("/wa/uji")
 async def uji(request: Request,
               user: auth.SessionUser = Depends(auth.require_admin)):

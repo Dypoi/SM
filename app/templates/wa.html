@@ -141,10 +141,34 @@
   </div>
 </div>
 
+{# ------------------------------------------------------------ log bridge -- #}
+<div class="card" id="log">
+  <div class="card-head">
+    <div>
+      <h3>{{ icon('file') }} Log bridge (diagnosis)</h3>
+      <p>Tunjukkan apa yang diterima bridge — untuk cek self-chat tidak dibalas.</p>
+    </div>
+    <button class="btn btn-sm" type="button" onclick="muatLog()">Muat log</button>
+  </div>
+  <div class="card-body">
+    <pre id="log-teks" class="hint" style="white-space:pre-wrap;max-height:340px;overflow:auto;margin:0">Klik «Muat log» untuk melihat ekor log bridge.</pre>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
+async function muatLog() {
+  const pre = document.getElementById('log-teks');
+  try {
+    const r = await fetch('/wa/log', { cache: 'no-store' });
+    const teks = await r.text();
+    pre.textContent = teks || '(log kosong)';
+  } catch (e) {
+    pre.textContent = 'Gagal memuat log.';
+  }
+}
 async function muatQr(baru) {
   const img = document.getElementById('qr-gambar');
   const kotak = document.getElementById('qr-kotak');
