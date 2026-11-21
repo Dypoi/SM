@@ -291,8 +291,10 @@ skenario("4. Riwayat diperpendek")
 riwayat = [{"role": "user", "content": f"pesan {i}"} for i in range(30)]
 OLLAMA.chat_skrip = [chat_bicara("sudah")]
 hasil = ollama.bicara("pesan terbaru", riwayat=riwayat, cfg=CFG_AKTIF)
+# «pesan terbaru» tanpa kata kunci fitur → mode tanya bebas: +1 pesan sistem
+# bebas di samping sistem utama, 20 riwayat, dan pesan baru.
 cek("hanya 20 riwayat terakhir + sistem + pesan baru",
-    len(hasil.get("riwayat") or []) == ollama.BATAS_RIWAYAT + 2
+    len(hasil.get("riwayat") or []) == ollama.BATAS_RIWAYAT + 3
     and hasil["riwayat"][1]["content"] == "pesan 10",
     f"{len(hasil.get('riwayat') or [])} pesan")
 

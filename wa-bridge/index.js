@@ -9,7 +9,7 @@
  *   SM_WA_PORT      port HTTP lokal bridge (bawaan 8799)
  *   SM_WA_DIR       folder session WhatsApp (bawaan ./.session)
  *   SM_BASE_URL     alamat bodap (bawaan http://127.0.0.1:8000)
- *   SM_API_KEY      kunci API bodap (dipakai saat memanggil balik)
+ *   SM_API_KEY      kunci API bodap (dipakai saat memanggil /ollama/chat)
  *   SM_WA_ENABLED   "1" nyala (bawaan "1")
  *
  * Titik akhir HTTP lokal bridge (hanya dijamin localhost):
@@ -68,6 +68,12 @@ let sock = null;
 let qrBaru = "";
 let history = {};
 let ownJid = "";
+// LID: WhatsApp versi baru memakai @lid untuk chat ke diri sendiri.
+// Simpan LID sendiri agar self-chat via @lid tetap terdeteksi.
+let ownLid = "";
+// Tanda jawaban bot — anti-echo kokoh: pesan yang diawali tanda ini
+// dilewati, dan mudah dibedakan dari ketikan pengguna di layar HP.
+const TANDA = "\u{1F916} "; // 🤖
 // Penjaga reconnect: hanya satu jadwal sambung ulang, hindari tumpukan
 // socket/listener (MaxListenersExceededWarning).
 let sedangSambungUlang = false;
@@ -113,6 +119,15 @@ function nomorSama(a, b) {
   return na !== "" && na === nb;
 }
 
+/**
+ * Apakah JID adalah **diri sendiri**? Cek nomor telepon (ownJid) DAN LID
+ * (ownLid) — chat ke diri sendiri bisa datang sebagai @s.whatsapp.net atau
+ * @lid, keduanya harus terdeteksi.
+ */
+function adalahDiriSendiri(jid) {
+  return nomorSama(jid, ownJid) || (!!ownLid && nomorSama(jid, ownLid));
+}
+
 /** Apakah JID adalah nomor pribadi WhatsApp (personal, bukan grup). */
 function adalahNomorPribadi(jid) {
   return /@(s\.whatsapp\.net|lid)$/.test(String(jid || ""));
@@ -136,9 +151,16 @@ function bolehProses(msg) {
     if (HANYA_DIRI) return false;
     return adalahNomorPribadi(dari);
   }
-  // Pesan keluar: hanya self-chat (remoteJid = ownJid) yang diproses.
-  if (!ownJid || !nomorSama(dari, ownJid)) return false;
-  if (!ALLOW_SELF) return false;
+  // Pesan keluar: hanya self-chat (remoteJid = diri sendiri, via nomor atau
+  // LID) yang diproses.
+  if (!ALLOW_SELF || !ownJid && !ownLid) {
+    console.log("[wa-bridge] dilewati (bukan self-chat):", dari, "own:", ownJid, ownLid);
+    return false;
+  }
+  if (!adalahDiriSendiri(dari)) {
+    console.log("[wa-bridge] dilewati (bukan self-chat):", dari, "own:", ownJid, ownLid);
+    return false;
+  }
   return true;
 }
 
@@ -179,7 +201,7 @@ async function tanyaBodap(teks, no, riwayat) {
       "X-API-Key": API_KEY,
     },
     // Batas waktu: Ollama 3B di CPU bisa lama; jangan biarkan antrean mandek.
-    signal: AbortSignal.timeout(330000),
+    signal: AbortSignal.timeout(600000),
     body: JSON.stringify({ pesan: teks, riwayat: daftar, sumber: "wa" }),
   });
   const isi = await respons.json().catch(() => ({}));
@@ -222,7 +244,8 @@ async function kirimPotong(no, teks) {
   const potongan = potongPesan(teks);
   for (let i = 0; i < potongan.length; i++) {
     if (i > 0) await sleep(600); // jeda antar bagian agar rapi
-    const terkirim = await sock.sendMessage(no, { text: potongan[i] });
+    // Prefix TANDA: anti-echo kokoh + mudah dibedakan dari ketikan pengguna.
+    const terkirim = await sock.sendMessage(no, { text: TANDA + potongan[i] });
     catatTerkirim(terkirim);
   }
 }
@@ -257,25 +280,37 @@ async function tanganiPesan(dari, teks) {
   try {
     // Riwayat DIAMBIL SEBELUM mencatat pesan user — agar tidak dobel.
     const riwayatBersih = rapihkanRiwayat(dari);
-    // Indikator «mengetik» — tahu bot hidup tanpa pesan «⏳».
-    if (sock && typeof sock.sendPresenceUpdate === "function") {
-      try { await sock.sendPresenceUpdate("composing", dari); } catch {}
-    }
-    hasil = await tanyaBodap(teks, dari, riwayatBersih);
-    if (hasil.ok && hasil.jawaban) {
-      // Catat hanya setelah berhasil — pesan gagal tidak mengotori riwayat.
-      catatRiwayat("user", dari, teks);
-      catatRiwayat("assistant", dari, hasil.jawaban);
-      await kirimPotong(dari, hasil.jawaban);
-    } else if (hasil.ok) {
-      const ganti = "Saya belum bisa menjawab pertanyaan itu. Coba tanyakan hal lain, " +
-        "atau ulangi pertanyaannya.";
-      catatRiwayat("user", dari, teks);
-      catatRiwayat("assistant", dari, ganti);
-      await kirimPotong(dari, ganti);
-    } else {
-      // Galat — jangan masuk riwayat, balas jujur.
-      await kirimPotong(dari, hasil.jawaban);
+    // Indikator «mengetik» yang bertahan: 3B di CPU bisa 20–60 detik,
+    // perbarui composing berkala supaya pengguna tahu bot sedang berpikir.
+    const pengetik = setInterval(() => {
+      if (sock && typeof sock.sendPresenceUpdate === "function") {
+        sock.sendPresenceUpdate("composing", dari).catch(() => {});
+      }
+    }, 8000);
+    try {
+      hasil = await tanyaBodap(teks, dari, riwayatBersih);
+      if (hasil.ok && hasil.jawaban) {
+        // Catat hanya setelah berhasil — pesan gagal tidak mengotori riwayat.
+        catatRiwayat("user", dari, teks);
+        // Simpan jawaban di riwayat TANPA TANDA (agar model tidak melihat
+        // prefix 🤖); TANDA hanya untuk tampilan di chat.
+        catatRiwayat("assistant", dari, hasil.jawaban.replace(TANDA, "").trim());
+        await kirimPotong(dari, hasil.jawaban);
+      } else if (hasil.ok) {
+        const ganti = "Saya belum bisa menjawab pertanyaan itu. Coba tanyakan hal lain, " +
+          "atau ulangi pertanyaannya.";
+        catatRiwayat("user", dari, teks);
+        catatRiwayat("assistant", dari, ganti);
+        await kirimPotong(dari, ganti);
+      } else {
+        // Galat — jangan masuk riwayat, balas jujur.
+        await kirimPotong(dari, hasil.jawaban);
+      }
+    } finally {
+      clearInterval(pengetik);
+      if (sock && typeof sock.sendPresenceUpdate === "function") {
+        try { await sock.sendPresenceUpdate("paused", dari); } catch {}
+      }
     }
   } catch (e) {
     console.error("tanganiPesan gagal:", e);
@@ -410,15 +445,13 @@ if (require.main === module) {
 // --------------------------------------------------------------------------- //
 // Sambungan WhatsApp (Baileys)
 // --------------------------------------------------------------------------- //
-/** Hapus file kredensial/session WhatsApp agar pairing ulang bersih. */
+/** Hapus SEMUA isi WA_DIR kecuali riwayat.json — pairing ulang bersih. */
 function hapusSession() {
   try {
     if (!fs.existsSync(WA_DIR)) return;
     for (const f of fs.readdirSync(WA_DIR)) {
-      if (/creds\.json$/i.test(f) || /session\.data$/i.test(f) ||
-          /^[a-z0-9]+-\d+-\d+$/i.test(f) || f.endsWith(".tmp")) {
-        try { fs.rmSync(path.join(WA_DIR, f), { recursive: true, force: true }); } catch {}
-      }
+      if (f === path.basename(HISTORY_FILE)) continue; // pertahankan riwayat
+      try { fs.rmSync(path.join(WA_DIR, f), { recursive: true, force: true }); } catch {}
     }
     console.log("[wa-bridge] Session lama dihapus — butuh QR pairing baru.");
   } catch (e) {
@@ -429,9 +462,9 @@ function hapusSession() {
 /**
  * Jadwalkan sambung ulang — hanya SATU yang berjalan, hindari tumpukan
  * socket/listener (MaxListenersExceededWarning).
- * @param {boolean} hapusSession benar=hapus kredensial (session loggedOut).
+ * @param {boolean} bersihkanSession benar=hapus kredensial (session loggedOut).
  */
-function jadwalkanReconnect(hapusSession) {
+function jadwalkanReconnect(bersihkanSession) {
   if (sedangSambungUlang) return; // sudah ada jadwal — jangan menumpuk
   sedangSambungUlang = true;
   tugasReconnect = setTimeout(async () => {
@@ -445,7 +478,7 @@ function jadwalkanReconnect(hapusSession) {
       }
     } catch {} // abaikan kesalahan penutupan
     sock = null;
-    if (hapusSession) hapusSession();
+    if (bersihkanSession) hapusSession();
     sambungkan();
   }, 2000);
 }
@@ -524,7 +557,9 @@ async function sambungkan() {
         status.menunggu_pairing = false;
         status.siap = true;
         ownJid = normJid((sock.user && sock.user.id) || status.nomor || "");
+        ownLid = normJid((sock.user && sock.user.lid) || "");
         status.nomor = ownJid;
+        console.log("[wa-bridge] ownJid:", ownJid, "| ownLid:", ownLid || "—");
         status.pesan = `Terhubung sebagai ${status.nomor || "—"}.`;
         console.log("[wa-bridge] WhatsApp terhubung:", status.nomor);
       }
@@ -558,12 +593,22 @@ async function sambungkan() {
       for (const msg of messages) {
         if (!msg || !bolehProses(msg)) continue;
         const dari = msg.key.remoteJid;
-        const teks =
-          (msg.message && msg.message.conversation) ||
-          (msg.message && msg.message.extendedTextMessage &&
-            msg.message.extendedTextMessage.text) ||
+        // Batasan waktu: abaikan pesan lama (>2 menit) — saat reconnect
+        // WhatsApp bisa mengirim ulang pesan lama, bot tidak boleh jawab
+        // pertanyaan kemarin.
+        const ts = Number(msg.messageTimestamp || 0);
+        if (ts && Date.now() / 1000 - ts > 120) continue;
+        // Ekstrak teks: pesan sementara (ephemeral) membungkus teks di
+        // ephemeralMessage.message — ambil dari dalamnya dulu.
+        const isi = (msg.message && msg.message.ephemeralMessage &&
+                     msg.message.ephemeralMessage.message) || msg.message || {};
+        let teks =
+          isi.conversation ||
+          (isi.extendedTextMessage && isi.extendedTextMessage.text) ||
           "";
         if (!teks) continue; // bukan teks (gambar/suara) — abaikan
+        // Anti-echo kokoh: abaikan balasan bot sendiri (diawali TANDA).
+        if (teks.startsWith(TANDA)) continue;
         // Jawab secara berurutan agar tidak membebani Ollama.
         queue(() => tanganiPesan(dari, teks));
       }
@@ -583,7 +628,15 @@ function queue(tugas) {
 }
 
 
+// Bersihkan _sentIds lama (hindari pertumbuhan tanpa batas).
+setInterval(() => {
+  const kini = Date.now();
+  for (const [id, t] of _sentIds) if (kini - t > 120000) _sentIds.delete(id);
+}, 60000);
+
 // Jaga: sambungan WhatsApp yang gagal jangan mematikan HTTP server.
+// Catatan: hanya SATU perangkat boleh menjalankan bridge dengan session
+// yang sama — dua proses akan saling mengeluarkan (loggedOut berulang).
 process.on("uncaughtException", (e) => { console.error("[wa-bridge] uncaught:", e && e.message); });
 process.on("unhandledRejection", (e) => { console.error("[wa-bridge] unhandled:", e && e.message); });
 
@@ -597,5 +650,8 @@ module.exports = {
   setOwnJid: (v) => { ownJid = v; },
   setOwnJidRaw: (v) => { ownJid = normJid(v); },
   getOwnJid: () => ownJid,
-  ALLOW_SELF, HANYA_DIRI,
+  ALLOW_SELF, HANYA_DIRI, TANDA,
+  getOwnLid: () => ownLid,
+  setOwnLid: (v) => { ownLid = normJid(v); },
+  adalahDiriSendiri,
 };

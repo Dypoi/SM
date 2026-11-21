@@ -1418,16 +1418,28 @@ _KELOMPOK: dict[tuple[str, ...], tuple[str, ...]] = {
 }
 
 
+def _ada_kata_kunci_bodap(pesan: str) -> bool:
+    """Apakah pesan merujuk fitur bodap? Kalau tidak, «tanya bebas» tanpa alat."""
+    teks = (pesan or "").lower()
+    for kata, _alat in _KELOMPOK.items():
+        if any(k in teks for k in kata):
+            return True
+    return False
+
+
 def _pilih_alat(pesan: str) -> list[dict[str, Any]]:
-    """Pilih alat yang relevan dengan pesan — kirim hanya itu ke model kecil."""
+    """Pilih alat yang relevan dengan pesan — kirim hanya itu ke model kecil.
+
+    Dua mode: **tanpa alat** bila tidak ada kata kunci bodap (tanya bebas
+    seperti Meta AI), **dengan alat** bila ada kata kunci (jawab dari alat).
+    """
+    if not _ada_kata_kunci_bodap(pesan):
+        return []  # tanya bebas: tanpa alat
     teks = (pesan or "").lower()
     nama: set[str] = set()
     for kata, alat in _KELOMPOK.items():
         if any(k in teks for k in kata):
             nama.update(alat)
-    if not nama:
-        # Tak terdeteksi: hanya alat baca ringan yang selalu relevan.
-        nama = {"lihat_status_bot", "lihat_status_insentif", "lihat_pengaturan"}
     return [a for a in _ALAT_SKEMA if a["function"]["name"] in nama]
 
 
@@ -1451,6 +1463,12 @@ def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
         raise OllamaGalat("Alamat atau model Ollama belum diisi di pengaturan.")
 
     sistem = SYSTEM_PROMPT_WA if (sumber or "web") == "wa" else SYSTEM_PROMPT
+    # Pengenal waktu: model kecil (3B) tidak tahu tanggal — beri hari ini
+    # supaya tidak mengarang waktu/jadwal.
+    tanggal_hari_ini = datetime.now().strftime("%A, %d %B %Y")
+    sistem = sistem + ("\n\nHari ini adalah " + tanggal_hari_ini +
+                       ". Gunakan informasi tanggal ini bila relevan; jangan "
+                       "mengarang waktu lain.")
     pesans: list[dict[str, Any]] = [{"role": "system", "content": sistem}]
     for item in (riwayat or [])[-BATAS_RIWAYAT:]:
         peranan = item.get("role") if isinstance(item, dict) else None
@@ -1489,6 +1507,12 @@ def bicara(pesan: str, riwayat: list[dict[str, Any]] | None = None,
     coba_ulang_meta = False
     _sudah_dipakai: set[tuple[str, str]] = set()
     alat_relevan = _pilih_alat(pesan)
+    if not alat_relevan:
+        # Mode tanya bebas (tanpa alat): jawab secara natural seperti Meta AI.
+        # Aturan akurasi tetap: jangan mengarang data sekolah; bila diminta
+        # data, jawab dengan jelas bahwa data harus ditanyakan via fitur bodap.
+        pesans.append({"role": "system",
+                       "content": ("Mode tanya bebas aktif (tidak ada kata kunci fitur bodap). Kamu boleh mengobrol natural dan menjawab pertanyaan umum. Bila pengguna meminta data/angka sekolah, jangan mengarang — jelaskan bahwa data tersebut ada di aplikasi dan minta mereka menyebutkan fiturnya (siswa, gtk, bot, insentif, spj, pengajuan, tangcer, ekskul), atau ubah pertanyaannya agar mencantumkan kata kunci fitur.")})
     for _langkah in range(BATAS_LOOP):
         _t0 = time.perf_counter()
         hasil = _chat(url, model, setting.get(KUNCI_KUNCI) or "", pesans,
