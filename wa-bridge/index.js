@@ -64,6 +64,7 @@ const status = {
   siap: false,
   terhubung: false,
   menunggu_pairing: false,
+  menunggu_sambung: false,
   nomor: "",
   pesan: "",
   terakhir: "",
@@ -84,6 +85,8 @@ const TANDA = "\u{1F916} "; // 🤖
 // socket/listener (MaxListenersExceededWarning).
 let sedangSambungUlang = false;
 let tugasReconnect = null;
+// Penjaga socket: jangan buat socket kedua saat sambungan sedang dicoba.
+let sedangMencoba = false;
 
 /** ID pesan yang baru kita kirim — dipakai anti-echo (jangan membalik balasan kita). */
 const _sentIds = new Map();
@@ -179,7 +182,12 @@ function bolehProses(msg) {
 function _log(...args) {
   const garis = "[" + new Date().toISOString() + "] " +
     args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
-  try { fs.appendFileSync(LOG_FILE, garis + "\n", "utf8"); } catch {}
+  try {
+    // Pastikan folder log ada — error (mis. EADDRINUSE) bisa datang sebelum
+    // WA_DIR dibuat di sambungkan(). Tanpa ini log hilang tanpa jejak.
+    fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true });
+    fs.appendFileSync(LOG_FILE, garis + "\n", "utf8");
+  } catch {}
   console.log(garis);
 }
 
@@ -394,7 +402,15 @@ async function jawabRute(req, res) {
       if (!autentikasi(req)) return kirim(res, 401, { detail: "Kunci API tidak valid." });
       // Paksa sambung ulang: batalkan jadwal, tutup socket, jalankan ulang
       // agar Baileys menghasilkan kode QR pairing yang segar.
+      // Bila sambungan sedang dicoba, jangan bunuh socket yang tengah
+      // dicoba — paksa ulang justru memicu loop putus-nyambung.
+      if (sedangMencoba) {
+        _log("[wa-bridge] /reconnect — sambungan sedang dicoba, dilewati.");
+        return kirim(res, 200, { ok: true,
+          detail: "Sambungan sedang dicoba — tidak perlu paksa ulang." });
+      }
       jikaReconnectCancel();
+      status.menunggu_sambung = true;
       try {
         if (sock) {
           sock.ev.removeAllListeners();
@@ -455,8 +471,18 @@ async function jawabRute(req, res) {
 }
 
 const server = http.createServer(jawabRute);
+// Port dipakai proses lain (orphan lama) → henti diri dengan jejak log.
+server.on("error", (e) => {
+  if (e && e.code === "EADDRINUSE") {
+    _log("[wa-bridge] PORT", PORT, "DIAMBIL PROSES LAIN — henti diri.");
+    process.exit(1);
+  }
+  console.error("[wa-bridge] HTTP server error:", e);
+});
 if (require.main === module) {
   server.listen(PORT, "127.0.0.1", () => {
+    _log("[wa-bridge] Proses mulai — PID", process.pid, "| port", PORT,
+         "| WA_DIR", WA_DIR);
     console.log(`[wa-bridge] HTTP lokal: http://127.0.0.1:${PORT}`);
     console.log(`[wa-bridge] bodap: ${BASE_URL} | enabled=${ENABLED}`);
   });
@@ -487,6 +513,8 @@ function hapusSession() {
 function jadwalkanReconnect(bersihkanSession) {
   if (sedangSambungUlang) return; // sudah ada jadwal — jangan menumpuk
   sedangSambungUlang = true;
+  status.menunggu_sambung = true;
+  _log("[wa-bridge] Jadwal sambung ulang — menunggu 2s.");
   tugasReconnect = setTimeout(async () => {
     tugasReconnect = null;
     sedangSambungUlang = false;
@@ -578,6 +606,13 @@ async function sambungkan() {
     status.pesan = "Lock session diambil proses lain — henti diri.";
     return;
   }
+  // Penjaga socket: jangan buat socket kedua saat sambungan sedang
+  // dicoba — dua socket dengan session sama saling kick (loop
+  // putus-nyambung tiap detik).
+  if (sedangMencoba) {
+    _log("[wa-bridge] sambungkan() dilewati — sambungan sedang dicoba.");
+    return;
+  }
   let baileys;
   try {
     baileys = require("@whiskeysockets/baileys");
@@ -609,6 +644,9 @@ async function sambungkan() {
       browser: ["SM", "Desktop", "1.0.0"],
     };
     if (version) sockConfig.version = version;
+    // Penjaga: satu socket saja — socket kedua dengan session sama
+    // akan saling kick (loop putus-nyambung).
+    sedangMencoba = true;
     sock = makeWASocket(sockConfig);
 
     sock.ev.on("connection.update", (update) => {
@@ -619,10 +657,13 @@ async function sambungkan() {
         status.terhubung = false;
         status.pesan = "Scan kode QR ini dengan WhatsApp di HP (Menu: Perangkat Tertaut).";
         console.log("[wa-bridge] QR pairing tersedia — minta admin scan.");
+        _log("[wa-bridge] QR pairing tersedia.");
       }
       if (connection === "open") {
         // Koneksi stabil: hapus jadwal reconnect yang tertunda.
         jikaReconnectCancel();
+        sedangMencoba = false;
+        status.menunggu_sambung = false;
         qrBaru = "";
         status.terhubung = true;
         status.menunggu_pairing = false;
@@ -638,10 +679,13 @@ async function sambungkan() {
         status.pesan = `Terhubung sebagai ${status.nomor || "—"}.`;
       }
       if (connection === "close") {
+        sedangMencoba = false;
         status.terhubung = false;
         status.siap = false;
+        status.menunggu_sambung = true;
         const code = lastDisconnect && lastDisconnect.error && lastDisconnect.error.output &&
           lastDisconnect.error.output.statusCode;
+        _log("[wa-bridge] Koneksi ditutup (code", code || "?", ").");
         if (code === DisconnectReason.loggedOut) {
           status.pesan = "Keluar dari WhatsApp — pasangkan ulang (QR akan muncul).";
           console.log("[wa-bridge] Keluar (loggedOut) — hapus session dan sambung ulang.");
@@ -710,6 +754,7 @@ async function sambungkan() {
     });
   } catch (e) {
     status.error = String(e && e.message || e);
+    sedangMencoba = false;
     console.error("[wa-bridge] sambungkan gagal:", e);
   }
 }

@@ -13,8 +13,8 @@
          penjaga nilai tetap di server. Sambung ke WhatsApp dengan scan kode QR
          dari HP (Menu: <strong>Perangkat Tertaut</strong>).</p>
     </div>
-    <span class="badge {{ 'badge-success' if st.terhubung else ('badge-warn' if st.menunggu_pairing else ('badge-muted' if not st.aktif or not st.siap else 'badge-danger')) }}">
-      {{ 'Terhubung' if st.terhubung else ('Menunggu pairing' if st.menunggu_pairing else ('Aktif' if st.aktif and st.siap else 'Tidak siap')) }}
+    <span class="badge {{ 'badge-success' if st.terhubung else ('badge-warn' if (st.menunggu_pairing or st.menunggu_sambung) else ('badge-muted' if not st.aktif or not st.siap else 'badge-danger')) }}">
+      {{ 'Terhubung' if st.terhubung else ('Menunggu pairing' if st.menunggu_pairing else ('Mencoba menyambung' if st.menunggu_sambung else ('Aktif' if st.aktif and st.siap else 'Tidak siap'))) }}
     </span>
   </div>
   <div class="card-body">
@@ -206,6 +206,10 @@ async function muatStatus() {
     s = await r.json();
   } catch (e) { /* abaikan */ }
   if (s) {
+    // Saat bridge sedang mencoba menyambung, tampilkan keadaan stabil —
+    // jangan biarkan teks flip-flop «terputus/terhubung» tiap detik.
+    document.getElementById('status-teks').textContent =
+      (s.menunggu_sambung && !s.terhubung) ? 'Mencoba menyambung…' : (s.pesan || '—');
     document.getElementById('status-teks').textContent = s.pesan || '—';
     // QR bisa muncul setelah beberapa detik — selalu coba ambil (tidak hanya
     // saat flag menunggu_pairing sudah benar, agar tidak tertinggal).
@@ -214,13 +218,13 @@ async function muatStatus() {
       // Antisipasi: bila belum terhubung dan QR tetap tidak muncul, minta
       // reconnect otomatis (mis. setelah loggedOut/loop) supaya QR muncul
       // tanpa harus restart proses.
-      if (!dapat && !s.terhubung && !s.menunggu_pairing) {
+      if (!dapat && !s.terhubung && !s.menunggu_pairing && !s.menunggu_sambung) {
         if (!muatStatus._reco && !muatStatus._tercoba) {
           muatStatus._tercoba = true;
           setTimeout(() => { muatStatus._reco = true; fetch('/wa/reconnect', { method: 'POST' }).catch(()=>{}); }, 3000);
         }
       }
-      if (dapat) { muatStatus._tercoba = false; muatStatus._reco = false; }
+      if (dapat || s.menunggu_sambung) { muatStatus._tercoba = false; muatStatus._reco = false; }
     }
   }
 }

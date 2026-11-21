@@ -133,6 +133,79 @@ def _pid_file() -> Path:
     return SESSION_DIR / "bridge.pid"
 
 
+def _pid_di_port(port: int) -> int:
+    """Cari PID proses yang mendengarkan di ``port`` (orphan lama).
+
+    Proses bridge versi lama (sebelum ada PID file / lock) tidak terbunuh
+    lewat ``bridge.pid``, tetapi tetap memonopoli port + session WhatsApp —
+    mengakibatkan dua socket saling kick (status flip-flop). Cari PID lewat
+    netstat (Windows), lsof/fuser (POSIX), atau /proc/net/tcp sebagai
+    fallback.
+    """
+    port = int(port or 0)
+    if port <= 0:
+        return 0
+    # Windows: netstat -ano → kolom terakhir baris LISTENING di :port.
+    if os.name == "nt":
+        try:
+            keluar = subprocess.run(["netstat", "-ano"], capture_output=True,
+                                    text=True, timeout=10)
+            for garis in (keluar.stdout or "").splitlines():
+                bagian = garis.split()
+                if len(bagian) >= 4 and bagian[0].upper().startswith("TCP"):
+                    lokal = bagian[1]
+                    if lokal.rsplit(":", 1)[-1] == str(port) and \
+                            bagian[-2].upper() == "LISTENING":
+                        try:
+                            return int(bagian[-1])
+                        except ValueError:
+                            return 0
+        except Exception:  # noqa: BLE001
+            return 0
+    # POSIX: lsof → fuser → /proc/net/tcp.
+    for cmd in (["lsof", "-ti", f"tcp:{port}"],
+                ["fuser", f"{port}/tcp"]):
+        try:
+            keluar = subprocess.run(cmd, capture_output=True, text=True,
+                                    timeout=10)
+            pid = int((keluar.stdout or "").split()[0])
+            if pid > 0:
+                return pid
+        except Exception:  # noqa: BLE001
+            continue
+    # Fallback: /proc/net/tcp + /proc/*/fd (tanpa lsof/fuser).
+    try:
+        inodes = set()
+        for nama in ("/proc/net/tcp", "/proc/net/tcp6"):
+            if not Path(nama).exists():
+                continue
+            for garis in Path(nama).read_text(encoding="utf-8",
+                                              errors="replace").splitlines()[1:]:
+                bagian = garis.split()
+                if len(bagian) >= 10 and bagian[3] == "0A":  # LISTEN
+                    lokal = bagian[1]
+                    if lokal.rsplit(":", 1)[-1].upper() == f"{port:04X}":
+                        inodes.add(bagian[9])
+        if inodes:
+            for fd_dir in Path("/proc").iterdir():
+                if not fd_dir.name.isdigit():
+                    continue
+                try:
+                    for fd in fd_dir.joinpath("fd").iterdir():
+                        try:
+                            sambungan = os.readlink(str(fd))
+                        except OSError:
+                            continue
+                        if sambungan.startswith("socket:[") and \
+                                sambungan[8:-1] in inodes:
+                            return int(fd_dir.name)
+                except (OSError, PermissionError):
+                    continue
+    except Exception:  # noqa: BLE001
+        pass
+    return 0
+
+
 def _bunuh_pid(pid: int) -> None:
     """Kirim SIGTERM ke PID (abaikan bila sudah mati/tak ada izin)."""
     if pid <= 0:
@@ -175,6 +248,14 @@ def hentikan() -> bool:
             if pid > 0 and pid != os.getpid():
                 _bunuh_pid(pid)
             pf.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        pass
+    # 3) Orphan lewat port — proses lama (sebelum PID file/lock) tidak
+    #    terbunuh di atas, tetapi memonopoli port + session.
+    try:
+        pid_port = _pid_di_port(portawal())
+        if pid_port > 0 and pid_port != os.getpid():
+            _bunuh_pid(pid_port)
     except Exception:  # noqa: BLE001
         pass
     try:
@@ -254,6 +335,7 @@ def status_cepat(port: int | None = None) -> dict:
                 "http": True,
                 "terhubung": bool(info.get("terhubung")),
                 "menunggu_pairing": bool(info.get("menunggu_pairing")),
+                "menunggu_sambung": bool(info.get("menunggu_sambung")),
                 "nomor": info.get("nomor") or "",
                 "pesan": info.get("pesan") or "",
             })
