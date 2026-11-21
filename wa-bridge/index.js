@@ -52,6 +52,9 @@ const ALLOW_SELF = (process.env.SM_WA_ALLOW_SELF || "1") === "1";
 const HANYA_DIRI = (process.env.SM_WA_HANYA_DIRI || "1") === "1";
 
 const HISTORY_FILE = path.join(WA_DIR, "riwayat.json");
+// Lock satu-instance: hanya SATU proses bridge per session WhatsApp. Dua
+// proses akan saling mengeluarkan (loggedOut berulang → harus scan QR lagi).
+const LOCK_FILE = path.join(WA_DIR, "bridge.lock");
 
 /** Status sambungan — disimpan di sini agar rute /status bisa baca. */
 const status = {
@@ -492,6 +495,51 @@ function jikaReconnectCancel() {
   sedangSambungUlang = false;
 }
 
+/**
+ * Akui lock satu-instance. Bila ada proses lain yang hidup dengan session
+ * sama, hentikan diri (agar tidak saling mengeluarkan → loggedOut).
+ * @returns {boolean} true bila lock berhasil dikuasai.
+ */
+function akuiLock() {
+  try {
+    fs.mkdirSync(WA_DIR, { recursive: true });
+    if (fs.existsSync(LOCK_FILE)) {
+      let lain = 0;
+      try { lain = parseInt(fs.readFileSync(LOCK_FILE, "utf8").trim(), 10) || 0; }
+      catch { lain = 0; }
+      if (lain > 0 && lain !== process.pid && hidup(lain)) {
+        console.error("[wa-bridge] Lock ada — proses lain (PID " + lain +
+          ") memakai session ini. Henti diri untuk hindari konflik.");
+        process.exit(1);
+      }
+    }
+    fs.writeFileSync(LOCK_FILE, String(process.pid), "utf8");
+    return true;
+  } catch (e) {
+    console.error("[wa-bridge] lock gagal:", e && e.message);
+    return false;
+  }
+}
+
+/** Apakah PID masih hidup? */
+function hidup(pid) {
+  try {
+    process.kill(pid, 0); // sinyal 0 = hanya cek keberadaan
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Lepas lock saat proses berhenti. */
+function lepasLock() {
+  try { if (fs.existsSync(LOCK_FILE)) fs.unlinkSync(LOCK_FILE); } catch {}
+}
+
+process.on("exit", lepasLock);
+process.on("SIGINT", () => { lepasLock(); process.exit(0); });
+process.on("SIGTERM", () => { lepasLock(); process.exit(0); });
+
 async function sambungkan() {
   if (!ENABLED) {
     status.siap = false;
@@ -505,6 +553,12 @@ async function sambungkan() {
     status.menunggu_pairing = false;
     status.pesan = "Mode uji (tanpa sambungan WhatsApp).";
     console.log("[wa-bridge] Mode uji — HTTP jalan, WhatsApp tidak disambung.");
+    return;
+  }
+  // Satu instance per session: bila ada proses lain hidup, henti diri.
+  if (!akuiLock()) {
+    status.siap = false;
+    status.pesan = "Lock session diambil proses lain — henti diri.";
     return;
   }
   let baileys;

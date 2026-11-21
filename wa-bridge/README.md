@@ -93,6 +93,12 @@ sendiri** di nomor WA pribadi Anda. Bot menjawabnya seperti biasa.
 
 ## Catatan efisiensi & keandalan
 
+- **Satu instance per session** — hanya **satu** proses bridge yang boleh
+  memakai session WhatsApp yang sama. Dua proses akan **saling mengeluarkan**
+  (loggedOut berulang → harus scan QR lagi). Bridge memakai **lock file**
+  (`bridge.lock`); aplikasi membunuh orphan lewat **PID file**
+  (`bridge.pid`) saat mulai/henti/restart. **Cukup scan QR sekali** — sesi
+  tersimpan, bridge restart otomatis menyambung kembali **tanpa QR ulang**.
 - **Bridge tipis** — hanya relay teks; tidak ada logika alat di Node.
 - **Riwayat per nomor** disimpan di `data/wa/riwayat.json` (terakhir 20 pesan).
   Riwayat diambil **sebelum** mencatat pesan baru — **tidak dobel**.

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import time
 import urllib.error
@@ -92,6 +93,8 @@ def mulai(port: int | None = None, tunggu_detik: float = 8.0) -> dict:
     })
     try:
         SESSION_DIR.mkdir(parents=True, exist_ok=True)
+        # Pastikan tidak ada orphan proses lama memakai session yang sama.
+        hentikan()
         _proses = subprocess.Popen(
             ["node", "index.js"],
             cwd=str(BRIDGE_DIR),
@@ -103,6 +106,11 @@ def mulai(port: int | None = None, tunggu_detik: float = 8.0) -> dict:
             creationflags=_tanpa_jendela() | int(getattr(subprocess, "DETACH_PROCESS", 0))
             if os.name == "nt" else 0,
         )
+        # Catat PID supaya proses ini bisa dibunuh saat app restart/stop.
+        try:
+            _pid_file().write_text(str(_proses.pid), encoding="utf-8")
+        except OSError:
+            pass
     except OSError as galat:
         _pesan_mulai = f"Gagal menyalakan jembatan: {galat}"
         return {"ok": False, "port": port, "pesan": _pesan_mulai}
@@ -120,23 +128,60 @@ def mulai(port: int | None = None, tunggu_detik: float = 8.0) -> dict:
     return sementara
 
 
-def hentikan() -> bool:
-    """Hentikan proses Node bridge (jika jalan)."""
-    global _proses
-    if _proses is None:
-        return True
+def _pid_file() -> Path:
+    """File PID bridge — dipakai bunuh orphan proses lama (satu session)."""
+    return SESSION_DIR / "bridge.pid"
+
+
+def _bunuh_pid(pid: int) -> None:
+    """Kirim SIGTERM ke PID (abaikan bila sudah mati/tak ada izin)."""
+    if pid <= 0:
+        return
     try:
-        if _proses.poll() is None:
-            _proses.terminate()
+        os.kill(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+
+
+def hentikan() -> bool:
+    """Hentikan proses Node bridge — termasuk orphan lewat PID file.
+
+    Hanya SATU proses boleh memakai session WhatsApp yang sama; dua proses
+    akan saling mengeluarkan (loggedOut berulang → harus scan QR lagi).
+    """
+    global _proses
+    berhenti = True
+    # 1) Proses yang kita lacak di memori.
+    if _proses is not None:
+        try:
+            if _proses.poll() is None:
+                _proses.terminate()
+                try:
+                    _proses.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    _proses.kill()
+        except Exception:  # noqa: BLE001
+            berhenti = False
+        finally:
+            _proses = None
+    # 2) Orphan proses lama via PID file (app pernah direstart).
+    try:
+        pf = _pid_file()
+        if pf.exists():
             try:
-                _proses.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                _proses.kill()
-        return True
+                pid = int(pf.read_text(encoding="utf-8").strip())
+            except (ValueError, OSError):
+                pid = 0
+            if pid > 0 and pid != os.getpid():
+                _bunuh_pid(pid)
+            pf.unlink(missing_ok=True)
     except Exception:  # noqa: BLE001
-        return False
-    finally:
-        _proses = None
+        pass
+    try:
+        time.sleep(0.5)  # beri waktu proses mati
+    except Exception:  # noqa: BLE001
+        pass
+    return berhenti
 
 
 def _ambil(path: str, port: int | None = None, detik: float = 4.0):
